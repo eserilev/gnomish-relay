@@ -758,10 +758,10 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 1. **Done: `Screenshot()` spike.** A test addon draws a strip and calls `Screenshot()` from an event, with no key press. If a PNG appears, WoW writes the strip image itself, and the capture layer (section 11) becomes a fallback. The addon hides the "Screen captured" text through the `ActionStatus` frame.
 2. **Skipped: capture spike.** Step 1 passed. Capture the top-left 800×192 pixels of the WoW window content 4 times per second. Save one frame as PNG. Test the portal and X11 paths.
 3. **Done: Wine rules spike.** Test the five rules in 7.2 under Wine: the `ctl` self-test, a fresh read of a load-on-demand file, and "a new file is not found". Results in `spikes/README.md`. The HMAC-SHA256 cost in WoW Lua is not measured yet.
-4. **`protocol` crate with Aeneas.** Frame, cells, records, slot body, escapes. Set up Charon, Aeneas, and the Lean project. Prove theorems 1 and 2 first.
-5. **Slot writer.** Publish a fixed reply. Make sure that it shows in the game.
+4. **Done: `protocol` crate with Aeneas.** Frame, cells, records, slot body, escapes, and every theorem in 14.1. `VERIFICATION.md` has the status.
+5. **Slot writer.** Publish a fixed reply. Make sure that it shows in the game. The steps are in `addon/README.md`.
 6. **Addon port** with the stub harness and the differential tests.
-7. **Quint model** of the transport. Then the bridge state machine, queue, and publisher.
+7. **Done: Quint model** of the transport. Next: the bridge state machine, queue, and publisher, which follow the model.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check.
 9. **ACP backend.** Test with one agent first.
 10. **`note` signal and pings:** the hook CLI and the socket.
@@ -775,7 +775,7 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 - `dev gnomish-relay` opens tmux with nvim, the agent, and a terminal in this folder.
 - Link `addon/GnomishRelay` into `_classic_beta_/Interface/AddOns`. Then an edit plus `/reload` loads the new code, with no copy step.
 - Run the bridge in the bottom-right pane.
-- Aeneas and Charon source trees are in `~/verif`. They are not built yet.
+- Aeneas and Charon are built in `~/verif`. `proofs/TOOLS` pins their commits, and CI builds the same commits with Nix.
 
 ## 17. Open questions
 

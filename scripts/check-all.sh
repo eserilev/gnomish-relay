@@ -6,6 +6,7 @@ cd "$root"
 cargo fmt --check
 cargo clippy --all-targets -q -- -D warnings
 cargo test -q
+stylua --check addon
 scripts/check-proofs.sh
 scripts/check-model.sh
 echo "all checks ok"

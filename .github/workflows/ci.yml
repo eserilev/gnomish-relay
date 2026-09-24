@@ -36,6 +36,15 @@ jobs:
       - run: cargo deny check
       - run: cargo audit
 
+  lua:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2
+        with:
+          tool: stylua
+      - run: stylua --check addon
+
   model:
     runs-on: ubuntu-latest
     steps:

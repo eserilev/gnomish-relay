@@ -1,0 +1,23 @@
+[package]
+name = "bridge"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The Gnomish Relay bridge: agents on one side, WoW on the other."
+
+[[bin]]
+name = "gnomish-relay"
+path = "src/main.rs"
+
+[dependencies]
+anyhow = "1"
+protocol = { path = "../protocol" }
+
+[dev-dependencies]
+# Tests load each published body in a real Lua 5.1, the Lua version of WoW.
+mlua = { version = "0.10", features = ["lua51", "vendored"] }
+tempfile = "3"
+
+[lints]
+workspace = true

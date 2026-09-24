@@ -2079,45 +2079,50 @@ def seen.admit
       alloc.vec.Vec.push entries ({ token := v, id } : seen.Entry)
     ok (true, { entries := entries1 })
 
+/-- [protocol::slot::SLOTS]
+    Source: 'crates/protocol/src/slot.rs', lines 8:0-8:29
+    Visibility: public -/
+@[global_simps, irreducible] def slot.SLOTS : Std.Usize := 200#usize
+
 /-- [protocol::slot::MAX_REPLIES]
-    Source: 'crates/protocol/src/slot.rs', lines 7:0-7:34
+    Source: 'crates/protocol/src/slot.rs', lines 9:0-9:34
     Visibility: public -/
 @[global_simps, irreducible] def slot.MAX_REPLIES : Std.Usize := 30#usize
 
 /-- [protocol::slot::MAX_TEXT]
-    Source: 'crates/protocol/src/slot.rs', lines 8:0-8:35
+    Source: 'crates/protocol/src/slot.rs', lines 10:0-10:35
     Visibility: public -/
 @[global_simps, irreducible] def slot.MAX_TEXT : Std.Usize := 32768#usize
 
 /-- [protocol::slot::SLOT_BODY_LIMIT]
-    Source: 'crates/protocol/src/slot.rs', lines 9:0-9:47
+    Source: 'crates/protocol/src/slot.rs', lines 11:0-11:47
     Visibility: public -/
 @[global_simps, irreducible]
 def slot.SLOT_BODY_LIMIT : Result Std.Usize := 1024#usize * 1024#usize
 
 /-- [protocol::slot::{impl core::clone::Clone for protocol::slot::Status}::clone]:
-    Source: 'crates/protocol/src/slot.rs', lines 11:9-11:14
+    Source: 'crates/protocol/src/slot.rs', lines 13:9-13:14
     Visibility: public -/
 def slot.Status.Insts.CoreCloneClone.clone
   (self : slot.Status) : Result slot.Status := do
   ok self
 
 /-- Trait implementation: [protocol::slot::{impl core::clone::Clone for protocol::slot::Status}]
-    Source: 'crates/protocol/src/slot.rs', lines 11:9-11:14 -/
+    Source: 'crates/protocol/src/slot.rs', lines 13:9-13:14 -/
 @[reducible]
 def slot.Status.Insts.CoreCloneClone : core.clone.Clone slot.Status := {
   clone := slot.Status.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [protocol::slot::{impl core::marker::Copy for protocol::slot::Status}]
-    Source: 'crates/protocol/src/slot.rs', lines 11:16-11:20 -/
+    Source: 'crates/protocol/src/slot.rs', lines 13:16-13:20 -/
 @[reducible]
 def slot.Status.Insts.CoreMarkerCopy : core.marker.Copy slot.Status := {
   cloneInst := slot.Status.Insts.CoreCloneClone
 }
 
 /-- [protocol::slot::HEAD]
-    Source: 'crates/protocol/src/slot.rs', lines 25:0-25:70 -/
+    Source: 'crates/protocol/src/slot.rs', lines 27:0-27:70 -/
 @[global_simps, irreducible]
 def slot.HEAD : Array Std.U8 42#usize :=
   Array.make 42#usize [
@@ -2129,7 +2134,7 @@ def slot.HEAD : Array Std.U8 42#usize :=
     ]
 
 /-- [protocol::slot::REPLIES]
-    Source: 'crates/protocol/src/slot.rs', lines 26:0-26:46 -/
+    Source: 'crates/protocol/src/slot.rs', lines 28:0-28:46 -/
 @[global_simps, irreducible]
 def slot.REPLIES : Array Std.U8 14#usize :=
   Array.make 14#usize [
@@ -2138,13 +2143,13 @@ def slot.REPLIES : Array Std.U8 14#usize :=
     ]
 
 /-- [protocol::slot::TAIL]
-    Source: 'crates/protocol/src/slot.rs', lines 27:0-27:31 -/
+    Source: 'crates/protocol/src/slot.rs', lines 29:0-29:31 -/
 @[global_simps, irreducible]
 def slot.TAIL : Array Std.U8 3#usize :=
   Array.make 3#usize [ 125#u8, 125#u8, 10#u8 ]
 
 /-- [protocol::slot::CHAT]
-    Source: 'crates/protocol/src/slot.rs', lines 28:0-28:35 -/
+    Source: 'crates/protocol/src/slot.rs', lines 30:0-30:35 -/
 @[global_simps, irreducible]
 def slot.CHAT : Array Std.U8 8#usize :=
   Array.make 8#usize [
@@ -2152,13 +2157,13 @@ def slot.CHAT : Array Std.U8 8#usize :=
     ]
 
 /-- [protocol::slot::ID]
-    Source: 'crates/protocol/src/slot.rs', lines 29:0-29:32 -/
+    Source: 'crates/protocol/src/slot.rs', lines 31:0-31:32 -/
 @[global_simps, irreducible]
 def slot.ID : Array Std.U8 7#usize :=
   Array.make 7#usize [ 44#u8, 32#u8, 105#u8, 100#u8, 32#u8, 61#u8, 32#u8 ]
 
 /-- [protocol::slot::STATUS]
-    Source: 'crates/protocol/src/slot.rs', lines 30:0-30:41 -/
+    Source: 'crates/protocol/src/slot.rs', lines 32:0-32:41 -/
 @[global_simps, irreducible]
 def slot.STATUS : Array Std.U8 11#usize :=
   Array.make 11#usize [
@@ -2167,7 +2172,7 @@ def slot.STATUS : Array Std.U8 11#usize :=
     ]
 
 /-- [protocol::slot::TEXT]
-    Source: 'crates/protocol/src/slot.rs', lines 31:0-31:36 -/
+    Source: 'crates/protocol/src/slot.rs', lines 33:0-33:36 -/
 @[global_simps, irreducible]
 def slot.TEXT : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -2175,13 +2180,13 @@ def slot.TEXT : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::slot::REPLY_END]
-    Source: 'crates/protocol/src/slot.rs', lines 32:0-32:36 -/
+    Source: 'crates/protocol/src/slot.rs', lines 34:0-34:36 -/
 @[global_simps, irreducible]
 def slot.REPLY_END : Array Std.U8 3#usize :=
   Array.make 3#usize [ 125#u8, 44#u8, 10#u8 ]
 
 /-- [protocol::slot::WORKING]
-    Source: 'crates/protocol/src/slot.rs', lines 33:0-33:41 -/
+    Source: 'crates/protocol/src/slot.rs', lines 35:0-35:41 -/
 @[global_simps, irreducible]
 def slot.WORKING : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -2189,19 +2194,19 @@ def slot.WORKING : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::slot::DONE]
-    Source: 'crates/protocol/src/slot.rs', lines 34:0-34:35 -/
+    Source: 'crates/protocol/src/slot.rs', lines 36:0-36:35 -/
 @[global_simps, irreducible]
 def slot.DONE : Array Std.U8 6#usize :=
   Array.make 6#usize [ 34#u8, 100#u8, 111#u8, 110#u8, 101#u8, 34#u8 ]
 
 /-- [protocol::slot::ERROR]
-    Source: 'crates/protocol/src/slot.rs', lines 35:0-35:37 -/
+    Source: 'crates/protocol/src/slot.rs', lines 37:0-37:37 -/
 @[global_simps, irreducible]
 def slot.ERROR : Array Std.U8 7#usize :=
   Array.make 7#usize [ 34#u8, 101#u8, 114#u8, 114#u8, 111#u8, 114#u8, 34#u8 ]
 
 /-- [protocol::slot::escaped_len]:
-    Source: 'crates/protocol/src/slot.rs', lines 38:0-40:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 40:0-42:1 -/
 def slot.escaped_len (b : Std.U8) : Result Std.Usize := do
   let b1 ← lua.is_plain b
   if b1
@@ -2209,7 +2214,7 @@ def slot.escaped_len (b : Std.U8) : Result Std.Usize := do
   else ok 4#usize
 
 /-- [protocol::slot::next_fits]:
-    Source: 'crates/protocol/src/slot.rs', lines 42:0-44:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 44:0-46:1 -/
 def slot.next_fits
   (text : Slice Std.U8) (i : Std.Usize) (size : Std.Usize) : Result Bool := do
   let i1 := Slice.len text
@@ -2222,7 +2227,7 @@ def slot.next_fits
   else ok false
 
 /-- [protocol::slot::fitting_prefix]: loop body 0:
-    Source: 'crates/protocol/src/slot.rs', lines 50:4-53:5 -/
+    Source: 'crates/protocol/src/slot.rs', lines 52:4-55:5 -/
 @[rust_loop_body]
 def slot.fitting_prefix_loop.body
   (text : Slice Std.U8) (size : Std.Usize) (i : Std.Usize) :
@@ -2239,7 +2244,7 @@ def slot.fitting_prefix_loop.body
   else ok (done i)
 
 /-- [protocol::slot::fitting_prefix]: loop 0:
-    Source: 'crates/protocol/src/slot.rs', lines 50:4-53:5 -/
+    Source: 'crates/protocol/src/slot.rs', lines 52:4-55:5 -/
 @[rust_loop]
 def slot.fitting_prefix_loop
   (text : Slice Std.U8) (size : Std.Usize) (i : Std.Usize) :
@@ -2250,27 +2255,27 @@ def slot.fitting_prefix_loop
     (size, i)
 
 /-- [protocol::slot::fitting_prefix]:
-    Source: 'crates/protocol/src/slot.rs', lines 47:0-55:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 49:0-57:1 -/
 @[reducible]
 def slot.fitting_prefix (text : Slice Std.U8) : Result Std.Usize := do
   slot.fitting_prefix_loop text 2#usize 0#usize
 
 /-- [protocol::slot::min_len]:
-    Source: 'crates/protocol/src/slot.rs', lines 57:0-59:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 59:0-61:1 -/
 def slot.min_len (n : Std.Usize) (max : Std.Usize) : Result Std.Usize := do
   if n > max
   then ok max
   else ok n
 
 /-- [protocol::slot::first_kept]:
-    Source: 'crates/protocol/src/slot.rs', lines 62:0-68:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 64:0-70:1 -/
 def slot.first_kept (len : Std.Usize) : Result Std.Usize := do
   if len > slot.MAX_REPLIES
   then len - slot.MAX_REPLIES
   else ok 0#usize
 
 /-- [protocol::slot::prepare_reply]:
-    Source: 'crates/protocol/src/slot.rs', lines 70:0-86:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 72:0-88:1 -/
 def slot.prepare_reply (reply : slot.Reply) : Result slot.Reply := do
   let s := alloc.vec.Vec.deref reply.chat
   let i := alloc.vec.Vec.len reply.chat
@@ -2283,7 +2288,7 @@ def slot.prepare_reply (reply : slot.Reply) : Result slot.Reply := do
   ok { reply with chat, text }
 
 /-- [protocol::slot::prepare_replies]: loop body 0:
-    Source: 'crates/protocol/src/slot.rs', lines 94:4-97:5
+    Source: 'crates/protocol/src/slot.rs', lines 96:4-99:5
     Visibility: public -/
 @[rust_loop_body]
 def slot.prepare_replies_loop.body
@@ -2303,7 +2308,7 @@ def slot.prepare_replies_loop.body
   else ok (done out)
 
 /-- [protocol::slot::prepare_replies]: loop 0:
-    Source: 'crates/protocol/src/slot.rs', lines 94:4-97:5
+    Source: 'crates/protocol/src/slot.rs', lines 96:4-99:5
     Visibility: public -/
 @[rust_loop]
 def slot.prepare_replies_loop
@@ -2316,7 +2321,7 @@ def slot.prepare_replies_loop
     (out, i)
 
 /-- [protocol::slot::prepare_replies]:
-    Source: 'crates/protocol/src/slot.rs', lines 91:0-99:1
+    Source: 'crates/protocol/src/slot.rs', lines 93:0-101:1
     Visibility: public -/
 def slot.prepare_replies
   (replies : Slice slot.Reply) : Result (alloc.vec.Vec slot.Reply) := do
@@ -2325,7 +2330,7 @@ def slot.prepare_replies
   slot.prepare_replies_loop replies (alloc.vec.Vec.new slot.Reply) i1
 
 /-- [protocol::slot::push_status]:
-    Source: 'crates/protocol/src/slot.rs', lines 101:0-107:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 103:0-109:1 -/
 def slot.push_status
   (out : alloc.vec.Vec Std.U8) (status : slot.Status) :
   Result (alloc.vec.Vec Std.U8)
@@ -2342,7 +2347,7 @@ def slot.push_status
     ascii.push_bytes out s
 
 /-- [protocol::slot::push_reply]:
-    Source: 'crates/protocol/src/slot.rs', lines 109:0-119:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 111:0-121:1 -/
 def slot.push_reply
   (out : alloc.vec.Vec Std.U8) (reply : slot.Reply) :
   Result (alloc.vec.Vec Std.U8)
@@ -2369,7 +2374,7 @@ def slot.push_reply
   ascii.push_bytes out8 s8
 
 /-- [protocol::slot::slot_body]: loop body 0:
-    Source: 'crates/protocol/src/slot.rs', lines 130:4-133:5
+    Source: 'crates/protocol/src/slot.rs', lines 132:4-135:5
     Visibility: public -/
 @[rust_loop_body]
 def slot.slot_body_loop.body
@@ -2387,7 +2392,7 @@ def slot.slot_body_loop.body
   else ok (done out)
 
 /-- [protocol::slot::slot_body]: loop 0:
-    Source: 'crates/protocol/src/slot.rs', lines 130:4-133:5
+    Source: 'crates/protocol/src/slot.rs', lines 132:4-135:5
     Visibility: public -/
 @[rust_loop]
 def slot.slot_body_loop
@@ -2399,7 +2404,7 @@ def slot.slot_body_loop
     (out, i)
 
 /-- [protocol::slot::slot_body]:
-    Source: 'crates/protocol/src/slot.rs', lines 124:0-136:1
+    Source: 'crates/protocol/src/slot.rs', lines 126:0-138:1
     Visibility: public -/
 def slot.slot_body
   (now : Std.U32) (replies : Slice slot.Reply) :

@@ -1,0 +1,5 @@
+## Interface: 16001
+## Title: Gnomish Relay
+## Notes: Talk to your coding agents from the game.
+
+GnomishRelay.lua
