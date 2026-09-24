@@ -10,12 +10,14 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use bridge::agent::Echo;
+use bridge::agent::{Agent, Echo};
 use bridge::receive::StripKey;
 use bridge::relay::Folders;
+use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{self, BODY_FILE, slot_name};
 use common::{hex, screenshot_png, signed_frame, strip_rows};
+use std::sync::atomic::{AtomicUsize, Ordering};
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 
@@ -24,6 +26,7 @@ struct Dirs {
     addons: std::path::PathBuf,
     screenshots: std::path::PathBuf,
     accounts: std::path::PathBuf,
+    state: std::path::PathBuf,
 }
 
 fn folders() -> Dirs {
@@ -32,6 +35,8 @@ fn folders() -> Dirs {
     let screenshots = root.path().join("Screenshots");
     fs::create_dir_all(&addons).unwrap();
     let accounts = root.path().join("WTF/Account");
+    let state = root.path().join("data");
+    fs::create_dir_all(&state).unwrap();
     fs::create_dir_all(&screenshots).unwrap();
     fs::create_dir_all(&accounts).unwrap();
     slots::install(&addons, b"GnomishRelay_SlotData = nil\n").unwrap();
@@ -40,14 +45,20 @@ fn folders() -> Dirs {
         addons,
         screenshots,
         accounts,
+        state,
     }
 }
 
 fn bridge(f: &Dirs) -> Bridge {
+    bridge_with(f, Arc::new(Echo))
+}
+
+fn bridge_with(f: &Dirs, agent: Arc<dyn Agent>) -> Bridge {
     let paths = Paths {
         addons: f.addons.clone(),
         screenshots: f.screenshots.clone(),
         accounts: f.accounts.clone(),
+        state: f.state.clone(),
     };
     let folders = Folders {
         roots: vec![b"/home/x".to_vec()],
@@ -57,8 +68,9 @@ fn bridge(f: &Dirs) -> Bridge {
         paths,
         folders,
         StripKey::from_hex(&hex(KEY)).unwrap(),
-        Arc::new(Echo),
+        agent,
     )
+    .unwrap()
 }
 
 fn frame(key: &[u8], text: &str) -> Vec<u8> {
@@ -150,4 +162,47 @@ fn an_outbox_frame_with_a_bad_tag_never_runs() {
 
     step_until(&mut bridge, || false);
     assert!(!slot_body(&f.addons).contains("rm -rf"));
+}
+
+struct Counting(AtomicUsize);
+
+impl Agent for Counting {
+    fn run(&self, job: &Job) -> Result<String, String> {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Ok(format!("echo: {}", job.text))
+    }
+}
+
+#[test]
+fn a_restarted_bridge_never_runs_an_outbox_frame_again() {
+    let f = folders();
+    let runs = Arc::new(Counting(AtomicUsize::new(0)));
+    write_saved_variables(&f, &frame(KEY, "only once"));
+    let mut first = bridge_with(&f, runs.clone());
+    assert!(step_until(&mut first, || slot_body(&f.addons)
+        .contains("echo: only once")));
+    drop(first);
+
+    let mut second = bridge_with(&f, runs.clone());
+    step_until(&mut second, || false);
+    assert_eq!(runs.0.load(Ordering::SeqCst), 1);
+    assert!(slot_body(&f.addons).contains("echo: only once"));
+}
+
+#[test]
+fn a_damaged_state_file_stops_the_bridge_at_start() {
+    let f = folders();
+    fs::write(f.state.join("state.json"), "{").unwrap();
+    let paths = Paths {
+        addons: f.addons.clone(),
+        screenshots: f.screenshots.clone(),
+        accounts: f.accounts.clone(),
+        state: f.state.clone(),
+    };
+    let folders = Folders {
+        roots: vec![b"/home/x".to_vec()],
+        base: b"/home/x".to_vec(),
+    };
+    let key = StripKey::from_hex(&hex(KEY)).unwrap();
+    assert!(Bridge::new(paths, folders, key, Arc::new(Echo)).is_err());
 }

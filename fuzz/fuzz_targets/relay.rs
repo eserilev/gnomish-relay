@@ -1,6 +1,7 @@
 //! Any sequence of frames and run results through the bridge state machine. It
 //! checks the promises of models/transport.qnt on the real code: no message runs
 //! twice, the body never holds more than 30 records, and no job leaves the root.
+//! Restarts through `state.json` come at random places, and the promises still hold.
 #![no_main]
 
 use std::collections::HashSet;
@@ -38,11 +39,15 @@ fn record(bytes: &[u8]) -> Record {
     }
 }
 
-fuzz_target!(|data: &[u8]| {
-    let mut relay = Relay::new(Folders {
+fn folders() -> Folders {
+    Folders {
         roots: vec![b"/r".to_vec()],
         base: b"/r".to_vec(),
-    });
+    }
+}
+
+fuzz_target!(|data: &[u8]| {
+    let mut relay = Relay::new(folders());
     let mut ran = HashSet::new();
     let mut now = 1_790_211_079u32;
     for step in data.chunks(6) {
@@ -65,6 +70,11 @@ fuzz_target!(|data: &[u8]| {
                 };
                 relay.finish(&job, result);
             }
+        } else if step[0] % 7 == 1 {
+            // No run is in progress here, so a restart changes nothing.
+            let saved = relay.to_state();
+            relay = Relay::from_state(folders(), relay.to_state());
+            assert_eq!(relay.to_state(), saved);
         } else {
             let records: Vec<Record> = step[1..].chunks(5).map(record).collect();
             relay.on_frame(&records, now);

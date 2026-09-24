@@ -12,4 +12,5 @@ pub mod run;
 pub mod saved;
 pub mod screenshots;
 pub mod slots;
+pub mod state;
 pub mod strip;

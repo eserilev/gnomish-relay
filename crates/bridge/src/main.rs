@@ -51,6 +51,21 @@ fn folders() -> Result<Folders> {
     Ok(Folders { roots, base })
 }
 
+/// The data folder of the OS (SPEC.md 8.3).
+fn data_dir() -> Result<PathBuf> {
+    let var = |name| std::env::var_os(name).map(PathBuf::from);
+    let dir = if cfg!(windows) {
+        var("APPDATA")
+    } else if cfg!(target_os = "macos") {
+        var("HOME").map(|home| home.join("Library").join("Application Support"))
+    } else {
+        var("XDG_DATA_HOME").or_else(|| var("HOME").map(|home| home.join(".local").join("share")))
+    };
+    Ok(dir
+        .context("the data folder is unknown: set HOME")?
+        .join("gnomish-relay"))
+}
+
 fn key_path() -> Result<PathBuf> {
     let config = match std::env::var_os("XDG_CONFIG_HOME") {
         Some(dir) => PathBuf::from(dir),
@@ -97,7 +112,11 @@ fn main() -> Result<()> {
         ["run"] => {
             let addons = addons_dir()?;
             let game = game_dir(&addons)?;
+            let state = data_dir()?;
+            std::fs::create_dir_all(&state)
+                .with_context(|| format!("cannot make {}", state.display()))?;
             let paths = Paths {
+                state,
                 screenshots: game.join("Screenshots"),
                 accounts: game.join("WTF").join("Account"),
                 addons,

@@ -1,8 +1,8 @@
 # Supply chain rules for the main workspace (SPEC 14.6).
 
 [licenses]
-allow = ["MIT", "Apache-2.0", "BSD-3-Clause"]
-# The bridge crates will need Apache-2.0. The core has no dependencies yet.
+# Unicode-3.0 is the data license of `unicode-ident`, which the serde derive macros use.
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause", "Unicode-3.0"]
 unused-allowed-license = "allow"
 
 [bans]

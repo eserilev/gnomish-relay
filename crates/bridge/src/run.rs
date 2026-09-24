@@ -14,6 +14,7 @@ use crate::relay::{Folders, Job, Outcome, Relay};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots;
+use crate::state;
 
 const TICK: Duration = Duration::from_millis(250);
 /// The addon calls the bridge offline after 12 minutes without a new body.
@@ -26,6 +27,8 @@ pub struct Paths {
     pub screenshots: PathBuf,
     /// `WTF/Account`, which holds the saved variables of each account.
     pub accounts: PathBuf,
+    /// The data folder of the bridge, for `state.json`.
+    pub state: PathBuf,
 }
 
 #[allow(clippy::cast_possible_truncation)] // u32 seconds last until 2106
@@ -53,35 +56,61 @@ pub struct Bridge {
     finished: Sender<Finished>,
     results: Receiver<Finished>,
     changed: bool,
+    stored: bool,
     last_publish: Instant,
 }
 
 impl Bridge {
-    pub fn new(paths: Paths, folders: Folders, key: StripKey, agent: Arc<dyn Agent>) -> Bridge {
+    pub fn new(
+        paths: Paths,
+        folders: Folders,
+        key: StripKey,
+        agent: Arc<dyn Agent>,
+    ) -> Result<Bridge> {
+        let relay = match state::load(&paths.state)? {
+            Some(saved) => Relay::from_state(folders, saved),
+            None => Relay::new(folders),
+        };
         let (finished, results) = channel();
-        Bridge {
+        Ok(Bridge {
             watcher: Watcher::new(&paths.screenshots),
             saved: saved::Watcher::new(&paths.accounts),
             paths,
             key,
             agent,
-            relay: Relay::new(folders),
+            relay,
             finished,
             results,
             changed: true,
+            stored: false,
             last_publish: Instant::now(),
-        }
+        })
     }
 
     pub fn step(&mut self) {
         self.take_screenshots();
         self.take_saved_variables();
-        self.start_runs();
         self.finish_runs();
         if self.changed || self.last_publish.elapsed() >= HEARTBEAT {
+            self.store();
             self.publish();
             self.last_publish = Instant::now();
         }
+        // A run starts only when its message is marked as seen on disk, so a crash
+        // cannot run it twice.
+        if self.stored {
+            self.start_runs();
+        }
+    }
+
+    /// The state after `start_runs` needs no write: a running job is a working record,
+    /// and a restart ends it as an error.
+    fn store(&mut self) {
+        let result = state::save(&self.paths.state, &self.relay.to_state());
+        if let Err(e) = &result {
+            log(&format!("cannot save the state: {e:#}"));
+        }
+        self.stored = result.is_ok();
     }
 
     fn take_screenshots(&mut self) {
@@ -171,7 +200,7 @@ impl Bridge {
 
 pub fn run(paths: Paths, folders: Folders, key: StripKey, agent: Arc<dyn Agent>) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
-    let mut bridge = Bridge::new(paths, folders, key, agent);
+    let mut bridge = Bridge::new(paths, folders, key, agent)?;
     loop {
         bridge.step();
         thread::sleep(TICK);

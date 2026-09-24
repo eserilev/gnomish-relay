@@ -7,22 +7,26 @@ use std::collections::{BTreeMap, BTreeSet};
 use protocol::folder::resolve_folder;
 use protocol::rate::{ChatQueue, MAX_QUEUE, RateLimiter, admit_message, enqueue};
 use protocol::record::Record;
-use protocol::seen::{Seen, admit, new_seen};
+use protocol::seen::{self, Seen, admit, new_seen};
 use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 
+use serde::{Deserialize, Serialize};
+
 use crate::flags::{self, Flags};
+use crate::state::{SavedRecord, SavedStatus, State};
 
 const DEFAULT_AGENT: &str = "claude";
 const BAD_FOLDER: &str = "Folder not allowed.";
 const STOPPED: &str = "Stopped.";
+const RESTARTED: &str = "Stopped: the bridge restarted.";
 
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ChatId(pub String);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct MessageId(pub u32);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Session {
     New,
     Resume,
@@ -35,7 +39,7 @@ pub struct Folders {
     pub base: Vec<u8>,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Job {
     pub token: String,
     pub chat: ChatId,
@@ -63,6 +67,36 @@ struct Entry {
     id: MessageId,
     status: Status,
     text: String,
+}
+
+impl Entry {
+    fn to_saved(&self) -> SavedRecord {
+        SavedRecord {
+            token: self.token.clone(),
+            chat: self.chat.clone(),
+            id: self.id,
+            status: match self.status {
+                Status::Working => SavedStatus::Working,
+                Status::Done => SavedStatus::Done,
+                Status::Error => SavedStatus::Error,
+            },
+            text: self.text.clone(),
+        }
+    }
+
+    fn from_saved(saved: SavedRecord) -> Entry {
+        Entry {
+            token: saved.token,
+            chat: saved.chat,
+            id: saved.id,
+            status: match saved.status {
+                SavedStatus::Working => Status::Working,
+                SavedStatus::Done => Status::Done,
+                SavedStatus::Error => Status::Error,
+            },
+            text: saved.text,
+        }
+    }
 }
 
 pub struct Relay {
@@ -272,6 +306,63 @@ impl Relay {
         });
     }
 
+    /// The rate limiter is not in the state: a restart gives a fresh minute.
+    pub fn to_state(&self) -> State {
+        State {
+            next_slot: self.next_slot,
+            seen: self
+                .seen
+                .entries
+                .iter()
+                .map(|e| (text(&e.token), e.id))
+                .collect(),
+            records: self.records.iter().map(Entry::to_saved).collect(),
+            waiting: self.waiting_jobs(),
+        }
+    }
+
+    fn waiting_jobs(&self) -> Vec<Job> {
+        let mut waiting = Vec::new();
+        for (chat, queue) in &self.queues {
+            for id in &queue.ids {
+                waiting.extend(self.jobs.get(&(chat.clone(), MessageId(*id))).cloned());
+            }
+        }
+        waiting
+    }
+
+    /// A run that was in progress at the stop ends as an error. It never runs again:
+    /// it can have changed files already.
+    pub fn from_state(folders: Folders, state: State) -> Relay {
+        let mut relay = Relay::new(folders);
+        relay.next_slot = state.next_slot.max(1);
+        relay.seen.entries = state
+            .seen
+            .into_iter()
+            .map(|(token, id)| seen::Entry {
+                token: token.into_bytes(),
+                id,
+            })
+            .collect();
+        relay.records = state.records.into_iter().map(Entry::from_saved).collect();
+        for job in state.waiting {
+            let queue = relay
+                .queues
+                .entry(job.chat.clone())
+                .or_insert(ChatQueue { ids: Vec::new() });
+            queue.ids.push(job.id.0);
+            relay.jobs.insert((job.chat.clone(), job.id), job);
+        }
+        for entry in &mut relay.records {
+            let waits = relay.jobs.contains_key(&(entry.chat.clone(), entry.id));
+            if matches!(entry.status, Status::Working) && !waits {
+                entry.status = Status::Error;
+                entry.text = RESTARTED.into();
+            }
+        }
+        relay
+    }
+
     pub fn body(&self, now: u32) -> Vec<u8> {
         let replies: Vec<Reply> = self
             .records
@@ -477,6 +568,48 @@ mod tests {
         assert_eq!(relay.on_frame(&[other()], NOW), [Outcome::Accepted]);
         assert_eq!(run_all(&mut relay).len(), 1);
         assert!(!body(&relay).contains("status = \"working\""));
+    }
+
+    fn restart(relay: &Relay) -> Relay {
+        Relay::from_state(
+            Folders {
+                roots: vec![b"/home/x/Code".to_vec()],
+                base: b"/home/x/Code".to_vec(),
+            },
+            relay.to_state(),
+        )
+    }
+
+    #[test]
+    fn a_message_that_ran_before_a_restart_never_runs_again() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "once")], NOW);
+        run_all(&mut relay);
+
+        let mut restarted = restart(&relay);
+        assert_eq!(
+            restarted.on_frame(&[record("c1", 1, "", "once")], NOW),
+            [Outcome::Duplicate]
+        );
+        assert!(body(&restarted).contains("echo: once"));
+        assert!(run_all(&mut restarted).is_empty());
+    }
+
+    #[test]
+    fn a_restart_ends_the_run_in_progress_as_an_error_and_keeps_the_queue() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a"), record("c1", 2, "", "b")], NOW);
+        relay.next_job().unwrap();
+        relay.on_frame(&[record("relay", 0, "h;next=57", "")], NOW);
+
+        let mut restarted = restart(&relay);
+        assert!(body(&restarted).contains(RESTARTED));
+        assert_eq!(restarted.next_slot(), 57);
+        let jobs = run_all(&mut restarted);
+        assert_eq!(
+            jobs.iter().map(|j| j.id).collect::<Vec<_>>(),
+            [MessageId(2)]
+        );
     }
 
     #[test]

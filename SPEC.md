@@ -558,12 +558,17 @@ Each chat has a FIFO queue. A second message to a busy chat waits. It never repl
 
 The bridge keeps its state in JSON files in the data folder of the OS:
 
-- `state.json`: agent session IDs per chat, the folder of each session, handled message IDs, signal counters.
+- `state.json`: the replay store, the unread records, the waiting messages, and the slot window. Later also agent session IDs per chat, the folder of each session, and signal counters.
 - `transcripts.json`: every prompt and reply, per chat. 200 messages per chat, 4000 characters each.
 
 Rules:
 
 - The bridge writes each state file atomically: write a temp file, then rename.
+- A run starts only after `state.json` marks its message as seen. So a crash cannot run a message twice.
+- A run that is in progress when the bridge stops ends as an error after the restart. It never runs again, because it can have changed files already.
+- A damaged `state.json` stops the bridge at start. A fresh start forgets which messages ran.
+- The rate limiter is not in the state. A restart gives a fresh minute.
+- Waiting jobs are keyed by chat and message id. A second token with the same pair waits until the first job leaves the queue.
 - Sessions are keyed by chat id alone, so they survive a saved-data wipe.
 - Dedup keeps the last 1000 ids per token. The bridge prunes tokens that it has not seen for 30 days.
 - The bridge compares folders by exact path. Linux paths are case sensitive. (`wow-claude` lowercases paths. Do not copy this.)
@@ -990,7 +995,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 4. **Done: `protocol` crate with Aeneas.** Frame, cells, records, slot body, escapes, and every theorem in 14.1. `VERIFICATION.md` has the status.
 5. **Done: slot writer.** Publish a fixed reply. Make sure that it shows in the game. Passed in the game on 2026-09-24: `install`, then `say`, then `/relay poll` showed the reply. The steps are in `addon/README.md`.
 6. **Addon port** with the stub harness and the differential tests.
-7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Next (7b):** `state.json` and the restore bundle.
+7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b, part):** `state.json`. **Next (7b):** the restore bundle.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check.
 9. **ACP backend.** Test with one agent first.
 10. **`note` signal and pings:** the hook CLI and the socket.
