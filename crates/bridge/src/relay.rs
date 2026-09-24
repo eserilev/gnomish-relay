@@ -2,27 +2,47 @@
 //! body until the addon reads them, a full body refuses new messages, and every
 //! message runs at most once. No I/O here.
 
-use std::collections::{BTreeMap, BTreeSet, VecDeque};
+use std::collections::{BTreeMap, BTreeSet};
 
-use protocol::rate::{RateLimiter, admit_message};
+use protocol::folder::resolve_folder;
+use protocol::rate::{ChatQueue, MAX_QUEUE, RateLimiter, admit_message, enqueue};
 use protocol::record::Record;
 use protocol::seen::{Seen, admit, new_seen};
 use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 
 use crate::flags::{self, Flags};
 
-/// A chat queue holds at most this many waiting messages (SPEC.md 6.2, rule 9).
-const MAX_QUEUE: usize = 20;
 const DEFAULT_AGENT: &str = "claude";
+const BAD_FOLDER: &str = "Folder not allowed.";
+const STOPPED: &str = "Stopped.";
+
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct ChatId(pub String);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub struct MessageId(pub u32);
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Session {
+    New,
+    Resume,
+}
+
+/// Where agents can work (SPEC.md 6.2, rule 1). A folder from the game is relative
+/// to `base`, and must stay inside one of `roots`.
+pub struct Folders {
+    pub roots: Vec<Vec<u8>>,
+    pub base: Vec<u8>,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Job {
     pub token: String,
-    pub chat: String,
-    pub id: u32,
+    pub chat: ChatId,
+    pub id: MessageId,
     pub agent: String,
     pub cwd: String,
-    pub new_session: bool,
+    pub session: Session,
     pub text: String,
 }
 
@@ -32,38 +52,29 @@ pub enum Outcome {
     Duplicate,
     /// Not marked as seen, so the addon sends it again later.
     Refused,
+    /// Seen, and answered with an error. It never runs.
+    BadFolder,
     Control,
 }
 
 struct Entry {
     token: String,
-    chat: String,
-    id: u32,
+    chat: ChatId,
+    id: MessageId,
     status: Status,
     text: String,
 }
 
 pub struct Relay {
+    folders: Folders,
     seen: Seen,
     limiter: RateLimiter,
     /// Every record the addon has not read, newest last.
     records: Vec<Entry>,
-    queues: BTreeMap<String, VecDeque<Job>>,
-    running: BTreeSet<String>,
+    queues: BTreeMap<ChatId, ChatQueue>,
+    jobs: BTreeMap<(ChatId, MessageId), Job>,
+    running: BTreeSet<ChatId>,
     next_slot: usize,
-}
-
-impl Default for Relay {
-    fn default() -> Relay {
-        Relay {
-            seen: new_seen(),
-            limiter: RateLimiter { times: Vec::new() },
-            records: Vec::new(),
-            queues: BTreeMap::new(),
-            running: BTreeSet::new(),
-            next_slot: 1,
-        }
-    }
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -71,6 +82,19 @@ fn text(bytes: &[u8]) -> String {
 }
 
 impl Relay {
+    pub fn new(folders: Folders) -> Relay {
+        Relay {
+            folders,
+            seen: new_seen(),
+            limiter: RateLimiter { times: Vec::new() },
+            records: Vec::new(),
+            queues: BTreeMap::new(),
+            jobs: BTreeMap::new(),
+            running: BTreeSet::new(),
+            next_slot: 1,
+        }
+    }
+
     pub fn next_slot(&self) -> usize {
         self.next_slot
     }
@@ -88,31 +112,62 @@ impl Relay {
             self.next_slot = next.max(1);
         }
         self.records.retain(|e| {
-            !(e.token == token
-                && !matches!(e.status, Status::Working)
-                && flags.read.contains(&e.id))
+            let read = e.token == token && flags.read.contains(&e.id.0);
+            !read || matches!(e.status, Status::Working)
         });
     }
 
     fn on_record(&mut self, r: &Record, now: u32) -> Outcome {
         let flags = flags::parse(&r.flags);
-        let chat = text(&r.chat);
+        let chat = ChatId(text(&r.chat));
         if flags.hello {
             return Outcome::Control;
         }
         if flags.stop {
-            for job in self.queues.remove(&chat).unwrap_or_default() {
-                self.set_record(&job, Status::Error, "Stopped.".into());
-            }
+            self.stop(&chat);
             return Outcome::Control;
         }
-        let queue_len = self.queues.get(&chat).map_or(0, VecDeque::len);
-        if self.records.len() >= MAX_REPLIES || queue_len >= MAX_QUEUE {
-            return Outcome::Refused;
+        if let Err(outcome) = self.admit(r, &chat, now) {
+            return outcome;
+        }
+        let Some(cwd) = resolve_folder(&self.folders.roots, &self.folders.base, &r.cwd) else {
+            self.set_record(
+                &text(&r.token),
+                &chat,
+                MessageId(r.id),
+                Status::Error,
+                BAD_FOLDER.into(),
+            );
+            return Outcome::BadFolder;
+        };
+        self.enqueue_job(Job {
+            token: text(&r.token),
+            chat,
+            id: MessageId(r.id),
+            agent: flags.agent.unwrap_or_else(|| DEFAULT_AGENT.to_owned()),
+            cwd: text(&cwd),
+            session: if flags.new_session {
+                Session::New
+            } else {
+                Session::Resume
+            },
+            text: text(&r.text),
+        })
+    }
+
+    /// Marks the message as seen, or says why not.
+    ///
+    /// The order is a trap. Every refusal comes before `admit`, because a refused
+    /// message must not count as seen: the addon sends it again later. The rate
+    /// limiter changes only after `admit`, so a duplicate uses no rate.
+    fn admit(&mut self, r: &Record, chat: &ChatId, now: u32) -> Result<(), Outcome> {
+        let queued = self.queues.get(chat).map_or(0, |q| q.ids.len());
+        if self.records.len() >= MAX_REPLIES || queued >= MAX_QUEUE {
+            return Err(Outcome::Refused);
         }
         let (rate_ok, limiter) = admit_message(&self.limiter, now);
         if !rate_ok {
-            return Outcome::Refused;
+            return Err(Outcome::Refused);
         }
         let (fresh, seen) = admit(
             std::mem::replace(&mut self.seen, new_seen()),
@@ -121,28 +176,42 @@ impl Relay {
         );
         self.seen = seen;
         if !fresh {
-            return Outcome::Duplicate;
+            return Err(Outcome::Duplicate);
         }
         self.limiter = limiter;
+        Ok(())
+    }
 
-        let job = Job {
-            token: text(&r.token),
-            chat: chat.clone(),
-            id: r.id,
-            agent: flags.agent.unwrap_or_else(|| DEFAULT_AGENT.to_owned()),
-            cwd: text(&r.cwd),
-            new_session: flags.new_session,
-            text: text(&r.text),
+    fn enqueue_job(&mut self, job: Job) -> Outcome {
+        let queue = self
+            .queues
+            .remove(&job.chat)
+            .unwrap_or(ChatQueue { ids: Vec::new() });
+        let Some(queue) = enqueue(queue, job.id.0) else {
+            return Outcome::Refused;
         };
-        self.records.push(Entry {
-            token: job.token.clone(),
-            chat: chat.clone(),
-            id: r.id,
-            status: Status::Working,
-            text: String::new(),
-        });
-        self.queues.entry(chat).or_default().push_back(job);
+        self.queues.insert(job.chat.clone(), queue);
+        self.set_record(
+            &job.token,
+            &job.chat,
+            job.id,
+            Status::Working,
+            String::new(),
+        );
+        self.jobs.insert((job.chat.clone(), job.id), job);
         Outcome::Accepted
+    }
+
+    /// The waiting messages of a chat end as errors. A run in progress goes on.
+    fn stop(&mut self, chat: &ChatId) {
+        let Some(queue) = self.queues.remove(chat) else {
+            return;
+        };
+        for id in queue.ids {
+            if let Some(job) = self.jobs.remove(&(chat.clone(), MessageId(id))) {
+                self.set_record(&job.token, chat, job.id, Status::Error, STOPPED.into());
+            }
+        }
     }
 
     /// The oldest waiting message of a chat that has no run in progress.
@@ -150,30 +219,38 @@ impl Relay {
         let chat = self
             .queues
             .iter()
-            .find(|(chat, q)| !q.is_empty() && !self.running.contains(*chat))?
+            .find(|(chat, q)| !q.ids.is_empty() && !self.running.contains(*chat))?
             .0
             .clone();
-        let job = self.queues.get_mut(&chat)?.pop_front()?;
+        let id = self.queues.get_mut(&chat)?.ids.remove(0);
+        let job = self.jobs.remove(&(chat.clone(), MessageId(id)))?;
         self.running.insert(chat);
         Some(job)
     }
 
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
         self.running.remove(&job.chat);
-        match result {
-            Ok(text) => self.set_record(job, Status::Done, text),
-            Err(text) => self.set_record(job, Status::Error, text),
-        }
+        let (status, text) = match result {
+            Ok(text) => (Status::Done, text),
+            Err(text) => (Status::Error, text),
+        };
+        self.set_record(&job.token, &job.chat, job.id, status, text);
     }
 
-    /// Moves the record of `job` to the newest place with its new state.
-    fn set_record(&mut self, job: &Job, status: Status, text: String) {
-        self.records
-            .retain(|e| !(e.token == job.token && e.id == job.id));
+    /// Puts the record of a message at the newest place with its new state.
+    fn set_record(
+        &mut self,
+        token: &str,
+        chat: &ChatId,
+        id: MessageId,
+        status: Status,
+        text: String,
+    ) {
+        self.records.retain(|e| !(e.token == token && e.id == id));
         self.records.push(Entry {
-            token: job.token.clone(),
-            chat: job.chat.clone(),
-            id: job.id,
+            token: token.to_owned(),
+            chat: chat.clone(),
+            id,
             status,
             text,
         });
@@ -184,8 +261,8 @@ impl Relay {
             .records
             .iter()
             .map(|e| Reply {
-                chat: e.chat.as_bytes().to_vec(),
-                id: e.id,
+                chat: e.chat.0.as_bytes().to_vec(),
+                id: e.id.0,
                 status: e.status,
                 text: e.text.as_bytes().to_vec(),
             })
@@ -200,16 +277,31 @@ mod tests {
 
     const NOW: u32 = 1_790_211_079;
 
-    fn record(chat: &str, id: u32, flags: &str, text: &str) -> Record {
+    fn relay() -> Relay {
+        Relay::new(Folders {
+            roots: vec![b"/home/x/Code".to_vec()],
+            base: b"/home/x/Code".to_vec(),
+        })
+    }
+
+    fn record_in(cwd: &str, chat: &str, id: u32, flags: &str, text: &str) -> Record {
         Record {
             token: b"tok".to_vec(),
             chat: chat.as_bytes().to_vec(),
             id,
-            cwd: Vec::new(),
+            cwd: cwd.as_bytes().to_vec(),
             flags: flags.as_bytes().to_vec(),
             name: Vec::new(),
             text: text.as_bytes().to_vec(),
         }
+    }
+
+    fn record(chat: &str, id: u32, flags: &str, text: &str) -> Record {
+        record_in("", chat, id, flags, text)
+    }
+
+    fn body(relay: &Relay) -> String {
+        String::from_utf8(relay.body(NOW)).unwrap()
     }
 
     fn run_all(relay: &mut Relay) -> Vec<Job> {
@@ -223,19 +315,19 @@ mod tests {
 
     #[test]
     fn a_message_runs_once_even_when_the_strip_is_read_twice() {
-        let mut relay = Relay::default();
+        let mut relay = relay();
         let frame = [record("c1", 1, "agent=codex;n", "hi")];
         assert_eq!(relay.on_frame(&frame, NOW), [Outcome::Accepted]);
         assert_eq!(relay.on_frame(&frame, NOW), [Outcome::Duplicate]);
         let jobs = run_all(&mut relay);
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].agent, "codex");
-        assert!(jobs[0].new_session);
+        assert_eq!(jobs[0].session, Session::New);
     }
 
     #[test]
     fn a_chat_runs_its_messages_in_order_one_at_a_time() {
-        let mut relay = Relay::default();
+        let mut relay = relay();
         relay.on_frame(
             &[
                 record("c1", 1, "", "a"),
@@ -246,15 +338,32 @@ mod tests {
         );
         let first = relay.next_job().unwrap();
         let other = relay.next_job().unwrap();
-        assert_eq!((first.id, other.id), (1, 3));
+        assert_eq!((first.id, other.id), (MessageId(1), MessageId(3)));
         assert!(relay.next_job().is_none());
         relay.finish(&first, Ok(String::new()));
-        assert_eq!(relay.next_job().unwrap().id, 2);
+        assert_eq!(relay.next_job().unwrap().id, MessageId(2));
+    }
+
+    #[test]
+    fn a_full_chat_queue_refuses_without_marking_seen() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 100, "", "x")], NOW);
+        let _running = relay.next_job().unwrap();
+        for id in 0..20 {
+            assert_eq!(
+                relay.on_frame(&[record("c1", id, "", "x")], NOW + id * 7),
+                [Outcome::Accepted]
+            );
+        }
+        assert_eq!(
+            relay.on_frame(&[record("c1", 20, "", "x")], NOW + 200),
+            [Outcome::Refused]
+        );
     }
 
     #[test]
     fn a_full_body_refuses_a_message_without_marking_it_seen() {
-        let mut relay = Relay::default();
+        let mut relay = relay();
         for id in 0..30 {
             relay.on_frame(&[record(&format!("c{id}"), id, "", "x")], NOW + id * 7);
         }
@@ -266,69 +375,114 @@ mod tests {
 
         let read: Vec<String> = (0..30).map(|id| id.to_string()).collect();
         let report = format!("next=2;read={}", read.join(","));
-        let outcomes = relay.on_frame(&[record("late", 99, &report, "x")], NOW + 301);
-        assert_eq!(outcomes, [Outcome::Accepted]);
+        assert_eq!(
+            relay.on_frame(&[record("late", 99, &report, "x")], NOW + 301),
+            [Outcome::Accepted]
+        );
     }
 
     #[test]
     fn the_rate_limit_refuses_without_marking_seen() {
-        let mut relay = Relay::default();
+        let mut relay = relay();
         for id in 0..10 {
-            relay.on_frame(&[record("c1", id, "", "x")], NOW);
+            relay.on_frame(&[record(&format!("c{id}"), id, "", "x")], NOW);
         }
         assert_eq!(
-            relay.on_frame(&[record("c1", 10, "", "x")], NOW),
+            relay.on_frame(&[record("c10", 10, "", "x")], NOW),
             [Outcome::Refused]
         );
         assert_eq!(
-            relay.on_frame(&[record("c1", 10, "", "x")], NOW + 60),
+            relay.on_frame(&[record("c10", 10, "", "x")], NOW + 60),
+            [Outcome::Accepted]
+        );
+    }
+
+    #[test]
+    fn a_duplicate_uses_no_rate() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "x")], NOW);
+        for _ in 0..20 {
+            relay.on_frame(&[record("c1", 1, "", "x")], NOW);
+        }
+        assert_eq!(
+            relay.on_frame(&[record("c1", 2, "", "x")], NOW),
             [Outcome::Accepted]
         );
     }
 
     #[test]
     fn a_read_final_reply_leaves_the_body_but_a_working_one_stays() {
-        let mut relay = Relay::default();
+        let mut relay = relay();
         relay.on_frame(&[record("c1", 1, "", "a"), record("c2", 2, "", "b")], NOW);
         let job = relay.next_job().unwrap();
         relay.finish(&job, Ok("done".into()));
         relay.on_frame(&[record("relay", 0, "h;read=1,2", "")], NOW);
-        let body = String::from_utf8(relay.body(NOW)).unwrap();
-        assert!(!body.contains("id = 1,"), "{body}");
-        assert!(body.contains("id = 2,"), "{body}");
+        assert!(!body(&relay).contains("id = 1,"));
+        assert!(body(&relay).contains("id = 2,"));
+    }
+
+    #[test]
+    fn a_read_list_from_another_token_removes_nothing() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        run_all(&mut relay);
+        let mut other = record("relay", 0, "h;read=1", "");
+        other.token = b"other".to_vec();
+        relay.on_frame(&[other], NOW);
+        assert!(body(&relay).contains("id = 1,"));
     }
 
     #[test]
     fn the_next_flag_moves_the_slot_window() {
-        let mut relay = Relay::default();
+        let mut relay = relay();
         relay.on_frame(&[record("relay", 0, "h;next=57", "")], NOW);
         assert_eq!(relay.next_slot(), 57);
     }
 
     #[test]
-    fn stop_drops_the_waiting_messages_of_a_chat() {
-        let mut relay = Relay::default();
+    fn stop_ends_the_waiting_messages_of_a_chat_as_errors() {
+        let mut relay = relay();
         relay.on_frame(&[record("c1", 1, "", "a"), record("c1", 2, "", "b")], NOW);
         let _running = relay.next_job().unwrap();
         relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
         assert!(relay.next_job().is_none());
-        let body = String::from_utf8(relay.body(NOW)).unwrap();
-        assert!(
-            body.contains(r#"id = 2, status = "error", text = "Stopped.""#),
-            "{body}"
-        );
+        assert!(body(&relay).contains(r#"id = 2, status = "error", text = "Stopped.""#));
     }
 
     #[test]
     fn a_failed_run_publishes_an_error() {
-        let mut relay = Relay::default();
+        let mut relay = relay();
         relay.on_frame(&[record("c1", 1, "", "a")], NOW);
         let job = relay.next_job().unwrap();
         relay.finish(&job, Err("agent crashed".into()));
-        let body = String::from_utf8(relay.body(NOW)).unwrap();
-        assert!(
-            body.contains(r#"status = "error", text = "agent crashed""#),
-            "{body}"
+        assert!(body(&relay).contains(r#"status = "error", text = "agent crashed""#));
+    }
+
+    #[test]
+    fn a_folder_resolves_against_the_base_and_stays_in_a_root() {
+        let mut relay = relay();
+        relay.on_frame(
+            &[
+                record_in("app/../lib", "c1", 1, "", "a"),
+                record_in("", "c2", 2, "", "b"),
+            ],
+            NOW,
+        );
+        let jobs = run_all(&mut relay);
+        assert_eq!(jobs[0].cwd, "/home/x/Code/lib");
+        assert_eq!(jobs[1].cwd, "/home/x/Code");
+    }
+
+    #[test]
+    fn a_folder_outside_every_root_never_runs_and_gets_an_error() {
+        let mut relay = relay();
+        let outcomes = relay.on_frame(&[record_in("../../.ssh", "c1", 1, "", "a")], NOW);
+        assert_eq!(outcomes, [Outcome::BadFolder]);
+        assert!(relay.next_job().is_none());
+        assert!(body(&relay).contains(r#"id = 1, status = "error", text = "Folder not allowed.""#));
+        assert_eq!(
+            relay.on_frame(&[record_in("../../.ssh", "c1", 1, "", "a")], NOW),
+            [Outcome::Duplicate]
         );
     }
 }

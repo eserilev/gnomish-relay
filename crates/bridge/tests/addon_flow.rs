@@ -9,7 +9,7 @@ use std::fmt::Write;
 
 use bridge::agent::{Agent, Echo};
 use bridge::receive::{StripKey, receive};
-use bridge::relay::Relay;
+use bridge::relay::{Folders, Relay};
 use bridge::strip::{self, Image};
 use common::{Bits, load_into, lua, repo_file};
 use hmac::{Hmac, Mac};
@@ -474,7 +474,10 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
         hex
     });
     let records = receive(&bytes, &StripKey::from_hex(&hex).unwrap(), now).unwrap();
-    let mut relay = Relay::default();
+    let mut relay = Relay::new(Folders {
+        roots: vec![b"/home/x".to_vec()],
+        base: b"/home/x".to_vec(),
+    });
     relay.on_frame(&records, now);
     let job = relay.next_job().expect("the message is queued");
     relay.finish(&job, Echo.run(&job));

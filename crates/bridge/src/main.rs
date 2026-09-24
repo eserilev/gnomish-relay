@@ -6,6 +6,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use bridge::agent::Echo;
 use bridge::receive::StripKey;
+use bridge::relay::Folders;
 use bridge::run::{Paths, now, run};
 use bridge::slots;
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
@@ -17,7 +18,8 @@ usage:
   gnomish-relay say <chat> <id> <text>
                                  publish a reply to message <id> (from `/relay diag`)
 
-The AddOns folder comes from GNOMISH_ADDONS.";
+The AddOns folder comes from GNOMISH_ADDONS. Agents work inside the folders of
+GNOMISH_ROOTS (a path list, like PATH), or inside $HOME. The first one is the default.";
 
 fn addons_dir() -> Result<PathBuf> {
     let dir = std::env::var_os("GNOMISH_ADDONS")
@@ -32,6 +34,21 @@ fn screenshots_dir(addons: &std::path::Path) -> Result<PathBuf> {
         .and_then(std::path::Path::parent)
         .context("GNOMISH_ADDONS has no game folder")?;
     Ok(game.join("Screenshots"))
+}
+
+fn folders() -> Result<Folders> {
+    let roots: Vec<PathBuf> = match std::env::var_os("GNOMISH_ROOTS") {
+        Some(list) => std::env::split_paths(&list).collect(),
+        None => vec![PathBuf::from(
+            std::env::var_os("HOME").context("HOME is not set")?,
+        )],
+    };
+    let roots: Vec<Vec<u8>> = roots
+        .iter()
+        .map(|r| r.to_string_lossy().as_bytes().to_vec())
+        .collect();
+    let base = roots.first().context("GNOMISH_ROOTS is empty")?.clone();
+    Ok(Folders { roots, base })
 }
 
 fn key_path() -> Result<PathBuf> {
@@ -81,7 +98,12 @@ fn main() -> Result<()> {
                 screenshots: screenshots_dir(&addons)?,
                 addons,
             };
-            run(paths, StripKey::load(&key_path()?)?, Arc::new(Echo))
+            run(
+                paths,
+                folders()?,
+                StripKey::load(&key_path()?)?,
+                Arc::new(Echo),
+            )
         }
         ["say", chat, id, text] => say(chat, id, text),
         _ => bail!("{USAGE}"),

@@ -10,7 +10,7 @@ use anyhow::Result;
 
 use crate::agent::Agent;
 use crate::receive::{StripKey, receive};
-use crate::relay::{Job, Outcome, Relay};
+use crate::relay::{Folders, Job, Outcome, Relay};
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots;
 
@@ -77,7 +77,10 @@ impl Loop {
 
     fn start_runs(&mut self) {
         while let Some(job) = self.relay.next_job() {
-            log(&format!("run {} #{} with {}", job.chat, job.id, job.agent));
+            log(&format!(
+                "run {} #{} with {}",
+                job.chat.0, job.id.0, job.agent
+            ));
             let agent = Arc::clone(&self.agent);
             let finished = self.finished.clone();
             thread::spawn(move || {
@@ -89,7 +92,7 @@ impl Loop {
 
     fn finish_runs(&mut self) {
         while let Ok((job, result)) = self.results.try_recv() {
-            log(&format!("done {} #{}", job.chat, job.id));
+            log(&format!("done {} #{}", job.chat.0, job.id.0));
             self.relay.finish(&job, result);
             self.changed = true;
         }
@@ -104,7 +107,7 @@ impl Loop {
     }
 }
 
-pub fn run(paths: Paths, key: StripKey, agent: Arc<dyn Agent>) -> Result<()> {
+pub fn run(paths: Paths, folders: Folders, key: StripKey, agent: Arc<dyn Agent>) -> Result<()> {
     let mut watcher = Watcher::new(&paths.screenshots);
     log(&format!("watching {}", paths.screenshots.display()));
     let (finished, results) = channel();
@@ -112,7 +115,7 @@ pub fn run(paths: Paths, key: StripKey, agent: Arc<dyn Agent>) -> Result<()> {
         paths,
         key,
         agent,
-        relay: Relay::default(),
+        relay: Relay::new(folders),
         finished,
         results,
         changed: true,
