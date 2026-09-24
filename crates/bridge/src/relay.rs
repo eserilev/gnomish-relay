@@ -13,12 +13,13 @@ use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 
 use serde::{Deserialize, Serialize};
 
+use crate::config::{Permission, Policy};
 use crate::flags::{self, Flags};
 use crate::history::{ChatLog, History, Speaker};
 use crate::state::{SavedRecord, SavedStatus, State};
 
-const DEFAULT_AGENT: &str = "claude";
 const BAD_FOLDER: &str = "Folder not allowed.";
+const BAD_AGENT: &str = "Agent not set up.";
 const STOPPED: &str = "Stopped.";
 const RESTARTED: &str = "Stopped: the bridge restarted.";
 /// More tokens than this means many wipes. The oldest ones then go.
@@ -49,6 +50,9 @@ pub struct Job {
     pub chat: ChatId,
     pub id: MessageId,
     pub agent: String,
+    /// A job from an older state file has none, and gets the strictest level.
+    #[serde(default)]
+    pub permission: Permission,
     pub cwd: String,
     pub session: Session,
     pub text: String,
@@ -62,6 +66,8 @@ pub enum Outcome {
     Refused,
     /// Seen, and answered with an error. It never runs.
     BadFolder,
+    /// Seen, and answered with an error: the config has no such agent.
+    BadAgent,
     Control,
 }
 
@@ -104,7 +110,7 @@ impl Entry {
 }
 
 pub struct Relay {
-    folders: Folders,
+    policy: Policy,
     seen: Seen,
     limiter: RateLimiter,
     /// Every record the addon has not read, newest last.
@@ -133,9 +139,9 @@ fn text(bytes: &[u8]) -> String {
 }
 
 impl Relay {
-    pub fn new(folders: Folders) -> Relay {
+    pub fn new(policy: Policy) -> Relay {
         Relay {
-            folders,
+            policy,
             seen: new_seen(),
             limiter: RateLimiter { times: Vec::new() },
             records: Vec::new(),
@@ -217,7 +223,9 @@ impl Relay {
         if let Err(outcome) = self.admit(r, &chat, now) {
             return outcome;
         }
-        let agent = flags.agent.unwrap_or_else(|| DEFAULT_AGENT.to_owned());
+        let agent = flags
+            .agent
+            .unwrap_or_else(|| self.policy.default_agent.clone());
         let log = ChatLog {
             chat: chat.clone(),
             name: text(&r.name),
@@ -227,7 +235,8 @@ impl Relay {
         };
         self.history
             .add_message(log, MessageId(r.id), &text(&r.text));
-        let Some(cwd) = resolve_folder(&self.folders.roots, &self.folders.base, &r.cwd) else {
+        let folders = &self.policy.folders;
+        let Some(cwd) = resolve_folder(&folders.roots, &folders.base, &r.cwd) else {
             self.set_record(
                 &text(&r.token),
                 &chat,
@@ -237,11 +246,23 @@ impl Relay {
             );
             return Outcome::BadFolder;
         };
+        let Some(permission) = self.policy.agents.get(&agent) else {
+            self.set_record(
+                &text(&r.token),
+                &chat,
+                MessageId(r.id),
+                Status::Error,
+                BAD_AGENT.into(),
+            );
+            return Outcome::BadAgent;
+        };
+        let permission = permission.ceiling(flags.level);
         self.enqueue_job(Job {
             token: text(&r.token),
             chat,
             id: MessageId(r.id),
             agent,
+            permission,
             cwd: text(&cwd),
             session: if flags.new_session {
                 Session::New
@@ -401,8 +422,8 @@ impl Relay {
 
     /// A run that was in progress at the stop ends as an error. It never runs again:
     /// it can have changed files already.
-    pub fn from_state(folders: Folders, state: State) -> Relay {
-        let mut relay = Relay::new(folders);
+    pub fn from_state(policy: Policy, state: State) -> Relay {
+        let mut relay = Relay::new(policy);
         relay.next_slot = state.next_slot.max(1);
         relay.seen.entries = state
             .seen
@@ -470,11 +491,23 @@ mod tests {
 
     const NOW: u32 = 1_790_211_079;
 
+    fn policy() -> Policy {
+        Policy {
+            folders: Folders {
+                roots: vec![b"/home/x/Code".to_vec()],
+                base: b"/home/x/Code".to_vec(),
+            },
+            agents: [
+                ("claude".to_owned(), Permission::AutoEdit),
+                ("codex".to_owned(), Permission::Ask),
+            ]
+            .into(),
+            default_agent: "claude".into(),
+        }
+    }
+
     fn relay() -> Relay {
-        Relay::new(Folders {
-            roots: vec![b"/home/x/Code".to_vec()],
-            base: b"/home/x/Code".to_vec(),
-        })
+        Relay::new(policy())
     }
 
     fn record_in(cwd: &str, chat: &str, id: u32, flags: &str, text: &str) -> Record {
@@ -716,14 +749,35 @@ mod tests {
         assert!(restore_text(&restart(&relay)).contains("token = \"new\""));
     }
 
+    #[test]
+    fn a_message_runs_at_the_lower_of_the_config_and_the_game_level() {
+        let mut relay = relay();
+        relay.on_frame(
+            &[
+                record("c1", 1, "level=full-auto", "raise"),
+                record("c2", 2, "level=ask", "lower"),
+                record("c3", 3, "agent=codex;level=auto-edit", "raise codex"),
+            ],
+            NOW,
+        );
+        let levels: Vec<Permission> = run_all(&mut relay).iter().map(|j| j.permission).collect();
+        assert_eq!(
+            levels,
+            [Permission::AutoEdit, Permission::Ask, Permission::Ask]
+        );
+    }
+
+    #[test]
+    fn an_agent_that_is_not_in_the_config_never_runs() {
+        let mut relay = relay();
+        let outcomes = relay.on_frame(&[record("c1", 1, "agent=gemini", "hi")], NOW);
+        assert_eq!(outcomes, [Outcome::BadAgent]);
+        assert!(run_all(&mut relay).is_empty());
+        assert!(body(&relay).contains(BAD_AGENT));
+    }
+
     fn restart(relay: &Relay) -> Relay {
-        Relay::from_state(
-            Folders {
-                roots: vec![b"/home/x/Code".to_vec()],
-                base: b"/home/x/Code".to_vec(),
-            },
-            relay.to_state(),
-        )
+        Relay::from_state(policy(), relay.to_state())
     }
 
     #[test]

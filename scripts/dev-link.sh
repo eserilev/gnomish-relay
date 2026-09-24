@@ -30,4 +30,6 @@ LUA
 
 ln -sfn "$root/addon/GnomishRelay" "$addons/GnomishRelay"
 echo "linked $addons/GnomishRelay"
-echo "For the bridge: export GNOMISH_ADDONS=\"$addons\""
+if [ ! -f "$config/config.toml" ]; then
+  cargo run -q --bin gnomish-relay -- setup "$wow"
+fi

@@ -111,7 +111,7 @@ local function Report()
 end
 
 local function ChatFlags(chat)
-	local flags = { "agent=" .. chat.agent }
+	local flags = { "agent=" .. chat.agent, "level=" .. chat.mode }
 	if chat.fresh then
 		table.insert(flags, "n")
 	end

@@ -4,6 +4,7 @@
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
 pub mod agent;
+pub mod config;
 pub mod flags;
 pub mod fs_safe;
 pub mod history;

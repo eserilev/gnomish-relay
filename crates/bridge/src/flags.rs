@@ -1,5 +1,7 @@
 //! The flags field of a record (SPEC.md 7.1.1). Unknown flags are ignored.
 
+use crate::config::Permission;
+
 #[derive(Debug, Default, PartialEq, Eq)]
 #[allow(clippy::struct_excessive_bools)] // each one is a flag on the wire
 pub struct Flags {
@@ -10,6 +12,7 @@ pub struct Flags {
     pub next: Option<usize>,
     pub read: Vec<u32>,
     pub agent: Option<String>,
+    pub level: Option<Permission>,
 }
 
 pub fn parse(bytes: &[u8]) -> Flags {
@@ -27,6 +30,7 @@ pub fn parse(bytes: &[u8]) -> Flags {
             Some(("read", ids)) => {
                 flags.read = ids.split(',').filter_map(|id| id.parse().ok()).collect();
             }
+            Some(("level", word)) => flags.level = Some(Permission::from_game(word)),
             Some(("agent", name)) if protocol::record::is_valid_id(name.as_bytes()) => {
                 flags.agent = Some(name.to_owned());
             }
@@ -42,7 +46,7 @@ mod tests {
 
     #[test]
     fn every_known_flag_parses() {
-        let f = parse(b"agent=claude;n;next=42;read=7,9;restored;h;stop");
+        let f = parse(b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop");
         assert_eq!(
             f,
             Flags {
@@ -53,6 +57,7 @@ mod tests {
                 next: Some(42),
                 read: vec![7, 9],
                 agent: Some("claude".into()),
+                level: Some(Permission::AutoEdit),
             }
         );
     }

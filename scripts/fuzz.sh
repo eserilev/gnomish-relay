@@ -7,7 +7,7 @@ seconds="${1:-30}"
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT
 
-for target in frame records folder lua lua_model chat_text popup screenshot relay saved; do
+for target in frame records folder lua lua_model chat_text popup screenshot relay saved config; do
   mkdir -p "corpus/$target"
   if ! cargo +nightly fuzz run "$target" "corpus/$target" "seeds/$target" -- \
       -max_total_time="$seconds" >"$log" 2>&1; then

@@ -93,6 +93,7 @@ mod tests {
                 chat: ChatId("c1".into()),
                 id: MessageId(8),
                 agent: "claude".into(),
+                permission: crate::config::Permission::AutoEdit,
                 cwd: "/home/x".into(),
                 session: Session::Resume,
                 text: "next".into(),

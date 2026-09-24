@@ -96,7 +96,7 @@ So the bridge bounds what any message from the game can do (6.6).
 11. The bridge never starts a process through a shell. It passes the command as an argument list.
 12. The bridge gives each agent process only an allowlist of environment variables (`PATH`, `HOME`, `LANG`, `TERM`, and the variables in the agent config). All others, for example API keys of other tools, stay out.
 13. The bridge writes prompt files with mode 0600 in a private folder, and deletes them after the run.
-14. Setup writes `config.toml` with mode 0600, because it holds the strip key.
+14. Setup writes `config.toml` with mode 0600. The bridge refuses a config that other users can write, because the config sets the ceiling of every game message. The strip key is in its own file, `strip.key`, with mode 0600.
 15. The bridge escapes control characters and newlines in `bridge.log`, so a prompt cannot fake a log line.
 16. The bridge sends a restore bundle only in answer to a hello with a valid MAC.
 
@@ -343,7 +343,8 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `n` | Start a new agent session for this chat. |
 | `h` | Hello only. It announces the token and the addon version. It has no prompt. The addon sends one at login and after it applies a restore bundle (7.6). |
 | `d` | The chat is deleted. The bridge drops its transcript and session. The addon keeps the id in `db.forget` and sends it with each hello until the bridge acknowledges it. |
-| `agent=<name>` | The agent for a new chat. |
+| `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not set up." |
+| `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
 | `read=<id>,<id>` | The final replies in the last body that the addon has shown. The bridge then takes them out of the slot body (7.3). A lost strip loses nothing: the next strip names them again. |
 | `restored` | The addon has applied the restore bundle for its token (7.6). |
@@ -770,7 +771,20 @@ The development machine runs Wayland with XWayland. The home file system is ext4
 
 ## 12. Config
 
-The config file is `config.toml` in the config folder of the OS (from the `directories` crate).
+The config file is `config.toml` in the config folder of the OS:
+
+| OS | Config folder | Data folder (`state.json`) |
+|---|---|---|
+| Linux | `$XDG_CONFIG_HOME/gnomish-relay`, or `~/.config/gnomish-relay` | `$XDG_DATA_HOME/gnomish-relay`, or `~/.local/share/gnomish-relay` |
+| macOS | `~/Library/Application Support/gnomish-relay` | the same |
+| Windows | `%APPDATA%\gnomish-relay` | `%LOCALAPPDATA%\gnomish-relay` |
+
+`gnomish-relay setup <wow folder>` writes the first config. It never replaces a config.
+
+The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `[wow] path`, and `[agents.<name>] permission`.
+The other keys below come with their features.
+Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
 ```toml
 default_cwd = "~/Documents/Code"
@@ -780,11 +794,9 @@ max_messages_per_minute = 10
 timeout_minutes = 30
 permission_timeout_minutes = 10
 default_agent = "claude"
-strip_key = "…"            # written by setup, 32 random bytes as hex
 
 [wow]
 path = "~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_"
-account = "auto"            # the folder name under WTF/Account, or "auto"
 
 [capture]
 backend = "auto"            # auto | portal | x11 | windows | macos
@@ -1002,7 +1014,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 5. **Done: slot writer.** Publish a fixed reply. Make sure that it shows in the game. Passed in the game on 2026-09-24: `install`, then `say`, then `/relay poll` showed the reply. The steps are in `addon/README.md`.
 6. **Addon port** with the stub harness and the differential tests.
 7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`.
-8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check.
+8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Next:** the classifier (6.6.3) needs the tool calls of step 9.
 9. **ACP backend.** Test with one agent first.
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**

@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bridge::agent::{Agent, Echo};
+use bridge::config::{Permission, Policy};
 use bridge::receive::StripKey;
 use bridge::relay::Folders;
 use bridge::relay::Job;
@@ -54,6 +55,17 @@ fn folders() -> Dirs {
     }
 }
 
+fn policy() -> Policy {
+    Policy {
+        folders: Folders {
+            roots: vec![b"/home/x".to_vec()],
+            base: b"/home/x".to_vec(),
+        },
+        agents: [("claude".to_owned(), Permission::AutoEdit)].into(),
+        default_agent: "claude".into(),
+    }
+}
+
 fn bridge(f: &Dirs) -> Bridge {
     bridge_with(f, Arc::new(Echo))
 }
@@ -65,10 +77,7 @@ fn bridge_with(f: &Dirs, agent: Arc<dyn Agent>) -> Bridge {
         accounts: f.accounts.clone(),
         state: f.state.clone(),
     };
-    let folders = Folders {
-        roots: vec![b"/home/x".to_vec()],
-        base: b"/home/x".to_vec(),
-    };
+    let folders = policy();
     Bridge::new(
         paths,
         folders,
@@ -213,10 +222,7 @@ fn a_damaged_state_file_stops_the_bridge_at_start() {
         accounts: f.accounts.clone(),
         state: f.state.clone(),
     };
-    let folders = Folders {
-        roots: vec![b"/home/x".to_vec()],
-        base: b"/home/x".to_vec(),
-    };
+    let folders = policy();
     let key = StripKey::from_hex(&hex(KEY)).unwrap();
     assert!(Bridge::new(paths, folders, key, Arc::new(Echo)).is_err());
 }

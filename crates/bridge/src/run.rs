@@ -9,8 +9,9 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::Result;
 
 use crate::agent::Agent;
+use crate::config::Policy;
 use crate::receive::{StripKey, receive};
-use crate::relay::{Folders, Job, Outcome, Relay};
+use crate::relay::{Job, Outcome, Relay};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots;
@@ -63,13 +64,13 @@ pub struct Bridge {
 impl Bridge {
     pub fn new(
         paths: Paths,
-        folders: Folders,
+        policy: Policy,
         key: StripKey,
         agent: Arc<dyn Agent>,
     ) -> Result<Bridge> {
         let relay = match state::load(&paths.state)? {
-            Some(saved) => Relay::from_state(folders, saved),
-            None => Relay::new(folders),
+            Some(saved) => Relay::from_state(policy, saved),
+            None => Relay::new(policy),
         };
         let (finished, results) = channel();
         Ok(Bridge {
@@ -168,8 +169,8 @@ impl Bridge {
     fn start_runs(&mut self) {
         while let Some(job) = self.relay.next_job() {
             log(&format!(
-                "run {} #{} with {}",
-                job.chat.0, job.id.0, job.agent
+                "run {} #{} with {} at {:?}",
+                job.chat.0, job.id.0, job.agent, job.permission
             ));
             let agent = Arc::clone(&self.agent);
             let finished = self.finished.clone();
@@ -200,9 +201,9 @@ impl Bridge {
     }
 }
 
-pub fn run(paths: Paths, folders: Folders, key: StripKey, agent: Arc<dyn Agent>) -> Result<()> {
+pub fn run(paths: Paths, policy: Policy, key: StripKey, agent: Arc<dyn Agent>) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
-    let mut bridge = Bridge::new(paths, folders, key, agent)?;
+    let mut bridge = Bridge::new(paths, policy, key, agent)?;
     loop {
         bridge.step();
         thread::sleep(TICK);

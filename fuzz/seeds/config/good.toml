@@ -1,0 +1,8 @@
+allowed_roots = ["/tmp"]
+default_agent = "claude"
+
+[wow]
+path = "/games/wow"
+
+[agents.claude]
+permission = "ask"

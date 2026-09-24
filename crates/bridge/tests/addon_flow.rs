@@ -8,6 +8,7 @@ mod common;
 use std::fmt::Write;
 
 use bridge::agent::{Agent, Echo};
+use bridge::config::{Permission, Policy};
 use bridge::receive::{StripKey, receive};
 use bridge::relay::{Folders, Relay};
 use bridge::strip::{self, Image};
@@ -233,6 +234,7 @@ fn a_sent_message_goes_out_as_a_signed_strip_that_the_bridge_decodes() {
     let f = flags(r);
     assert!(
         f.contains(&"agent=claude".into())
+            && f.contains(&"level=auto-edit".into())
             && f.contains(&"n".into())
             && f.contains(&"next=1".into()),
         "{f:?}"
@@ -489,9 +491,13 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
         hex
     });
     let records = receive(&bytes, &StripKey::from_hex(&hex).unwrap(), now).unwrap();
-    let mut relay = Relay::new(Folders {
-        roots: vec![b"/home/x".to_vec()],
-        base: b"/home/x".to_vec(),
+    let mut relay = Relay::new(Policy {
+        folders: Folders {
+            roots: vec![b"/home/x".to_vec()],
+            base: b"/home/x".to_vec(),
+        },
+        agents: [("claude".to_owned(), Permission::AutoEdit)].into(),
+        default_agent: "claude".into(),
     });
     relay.on_frame(&records, now);
     let job = relay.next_job().expect("the message is queued");
