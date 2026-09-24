@@ -17,6 +17,7 @@ import Protocol.WowText
 import Protocol.Frame.Codec
 import Protocol.Record
 import Protocol.Seen
+import Protocol.Rate
 
 /-!
 # The theorems, stated
@@ -266,5 +267,8 @@ theorem check_S3_S4_parse : S3_S4_parse := Protocol.Record.parse_records_sound
 theorem check_C3_serialize : C3_serialize := Protocol.Record.serialize_records_spec
 theorem check_C3_parse : C3_parse := Protocol.Record.parse_records_complete
 theorem check_S7_seen : S7_seen := Protocol.Seen.admit_spec
+theorem check_S14_admit : S14_admit := Protocol.Rate.admit_message_spec
+theorem check_S14_window : S14_window := Protocol.Rate.window_spec
+theorem check_S14_queue : S14_queue := Protocol.Rate.enqueue_spec
 
 end Protocol.Statements

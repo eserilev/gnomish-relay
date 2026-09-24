@@ -1047,23 +1047,89 @@ def popup.popup_text
     Visibility: public -/
 @[global_simps, irreducible] def rate.MAX_QUEUE : Std.Usize := 20#usize
 
+/-- [protocol::rate::in_window]:
+    Source: 'crates/protocol/src/rate.rs', lines 17:0-19:1 -/
+def rate.in_window (t : Std.U32) (now : Std.U32) : Result Bool := do
+  let i ← lift (UScalar.cast .U64 t)
+  let i1 ← lift (UScalar.cast .U64 now)
+  if i <= i1
+  then
+    let i2 ← lift (UScalar.cast .U64 now)
+    let i3 ← lift (UScalar.cast .U64 t)
+    let i4 ← lift (UScalar.cast .U64 rate.WINDOW_SECONDS)
+    let i5 ← i3 + i4
+    ok (i2 < i5)
+  else ok false
+
+/-- [protocol::rate::still_counting]: loop body 0:
+    Source: 'crates/protocol/src/rate.rs', lines 25:4-30:5 -/
+@[rust_loop_body]
+def rate.still_counting_loop.body
+  (times : Slice Std.U32) (now : Std.U32) (kept : alloc.vec.Vec Std.U32)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U32) × Std.Usize) (alloc.vec.Vec
+    Std.U32))
+  := do
+  let i1 := Slice.len times
+  if i < i1
+  then
+    let i2 ← Slice.index_usize times i
+    let b ← rate.in_window i2 now
+    let kept1 ← if b
+                  then alloc.vec.Vec.push kept i2
+                  else ok kept
+    let i3 ← i + 1#usize
+    ok (cont (kept1, i3))
+  else ok (done kept)
+
+/-- [protocol::rate::still_counting]: loop 0:
+    Source: 'crates/protocol/src/rate.rs', lines 25:4-30:5 -/
+@[rust_loop]
+def rate.still_counting_loop
+  (times : Slice Std.U32) (now : Std.U32) (kept : alloc.vec.Vec Std.U32)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  loop
+    (fun (kept1, i1) => rate.still_counting_loop.body times now kept1 i1)
+    (kept, i)
+
+/-- [protocol::rate::still_counting]:
+    Source: 'crates/protocol/src/rate.rs', lines 22:0-32:1 -/
+@[reducible]
+def rate.still_counting
+  (times : Slice Std.U32) (now : Std.U32) :
+  Result (alloc.vec.Vec Std.U32)
+  := do
+  rate.still_counting_loop times now (alloc.vec.Vec.new Std.U32) 0#usize
+
 /-- [protocol::rate::admit_message]:
-    Source: 'crates/protocol/src/rate.rs', lines 17:0-19:1
+    Source: 'crates/protocol/src/rate.rs', lines 35:0-43:1
     Visibility: public -/
 def rate.admit_message
   (limiter : rate.RateLimiter) (now : Std.U32) :
   Result (Bool × rate.RateLimiter)
   := do
-  fail panic
+  let s := alloc.vec.Vec.deref limiter.times
+  let kept ← rate.still_counting s now
+  let i := alloc.vec.Vec.len kept
+  if i < rate.MAX_MESSAGES
+  then let kept1 ← alloc.vec.Vec.push kept now
+       ok (true, { times := kept1 })
+  else ok (false, { times := kept })
 
 /-- [protocol::rate::enqueue]:
-    Source: 'crates/protocol/src/rate.rs', lines 23:0-25:1
+    Source: 'crates/protocol/src/rate.rs', lines 47:0-54:1
     Visibility: public -/
 def rate.enqueue
   (queue : rate.ChatQueue) (id : Std.U32) :
   Result (Option rate.ChatQueue)
   := do
-  fail panic
+  let i := alloc.vec.Vec.len queue.ids
+  if i >= rate.MAX_QUEUE
+  then ok none
+  else let ids ← alloc.vec.Vec.push queue.ids id
+       ok (some { ids })
 
 /-- [protocol::record::RS]
     Source: 'crates/protocol/src/record.rs', lines 9:0-9:24

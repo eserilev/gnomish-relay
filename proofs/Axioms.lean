@@ -23,3 +23,6 @@ import Statements
 #print axioms Protocol.Statements.check_C3_serialize
 #print axioms Protocol.Statements.check_C3_parse
 #print axioms Protocol.Statements.check_S7_seen
+#print axioms Protocol.Statements.check_S14_admit
+#print axioms Protocol.Statements.check_S14_window
+#print axioms Protocol.Statements.check_S14_queue

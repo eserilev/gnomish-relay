@@ -11,3 +11,4 @@ import Protocol.Frame.Codec
 import Protocol.Record
 import Protocol.Decimal
 import Protocol.Seen
+import Protocol.Rate

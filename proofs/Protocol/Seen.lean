@@ -113,8 +113,6 @@ theorem first_kept_spec (n : Usize) :
     seen.first_kept n ⦃ r => r.val = (if 1000 ≤ n.val then 1 else 0) ⦄ := by
   unfold seen.first_kept
   step*
-  all_goals simp_all
-  all_goals scalar_tac
 
 def CopyInv (entries : Slice seen.Entry) (from_ : Nat) (st : alloc.vec.Vec seen.Entry × Usize) : Prop :=
   from_ ≤ st.2.val ∧ st.2.val ≤ max from_ entries.val.length ∧
@@ -149,7 +147,7 @@ theorem copy_entries_spec (entries : Slice seen.Entry) (from_ : Usize) (hfrom : 
 
 /-- **S7.** -/
 theorem admit_spec (history : seen.Seen) (token : Slice U8) (id : U32)
-    (hcap : (seenKeys history).length ≤ 1000) (htok : token.val.length ≤ 2 ^ 16) :
+    (hcap : (seenKeys history).length ≤ 1000) (_htok : token.val.length ≤ 2 ^ 16) :
     seen.admit history token id ⦃ res =>
       let key := (bytes token.val, id.val)
       (res.1 = true ↔ key ∉ seenKeys history) ∧
