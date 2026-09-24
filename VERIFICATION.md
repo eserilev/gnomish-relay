@@ -40,7 +40,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 13 | S7: replay protection | `seen` | `S7_seen` | proved |
 | 14 | S14: rate limit and queue | `rate` | `S14_admit`, `S14_window`, `S14_queue` | proved |
 | 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
-| 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | blocked |
+| 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |
 
@@ -54,25 +54,32 @@ Their tests are in SPEC 14.3 and 14.5.
 
 ## Notes and blockers
 
-### Item 16: three of the four transport properties fail on SPEC as written
+### Item 16: the model found three design gaps, now fixed
 
-`quint run` finds a counterexample for each of these. The model follows SPEC 7, so
-the gaps are in the design, not in the model. Each fix changes SPEC, so a person
-decides it. Until then, `scripts/check-model.sh` checks only `runsOnce`.
+The first model followed SPEC 7 as written. `quint run` found a counterexample for three
+of the four properties. Only `runsOnce` held.
 
-- `runsOnce` (the agent never runs one message twice): holds in 150,000 traces.
-- `noLostReply` fails. A body holds the last 30 records (SPEC 7.3). If 31 records
-  arrive before the addon loads a slot, the oldest reply drops out unread. This
-  happens when the slot pool is empty and the user does not press the reload key.
-- `noStuckMessage` fails for the same reason. The addon takes a message off the
-  strip when it sees the `working` record. If the `done` record then drops out, no
-  path sends the message again. The bridge drops the retry as a duplicate.
-- `restoreSafe` fails. The restore bundle rides on "the next 3 publishes" (SPEC 7.6).
-  If 3 publishes happen before the addon loads a slot, the bundle is gone.
+- `noLostReply`: a body held the last 30 records. With 31 records before a slot load,
+  the oldest reply dropped out unread.
+- `noStuckMessage`: the same cause. A message whose `done` record dropped out had no
+  path to a reply, because the bridge drops a retry as a duplicate.
+- `restoreSafe`: the restore bundle rode on only the next 3 publishes. An addon that
+  loaded no slot during those publishes never got it.
 
-The model also fixes one point that SPEC does not state: after `/reload`, the addon
-shows the strip again for every open message that is not in the outbox. Without
-it, `noStuckMessage` fails at every `/reload`.
+The fixes, chosen on 2026-09-24, are in SPEC 7.1.1, 7.3, 7.5, and 7.6:
+
+- The addon reports the replies it has read (`read` flag). A body holds every unread
+  record, at most 30. With 30, the bridge refuses new messages and does not mark them
+  seen, so the addon sends them again later.
+- The restore bundle stays in every publish until the addon confirms it (`restored`
+  flag). Then the bridge retires the older tokens, so their unread records cannot fill
+  the body forever.
+- After `/reload`, the addon shows the strip again for every open message.
+
+`scripts/check-model.sh` checks all four properties and `bodyBounded` (the body keeps
+the S12 limit). It also checks four witnesses: states such as a full body and a
+confirmed restore, which the simulator must reach. A witness that is never reached
+means that the properties pass only because the hard states never happen.
 
 ### Item 17: what the fuzz targets check
 

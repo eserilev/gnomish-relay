@@ -5,12 +5,11 @@
 // empty slot pool, a strip that nobody reads, a wipe in the middle of a run.
 module transport {
 
-  // In the game: 30 replies per body, 200 slots per UI session.
+  // In the game: 30 records per body, 200 slots per UI session.
   pure val BODY_CAP = 3
   pure val POOL = 2
   pure val MSGS = 5
   pure val SHOWS = 3
-  pure val RESTORE_PUBLISHES = 3
   pure val MAX_WIPES = 1
   pure val CHATS = Set("a", "b", "c")
 
@@ -18,6 +17,11 @@ module transport {
   type Status = Working | Done
   type Reply = { key: Key, chat: str, status: Status }
   type Restore = { token: int, chats: Set[str] }
+
+  // What every strip and the saved variables tell the bridge besides the messages:
+  // the replies the addon has read (SPEC 7.1.1 `read`) and whether it has applied
+  // the restore bundle (`restored`).
+  type Report = { token: int, read: Set[int], restored: bool }
 
   pure val NO_RESTORE: Restore = { token: -1, chats: Set() }
 
@@ -29,6 +33,7 @@ module transport {
     answered: Set[int],
     outbox: Set[int],
     chats: List[str],
+    restored: bool,
     // The UI session: `/reload` loses it.
     strip: int -> int,
     slotsLeft: int,
@@ -39,19 +44,25 @@ module transport {
     seen: Set[Key],
     queue: List[Key],
     runs: Key -> int,
-    // Newest last, one record per key.
+    // Every record that the addon has not read. Newest last, one per key.
     records: List[Reply],
     chats: Set[str],
     restore: Restore,
-    restoreLeft: int,
+    restoreActive: bool,
+    // Tokens from before a wipe. Their records leave the body once the restore is in.
+    retired: Set[int],
   }
 
-  // The addon, the bridge, the slot files, the saved variables file on disk.
+  // The saved variables file on disk: WoW writes it at `/reload`.
+  type Disk = { outbox: Set[Key], report: Report }
+
+  pure val EMPTY_DISK: Disk = { outbox: Set(), report: { token: -1, read: Set(), restored: false } }
+
   var addon: Addon
   var bridge: Bridge
   var body: List[Reply]
   var bundle: Restore
-  var disk: Set[Key]
+  var disk: Disk
   var wipes: int
 
   // ---------- helpers ----------
@@ -66,12 +77,6 @@ module transport {
   // Puts `r` at the newest place and drops the older record of the same key.
   pure def upsert(l: List[Reply], r: Reply): List[Reply] = l.select(x => x.key != r.key).append(r)
 
-  pure def lastN(l: List[Reply], n: int): List[Reply] =
-    if (l.length() <= n) l else l.slice(l.length() - n, l.length())
-
-  // What one publish writes into every slot: the last BODY_CAP records (SPEC 7.3).
-  pure def bodyOf(b: Bridge): List[Reply] = lastN(b.records, BODY_CAP)
-
   pure def has(l: List[str], x: str): bool = l.foldl(false, (found, y) => found or y == x)
 
   pure def mergeChats(have: List[str], add: Set[str]): List[str] =
@@ -79,16 +84,28 @@ module transport {
 
   pure def listToSet(l: List[str]): Set[str] = l.foldl(Set(), (s, x) => s.union(Set(x)))
 
-  // Publishes the records, and the restore bundle while it lasts.
-  action publish(b: Bridge): bool = all {
-    body' = bodyOf(b),
-    bundle' = if (b.restoreLeft > 0) b.restore else NO_RESTORE,
-    bridge' = if (b.restoreLeft > 0) { ...b, restoreLeft: b.restoreLeft - 1 } else b,
+  pure def reportOf(a: Addon): Report = { token: a.token, read: a.answered, restored: a.restored }
+
+  // The records that go into a slot body: everything unread, except retired tokens.
+  pure def live(b: Bridge): List[Reply] = b.records.select(r => not(b.retired.contains(r.key.token)))
+
+  // A final reply leaves the body once the addon has read it. A confirmed restore
+  // ends the bundle and retires every older token.
+  pure def takeReport(b: Bridge, r: Report): Bridge = {
+    val readKeys = r.read.map(id => { token: r.token, id: id })
+    val confirmed = r.restored and b.restoreActive and b.restore.token == r.token
+    {
+      ...b,
+      records: b.records.select(x => not(x.status == Done and readKeys.contains(x.key))),
+      restoreActive: b.restoreActive and not(confirmed),
+      retired: if (confirmed) b.tokens.exclude(Set(r.token)) else b.retired,
+    }
   }
 
-  // The bridge takes a message from the strip or the outbox, and drops a duplicate.
+  // The bridge takes a message, and drops a duplicate. With a full body it refuses
+  // the message and does not mark it seen, so the addon sends it again later.
   pure def admit(b: Bridge, k: Key, chat: str): Bridge =
-    if (b.seen.contains(k)) b else {
+    if (b.seen.contains(k) or live(b).length() >= BODY_CAP) b else {
       ...b,
       seen: b.seen.union(Set(k)),
       queue: b.queue.append(k),
@@ -96,20 +113,27 @@ module transport {
       chats: b.chats.union(Set(chat)),
     }
 
+  // One publish writes the same body into every slot.
+  action publish(b: Bridge): bool = all {
+    body' = live(b),
+    bundle' = if (b.restoreActive) b.restore else NO_RESTORE,
+    bridge' = b,
+  }
+
   // ---------- init ----------
 
   action init = all {
     addon' = {
       token: 1, nextId: 1, sent: Map(), answered: Set(), outbox: Set(), chats: List(),
-      strip: Map(), slotsLeft: POOL,
+      restored: false, strip: Map(), slotsLeft: POOL,
     },
     bridge' = {
       tokens: Set(1), seen: Set(), queue: List(), runs: Map(), records: List(),
-      chats: Set(), restore: NO_RESTORE, restoreLeft: 0,
+      chats: Set(), restore: NO_RESTORE, restoreActive: false, retired: Set(),
     },
     body' = List(),
     bundle' = NO_RESTORE,
-    disk' = Set(),
+    disk' = EMPTY_DISK,
     wipes' = 0,
   }
 
@@ -149,7 +173,7 @@ module transport {
     val mine = body.select(r => r.key.token == addon.token)
     val seenIds = keysOf(mine).map(k => k.id)
     val doneIds = keysOf(mine.select(r => r.status == Done)).map(k => k.id)
-    val chats1 = if (bundle.token == addon.token) mergeChats(addon.chats, bundle.chats) else addon.chats
+    val gotBundle = bundle.token == addon.token
     all {
       addon' = {
         ...addon,
@@ -157,64 +181,71 @@ module transport {
         answered: addon.answered.union(doneIds),
         outbox: addon.outbox.exclude(seenIds),
         strip: addon.strip.keys().exclude(seenIds).mapBy(i => addon.strip.get(i)),
-        chats: chats1,
+        chats: if (gotBundle) mergeChats(addon.chats, bundle.chats) else addon.chats,
+        restored: addon.restored or gotBundle,
       },
       bridge' = bridge, body' = body, bundle' = bundle, disk' = disk, wipes' = wipes,
     }
   }
 
   // `/reload`. WoW writes the saved variables, and the UI session starts again.
-  // The model requires that the addon shows the strip again for every open message
-  // that is not in the outbox. SPEC 7.5 does not say this yet.
+  // The addon shows the strip again for every open message that is not in the outbox.
   action reload = {
     val open = addon.sent.keys().exclude(addon.answered).exclude(addon.outbox)
     all {
       addon' = { ...addon, strip: open.mapBy(_ => SHOWS), slotsLeft: POOL },
-      disk' = addon.outbox.map(id => { token: addon.token, id: id }),
+      disk' = { outbox: addon.outbox.map(id => { token: addon.token, id: id }), report: reportOf(addon) },
       bridge' = bridge, body' = body, bundle' = bundle, wipes' = wipes,
     }
   }
 
-  // The beta client wipes the saved data. The addon makes a new token and sends a hello.
+  // The beta client wipes the saved data. The addon makes a new token.
   action wipe = all {
     wipes < MAX_WIPES,
     addon' = {
       token: addon.token + 1, nextId: 1, sent: Map(), answered: Set(), outbox: Set(), chats: List(),
-      strip: Map(), slotsLeft: POOL,
+      restored: false, strip: Map(), slotsLeft: POOL,
     },
-    disk' = Set(),
+    disk' = EMPTY_DISK,
     wipes' = wipes + 1,
     bridge' = bridge, body' = body, bundle' = bundle,
   }
 
   // ---------- the bridge ----------
 
-  // The bridge decodes a strip.
+  // The bridge decodes a message strip. The report on it comes first.
   action decodeStrip = {
     nondet id = addon.strip.keys().oneOf()
+    val b = takeReport(bridge, reportOf(addon))
     all {
-      publish(admit(bridge, { token: addon.token, id: id }, addon.sent.get(id))),
+      publish(admit(b, { token: addon.token, id: id }, addon.sent.get(id))),
       addon' = addon, disk' = disk, wipes' = wipes,
     }
   }
 
   // The bridge reads the outbox in the saved variables file.
   action readOutbox = {
-    nondet k = disk.oneOf()
+    nondet k = disk.outbox.oneOf()
     val chat = if (k.token == addon.token and addon.sent.keys().contains(k.id)) addon.sent.get(k.id) else "a"
-    all { publish(admit(bridge, k, chat)), addon' = addon, disk' = disk, wipes' = wipes }
+    val b = takeReport(bridge, disk.report)
+    all { publish(admit(b, k, chat)), addon' = addon, disk' = disk, wipes' = wipes }
   }
 
-  // The addon says hello with its token. An unknown token starts the restore (SPEC 7.6).
-  action hello = all {
-    not(bridge.tokens.contains(addon.token)),
-    val b = {
-      ...bridge,
-      tokens: bridge.tokens.union(Set(addon.token)),
-      restore: { token: addon.token, chats: bridge.chats },
-      restoreLeft: RESTORE_PUBLISHES,
+  // A hello: a strip with no message, only the token and the report. The addon sends
+  // one at login and after it applies a restore bundle. An unknown token starts the
+  // restore (SPEC 7.6).
+  action hello = {
+    val b = takeReport(bridge, reportOf(addon))
+    val known = bridge.tokens.contains(addon.token)
+    all {
+      publish(if (known) b else {
+        ...b,
+        tokens: b.tokens.union(Set(addon.token)),
+        restore: { token: addon.token, chats: b.chats },
+        restoreActive: true,
+      }),
+      addon' = addon, disk' = disk, wipes' = wipes,
     }
-    all { publish(b), addon' = addon, disk' = disk, wipes' = wipes },
   }
 
   // The agent runs the oldest queued message, and the bridge publishes the reply.
@@ -256,9 +287,8 @@ module transport {
   // 3. After a saved-data wipe, the restore never duplicates or drops a chat.
   val noDuplicateChat = addon.chats.length() == listToSet(addon.chats).size()
   val restoreComplete =
-    (wipes > 0 and bridge.restore.token == addon.token and bridge.restoreLeft == 0 and
-      addon.slotsLeft < POOL)
-    implies bridge.chats.subseteq(listToSet(addon.chats))
+    (wipes > 0 and bridge.restore.token == addon.token and not(bridge.restoreActive))
+    implies bridge.restore.chats.subseteq(listToSet(addon.chats))
   val restoreSafe = noDuplicateChat and restoreComplete
 
   // 4. Each sent message ends with a reply or an error, also across `/reload`: an open
@@ -274,5 +304,21 @@ module transport {
     }
   })
 
-  val allProperties = runsOnce and noLostReply and restoreSafe and noStuckMessage
+  // The fixes keep S12: a body never holds more than BODY_CAP records.
+  val bodyBounded = body.length() <= BODY_CAP
+
+  val allProperties = runsOnce and noLostReply and restoreSafe and noStuckMessage and bodyBounded
+
+  // ---------- witnesses ----------
+  // Each one must fail: it names a state that the simulator must reach. If a witness
+  // holds, the properties above pass only because the hard states never happen.
+
+  // The body is full, so the bridge refuses new messages.
+  val neverFull = body.length() < BODY_CAP
+  // A wipe happened, and the addon confirmed the restore.
+  val neverRestored = not(wipes > 0 and bridge.restore.token == addon.token and not(bridge.restoreActive))
+  // The addon read two replies.
+  val neverTwoAnswers = addon.answered.size() < 2
+  // A message went through the outbox and got its reply.
+  val neverOutboxReply = not(disk.outbox.exists(k => k.token == addon.token and addon.answered.contains(k.id)))
 }

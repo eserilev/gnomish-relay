@@ -196,10 +196,12 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | Flag | Meaning |
 |---|---|
 | `n` | Start a new agent session for this chat. |
-| `h` | Hello only. It announces the token and the addon version. It has no prompt. |
+| `h` | Hello only. It announces the token and the addon version. It has no prompt. The addon sends one at login and after it applies a restore bundle (7.6). |
 | `d` | The chat is deleted. The bridge drops its transcript and session. The addon keeps the id in `db.forget` and sends it with each hello until the bridge acknowledges it. |
 | `agent=<name>` | The agent for a new chat. |
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
+| `read=<id>,<id>` | The final replies that the addon has shown since its last `read` flag. The bridge then takes them out of the slot body (7.3). |
+| `restored` | The addon has applied the restore bundle for its token (7.6). |
 
 **Strip lifetime:**
 The strip stays up until the bridge acknowledges it, or for 40 seconds.
@@ -248,7 +250,10 @@ GnomishRelay_SlotData = {
 ```
 
 - `proto` and the pool sizes let the addon detect a mismatch (7.7).
-- `replies` holds the last 30 records. Each `text` is at most 32 KB. The bridge cuts longer text and adds a note with the full length.
+- `replies` holds every record that the addon has not read, at most 30. Each `text` is at most 32 KB. The bridge cuts longer text and adds a note with the full length.
+- A final reply stays in the body until a `read` flag names it. Then the bridge takes it out.
+- When the body holds 30 records, the bridge refuses new messages. It does not mark a refused message as seen, so the addon sends it again: the strip shows again, and the outbox (7.5) keeps it. The bridge takes new messages again after the next `read` flag.
+- The `transport.qnt` model (14.2) checks these rules. Without them, a reply can drop out of the body before the addon reads it.
 - `notes` holds terminal pings (section 10). `permissions` holds open permission requests (9.3).
 - String escapes follow one function in the `protocol` crate. The addon reads the file as Lua source, so the escape rules are part of the protocol.
 - The bridge writes progress at most every 3 seconds. It writes final replies at once.
@@ -296,10 +301,16 @@ The addon uses the reload fallback when the strip gets no acknowledgment, the po
 4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 750 ms).
 5. The bridge writes the reply into `GnomishRelay/Inbox.lua`. The main addon reads it at the next reload.
 
+After each `/reload`, the addon shows the strip again for every sent message that has no reply and is not in the outbox.
+The saved variables also carry the `read` and `restored` state, so the bridge reads them from the file too.
+
 ### 7.6 Restore after a saved-data wipe
 
 The beta client sometimes wipes addon saved data. The addon then makes a new token.
-When the bridge sees an unknown token, it adds a `restore` bundle to the next 3 publishes, addressed to that token.
+When the bridge sees an unknown token, it adds a `restore` bundle to each publish, addressed to that token.
+The bundle stays in each publish until a strip from that token has the `restored` flag.
+The addon applies a bundle only one time. It merges the chats by chat id, so a second copy of the bundle changes nothing.
+After the `restored` flag, the bridge retires the older tokens and takes their records out of the slot body. Their replies are in the transcripts and in the bundle.
 The bundle holds up to 16 chats, 40 messages each, 2000 characters per message.
 
 ### 7.7 Versioning
