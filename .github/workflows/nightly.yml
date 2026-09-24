@@ -1,4 +1,4 @@
-# The long fuzz run (SPEC 14.4). CI runs the same targets for 30 seconds each.
+# The long fuzz run (SPEC 14.4), and the check for a new WoW Forever client (SPEC 7.8).
 name: nightly
 
 on:
@@ -27,3 +27,29 @@ jobs:
         with:
           name: fuzz-artifacts
           path: fuzz/artifacts
+
+  # Blizzard patches the client without notice. This job checks the addon against
+  # the newest `forever` branch of both API sources, and opens an issue on a change.
+  wow-api:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+      - run: scripts/wow-api.sh --latest
+      - run: git diff --exit-code -- addon/tests/api.lua
+      - run: cargo test -p bridge --test addon_flow
+      - name: Open an issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="The WoW Forever API changed"
+          if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number -q '.[].number')" ]; then
+            gh issue create --title "$title" --body "The nightly API check failed: $RUN. Update the pinned commits in scripts/wow-api.sh, run it, and fix what breaks."
+          fi

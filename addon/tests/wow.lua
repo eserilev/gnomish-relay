@@ -1,5 +1,9 @@
 -- A small fake of the WoW API, enough to run the addon outside the game.
 -- It returns a `wow` table that tests use to drive time and look inside.
+-- `api` is addon/tests/api.lua: the real API of the client. An object of the fake
+-- refuses every method or child key that its real kind and template do not have.
+
+local api = ...
 
 local wow = {
 	now = 1000,
@@ -22,9 +26,9 @@ local wow = {
 local Object = {}
 local methods = {}
 
--- An unknown capitalized field is a no-op that can be called or indexed further,
--- like `frame.PortraitContainer.portrait` or `frame:SetFrameStrata()`. WoW names
--- methods and child frames that way. A lowercase field is data, and stays nil.
+-- A known capitalized field with no fake is a no-op that can be called or indexed
+-- further, like `frame.PortraitContainer.portrait` or `frame:SetFrameStrata()`. WoW
+-- names methods and child frames that way. A lowercase field is data, and stays nil.
 local Nothing = setmetatable({}, {
 	__call = function() end,
 	__index = function(self)
@@ -32,16 +36,61 @@ local Nothing = setmetatable({}, {
 	end,
 })
 
-Object.__index = function(_, key)
-	if methods[key] then
-		return methods[key]
-	elseif key:match("^%u") then
-		return Nothing
+local function AddWidget(names, widget, seen)
+	local w = api.widgets[widget]
+	if not w or seen[widget] then
+		return
+	end
+	seen[widget] = true
+	for _, m in ipairs(w.methods) do
+		names[m] = true
+	end
+	for _, parent in ipairs(w.inherits) do
+		AddWidget(names, parent, seen)
 	end
 end
 
-local function New(kind, name, parent)
-	local o = setmetatable({ kind = kind, name = name, parent = parent, shown = true, scripts = {} }, Object)
+local namesOf = {}
+
+-- An intrinsic frame such as ScrollingMessageFrame is in `templates` under its kind.
+local function Names(kind, template)
+	local id = kind .. "/" .. tostring(template)
+	if namesOf[id] then
+		return namesOf[id]
+	end
+	local names, seen = {}, {}
+	AddWidget(names, kind, seen)
+	local t = api.templates[template or kind]
+	if t then
+		AddWidget(names, t.base, seen)
+		for _, n in ipairs(t.names) do
+			names[n] = true
+		end
+	end
+	namesOf[id] = names
+	return names
+end
+
+Object.__index = function(o, key)
+	if not key:match("^%u") then
+		return nil
+	end
+	if not rawget(o, "names")[key] then
+		error(string.format("%s has no %s in WoW Forever %s", o.template or o.kind, key, api.build), 2)
+	end
+	return methods[key] or Nothing
+end
+
+local function New(kind, name, parent, template)
+	local o = setmetatable({
+		kind = kind,
+		template = template,
+		names = Names(kind, template),
+		name = name,
+		parent = parent,
+		shown = true,
+		scripts = {},
+	}, Object)
 	if name then
 		_G[name] = o
 	end
@@ -239,8 +288,8 @@ SOUNDKIT = { TELL_MESSAGE = 3081 }
 ChatFontNormal, GameFontNormal = {}, {}
 SlashCmdList = {}
 
-function CreateFrame(kind, name, parent)
-	return New(kind, name, parent)
+function CreateFrame(kind, name, parent, template)
+	return New(kind, name, parent, template)
 end
 
 function print(...)

@@ -72,10 +72,15 @@ impl Game {
 
     fn boot(saved: Option<String>, before: impl FnOnce(&Table)) -> Game {
         let lua = lua(Bits::Unsigned);
+        let api: Table = lua
+            .load(repo_file("addon/tests/api.lua"))
+            .set_name("api.lua")
+            .call(())
+            .unwrap();
         let wow: Table = lua
             .load(repo_file("addon/tests/wow.lua"))
             .set_name("wow.lua")
-            .call(())
+            .call(api)
             .unwrap();
         before(&wow);
         if let Some(saved) = saved {
@@ -767,4 +772,21 @@ fn when_every_slot_is_used_the_addon_stops_polling_and_asks_for_a_reload() {
             .as_boolean()
             .unwrap()
     );
+}
+
+#[test]
+fn the_fake_game_refuses_what_the_client_does_not_have() {
+    let game = Game::start();
+    let call = |code: &str| game.lua.load(code).exec().map_err(|e| e.to_string());
+
+    let removed = call("CreateFrame('Frame'):SetBackdrop({})").unwrap_err();
+    assert!(
+        removed.contains("Frame has no SetBackdrop in WoW Forever"),
+        "{removed}"
+    );
+    assert!(call("SetPortraitToTexture(nil, '')").is_err());
+    assert!(
+        call("CreateFrame('Frame', nil, UIParent, 'PortraitFrameTemplate'):SetTitle('x')").is_ok()
+    );
+    assert!(call("CreateFrame('Frame'):SetTitle('x')").is_err());
 }

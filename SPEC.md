@@ -510,6 +510,14 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 - On a new build, the bridge logs it. The window shows "New game version: checking the relay" until the self-test passes.
 - A known break goes into a table in the bridge, so the setup can name the channel that works on each build.
 
+**API compliance.** The addon calls only the API of the real Forever client (1.60.1, the Mainline UI code).
+
+- `scripts/wow-api.sh` reads two sources at pinned commits: the `forever` branch of Gethe/wow-ui-source (Blizzard's UI code) and of Ketho/BlizzardInterfaceResources (the API that the client reports).
+- It checks every WoW name that the addon, `wow.yml`, or the fake game uses. A name that the client does not have, or has only in a `Blizzard_Deprecated` addon, stops it. It also checks the `## Interface` number of the TOC against the build.
+- It writes `addon/tests/api.lua`: the used globals, every widget type with its methods, and each used template with its mixin methods and child keys.
+- Selene allows only the globals in `wow.yml`. The fake game refuses every method and child key that the real kind and template of an object do not have.
+- CI runs the script at the pinned commits, and fails if `api.lua` changes. A nightly job runs it at the newest commits with the addon tests, and opens an issue when the client changes.
+
 ## 8. Architecture
 
 ```

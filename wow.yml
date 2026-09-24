@@ -1,4 +1,5 @@
 # The WoW API that the addon uses, for selene. Lua 5.1 plus these globals.
+# scripts/wow-api.sh checks each one against the real Forever client.
 base: lua51
 globals:
   bit:

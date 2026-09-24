@@ -14,6 +14,12 @@ cargo test -q
 cargo deny --log-level error check
 stylua --check addon
 selene --quiet addon/GnomishRelay
+# A WoW name that the client does not have, or has only as deprecated, fails here.
+scripts/wow-api.sh > /dev/null
+if ! git diff --quiet -- addon/tests/api.lua; then
+  echo "error: addon/tests/api.lua is out of date. Run scripts/wow-api.sh and commit." >&2
+  exit 1
+fi
 scripts/check-proofs.sh
 scripts/check-model.sh
 echo "all checks ok"
