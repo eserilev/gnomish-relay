@@ -1,7 +1,7 @@
 # Supply chain rules for the main workspace (SPEC 14.6).
 
 [licenses]
-allow = ["MIT", "Apache-2.0"]
+allow = ["MIT", "Apache-2.0", "BSD-3-Clause"]
 # The bridge crates will need Apache-2.0. The core has no dependencies yet.
 unused-allowed-license = "allow"
 
