@@ -378,10 +378,11 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 - At a hello, or when the saved variables file changes (a `/reload`), the bridge starts the window at the reported slot, or at slot 1.
 - A slot outside the window holds an older body. A read of an older body is harmless: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
 
-Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with two files:
+Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with three files:
 
-- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the Lua file name.
+- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the two Lua file names.
 - `Inbox.lua`: the body.
+- `Restore.lua`: the restore bundle (7.6). With no restore, its token is empty, and no addon takes it.
 
 The body sets one global table:
 
@@ -397,7 +398,6 @@ GnomishRelay_SlotData = {
   notes = { { seq = 41, source = "claude", repo = "lighthouse", kind = "done", text = "..." } },
   permissions = { { request = "p7", chat = "c1", tool = "Bash", detail = "cargo test",
                     options = { { id = "o1", kind = "allow_once", label = "Allow" } } } },
-  restore = nil,
 }
 ```
 
@@ -463,11 +463,15 @@ The saved variables also carry the `read` and `restored` state, so the bridge re
 ### 7.6 Restore after a saved-data wipe
 
 The beta client sometimes wipes addon saved data. The addon then makes a new token.
-When the bridge sees an unknown token, it adds a `restore` bundle to each publish, addressed to that token.
+When a hello comes from an unknown token, and the bridge already knows another token, the bridge writes a restore bundle for the new token.
+The bundle goes into `Restore.lua` in each slot of the window, next to the body. So the body keeps its own 1 MiB bound (S12).
 The bundle stays in each publish until a strip from that token has the `restored` flag.
 The addon applies a bundle only one time. It merges the chats by chat id, so a second copy of the bundle changes nothing.
-After the `restored` flag, the bridge retires the older tokens and takes their records out of the slot body. Their replies are in the transcripts and in the bundle.
-The bundle holds up to 16 chats, 40 messages each, 2000 characters per message.
+After the `restored` flag, the bridge retires the older tokens and takes their records out of the slot body. A run of a retired token that ends later goes only into the history.
+
+The bundle holds the 16 chats with the latest activity, and the last 10 messages of each (S18).
+Each message is cut to 500 bytes, at a character boundary. The file is at most 512 KiB (S19).
+The bridge keeps this history in `state.json`. The full transcripts come later (8.3).
 
 ### 7.7 Versioning
 
@@ -558,7 +562,7 @@ Each chat has a FIFO queue. A second message to a busy chat waits. It never repl
 
 The bridge keeps its state in JSON files in the data folder of the OS:
 
-- `state.json`: the replay store, the unread records, the waiting messages, and the slot window. Later also agent session IDs per chat, the folder of each session, and signal counters.
+- `state.json`: the replay store, the unread records, the waiting messages, the slot window, the tokens, and the restore history (7.6). Later also agent session IDs per chat, the folder of each session, and signal counters.
 - `transcripts.json`: every prompt and reply, per chat. 200 messages per chat, 4000 characters each.
 
 Rules:
@@ -886,6 +890,8 @@ So most theorems are security properties. Each one closes a named attack.
 | S7 | **Replay protection:** a `(token, id)` pair is accepted at most one time while it is in the window. | A replayed strip runs a task two times. |
 | S8 | **Lua escape:** for every string, the escape function gives a Lua string literal that reads back as the same string. The output never ends the literal early. | A reply from a malicious agent injects Lua code into the game. |
 | S9 | **Slot body shape:** the slot file writer only puts escaped strings and numbers into a fixed table shape. | A malicious agent changes `proto`, adds fields, or runs code in the slot file. |
+| S18 | **Restore file shape:** the restore writer only puts escaped strings and numbers into a fixed table shape. Its prepare step keeps the last 16 chats and the last 10 messages of each, and cuts only the ends of strings. | A chat name or a message from a malicious agent runs code in the restore file. |
+| S19 | **Restore size bound:** a restore file that fits is at most 512 KiB. | A long chat history makes a restore file that the game cannot load. |
 | S10 | **UI escape:** the display sanitizer doubles every `\|` in agent text. | A malicious agent fakes a WoW chat link (`\|H...\|h`), a texture, or a color that imitates a system message. |
 | S11 | **Freshness:** the bridge accepts a frame only if its time is at most 5 minutes old and at most 1 minute in the future. | An old screenshot of a strip is replayed. The MAC is still valid, so S2 does not stop it. |
 | S12 | **Size bounds:** for every input, a slot body is at most 1 MB, and each reply record in it is at most 32 KB. | A malicious agent writes a huge reply, and the bridge writes 200 huge slot files. |
@@ -995,7 +1001,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 4. **Done: `protocol` crate with Aeneas.** Frame, cells, records, slot body, escapes, and every theorem in 14.1. `VERIFICATION.md` has the status.
 5. **Done: slot writer.** Publish a fixed reply. Make sure that it shows in the game. Passed in the game on 2026-09-24: `install`, then `say`, then `/relay poll` showed the reply. The steps are in `addon/README.md`.
 6. **Addon port** with the stub harness and the differential tests.
-7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b, part):** `state.json`. **Next (7b):** the restore bundle.
+7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check.
 9. **ACP backend.** Test with one agent first.
 10. **`note` signal and pings:** the hook CLI and the socket.
@@ -1018,6 +1024,7 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 - Can an AppContainer or a restricted token give Claude and other agents a sandbox on native Windows?
 - Which `claude` flag keeps the project and user settings out of a run (6.6.4)?
 - What can Codex read inside `workspace-write`?
+- Two WoW accounts on one computer have two tokens. A hello from the second account starts a restore, and its `restored` flag retires the first token. How does the bridge tell two accounts from a saved-data wipe?
 
 1. Does X11 capture of the WoW window work under XWayland? (Only for the fallback.)
 2. Can font files replace the `.wav` signals?

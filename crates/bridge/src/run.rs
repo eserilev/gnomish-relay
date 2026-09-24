@@ -191,7 +191,9 @@ impl Bridge {
     /// A failed publish waits for the next heartbeat, so it does not log every tick.
     fn publish(&mut self) {
         let body = self.relay.body(now());
-        if let Err(e) = slots::publish(&self.paths.addons, &body, self.relay.next_slot()) {
+        let restore = self.relay.restore_file();
+        if let Err(e) = slots::publish(&self.paths.addons, &body, &restore, self.relay.next_slot())
+        {
             log(&format!("publish failed: {e:#}"));
         }
         self.changed = false;

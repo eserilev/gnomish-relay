@@ -9,6 +9,7 @@ use bridge::receive::StripKey;
 use bridge::relay::Folders;
 use bridge::run::{Paths, now, run};
 use bridge::slots;
+use protocol::restore::restore_body;
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const USAGE: &str = "\
@@ -92,7 +93,12 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
             .context("GNOMISH_NEXT_SLOT is not a slot number")?,
         Err(_) => 1,
     };
-    slots::publish(&addons_dir()?, &body(&[reply]), next)?;
+    slots::publish(
+        &addons_dir()?,
+        &body(&[reply]),
+        &restore_body(b"", &[]),
+        next,
+    )?;
     println!(
         "published to {} slots from slot {next}",
         protocol::slot::SLOT_WINDOW
@@ -105,7 +111,7 @@ fn main() -> Result<()> {
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
         ["install"] => {
             let dir = addons_dir()?;
-            slots::install(&dir, &body(&[]))?;
+            slots::install(&dir, &body(&[]), &restore_body(b"", &[]))?;
             println!("made {} slots in {}", protocol::slot::SLOTS, dir.display());
             Ok(())
         }

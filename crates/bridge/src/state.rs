@@ -7,13 +7,16 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
 use crate::fs_safe::write_atomic;
+use crate::history::History;
 use crate::relay::{ChatId, Job, MessageId};
 
 const FILE: &str = "state.json";
 /// 1000 seen ids and 30 records of 32 KiB fit in far less.
 const MAX_FILE: u64 = 16 * 1024 * 1024;
 
+/// A field that an older bridge did not write loads as its default.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
+#[serde(default)]
 pub struct State {
     pub next_slot: usize,
     /// The replay store, oldest first.
@@ -21,6 +24,10 @@ pub struct State {
     pub records: Vec<SavedRecord>,
     /// The messages that wait for a run, in queue order.
     pub waiting: Vec<Job>,
+    pub history: History,
+    pub tokens: Vec<String>,
+    pub retired: Vec<String>,
+    pub restore_for: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -90,6 +97,9 @@ mod tests {
                 session: Session::Resume,
                 text: "next".into(),
             }],
+            tokens: vec!["tok".into()],
+            restore_for: Some("new".into()),
+            ..State::default()
         }
     }
 

@@ -12,11 +12,12 @@ use protocol::record::Record;
 
 const CHATS: [&str; 3] = ["c1", "c2", "relay"];
 const FOLDERS: [&str; 5] = ["", "sub", "../..", "/etc", "a/../../b"];
-const FLAGS: [&str; 7] = [
+const FLAGS: [&str; 8] = [
     "",
     "n",
     "stop",
     "h",
+    "h;restored",
     "agent=codex",
     "read=1,2,3,4",
     "next=9",

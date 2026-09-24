@@ -7,18 +7,22 @@ use std::collections::{BTreeMap, BTreeSet};
 use protocol::folder::resolve_folder;
 use protocol::rate::{ChatQueue, MAX_QUEUE, RateLimiter, admit_message, enqueue};
 use protocol::record::Record;
+use protocol::restore::{prepare_restore, restore_body};
 use protocol::seen::{self, Seen, admit, new_seen};
 use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 
 use serde::{Deserialize, Serialize};
 
 use crate::flags::{self, Flags};
+use crate::history::{ChatLog, History, Speaker};
 use crate::state::{SavedRecord, SavedStatus, State};
 
 const DEFAULT_AGENT: &str = "claude";
 const BAD_FOLDER: &str = "Folder not allowed.";
 const STOPPED: &str = "Stopped.";
 const RESTARTED: &str = "Stopped: the bridge restarted.";
+/// More tokens than this means many wipes. The oldest ones then go.
+const MAX_TOKENS: usize = 16;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ChatId(pub String);
@@ -109,6 +113,19 @@ pub struct Relay {
     jobs: BTreeMap<(ChatId, MessageId), Job>,
     running: BTreeSet<ChatId>,
     next_slot: usize,
+    history: History,
+    /// The tokens that sent a hello, oldest first.
+    tokens: Vec<String>,
+    /// Tokens of wiped saved data. Their records never go into the body again.
+    retired: Vec<String>,
+    /// The new token after a saved-data wipe, until it reports `restored`.
+    restore_for: Option<String>,
+}
+
+fn keep_last(list: &mut Vec<String>, max: usize) {
+    if list.len() > max {
+        list.drain(..list.len() - max);
+    }
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -126,6 +143,10 @@ impl Relay {
             jobs: BTreeMap::new(),
             running: BTreeSet::new(),
             next_slot: 1,
+            history: History::default(),
+            tokens: Vec::new(),
+            retired: Vec::new(),
+            restore_for: None,
         }
     }
 
@@ -159,6 +180,28 @@ impl Relay {
             let read = e.token == token && flags.read.contains(&e.id.0);
             !read || matches!(e.status, Status::Working)
         });
+        self.take_restore_report(token, flags);
+    }
+
+    /// A hello from a new token after a saved-data wipe starts a restore. The
+    /// `restored` flag of that token ends it, and the older tokens retire (SPEC.md 7.6).
+    fn take_restore_report(&mut self, token: &str, flags: &Flags) {
+        if flags.restored && self.restore_for.as_deref() == Some(token) {
+            self.restore_for = None;
+            let old = std::mem::replace(&mut self.tokens, vec![token.to_owned()]);
+            self.retired.extend(old.into_iter().filter(|t| t != token));
+            keep_last(&mut self.retired, MAX_TOKENS);
+            self.records.retain(|e| e.token == token);
+            return;
+        }
+        if !flags.hello || self.tokens.iter().any(|t| t == token) {
+            return;
+        }
+        if !self.tokens.is_empty() && !self.history.is_empty() {
+            self.restore_for = Some(token.to_owned());
+        }
+        self.tokens.push(token.to_owned());
+        keep_last(&mut self.tokens, MAX_TOKENS);
     }
 
     fn on_record(&mut self, r: &Record, now: u32) -> Outcome {
@@ -174,6 +217,16 @@ impl Relay {
         if let Err(outcome) = self.admit(r, &chat, now) {
             return outcome;
         }
+        let agent = flags.agent.unwrap_or_else(|| DEFAULT_AGENT.to_owned());
+        let log = ChatLog {
+            chat: chat.clone(),
+            name: text(&r.name),
+            agent: agent.clone(),
+            cwd: text(&r.cwd),
+            lines: Vec::new(),
+        };
+        self.history
+            .add_message(log, MessageId(r.id), &text(&r.text));
         let Some(cwd) = resolve_folder(&self.folders.roots, &self.folders.base, &r.cwd) else {
             self.set_record(
                 &text(&r.token),
@@ -188,7 +241,7 @@ impl Relay {
             token: text(&r.token),
             chat,
             id: MessageId(r.id),
-            agent: flags.agent.unwrap_or_else(|| DEFAULT_AGENT.to_owned()),
+            agent,
             cwd: text(&cwd),
             session: if flags.new_session {
                 Session::New
@@ -296,6 +349,17 @@ impl Relay {
         status: Status,
         text: String,
     ) {
+        let speaker = match status {
+            Status::Working => None,
+            Status::Done => Some(Speaker::Agent),
+            Status::Error => Some(Speaker::Error),
+        };
+        if let Some(speaker) = speaker {
+            self.history.add_reply(chat, speaker, id, &text);
+        }
+        if self.retired.iter().any(|t| t == token) {
+            return;
+        }
         self.records.retain(|e| !(e.token == token && e.id == id));
         self.records.push(Entry {
             token: token.to_owned(),
@@ -318,6 +382,10 @@ impl Relay {
                 .collect(),
             records: self.records.iter().map(Entry::to_saved).collect(),
             waiting: self.waiting_jobs(),
+            history: self.history.clone(),
+            tokens: self.tokens.clone(),
+            retired: self.retired.clone(),
+            restore_for: self.restore_for.clone(),
         }
     }
 
@@ -345,6 +413,10 @@ impl Relay {
             })
             .collect();
         relay.records = state.records.into_iter().map(Entry::from_saved).collect();
+        relay.history = state.history;
+        relay.tokens = state.tokens;
+        relay.retired = state.retired;
+        relay.restore_for = state.restore_for;
         for job in state.waiting {
             let queue = relay
                 .queues
@@ -358,9 +430,23 @@ impl Relay {
             if matches!(entry.status, Status::Working) && !waits {
                 entry.status = Status::Error;
                 entry.text = RESTARTED.into();
+                relay
+                    .history
+                    .add_reply(&entry.chat, Speaker::Error, entry.id, RESTARTED);
             }
         }
         relay
+    }
+
+    /// An empty token matches no addon, so the file stays harmless with no restore.
+    pub fn restore_file(&self) -> Vec<u8> {
+        let Some(token) = &self.restore_for else {
+            return restore_body(b"", &[]);
+        };
+        restore_body(
+            token.as_bytes(),
+            &prepare_restore(&self.history.to_restore()),
+        )
     }
 
     pub fn body(&self, now: u32) -> Vec<u8> {
@@ -568,6 +654,66 @@ mod tests {
         assert_eq!(relay.on_frame(&[other()], NOW), [Outcome::Accepted]);
         assert_eq!(run_all(&mut relay).len(), 1);
         assert!(!body(&relay).contains("status = \"working\""));
+    }
+
+    fn from_token(token: &str, r: Record) -> Record {
+        Record {
+            token: token.as_bytes().to_vec(),
+            ..r
+        }
+    }
+
+    fn restore_text(relay: &Relay) -> String {
+        String::from_utf8(relay.restore_file()).unwrap()
+    }
+
+    /// One chat with a finished message from `tok`, then a hello from `new`.
+    fn wiped() -> Relay {
+        let mut relay = relay();
+        relay.on_frame(&[record("relay", 0, "h", "")], NOW);
+        relay.on_frame(&[record("c1", 1, "", "before the wipe")], NOW);
+        run_all(&mut relay);
+        relay.on_frame(&[from_token("new", record("relay", 0, "h", ""))], NOW);
+        relay
+    }
+
+    #[test]
+    fn the_first_token_gets_no_restore() {
+        let mut relay = relay();
+        relay.on_frame(&[record("relay", 0, "h", "")], NOW);
+        assert!(restore_text(&relay).contains("token = \"\""));
+    }
+
+    #[test]
+    fn a_hello_from_a_new_token_gets_the_chats_back() {
+        let relay = wiped();
+        let text = restore_text(&relay);
+        assert!(text.contains("token = \"new\""));
+        assert!(text.contains("text = \"before the wipe\""));
+        assert!(text.contains("text = \"echo: before the wipe\""));
+    }
+
+    #[test]
+    fn the_restored_flag_ends_the_restore_and_retires_the_old_token() {
+        let mut relay = wiped();
+        relay.on_frame(&[record("c1", 2, "", "still running")], NOW);
+        let job = relay.next_job().unwrap();
+
+        relay.on_frame(
+            &[from_token("new", record("relay", 0, "h;restored", ""))],
+            NOW,
+        );
+        relay.finish(&job, Ok("late".into()));
+
+        assert!(restore_text(&relay).contains("token = \"\""));
+        assert!(!body(&relay).contains("echo: before the wipe"));
+        assert!(!body(&relay).contains("late"));
+    }
+
+    #[test]
+    fn a_restore_goes_on_after_a_bridge_restart() {
+        let relay = wiped();
+        assert!(restore_text(&restart(&relay)).contains("token = \"new\""));
     }
 
     fn restart(relay: &Relay) -> Relay {

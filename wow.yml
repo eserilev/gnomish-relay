@@ -57,6 +57,8 @@ globals:
     property: full-write
   GnomishRelay_SlotData:
     property: full-write
+  GnomishRelay_Restore:
+    property: full-write
   SLASH_GNOMISHRELAY1:
     property: full-write
   SLASH_GNOMISHRELAYASK1:

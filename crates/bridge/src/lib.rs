@@ -6,6 +6,7 @@
 pub mod agent;
 pub mod flags;
 pub mod fs_safe;
+pub mod history;
 pub mod receive;
 pub mod relay;
 pub mod run;

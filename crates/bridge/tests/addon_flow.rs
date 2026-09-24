@@ -17,6 +17,7 @@ use mlua::{Function, Lua, Table, Value};
 use protocol::cell::decode_cells;
 use protocol::frame::{decode_frame, signed_len};
 use protocol::record::{Record, parse_records};
+use protocol::restore::{Chat, Entry, Role, prepare_restore, restore_body};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 use sha2::Sha256;
 
@@ -372,18 +373,30 @@ fn after_twenty_polls_a_hello_reports_the_slot_position() {
 fn a_restore_bundle_brings_chats_back_once_and_never_resends_them() {
     let game = Game::start();
     let token: String = game.db().get("token").unwrap();
-    let body = format!(
-        "GnomishRelay_SlotData = {{proto = 1, now = 1790211079, replies = {{}}, restore = {{token = \"{token}\", chats = {{
-            {{id = \"oldchat01\", name = \"lighthouse\", agent = \"claude\",
-              history = {{{{role = \"user\", id = 5, text = \"hi\"}}, {{role = \"agent\", id = 5, text = \"hello\"}}}}}}
-        }}}}}}"
-    );
-    game.wow.set("body", body).unwrap();
+    let entry = |role, text: &str| Entry {
+        role,
+        id: 5,
+        text: text.as_bytes().to_vec(),
+    };
+    let chats = [Chat {
+        id: b"oldchat01".to_vec(),
+        name: b"lighthouse".to_vec(),
+        agent: b"claude".to_vec(),
+        cwd: b"Code/x".to_vec(),
+        history: vec![entry(Role::User, "hi"), entry(Role::Agent, "hello")],
+    }];
+    let restore = restore_body(token.as_bytes(), &prepare_restore(&chats));
+    game.wow
+        .set("restore", game.lua.create_string(restore).unwrap())
+        .unwrap();
     game.run("local ns = ... ns.Transport.Poll() ns.Transport.Poll()");
     game.advance(2.0);
 
     let chats: Table = game.db().get("chats").unwrap();
     assert_eq!(chats.raw_len(), 1);
+    let chat: Table = chats.get(1).unwrap();
+    assert_eq!(chat.get::<String>("cwd").unwrap(), "Code/x");
+    assert_eq!(last_entry(&game).get::<String>("text").unwrap(), "hello");
     assert!(game.db().get::<bool>("restored").unwrap());
     let records = game.last_strip();
     assert_eq!(records.len(), 1, "only a hello, no resent message");
@@ -710,12 +723,13 @@ fn a_chat_keeps_its_last_200_entries() {
 }
 
 #[test]
-fn a_restore_bundle_skips_a_bad_chat_id_and_a_bad_agent() {
+fn a_restore_bundle_skips_a_bad_chat_id_a_bad_agent_and_a_bad_role() {
     let game = Game::start();
     game.run(
         "local ns = ... ns.Store.MergeChats({
             { id = '../../x', name = 'evil' },
-            { id = 'good01', name = 'ok', agent = '|cffff0000fake' },
+            { id = 'good01', name = 'ok', agent = '|cffff0000fake',
+              history = { { role = 'system', id = 1, text = 'x' }, { role = 'user', id = 2, text = 'y' } } },
         })",
     );
     let chats: Table = game.db().get("chats").unwrap();
@@ -723,6 +737,7 @@ fn a_restore_bundle_skips_a_bad_chat_id_and_a_bad_agent() {
     let chat: Table = chats.get(1).unwrap();
     assert_eq!(chat.get::<String>("id").unwrap(), "good01");
     assert_eq!(chat.get::<String>("agent").unwrap(), "claude");
+    assert_eq!(chat.get::<Table>("history").unwrap().raw_len(), 1);
 }
 
 #[test]

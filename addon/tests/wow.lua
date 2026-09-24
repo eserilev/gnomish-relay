@@ -10,6 +10,7 @@ local wow = {
 	cvars = {},
 	loaded = {},
 	body = nil,
+	restore = nil,
 	slotsInstalled = true,
 	shots = {},
 	reloads = 0,
@@ -320,7 +321,7 @@ end
 
 function C_AddOns.EnableAddOn() end
 
--- A slot runs the body that the test put there, one time per UI session.
+-- A slot runs the body and the restore file that the test put there, one time per UI session.
 function C_AddOns.LoadAddOn(name)
 	if not wow.slotsInstalled then
 		return false, "MISSING"
@@ -329,6 +330,9 @@ function C_AddOns.LoadAddOn(name)
 		wow.loaded[name] = true
 		if wow.body then
 			assert(loadstring(wow.body))()
+		end
+		if wow.restore then
+			assert(loadstring(wow.restore))()
 		end
 	end
 	return true

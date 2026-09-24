@@ -355,6 +355,16 @@ local function ApplyReply(r, done)
 	end
 end
 
+local function ApplyRestore(restore)
+	local db = ns.Store.db
+	if type(restore) ~= "table" or restore.token ~= db.token or db.restored then
+		return
+	end
+	ns.Store.MergeChats(type(restore.chats) == "table" and restore.chats or {})
+	db.restored = true
+	state.helloDue = true
+end
+
 local function Apply(data)
 	if type(data) ~= "table" or data.proto ~= PROTO then
 		state.mismatch = true
@@ -367,12 +377,6 @@ local function Apply(data)
 		ApplyReply(r, done)
 	end
 	state.bodyDone = done
-	local restore = data.restore
-	if restore and restore.token == ns.Store.db.token and not ns.Store.db.restored then
-		ns.Store.MergeChats(restore.chats or {})
-		ns.Store.db.restored = true
-		state.helloDue = true
-	end
 end
 
 function Transport.Poll()
@@ -382,9 +386,11 @@ function Transport.Poll()
 	local name = SlotName(state.nextSlot)
 	C_AddOns.EnableAddOn(name)
 	GnomishRelay_SlotData = nil
+	GnomishRelay_Restore = nil
 	local loaded = C_AddOns.LoadAddOn(name)
-	local data = GnomishRelay_SlotData
+	local data, restore = GnomishRelay_SlotData, GnomishRelay_Restore
 	GnomishRelay_SlotData = nil
+	GnomishRelay_Restore = nil
 	state.missing = not loaded
 	if loaded then
 		state.nextSlot = state.nextSlot + 1
@@ -392,6 +398,7 @@ function Transport.Poll()
 			state.helloDue = true
 		end
 		Apply(data)
+		ApplyRestore(restore)
 	end
 	Transport.OnChange()
 end

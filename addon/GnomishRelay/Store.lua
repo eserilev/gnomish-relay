@@ -110,17 +110,21 @@ function Store.AddReply(chat, id, text, status)
 	return true
 end
 
+local ROLES = { user = true, agent = true, error = true }
+
 -- Restored messages are history, not new work: they are never sent again.
 local function RestoredHistory(entries)
 	local history = {}
-	for _, entry in ipairs(entries or {}) do
-		table.insert(history, {
-			role = entry.role,
-			id = entry.id,
-			text = entry.text,
-			agent = entry.agent,
-			answered = true,
-		})
+	for _, entry in ipairs(type(entries) == "table" and entries or {}) do
+		if type(entry) == "table" and ROLES[entry.role] then
+			table.insert(history, {
+				role = entry.role,
+				id = entry.id,
+				text = entry.text,
+				agent = entry.agent,
+				answered = true,
+			})
+		end
 	end
 	return history
 end

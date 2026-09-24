@@ -39,7 +39,12 @@ fn folders() -> Dirs {
     fs::create_dir_all(&state).unwrap();
     fs::create_dir_all(&screenshots).unwrap();
     fs::create_dir_all(&accounts).unwrap();
-    slots::install(&addons, b"GnomishRelay_SlotData = nil\n").unwrap();
+    slots::install(
+        &addons,
+        b"GnomishRelay_SlotData = nil\n",
+        b"GnomishRelay_Restore = nil\n",
+    )
+    .unwrap();
     Dirs {
         _root: root,
         addons,
