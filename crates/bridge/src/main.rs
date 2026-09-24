@@ -14,7 +14,7 @@ use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 const USAGE: &str = "\
 usage:
   gnomish-relay install          make the slot addons (game closed)
-  gnomish-relay say <text>       publish one reply into every slot
+  gnomish-relay say <text>       publish one reply, from slot 1 or from $GNOMISH_NEXT_SLOT
 
 The AddOns folder comes from GNOMISH_ADDONS.";
 
@@ -40,8 +40,16 @@ fn say(text: &str) -> Result<()> {
         status: Status::Done,
         text: text.as_bytes().to_vec(),
     };
-    slots::publish(&addons_dir()?, &body(&[reply])?)?;
-    println!("published to {} slots", protocol::slot::SLOTS);
+    // Until the strip reader exists, the next slot comes from the user: `/relay status` shows it.
+    let next = std::env::var("GNOMISH_NEXT_SLOT")
+        .ok()
+        .and_then(|n| n.parse().ok())
+        .unwrap_or(1);
+    slots::publish(&addons_dir()?, &body(&[reply])?, next)?;
+    println!(
+        "published to {} slots from slot {next}",
+        protocol::slot::SLOT_WINDOW
+    );
     Ok(())
 }
 

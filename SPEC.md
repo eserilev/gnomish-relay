@@ -202,6 +202,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
 | `read=<id>,<id>` | The final replies that the addon has shown since its last `read` flag. The bridge then takes them out of the slot body (7.3). |
 | `restored` | The addon has applied the restore bundle for its token (7.6). |
+| `next=<n>` | The next slot that the addon loads (7.3). |
 
 **Strip lifetime:**
 The strip stays up until the bridge acknowledges it, or for 40 seconds.
@@ -222,11 +223,17 @@ The spike tested the rules under Wine (2026-09-23). Rules 1, 2, and 3 hold. Rule
 
 ### 7.3 Slots: bridge to game
 
-The bridge cannot know which slot the addon loads next.
-So each publish writes the same body into all 200 slots, each with an atomic rename.
-The addon loads the first slot that it has not loaded in this UI session.
+There are 1000 slots. The addon loads them in order, from the first slot that it has not loaded in this UI session.
 
-Each slot is a folder `GnomishRelay_S001` to `GnomishRelay_S200` with two files:
+The bridge writes each body only into a window of 30 slots, with an atomic rename per file.
+The window starts at the next slot that the addon reported (`next` flag, 7.1.1).
+Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 3 seconds is 20 MB per publish.
+
+- The addon reports `next` in every strip. When it nears the end of the window without a strip to send, it sends a hello with `next`.
+- At a hello, or when the saved variables file changes (a `/reload`), the bridge starts the window at the reported slot, or at slot 1.
+- A slot outside the window holds an older body. A read of an older body is harmless: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
+
+Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with two files:
 
 - `GnomishRelay_SNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the Lua file name.
 - `Inbox.lua`: the body.
@@ -235,7 +242,7 @@ The body sets one global table:
 
 ```lua
 GnomishRelay_SlotData = {
-  proto = 1, slots = 200, ack_max = 200, presence_max = 2000, note_max = 2000,
+  proto = 1, slots = 1000, ack_max = 200, presence_max = 2000, note_max = 2000,
   ts = 1790211079, now = 1790211081,
   cwd = "/home/eitan/Documents/Code",
   replies = {
@@ -261,10 +268,14 @@ GnomishRelay_SlotData = {
 
 **Poll schedule after a send:** the addon loads a slot at 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, and 300 seconds.
 Then it loads one every 60 seconds until the reply is done.
+With no message pending, it loads one slot every 10 minutes, for terminal pings and the status light.
 A signal (7.4) makes the addon load a slot at once.
 
-**Slot budget:** there are 200 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not.
-When the pool is empty, the addon asks for a `/reload` (7.5).
+**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not.
+The window never shows the slot count. `/relay diag` shows it.
+Below 20 free slots, the window shows "Reload soon" with a **Reload** button, and the next click on **Send** or on the window does the `/reload` first.
+`ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat, and never on a key press that the user did not aim at the window.
+The chat history is in the saved variables, so a `/reload` keeps it.
 
 ### 7.4 Signals
 
@@ -608,6 +619,24 @@ permission = "full-auto"    # --yes approves everything
 The Claude mode IDs are not checked yet.
 
 ## 13. The addon
+
+### 13.1 Look
+
+The window follows the classic Guild & Communities frame, and uses the built-in game textures and fonts.
+The mockup is the reference for the layout.
+
+- **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
+- **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
+- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tile is "Start a New Chat".
+- **Center:** a dropdown for the agent and the permission mode, the folder, and the bridge light. Below them, the transcript on a black background in classic lines: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. Code shows in black boxes in a shipped mono font.
+- **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
+- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details.
+- **Side tabs:** Chats, Terminal pings, Settings, and Diagnostics.
+- **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
+- **Game chat:** a finished reply or a ping shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). A click on it opens the chat. It plays the whisper sound.
+- **Permission requests** use the separate popup of 6.4, never the window.
+
+### 13.2 Code
 
 The first version starts from the `wow-claude` addon. These changes are necessary:
 

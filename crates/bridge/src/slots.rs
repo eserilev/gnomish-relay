@@ -5,14 +5,14 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use protocol::slot::SLOTS;
+use protocol::slot::{SLOT_WINDOW, SLOTS};
 
 use crate::fs_safe::{check_real_dir, write_atomic};
 
 pub const BODY_FILE: &str = "Inbox.lua";
 
 pub fn slot_name(n: usize) -> String {
-    format!("GnomishRelay_S{n:03}")
+    format!("GnomishRelay_S{n:04}")
 }
 
 fn toc(name: &str) -> String {
@@ -41,10 +41,12 @@ pub fn install(addons: &Path, body: &[u8]) -> Result<()> {
     Ok(())
 }
 
-/// Writes the same body into every slot, because the bridge cannot know which
-/// slot the addon loads next.
-pub fn publish(addons: &Path, body: &[u8]) -> Result<()> {
-    for n in 1..=SLOTS {
+/// Writes the body into the window of slots that starts at `next`, the next slot
+/// that the addon reported (SPEC.md 7.3). Slots past the last one are skipped.
+pub fn publish(addons: &Path, body: &[u8], next: usize) -> Result<()> {
+    let first = next.clamp(1, SLOTS);
+    let last = (first + SLOT_WINDOW - 1).min(SLOTS);
+    for n in first..=last {
         let dir = addons.join(slot_name(n));
         write_atomic(&dir, BODY_FILE, body).with_context(|| {
             format!("slot {n} is not ready. Run `gnomish-relay install` with the game closed.")
@@ -85,25 +87,44 @@ mod tests {
 
     #[test]
     fn slot_names_have_three_digits() {
-        assert_eq!(slot_name(1), "GnomishRelay_S001");
-        assert_eq!(slot_name(200), "GnomishRelay_S200");
+        assert_eq!(slot_name(1), "GnomishRelay_S0001");
+        assert_eq!(slot_name(1000), "GnomishRelay_S1000");
     }
 
     #[test]
-    fn publish_writes_the_same_body_into_every_slot() {
+    fn publish_writes_only_the_window_from_the_next_slot() {
         let addons = tempfile::tempdir().unwrap();
         install(addons.path(), &body(b"")).unwrap();
-        publish(addons.path(), &body(b"hello")).unwrap();
-        for n in [1, SLOTS] {
-            let file = addons.path().join(slot_name(n)).join(BODY_FILE);
-            assert_eq!(fs::read(file).unwrap(), body(b"hello"));
-        }
+        publish(addons.path(), &body(b"hello"), 100).unwrap();
+        let read = |n| fs::read(addons.path().join(slot_name(n)).join(BODY_FILE)).unwrap();
+        assert_eq!(read(99), body(b""));
+        assert_eq!(read(100), body(b"hello"));
+        assert_eq!(read(100 + SLOT_WINDOW - 1), body(b"hello"));
+        assert_eq!(read(100 + SLOT_WINDOW), body(b""));
+    }
+
+    #[test]
+    fn the_window_stops_at_the_last_slot() {
+        let addons = tempfile::tempdir().unwrap();
+        install(addons.path(), &body(b"")).unwrap();
+        publish(addons.path(), &body(b"hello"), SLOTS - 2).unwrap();
+        let file = addons.path().join(slot_name(SLOTS)).join(BODY_FILE);
+        assert_eq!(fs::read(file).unwrap(), body(b"hello"));
+    }
+
+    #[test]
+    fn a_next_slot_of_zero_starts_at_the_first_slot() {
+        let addons = tempfile::tempdir().unwrap();
+        install(addons.path(), &body(b"")).unwrap();
+        publish(addons.path(), &body(b"hello"), 0).unwrap();
+        let file = addons.path().join(slot_name(1)).join(BODY_FILE);
+        assert_eq!(fs::read(file).unwrap(), body(b"hello"));
     }
 
     #[test]
     fn publish_before_install_is_an_error() {
         let addons = tempfile::tempdir().unwrap();
-        assert!(publish(addons.path(), &body(b"hello")).is_err());
+        assert!(publish(addons.path(), &body(b"hello"), 1).is_err());
     }
 
     #[test]
@@ -111,7 +132,7 @@ mod tests {
         let addons = tempfile::tempdir().unwrap();
         install(addons.path(), &body(b"")).unwrap();
         let text = b"line \"one\"\nline |two| \\ \xff end";
-        publish(addons.path(), &body(text)).unwrap();
+        publish(addons.path(), &body(text), 1).unwrap();
 
         let code = fs::read(addons.path().join(slot_name(1)).join(BODY_FILE)).unwrap();
         let lua = Lua::new();

@@ -123,7 +123,7 @@ structure seen.Seen where
   entries : alloc.vec.Vec seen.Entry
 
 /-- [protocol::slot::Status]
-    Source: 'crates/protocol/src/slot.rs', lines 14:0-18:1
+    Source: 'crates/protocol/src/slot.rs', lines 16:0-20:1
     Visibility: public -/
 @[discriminant isize]
 inductive slot.Status where
@@ -132,7 +132,7 @@ inductive slot.Status where
 | Error : slot.Status
 
 /-- [protocol::slot::Reply]
-    Source: 'crates/protocol/src/slot.rs', lines 20:0-25:1
+    Source: 'crates/protocol/src/slot.rs', lines 22:0-27:1
     Visibility: public -/
 structure slot.Reply where
   chat : alloc.vec.Vec Std.U8

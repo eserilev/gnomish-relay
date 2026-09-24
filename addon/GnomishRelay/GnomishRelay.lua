@@ -1,6 +1,6 @@
 -- Gnomish Relay. Step 5 of the build order (SPEC.md 15): load a slot and show its replies.
 
-local SLOTS = 200
+local SLOTS = 1000
 local PROTO = 1
 
 local function Say(msg)
@@ -13,7 +13,7 @@ local function Plain(text)
 end
 
 local function SlotName(n)
-	return string.format("GnomishRelay_S%03d", n)
+	return string.format("GnomishRelay_S%04d", n)
 end
 
 -- Each slot loads one time per UI session (SPEC.md 7.2, rule 3).
@@ -79,7 +79,8 @@ SlashCmdList.GNOMISHRELAY = function(arg)
 	if arg == "poll" then
 		Poll()
 	elseif arg == "status" then
-		Say(string.format("%d of %d slots used in this UI session", UsedSlots(), SLOTS))
+		local used = UsedSlots()
+		Say(string.format("%d of %d slots used, next slot %d", used, SLOTS, used + 1))
 	else
 		Say("/relay poll | status")
 	end

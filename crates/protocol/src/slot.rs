@@ -5,7 +5,9 @@ use crate::lua::{is_plain, lua_string};
 use crate::record::MAX_ID_LEN;
 
 /// Slot addons per UI session. The bridge makes this many at setup.
-pub const SLOTS: usize = 200;
+pub const SLOTS: usize = 1000;
+/// The slots that one publish writes, from the next slot that the addon reported.
+pub const SLOT_WINDOW: usize = 30;
 pub const MAX_REPLIES: usize = 30;
 pub const MAX_TEXT: usize = 32_768; // 32 KiB
 pub const SLOT_BODY_LIMIT: usize = 1024 * 1024;

@@ -62,6 +62,10 @@ module transport {
   var bridge: Bridge
   var body: List[Reply]
   var bundle: Restore
+  // What a slot outside the bridge's window still holds: the body before the last
+  // publish (SPEC 7.3). The addon can load such a slot.
+  var oldBody: List[Reply]
+  var oldBundle: Restore
   var disk: Disk
   var wipes: int
 
@@ -117,6 +121,8 @@ module transport {
   action publish(b: Bridge): bool = all {
     body' = live(b),
     bundle' = if (b.restoreActive) b.restore else NO_RESTORE,
+    oldBody' = body,
+    oldBundle' = bundle,
     bridge' = b,
   }
 
@@ -133,6 +139,8 @@ module transport {
     },
     body' = List(),
     bundle' = NO_RESTORE,
+    oldBody' = List(),
+    oldBundle' = NO_RESTORE,
     disk' = EMPTY_DISK,
     wipes' = 0,
   }
@@ -151,7 +159,7 @@ module transport {
         chats: mergeChats(addon.chats, Set(chat)),
         strip: addon.strip.put(addon.nextId, SHOWS),
       },
-      bridge' = bridge, body' = body, bundle' = bundle, disk' = disk, wipes' = wipes,
+      bridge' = bridge, body' = body, bundle' = bundle, oldBody' = oldBody, oldBundle' = oldBundle, disk' = disk, wipes' = wipes,
     }
   }
 
@@ -163,28 +171,32 @@ module transport {
     all {
       addon' = if (left > 1) { ...addon, strip: addon.strip.set(id, left - 1) }
                else { ...addon, strip: without(addon.strip, id), outbox: addon.outbox.union(Set(id)) },
-      bridge' = bridge, body' = body, bundle' = bundle, disk' = disk, wipes' = wipes,
+      bridge' = bridge, body' = body, bundle' = bundle, oldBody' = oldBody, oldBundle' = oldBundle, disk' = disk, wipes' = wipes,
     }
   }
 
-  // The addon loads its next unread slot.
-  action loadSlot = all {
-    addon.slotsLeft > 0,
-    val mine = body.select(r => r.key.token == addon.token)
+  // The addon loads its next unread slot. The slot holds the newest body, or, outside
+  // the bridge's window, the one before it.
+  action loadSlot = {
+    nondet stale = Set(false, true).oneOf()
+    val slotBody = if (stale) oldBody else body
+    val slotBundle = if (stale) oldBundle else bundle
+    val mine = slotBody.select(r => r.key.token == addon.token)
     val seenIds = keysOf(mine).map(k => k.id)
     val doneIds = keysOf(mine.select(r => r.status == Done)).map(k => k.id)
-    val gotBundle = bundle.token == addon.token
+    val gotBundle = slotBundle.token == addon.token
     all {
+      addon.slotsLeft > 0,
       addon' = {
         ...addon,
         slotsLeft: addon.slotsLeft - 1,
         answered: addon.answered.union(doneIds),
         outbox: addon.outbox.exclude(seenIds),
         strip: addon.strip.keys().exclude(seenIds).mapBy(i => addon.strip.get(i)),
-        chats: if (gotBundle) mergeChats(addon.chats, bundle.chats) else addon.chats,
+        chats: if (gotBundle) mergeChats(addon.chats, slotBundle.chats) else addon.chats,
         restored: addon.restored or gotBundle,
       },
-      bridge' = bridge, body' = body, bundle' = bundle, disk' = disk, wipes' = wipes,
+      bridge' = bridge, body' = body, bundle' = bundle, oldBody' = oldBody, oldBundle' = oldBundle, disk' = disk, wipes' = wipes,
     }
   }
 
@@ -195,7 +207,7 @@ module transport {
     all {
       addon' = { ...addon, strip: open.mapBy(_ => SHOWS), slotsLeft: POOL },
       disk' = { outbox: addon.outbox.map(id => { token: addon.token, id: id }), report: reportOf(addon) },
-      bridge' = bridge, body' = body, bundle' = bundle, wipes' = wipes,
+      bridge' = bridge, body' = body, bundle' = bundle, oldBody' = oldBody, oldBundle' = oldBundle, wipes' = wipes,
     }
   }
 
@@ -208,7 +220,7 @@ module transport {
     },
     disk' = EMPTY_DISK,
     wipes' = wipes + 1,
-    bridge' = bridge, body' = body, bundle' = bundle,
+    bridge' = bridge, body' = body, bundle' = bundle, oldBody' = oldBody, oldBundle' = oldBundle,
   }
 
   // ---------- the bridge ----------
