@@ -12,12 +12,13 @@ model=models/transport.qnt
 quint typecheck "$model"
 
 simulate() {
-  quint run "$model" --invariant="$1" --max-samples=20000 --max-steps=40 --seed="$2" >/dev/null 2>&1
+  quint run "$model" --invariant="$1" --max-samples=20000 --max-steps=40 --seed="$2" 2>&1 || true
 }
 
+# An exit code cannot tell a violation from a typo in a name, so read the verdict.
 for property in runsOnce noLostReply restoreSafe noStuckMessage bodyBounded; do
   for seed in 1 2 3; do
-    if ! simulate "$property" "$seed"; then
+    if ! simulate "$property" "$seed" | grep -q "No violation found"; then
       echo "error: $property fails (seed $seed). Run: quint run $model --invariant=$property --seed=$seed" >&2
       exit 1
     fi
@@ -27,7 +28,7 @@ done
 
 # A witness that holds means the simulator never reached a hard state.
 for witness in neverFull neverRestored neverTwoAnswers neverOutboxReply; do
-  if simulate "$witness" 1; then
+  if ! simulate "$witness" 1 | grep -q "\[violation\] Found an issue"; then
     echo "error: witness $witness was never reached" >&2
     exit 1
   fi
