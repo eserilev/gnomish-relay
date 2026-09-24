@@ -279,8 +279,6 @@ function PlaySound(id)
 	table.insert(wow.sounds, id)
 end
 
-function SetPortraitToTexture() end
-
 function hooksecurefunc(name, fn)
 	local old = _G[name] or function() end
 	_G[name] = function(...)

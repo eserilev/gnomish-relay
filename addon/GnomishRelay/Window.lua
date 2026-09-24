@@ -353,7 +353,7 @@ local function Build()
 	end
 	local portrait = frame.PortraitContainer and frame.PortraitContainer.portrait or frame.portrait
 	if portrait then
-		SetPortraitToTexture(portrait, EMBLEM)
+		portrait:SetTexture(EMBLEM)
 	end
 
 	ui.chats = Inset(frame, 6, -60, SIDE, 30)

@@ -45,8 +45,6 @@ globals:
     args: [{type: any}]
   SetCVar:
     args: [{type: string}, {type: any}]
-  SetPortraitToTexture:
-    args: [{type: any}, {type: any}]
   hooksecurefunc:
     args: [{type: any}, {type: any, required: false}, {type: any, required: false}]
   strtrim:
