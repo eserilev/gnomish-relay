@@ -175,6 +175,12 @@ impl Relay {
         if self.records.len() >= MAX_REPLIES || queued >= MAX_QUEUE {
             return Err(Outcome::Refused);
         }
+        // Jobs wait under their chat and id. A second token with the same pair waits
+        // until the first job leaves, or it overwrites the first job.
+        let waiting = self.jobs.get(&(chat.clone(), MessageId(r.id)));
+        if waiting.is_some_and(|job| job.token.as_bytes() != r.token) {
+            return Err(Outcome::Refused);
+        }
         let (rate_ok, limiter) = admit_message(&self.limiter, now);
         if !rate_ok {
             return Err(Outcome::Refused);
@@ -455,6 +461,22 @@ mod tests {
         relay.on_frame(&[record("relay", 0, "h;next=57", "")], NOW);
         relay.reset_window();
         assert_eq!(relay.next_slot(), 1);
+    }
+
+    #[test]
+    fn a_second_token_with_the_same_chat_and_id_waits_for_the_first() {
+        let other = || Record {
+            token: b"other".to_vec(),
+            ..record("c1", 1, "", "from a new token")
+        };
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "first")], NOW);
+        assert_eq!(relay.on_frame(&[other()], NOW), [Outcome::Refused]);
+        relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
+
+        assert_eq!(relay.on_frame(&[other()], NOW), [Outcome::Accepted]);
+        assert_eq!(run_all(&mut relay).len(), 1);
+        assert!(!body(&relay).contains("status = \"working\""));
     }
 
     #[test]
