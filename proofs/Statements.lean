@@ -12,6 +12,7 @@ import Protocol.Spec.Policy
 import Protocol.Policy
 import Protocol.Popup
 import Protocol.Lua
+import Protocol.WowText
 
 /-!
 # The theorems, stated
@@ -253,5 +254,6 @@ theorem check_S15_printable : S15_printable := Protocol.Popup.popup_printable
 theorem check_S15_faithful : S15_faithful := Protocol.Popup.showBytes_faithful
 theorem check_S8_lua_string : S8_lua_string := Protocol.Lua.lua_string_spec
 theorem check_S8_reads_back : S8_reads_back := Protocol.Lua.lua_reads_back
+theorem check_S10_chat_safe : S10_chat_safe := Protocol.WowText.chat_safe_spec
 
 end Protocol.Statements

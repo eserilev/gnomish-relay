@@ -31,7 +31,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
 | 4 | S6: permission level and answers | `policy` | `S6_level`, `S6_answer` | proved |
 | 5 | S15: permission popup | `popup`, `ascii` | `S15_popup`, `S15_printable`, `S15_faithful` | proved |
 | 6 | S8: Lua literals | `lua` | `S8_lua_string`, `S8_reads_back` | proved |
-| 7 | S10: WoW chat text | `wow_text` | `S10_chat_safe` | stated |
+| 7 | S10: WoW chat text | `wow_text` | `S10_chat_safe` | proved |
 | 8 | C2: frame encoder | `frame::encode_frame` | `C2_encode`, `C2_encode_too_long` | stated |
 | 9 | C2 + S1 + S2: frame decoder | `frame::decode_frame`, `signed_len` | `C2_decode`, `S1_S2_decode`, `S2_signed_len` | stated |
 | 10 | S13: id charset | `record::is_valid_id` | `S13_valid_id` | stated |

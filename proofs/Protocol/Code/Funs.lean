@@ -935,11 +935,53 @@ def slot.slot_body
   := do
   fail panic
 
-/-- [protocol::wow_text::chat_safe]:
-    Source: 'crates/protocol/src/wow_text.rs', lines 6:0-8:1
+/-- [protocol::wow_text::push_safe]:
+    Source: 'crates/protocol/src/wow_text.rs', lines 4:0-9:1 -/
+def wow_text.push_safe
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← if b = 124#u8
+               then alloc.vec.Vec.push out 124#u8
+               else ok out
+  alloc.vec.Vec.push out1 b
+
+/-- [protocol::wow_text::chat_safe]: loop body 0:
+    Source: 'crates/protocol/src/wow_text.rs', lines 16:4-19:5
     Visibility: public -/
+@[rust_loop_body]
+def wow_text.chat_safe_loop.body
+  (text : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len text
+  if i < i1
+  then
+    let i2 ← Slice.index_usize text i
+    let out1 ← wow_text.push_safe out i2
+    let i3 ← i + 1#usize
+    ok (cont (out1, i3))
+  else ok (done out)
+
+/-- [protocol::wow_text::chat_safe]: loop 0:
+    Source: 'crates/protocol/src/wow_text.rs', lines 16:4-19:5
+    Visibility: public -/
+@[rust_loop]
+def wow_text.chat_safe_loop
+  (text : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => wow_text.chat_safe_loop.body text out1 i1)
+    (out, i)
+
+/-- [protocol::wow_text::chat_safe]:
+    Source: 'crates/protocol/src/wow_text.rs', lines 13:0-21:1
+    Visibility: public -/
+@[reducible]
 def wow_text.chat_safe
   (text : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
-  fail panic
+  wow_text.chat_safe_loop text (alloc.vec.Vec.new Std.U8) 0#usize
 
 end protocol

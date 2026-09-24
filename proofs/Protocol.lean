@@ -6,3 +6,4 @@ import Protocol.Policy
 import Protocol.Ascii
 import Protocol.Popup
 import Protocol.Lua
+import Protocol.WowText
