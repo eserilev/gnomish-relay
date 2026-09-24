@@ -101,10 +101,19 @@ fn slot_body(addons: &Path) -> String {
     fs::read_to_string(addons.join(slot_name(1)).join(BODY_FILE)).unwrap()
 }
 
-/// Steps until `done` holds, for at most two seconds of agent time.
+/// Steps until `done` holds. A publish syncs 60 files, which is slow on Windows.
 fn step_until(bridge: &mut Bridge, done: impl Fn() -> bool) -> bool {
+    step_while(bridge, Duration::from_secs(30), done)
+}
+
+/// Steps for two seconds, for a test that checks that nothing happens.
+fn step_a_while(bridge: &mut Bridge) {
+    step_while(bridge, Duration::from_secs(2), || false);
+}
+
+fn step_while(bridge: &mut Bridge, limit: Duration, done: impl Fn() -> bool) -> bool {
     let start = Instant::now();
-    while start.elapsed() < Duration::from_secs(2) {
+    while start.elapsed() < limit {
         bridge.step();
         if done() {
             return true;
@@ -141,7 +150,7 @@ fn a_normal_screenshot_and_a_strip_with_a_bad_tag_stay_untouched() {
     )
     .unwrap();
 
-    step_until(&mut bridge, || false);
+    step_a_while(&mut bridge);
     assert!(user.exists());
     assert!(forged.exists());
     assert!(!slot_body(&f.addons).contains("rm -rf"));
@@ -165,7 +174,7 @@ fn an_outbox_frame_with_a_bad_tag_never_runs() {
     let mut bridge = bridge(&f);
     write_saved_variables(&f, &frame(b"another key, 32 bytes long......", "rm -rf ~"));
 
-    step_until(&mut bridge, || false);
+    step_a_while(&mut bridge);
     assert!(!slot_body(&f.addons).contains("rm -rf"));
 }
 
@@ -189,7 +198,7 @@ fn a_restarted_bridge_never_runs_an_outbox_frame_again() {
     drop(first);
 
     let mut second = bridge_with(&f, runs.clone());
-    step_until(&mut second, || false);
+    step_a_while(&mut second);
     assert_eq!(runs.0.load(Ordering::SeqCst), 1);
     assert!(slot_body(&f.addons).contains("echo: only once"));
 }
