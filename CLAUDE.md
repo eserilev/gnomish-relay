@@ -78,7 +78,7 @@ We prove `protocol` correct with Aeneas and Lean. So `protocol` stays inside the
 - Every function that reads untrusted input returns a value or a defined error for every input. It never panics. Prove it.
 
 If a change to `protocol` breaks the Aeneas translation, fix the code, not the proof tooling.
-Before you commit a change to `protocol`, run `scripts/check-proofs.sh`. It regenerates the Lean code, builds the proofs, and checks the axioms.
+Before every commit, run `scripts/check-all.sh`. It runs fmt, clippy, the tests, and `scripts/check-proofs.sh`. It regenerates the Lean code, builds the proofs, and checks the axioms of every `check_` theorem.
 
 ## Tooling
 

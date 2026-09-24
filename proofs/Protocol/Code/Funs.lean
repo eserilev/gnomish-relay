@@ -327,7 +327,7 @@ def frame.MAGIC : Array Std.U8 2#usize := Array.make 2#usize [ 110#u8, 82#u8 ]
 @[global_simps, irreducible] def frame.MAX_AHEAD : Std.U32 := 60#u32
 
 /-- [protocol::frame::encode_frame]:
-    Source: 'crates/protocol/src/frame.rs', lines 45:0-47:1
+    Source: 'crates/protocol/src/frame.rs', lines 46:0-48:1
     Visibility: public -/
 def frame.encode_frame
   (time : Std.U32) (frame_id : Std.U16) (payload : Slice Std.U8)
@@ -337,7 +337,7 @@ def frame.encode_frame
   fail panic
 
 /-- [protocol::frame::decode_frame]:
-    Source: 'crates/protocol/src/frame.rs', lines 50:0-52:1
+    Source: 'crates/protocol/src/frame.rs', lines 51:0-53:1
     Visibility: public -/
 def frame.decode_frame
   (bytes : Slice Std.U8) :
@@ -346,25 +346,57 @@ def frame.decode_frame
   fail panic
 
 /-- [protocol::frame::signed_len]:
-    Source: 'crates/protocol/src/frame.rs', lines 56:0-58:1
+    Source: 'crates/protocol/src/frame.rs', lines 57:0-59:1
     Visibility: public -/
 def frame.signed_len (f : frame.Frame) : Result Std.Usize := do
   fail panic
 
+/-- [protocol::frame::is_stale]:
+    Source: 'crates/protocol/src/frame.rs', lines 62:0-64:1 -/
+def frame.is_stale (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
+  let i ← lift (UScalar.cast .U64 now)
+  let i1 ← lift (UScalar.cast .U64 frame_time)
+  let i2 ← lift (UScalar.cast .U64 frame.MAX_AGE)
+  let i3 ← i1 + i2
+  ok (i > i3)
+
+/-- [protocol::frame::is_ahead]:
+    Source: 'crates/protocol/src/frame.rs', lines 66:0-68:1 -/
+def frame.is_ahead (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
+  let i ← lift (UScalar.cast .U64 frame_time)
+  let i1 ← lift (UScalar.cast .U64 now)
+  let i2 ← lift (UScalar.cast .U64 frame.MAX_AHEAD)
+  let i3 ← i1 + i2
+  ok (i > i3)
+
 /-- [protocol::frame::is_fresh]:
-    Source: 'crates/protocol/src/frame.rs', lines 61:0-63:1
+    Source: 'crates/protocol/src/frame.rs', lines 71:0-73:1
     Visibility: public -/
 def frame.is_fresh (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
-  fail panic
+  let b ← frame.is_stale frame_time now
+  if b
+  then ok false
+  else let b1 ← frame.is_ahead frame_time now
+       ok (¬ b1)
 
 /-- [protocol::frame::check_frame]:
-    Source: 'crates/protocol/src/frame.rs', lines 66:0-68:1
+    Source: 'crates/protocol/src/frame.rs', lines 76:0-87:1
     Visibility: public -/
 def frame.check_frame
   (frame_time : Std.U32) (tag_ok : Bool) (now : Std.U32) :
   Result (core.result.Result Unit frame.Reject)
   := do
-  fail panic
+  if tag_ok
+  then
+    let b ← frame.is_stale frame_time now
+    if b
+    then ok (core.result.Result.Err frame.Reject.Stale)
+    else
+      let b1 ← frame.is_ahead frame_time now
+      if b1
+      then ok (core.result.Result.Err frame.Reject.Future)
+      else ok (core.result.Result.Ok ())
+  else ok (core.result.Result.Err frame.Reject.BadTag)
 
 /-- [protocol::lua::lua_string]:
     Source: 'crates/protocol/src/lua.rs', lines 6:0-8:1

@@ -39,7 +39,7 @@ inductive frame.FrameError where
 | BadChecksum : frame.FrameError
 
 /-- [protocol::frame::Reject]
-    Source: 'crates/protocol/src/frame.rs', lines 37:0-41:1
+    Source: 'crates/protocol/src/frame.rs', lines 38:0-42:1
     Visibility: public -/
 @[discriminant isize]
 inductive frame.Reject where

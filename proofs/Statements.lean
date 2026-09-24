@@ -1,4 +1,5 @@
 import Protocol.Cell.Proofs
+import Protocol.Frame.Fresh
 import Protocol.Spec.Frame
 import Protocol.Spec.Record
 import Protocol.Spec.Folder
@@ -12,8 +13,8 @@ import Protocol.Spec.Popup
 # The theorems, stated
 
 Each `def` below is a statement that a person approved. The proofs live in other
-files. When a proof is done, an `example` at the end of this file checks it against
-its approved statement. So a proof cannot quietly prove something weaker: if the
+files. When a proof is done, a `check_` theorem at the end of this file checks it
+against its approved statement. So a proof cannot quietly prove something weaker: if the
 theorem changes, this file fails to build.
 
 `f x ⦃ r => P r ⦄` means: `f x` returns without a panic, and its result `r` has
@@ -243,6 +244,8 @@ def S15_faithful : Prop :=
 
 /-! ## Checks: each proved theorem against its approved statement -/
 
-example : C1 := fun input h => Protocol.Cell.cells_round_trip input h
+theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
+theorem check_S11_fresh : S11_fresh := Protocol.Frame.is_fresh_spec
+theorem check_S2_S11_check : S2_S11_check := Protocol.Frame.check_frame_spec
 
 end Protocol.Statements

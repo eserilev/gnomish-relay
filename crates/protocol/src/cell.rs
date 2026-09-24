@@ -4,9 +4,9 @@
 //! fill exactly eight cells, so we work in groups of three bytes. The last group
 //! is padded with zero bytes. The frame header carries the real length.
 
-// Aeneas has no model for `u32::from` and `try_from` yet, so we use `as`.
+// Aeneas has no model for `try_from` yet, so we narrow with `as`.
 // Every narrowing cast below masks or shifts the value into range first.
-#![allow(clippy::cast_lossless, clippy::cast_possible_truncation)]
+#![allow(clippy::cast_possible_truncation)]
 
 pub const BYTES_PER_GROUP: usize = 3;
 pub const CELLS_PER_GROUP: usize = 8;

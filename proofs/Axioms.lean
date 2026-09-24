@@ -1,6 +1,7 @@
-import Protocol
+import Statements
 
 -- scripts/check-proofs.sh reads this output. Only the three standard axioms may appear.
-#print axioms Protocol.Cell.cells_round_trip
-#print axioms Protocol.Cell.decode_cells_spec
-#print axioms Protocol.Cell.encode_cells_spec
+-- Add one line for each `check_` theorem in Statements.lean.
+#print axioms Protocol.Statements.check_C1
+#print axioms Protocol.Statements.check_S11_fresh
+#print axioms Protocol.Statements.check_S2_S11_check

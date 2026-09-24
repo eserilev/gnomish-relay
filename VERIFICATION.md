@@ -7,15 +7,15 @@ reading it and ends by updating it.
 
 1. **Statements first.** Every theorem is stated in `proofs/Statements.lean` before
    it is proved. A person approves each statement.
-2. **Statements are locked.** An `example : Statement := proof` at the end of
-   `Statements.lean` checks each proof. If a proof proves something weaker, the
+2. **Statements are locked.** A `theorem check_X : X := proof` at the end of
+   `Statements.lean` checks each proof, and `Axioms.lean` prints its axioms. If a proof proves something weaker, the
    build fails. An agent never changes an approved statement. If a statement is
    wrong, the agent stops that item and asks.
 3. **Only the three standard axioms:** `propext`, `Classical.choice`, `Quot.sound`.
    No `sorry`, no `native_decide`, no `bv_decide`. `scripts/check-proofs.sh` enforces this.
 4. **No vacuous theorems.** Each precondition has an example that a real input
    satisfies.
-5. **One commit per item,** with passing tests, passing proofs, and this file updated.
+5. **One commit per item,** after `scripts/check-all.sh` passes, with this file updated.
 6. **Stuck rule.** After 5 real attempts on one proof, mark it `blocked`, write
    down why, and move to the next item.
 
@@ -26,8 +26,8 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
 | # | Item | Rust | Statement | Status |
 |---|---|---|---|---|
 | 1 | C1: cell round trip | `cell` | `C1` | proved |
-| 2 | S11: freshness | `frame::is_fresh` | `S11_fresh` | stated |
-| 3 | S2 + S11: frame check | `frame::check_frame` | `S2_S11_check` | stated |
+| 2 | S11: freshness | `frame::is_fresh` | `S11_fresh` | proved |
+| 3 | S2 + S11: frame check | `frame::check_frame` | `S2_S11_check` | proved |
 | 4 | S6: permission level and answers | `policy` | `S6_level`, `S6_answer` | stated |
 | 5 | S15: permission popup | `popup` | `S15_popup`, `S15_printable`, `S15_faithful` | stated |
 | 6 | S8: Lua literals | `lua` | `S8_lua_string`, `S8_reads_back` | stated |

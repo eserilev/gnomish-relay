@@ -34,6 +34,7 @@ pub enum FrameError {
     BadChecksum,
 }
 
+#[cfg_attr(test, derive(Debug, PartialEq, Eq))]
 pub enum Reject {
     BadTag,
     Stale,
@@ -57,12 +58,76 @@ pub fn signed_len(f: &Frame) -> usize {
     todo!()
 }
 
+// Widened to u64, so `+ MAX_AGE` cannot overflow near the end of u32 time.
+fn is_stale(frame_time: u32, now: u32) -> bool {
+    now as u64 > frame_time as u64 + MAX_AGE as u64
+}
+
+fn is_ahead(frame_time: u32, now: u32) -> bool {
+    frame_time as u64 > now as u64 + MAX_AHEAD as u64
+}
+
 #[must_use]
 pub fn is_fresh(frame_time: u32, now: u32) -> bool {
-    todo!()
+    !is_stale(frame_time, now) && !is_ahead(frame_time, now)
 }
 
 /// `tag_ok` comes from the bridge, which checks the HMAC over `signed_len` bytes.
 pub fn check_frame(frame_time: u32, tag_ok: bool, now: u32) -> Result<(), Reject> {
-    todo!()
+    if !tag_ok {
+        return Err(Reject::BadTag);
+    }
+    if is_stale(frame_time, now) {
+        return Err(Reject::Stale);
+    }
+    if is_ahead(frame_time, now) {
+        return Err(Reject::Future);
+    }
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_frame_from_now_is_fresh() {
+        assert!(is_fresh(1000, 1000));
+    }
+
+    #[test]
+    fn a_frame_exactly_five_minutes_old_is_fresh() {
+        assert!(is_fresh(1000, 1300));
+    }
+
+    #[test]
+    fn a_frame_older_than_five_minutes_is_stale() {
+        assert_eq!(check_frame(1000, true, 1301), Err(Reject::Stale));
+    }
+
+    #[test]
+    fn a_frame_one_minute_ahead_is_fresh() {
+        assert!(is_fresh(1060, 1000));
+    }
+
+    #[test]
+    fn a_frame_more_than_one_minute_ahead_is_rejected() {
+        assert_eq!(check_frame(1061, true, 1000), Err(Reject::Future));
+    }
+
+    #[test]
+    fn a_bad_tag_wins_over_a_good_time() {
+        assert_eq!(check_frame(1000, false, 1000), Err(Reject::BadTag));
+    }
+
+    #[test]
+    fn times_near_the_end_of_u32_do_not_overflow() {
+        assert!(is_fresh(u32::MAX, u32::MAX));
+        assert_eq!(check_frame(0, true, u32::MAX), Err(Reject::Stale));
+    }
+
+    #[test]
+    fn a_good_tag_and_time_pass() {
+        assert_eq!(check_frame(1000, true, 1010), Ok(()));
+    }
 }

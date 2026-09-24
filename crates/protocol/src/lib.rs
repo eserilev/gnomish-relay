@@ -4,6 +4,8 @@
 //! We prove it correct with Aeneas, so it stays inside the Rust subset that
 //! Aeneas supports. `CLAUDE.md` lists the rules.
 
+// Aeneas has no model for `From` between integers yet, so we widen with `as`.
+#![allow(clippy::cast_lossless)]
 // TODO: remove when every stub in VERIFICATION.md has a body.
 #![allow(
     unused_variables,
