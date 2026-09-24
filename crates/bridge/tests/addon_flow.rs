@@ -11,7 +11,7 @@ use bridge::agent::{Agent, Echo};
 use bridge::receive::{StripKey, receive};
 use bridge::relay::{Folders, Relay};
 use bridge::strip::{self, Image};
-use common::{Bits, load_into, lua, repo_file};
+use common::{Bits, load_into, lua, repo_file, screenshot_png};
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
 use protocol::cell::decode_cells;
@@ -145,42 +145,6 @@ impl Game {
     fn printed(&self) -> Vec<String> {
         self.wow.get::<Vec<String>>("printed").unwrap()
     }
-}
-
-/// Draws the cells the way WoW does at 1280x720, where a cell is 3.875 by 4 pixels,
-/// and saves the image as a PNG.
-#[allow(
-    clippy::cast_possible_truncation,
-    clippy::cast_sign_loss,
-    clippy::cast_precision_loss
-)]
-fn screenshot_png(rows: &[Vec<u8>]) -> Vec<u8> {
-    let (width, height, pitch_x, pitch_y) = (1280usize, 720usize, 3.875, 4.0);
-    let mut rgb = vec![70u8; width * height * 3];
-    for (r, row) in rows.iter().enumerate() {
-        for (c, &cell) in row.iter().enumerate() {
-            let xs = (c as f64 * pitch_x) as usize..((c + 1) as f64 * pitch_x) as usize;
-            for y in (r as f64 * pitch_y) as usize..((r + 1) as f64 * pitch_y) as usize {
-                for x in xs.clone() {
-                    let at = (y * width + x) * 3;
-                    rgb[at..at + 3].copy_from_slice(&[
-                        255 * (cell >> 2 & 1),
-                        255 * (cell >> 1 & 1),
-                        255 * (cell & 1),
-                    ]);
-                }
-            }
-        }
-    }
-    let mut png_bytes = Vec::new();
-    let mut encoder = png::Encoder::new(&mut png_bytes, width as u32, height as u32);
-    encoder.set_color(png::ColorType::Rgb);
-    encoder
-        .write_header()
-        .unwrap()
-        .write_image_data(&rgb)
-        .unwrap();
-    png_bytes
 }
 
 fn reply(chat: &str, id: u32, status: Status, text: &str) -> Reply {

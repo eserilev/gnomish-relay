@@ -119,6 +119,49 @@ def ascii.push_decimal
   alloc.vec.Vec.push out1 i2
 partial_fixpoint
 
+/-- [protocol::ascii::bytes_equal]: loop body 0:
+    Source: 'crates/protocol/src/ascii.rs', lines 33:4-40:1 -/
+@[rust_loop_body]
+def ascii.bytes_equal_loop.body
+  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  let i1 := Slice.len a
+  if i < i1
+  then
+    let i2 ← Slice.index_usize a i
+    let i3 ← Slice.index_usize b i
+    if i2 != i3
+    then ok (done false)
+    else let i4 ← i + 1#usize
+         ok (cont i4)
+  else ok (done true)
+
+/-- [protocol::ascii::bytes_equal]: loop 0:
+    Source: 'crates/protocol/src/ascii.rs', lines 33:4-40:1 -/
+@[rust_loop]
+def ascii.bytes_equal_loop
+  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) : Result Bool := do
+  loop
+    (fun i1 => ascii.bytes_equal_loop.body a b i1)
+    i
+
+/-- [protocol::ascii::bytes_equal]:
+    Source: 'crates/protocol/src/ascii.rs', lines 28:0-40:1 -/
+def ascii.bytes_equal (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
+  let i := Slice.len a
+  let i1 := Slice.len b
+  if i != i1
+  then ok false
+  else ascii.bytes_equal_loop a b 0#usize
+
+/-- [protocol::ascii::copy_bytes]:
+    Source: 'crates/protocol/src/ascii.rs', lines 42:0-46:1 -/
+def ascii.copy_bytes
+  (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let i := Slice.len bytes
+  ascii.push_range (alloc.vec.Vec.new Std.U8) bytes 0#usize i
+
 /-- [protocol::cell::BYTES_PER_GROUP]
     Source: 'crates/protocol/src/cell.rs', lines 11:0-11:37
     Visibility: public -/
@@ -377,11 +420,11 @@ def cell.decode_cells
   else ok none
 
 /-- [protocol::folder::SLASH]
-    Source: 'crates/protocol/src/folder.rs', lines 10:0-10:23 -/
+    Source: 'crates/protocol/src/folder.rs', lines 9:0-9:23 -/
 @[global_simps, irreducible] def folder.SLASH : Std.U8 := 47#u8
 
 /-- [protocol::folder::end_part]:
-    Source: 'crates/protocol/src/folder.rs', lines 20:0-25:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 19:0-24:1 -/
 def folder.end_part
   (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (cur : alloc.vec.Vec Std.U8) :
   Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
@@ -392,7 +435,7 @@ def folder.end_part
   else ok parts
 
 /-- [protocol::folder::take_byte]:
-    Source: 'crates/protocol/src/folder.rs', lines 27:0-34:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 26:0-33:1 -/
 def folder.take_byte
   (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (cur : alloc.vec.Vec Std.U8)
   (b : Std.U8) :
@@ -405,7 +448,7 @@ def folder.take_byte
        ok (parts, cur1)
 
 /-- [protocol::folder::split_parts]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 41:4-46:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 40:4-45:5 -/
 @[rust_loop_body]
 def folder.split_parts_loop.body
   (path : Slice Std.U8) (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8))
@@ -424,7 +467,7 @@ def folder.split_parts_loop.body
   else ok (done (parts, cur))
 
 /-- [protocol::folder::split_parts]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 41:4-46:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 40:4-45:5 -/
 @[rust_loop]
 def folder.split_parts_loop
   (path : Slice Std.U8) (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8))
@@ -437,7 +480,7 @@ def folder.split_parts_loop
     (parts, cur, i)
 
 /-- [protocol::folder::split_parts]:
-    Source: 'crates/protocol/src/folder.rs', lines 37:0-48:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 36:0-47:1 -/
 def folder.split_parts
   (path : Slice Std.U8) : Result (alloc.vec.Vec (alloc.vec.Vec Std.U8)) := do
   let (parts, cur) ←
@@ -446,7 +489,7 @@ def folder.split_parts
   folder.end_part parts cur
 
 /-- [protocol::folder::is_dot]:
-    Source: 'crates/protocol/src/folder.rs', lines 50:0-52:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 49:0-51:1 -/
 def folder.is_dot (part : Slice Std.U8) : Result Bool := do
   let i := Slice.len part
   if i = 1#usize
@@ -455,7 +498,7 @@ def folder.is_dot (part : Slice Std.U8) : Result Bool := do
   else ok false
 
 /-- [protocol::folder::is_dot_dot]:
-    Source: 'crates/protocol/src/folder.rs', lines 54:0-56:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 53:0-55:1 -/
 def folder.is_dot_dot (part : Slice Std.U8) : Result Bool := do
   let i := Slice.len part
   if i = 2#usize
@@ -468,7 +511,7 @@ def folder.is_dot_dot (part : Slice Std.U8) : Result Bool := do
   else ok false
 
 /-- [protocol::folder::put]:
-    Source: 'crates/protocol/src/folder.rs', lines 58:0-65:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 57:0-64:1 -/
 def folder.put
   (stack : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
   (part : alloc.vec.Vec Std.U8) :
@@ -483,15 +526,8 @@ def folder.put
     ok (index_mut_back part)
   else alloc.vec.Vec.push stack part
 
-/-- [protocol::seen::copy_bytes]:
-    Source: 'crates/protocol/src/seen.rs', lines 49:0-53:1 -/
-def seen.copy_bytes
-  (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
-  let i := Slice.len bytes
-  ascii.push_range (alloc.vec.Vec.new Std.U8) bytes 0#usize i
-
 /-- [protocol::folder::apply_part]:
-    Source: 'crates/protocol/src/folder.rs', lines 68:0-92:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 67:0-91:1 -/
 def folder.apply_part
   (walk : folder.Walk) (part : Slice Std.U8) : Result folder.Walk := do
   let b ← folder.is_dot part
@@ -506,13 +542,13 @@ def folder.apply_part
       else let i ← walk.depth - 1#usize
            ok { walk with depth := i }
     else
-      let v ← seen.copy_bytes part
+      let v ← ascii.copy_bytes part
       let v1 ← folder.put walk.stack walk.depth v
       let i ← walk.depth + 1#usize
       ok { walk with stack := v1, depth := i }
 
 /-- [protocol::folder::apply_all]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 96:4-99:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 95:4-98:5 -/
 @[rust_loop_body]
 def folder.apply_all_loop.body
   (parts : Slice (alloc.vec.Vec Std.U8)) (walk : folder.Walk) (i : Std.Usize) :
@@ -533,7 +569,7 @@ def folder.apply_all_loop.body
   else ok (done (false, walk.stack, walk.depth))
 
 /-- [protocol::folder::apply_all]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 96:4-99:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 95:4-98:5 -/
 @[rust_loop]
 def folder.apply_all_loop
   (walk : folder.Walk) (parts : Slice (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
@@ -544,7 +580,7 @@ def folder.apply_all_loop
     (walk, i)
 
 /-- [protocol::folder::apply_all]:
-    Source: 'crates/protocol/src/folder.rs', lines 94:0-101:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 93:0-100:1 -/
 def folder.apply_all
   (walk : folder.Walk) (parts : Slice (alloc.vec.Vec Std.U8)) :
   Result folder.Walk
@@ -553,7 +589,7 @@ def folder.apply_all
   ok { ok := b, stack := v, depth := i }
 
 /-- [protocol::folder::start]:
-    Source: 'crates/protocol/src/folder.rs', lines 103:0-114:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 102:0-113:1 -/
 def folder.start
   (base : Slice Std.U8) (request : Slice Std.U8) : Result folder.Walk := do
   let i := Slice.len request
@@ -587,44 +623,8 @@ def folder.start
         depth := 0#usize
       } s
 
-/-- [protocol::seen::bytes_equal]: loop body 0:
-    Source: 'crates/protocol/src/seen.rs', lines 29:4-36:1 -/
-@[rust_loop_body]
-def seen.bytes_equal_loop.body
-  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) :
-  Result (ControlFlow Std.Usize Bool)
-  := do
-  let i1 := Slice.len a
-  if i < i1
-  then
-    let i2 ← Slice.index_usize a i
-    let i3 ← Slice.index_usize b i
-    if i2 != i3
-    then ok (done false)
-    else let i4 ← i + 1#usize
-         ok (cont i4)
-  else ok (done true)
-
-/-- [protocol::seen::bytes_equal]: loop 0:
-    Source: 'crates/protocol/src/seen.rs', lines 29:4-36:1 -/
-@[rust_loop]
-def seen.bytes_equal_loop
-  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) : Result Bool := do
-  loop
-    (fun i1 => seen.bytes_equal_loop.body a b i1)
-    i
-
-/-- [protocol::seen::bytes_equal]:
-    Source: 'crates/protocol/src/seen.rs', lines 24:0-36:1 -/
-def seen.bytes_equal (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
-  let i := Slice.len a
-  let i1 := Slice.len b
-  if i != i1
-  then ok false
-  else seen.bytes_equal_loop a b 0#usize
-
 /-- [protocol::folder::is_prefix]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 119:4-122:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 118:4-121:5 -/
 @[rust_loop_body]
 def folder.is_prefix_loop.body
   (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
@@ -640,14 +640,14 @@ def folder.is_prefix_loop.body
       let s := alloc.vec.Vec.deref v
       let v1 ← Slice.index_usize stack j
       let s1 := alloc.vec.Vec.deref v1
-      let same1 ← seen.bytes_equal s s1
+      let same1 ← ascii.bytes_equal s s1
       let j1 ← j + 1#usize
       ok (cont (same1, j1))
     else ok (done true)
   else ok (done false)
 
 /-- [protocol::folder::is_prefix]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 119:4-122:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 118:4-121:5 -/
 @[rust_loop]
 def folder.is_prefix_loop
   (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
@@ -659,7 +659,7 @@ def folder.is_prefix_loop
     (same, j)
 
 /-- [protocol::folder::is_prefix]:
-    Source: 'crates/protocol/src/folder.rs', lines 116:0-124:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 115:0-123:1 -/
 def folder.is_prefix
   (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
   (depth : Std.Usize) :
@@ -669,7 +669,7 @@ def folder.is_prefix
   folder.is_prefix_loop root stack (i <= depth) 0#usize
 
 /-- [protocol::folder::inside_any]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 129:4-132:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 128:4-131:5 -/
 @[rust_loop_body]
 def folder.inside_any_loop.body
   (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
@@ -692,7 +692,7 @@ def folder.inside_any_loop.body
     else ok (done false)
 
 /-- [protocol::folder::inside_any]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 129:4-132:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 128:4-131:5 -/
 @[rust_loop]
 def folder.inside_any_loop
   (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
@@ -705,7 +705,7 @@ def folder.inside_any_loop
     (found, i)
 
 /-- [protocol::folder::inside_any]:
-    Source: 'crates/protocol/src/folder.rs', lines 126:0-134:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 125:0-133:1 -/
 @[reducible]
 def folder.inside_any
   (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
@@ -715,7 +715,7 @@ def folder.inside_any
   folder.inside_any_loop roots stack depth false 0#usize
 
 /-- [protocol::folder::join]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 139:4-143:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 138:4-142:5 -/
 @[rust_loop_body]
 def folder.join_loop.body
   (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
@@ -734,7 +734,7 @@ def folder.join_loop.body
   else ok (done out)
 
 /-- [protocol::folder::join]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 139:4-143:5 -/
+    Source: 'crates/protocol/src/folder.rs', lines 138:4-142:5 -/
 @[rust_loop]
 def folder.join_loop
   (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
@@ -746,7 +746,7 @@ def folder.join_loop
     (out, j)
 
 /-- [protocol::folder::join]:
-    Source: 'crates/protocol/src/folder.rs', lines 136:0-145:1 -/
+    Source: 'crates/protocol/src/folder.rs', lines 135:0-144:1 -/
 @[reducible]
 def folder.join
   (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize) :
@@ -755,7 +755,7 @@ def folder.join
   folder.join_loop stack depth (alloc.vec.Vec.new Std.U8) 0#usize
 
 /-- [protocol::folder::resolve_folder]:
-    Source: 'crates/protocol/src/folder.rs', lines 150:0-156:1
+    Source: 'crates/protocol/src/folder.rs', lines 149:0-155:1
     Visibility: public -/
 def folder.resolve_folder
   (roots : Slice (alloc.vec.Vec Std.U8)) (base : Slice Std.U8)
@@ -1966,7 +1966,7 @@ def seen.new_seen : Result seen.Seen := do
   ok { entries := (alloc.vec.Vec.new seen.Entry) }
 
 /-- [protocol::seen::contains]: loop body 0:
-    Source: 'crates/protocol/src/seen.rs', lines 40:4-47:1 -/
+    Source: 'crates/protocol/src/seen.rs', lines 26:4-33:1 -/
 @[rust_loop_body]
 def seen.contains_loop.body
   (entries : Slice seen.Entry) (token : Slice Std.U8) (id : Std.U32)
@@ -1980,7 +1980,7 @@ def seen.contains_loop.body
     if e.id = id
     then
       let s := alloc.vec.Vec.deref e.token
-      let b ← seen.bytes_equal s token
+      let b ← ascii.bytes_equal s token
       if b
       then ok (done true)
       else let i2 ← i + 1#usize
@@ -1990,7 +1990,7 @@ def seen.contains_loop.body
   else ok (done false)
 
 /-- [protocol::seen::contains]: loop 0:
-    Source: 'crates/protocol/src/seen.rs', lines 40:4-47:1 -/
+    Source: 'crates/protocol/src/seen.rs', lines 26:4-33:1 -/
 @[rust_loop]
 def seen.contains_loop
   (entries : Slice seen.Entry) (token : Slice Std.U8) (id : Std.U32)
@@ -2002,7 +2002,7 @@ def seen.contains_loop
     i
 
 /-- [protocol::seen::contains]:
-    Source: 'crates/protocol/src/seen.rs', lines 38:0-47:1 -/
+    Source: 'crates/protocol/src/seen.rs', lines 24:0-33:1 -/
 @[reducible]
 def seen.contains
   (entries : Slice seen.Entry) (token : Slice Std.U8) (id : Std.U32) :
@@ -2011,7 +2011,7 @@ def seen.contains
   seen.contains_loop entries token id 0#usize
 
 /-- [protocol::seen::copy_entries]: loop body 0:
-    Source: 'crates/protocol/src/seen.rs', lines 59:4-65:5 -/
+    Source: 'crates/protocol/src/seen.rs', lines 39:4-45:5 -/
 @[rust_loop_body]
 def seen.copy_entries_loop.body
   (entries : Slice seen.Entry) (out : alloc.vec.Vec seen.Entry) (i : Std.Usize)
@@ -2024,14 +2024,14 @@ def seen.copy_entries_loop.body
   then
     let e ← Slice.index_usize entries i
     let s := alloc.vec.Vec.deref e.token
-    let v ← seen.copy_bytes s
+    let v ← ascii.copy_bytes s
     let out1 ← alloc.vec.Vec.push out { e with token := v }
     let i2 ← i + 1#usize
     ok (cont (out1, i2))
   else ok (done out)
 
 /-- [protocol::seen::copy_entries]: loop 0:
-    Source: 'crates/protocol/src/seen.rs', lines 59:4-65:5 -/
+    Source: 'crates/protocol/src/seen.rs', lines 39:4-45:5 -/
 @[rust_loop]
 def seen.copy_entries_loop
   (entries : Slice seen.Entry) (out : alloc.vec.Vec seen.Entry) (i : Std.Usize)
@@ -2043,7 +2043,7 @@ def seen.copy_entries_loop
     (out, i)
 
 /-- [protocol::seen::copy_entries]:
-    Source: 'crates/protocol/src/seen.rs', lines 56:0-67:1 -/
+    Source: 'crates/protocol/src/seen.rs', lines 36:0-47:1 -/
 @[reducible]
 def seen.copy_entries
   (entries : Slice seen.Entry) («from» : Std.Usize) :
@@ -2052,14 +2052,14 @@ def seen.copy_entries
   seen.copy_entries_loop entries (alloc.vec.Vec.new seen.Entry) «from»
 
 /-- [protocol::seen::first_kept]:
-    Source: 'crates/protocol/src/seen.rs', lines 70:0-72:1 -/
+    Source: 'crates/protocol/src/seen.rs', lines 50:0-52:1 -/
 def seen.first_kept (len : Std.Usize) : Result Std.Usize := do
   if len >= seen.SEEN_CAPACITY
   then ok 1#usize
   else ok 0#usize
 
 /-- [protocol::seen::admit]:
-    Source: 'crates/protocol/src/seen.rs', lines 76:0-86:1
+    Source: 'crates/protocol/src/seen.rs', lines 56:0-66:1
     Visibility: public -/
 def seen.admit
   (history : seen.Seen) (token : Slice Std.U8) (id : Std.U32) :
@@ -2074,7 +2074,7 @@ def seen.admit
     let i := alloc.vec.Vec.len history.entries
     let i1 ← seen.first_kept i
     let entries ← seen.copy_entries s1 i1
-    let v ← seen.copy_bytes token
+    let v ← ascii.copy_bytes token
     let entries1 ←
       alloc.vec.Vec.push entries ({ token := v, id } : seen.Entry)
     ok (true, { entries := entries1 })

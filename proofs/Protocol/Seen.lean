@@ -15,35 +15,6 @@ theorem bytes_eq_iff (a b : List U8) : bytes a = bytes b ↔ a = b := by
   · intro h; exact List.map_injective_iff.mpr (fun x y h => (UScalar.eq_equiv_bv_eq x y).mpr h) h
   · intro h; rw [h]
 
-theorem bytes_equal_loop_spec (a b : Slice U8) (i : Usize) (hlen : a.val.length = b.val.length)
-    (hi : i.val ≤ a.val.length) (hpre : a.val.take i.val = b.val.take i.val) :
-    seen.bytes_equal_loop a b i ⦃ r => (r = true ↔ a.val = b.val) ⦄ := by
-  unfold seen.bytes_equal_loop
-  apply loop.spec_decr_nat (fun i => a.val.length - i.val)
-    (fun i => i.val ≤ a.val.length ∧ a.val.take i.val = b.val.take i.val) _ _ _ _ ⟨hi, hpre⟩
-  rintro i ⟨hi, hpre⟩
-  unfold seen.bytes_equal_loop.body
-  step*
-  · -- Same byte: the equal prefix grows by one.
-    have hlt : i.val < a.val.length := by scalar_tac
-    refine ⟨by scalar_tac, ?_, by scalar_tac⟩
-    have heq : ¬(i2 != i3) = true := by assumption
-    simp only [bne_iff_ne, ne_eq, not_not] at heq
-    rw [i4_post, List.take_add_one, List.take_add_one, hpre, List.getElem?_eq_getElem hlt,
-      List.getElem?_eq_getElem (by omega), ← i2_post, ← i3_post, heq]
-  · -- Every byte matched.
-    simp only [true_iff]
-    have : i.val = a.val.length := by scalar_tac
-    rw [this, List.take_length, hlen, List.take_length] at hpre
-    exact hpre
-
-@[step]
-theorem bytes_equal_spec (a b : Slice U8) :
-    seen.bytes_equal a b ⦃ r => (r = true ↔ a.val = b.val) ⦄ := by
-  unfold seen.bytes_equal
-  step*
-  apply bytes_equal_loop_spec a b 0#usize (by scalar_tac) (by simp) (by simp)
-
 @[simp] theorem deref_val {α : Type} (v : alloc.vec.Vec α) : (alloc.vec.Vec.deref v).val = v.val := rfl
 
 def keyOf (e : seen.Entry) : List Spec.Byte × Nat := (bytes e.token.val, e.id.val)
@@ -101,12 +72,6 @@ theorem contains_spec (entries : Slice seen.Entry) (token : Slice U8) (id : U32)
       (r = true ↔ (bytes token.val, id.val) ∈ entries.val.map keyOf) ⦄ := by
   unfold seen.contains
   exact contains_loop_spec entries token id 0#usize (by simp) (fun j hj => absurd hj (by simp))
-
-@[step]
-theorem copy_bytes_spec (src : Slice U8) : seen.copy_bytes src ⦃ v => v.val = src.val ⦄ := by
-  unfold seen.copy_bytes
-  step*
-  simp [v_post]
 
 @[step]
 theorem first_kept_spec (n : Usize) :

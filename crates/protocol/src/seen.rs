@@ -1,6 +1,6 @@
 //! Replay protection: each `(token, id)` runs at most one time. See `SPEC.md` 8.3.
 
-use crate::ascii::push_range;
+use crate::ascii::{bytes_equal, copy_bytes};
 
 pub const SEEN_CAPACITY: usize = 1000;
 
@@ -21,20 +21,6 @@ pub fn new_seen() -> Seen {
     }
 }
 
-pub(crate) fn bytes_equal(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut i = 0;
-    while i < a.len() {
-        if a[i] != b[i] {
-            return false;
-        }
-        i += 1;
-    }
-    true
-}
-
 fn contains(entries: &[Entry], token: &[u8], id: u32) -> bool {
     let mut i = 0;
     while i < entries.len() {
@@ -44,12 +30,6 @@ fn contains(entries: &[Entry], token: &[u8], id: u32) -> bool {
         i += 1;
     }
     false
-}
-
-pub(crate) fn copy_bytes(bytes: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    push_range(&mut out, bytes, 0, bytes.len());
-    out
 }
 
 /// A copy of `entries[from..]`.

@@ -66,3 +66,77 @@ pub fn bytes(seed: u64, len: usize) -> Vec<u8> {
         })
         .collect()
 }
+
+pub const WIDTH: u32 = 1280;
+pub const HEIGHT: u32 = 720;
+
+/// Two calibration rows, then the cells of `frame`, 200 per row, as the addon draws them.
+pub fn strip_rows(frame: &[u8]) -> Vec<Vec<u8>> {
+    let mut rows: Vec<Vec<u8>> = vec![
+        (0..200u8).map(|c| c % 8).collect(),
+        (0..200u8).map(|c| 7 - c % 8).collect(),
+    ];
+    rows.extend(
+        protocol::cell::encode_cells(frame)
+            .chunks(200)
+            .map(<[u8]>::to_vec),
+    );
+    rows
+}
+
+/// The pixels of a 1280x720 game scene with the strip drawn at a fractional cell size.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+pub fn scene(rows: &[Vec<u8>], pitch_x: f64, pitch_y: f64) -> Vec<u8> {
+    let width = WIDTH as usize;
+    let mut rgb = vec![70u8; width * HEIGHT as usize * 3];
+    for (r, row) in rows.iter().enumerate() {
+        for (c, &cell) in row.iter().enumerate() {
+            let xs = (c as f64 * pitch_x) as usize..((c + 1) as f64 * pitch_x) as usize;
+            for y in (r as f64 * pitch_y) as usize..((r + 1) as f64 * pitch_y) as usize {
+                for x in xs.clone() {
+                    let at = (y * width + x) * 3;
+                    rgb[at..at + 3].copy_from_slice(&[
+                        255 * (cell >> 2 & 1),
+                        255 * (cell >> 1 & 1),
+                        255 * (cell & 1),
+                    ]);
+                }
+            }
+        }
+    }
+    rgb
+}
+
+pub fn encode_png(
+    width: u32,
+    height: u32,
+    color: png::ColorType,
+    depth: png::BitDepth,
+    data: &[u8],
+) -> Vec<u8> {
+    let mut png_bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png_bytes, width, height);
+    encoder.set_color(color);
+    encoder.set_depth(depth);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(data)
+        .unwrap();
+    png_bytes
+}
+
+/// A screenshot as WoW saves it at 1280x720, where a cell is 3.875 by 4 pixels.
+pub fn screenshot_png(rows: &[Vec<u8>]) -> Vec<u8> {
+    encode_png(
+        WIDTH,
+        HEIGHT,
+        png::ColorType::Rgb,
+        png::BitDepth::Eight,
+        &scene(rows, 3.875, 4.0),
+    )
+}

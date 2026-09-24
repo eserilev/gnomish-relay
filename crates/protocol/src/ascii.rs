@@ -25,6 +25,26 @@ pub fn push_decimal(out: &mut Vec<u8>, n: u32) {
     out.push(b'0' + (n % 10) as u8);
 }
 
+pub(crate) fn bytes_equal(a: &[u8], b: &[u8]) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < a.len() {
+        if a[i] != b[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+pub(crate) fn copy_bytes(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_range(&mut out, bytes, 0, bytes.len());
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

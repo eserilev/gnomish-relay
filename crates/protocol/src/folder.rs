@@ -4,8 +4,7 @@
 //! Paths use `/`. `~` is expanded by the bridge before it calls this.
 //! Paths are compared by parts, never as text, so `/home/x/Code2` is not inside `/home/x/Code`.
 
-use crate::ascii::push_bytes;
-use crate::seen::{bytes_equal, copy_bytes};
+use crate::ascii::{bytes_equal, copy_bytes, push_bytes};
 
 const SLASH: u8 = b'/';
 
