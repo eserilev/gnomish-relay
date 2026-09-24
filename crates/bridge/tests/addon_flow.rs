@@ -499,3 +499,51 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
             .any(|l| l.contains("echo: ping the relay"))
     );
 }
+
+#[test]
+fn a_message_too_long_for_a_strip_stays_in_the_box_and_starts_no_screenshots() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    let input: Table = game.lua.globals().get("GnomishRelayInput").unwrap();
+    input.set("text", "x".repeat(3150)).unwrap();
+    let enter: Function = input
+        .get::<Table>("scripts")
+        .unwrap()
+        .get("OnEnterPressed")
+        .unwrap();
+    enter.call::<()>(input.clone()).unwrap();
+    game.advance(300.0);
+
+    assert_eq!(input.get::<String>("text").unwrap().len(), 3150);
+    let errors: Table = game.lua.globals().get("UIErrorsFrame").unwrap();
+    assert_eq!(
+        errors.get::<Vec<String>>("lines").unwrap(),
+        ["Too long to send."]
+    );
+    assert!(
+        game.shots() <= 1,
+        "only the login hello, got {}",
+        game.shots()
+    );
+}
+
+#[test]
+fn a_stored_message_that_no_longer_fits_becomes_an_error_and_stops_retrying() {
+    let game = Game::start();
+    game.send("short");
+    game.run("local ns = ... ns.Store.db.chats[1].cwd = string.rep('d', 3200)");
+    game.advance(300.0);
+
+    assert!(game.shots() <= 3, "got {} shots", game.shots());
+    let history: Table = game
+        .db()
+        .get::<Table>("chats")
+        .unwrap()
+        .get::<Table>(1)
+        .unwrap()
+        .get("history")
+        .unwrap();
+    let last: Table = history.get(history.raw_len()).unwrap();
+    assert_eq!(last.get::<String>("role").unwrap(), "error");
+    assert_eq!(last.get::<String>("text").unwrap(), "Too long to send.");
+}

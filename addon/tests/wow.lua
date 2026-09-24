@@ -199,6 +199,7 @@ function DEFAULT_CHAT_FRAME:AddMessage(text, r, g, b)
 	table.insert(wow.printed, text)
 end
 GameTooltip = New("GameTooltip", "GameTooltip")
+UIErrorsFrame = New("MessageFrame", "UIErrorsFrame")
 ActionStatus = New("Frame", "ActionStatus")
 UISpecialFrames = {}
 SOUNDKIT = { TELL_MESSAGE = 3081 }

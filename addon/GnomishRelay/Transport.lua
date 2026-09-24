@@ -16,6 +16,9 @@ local IDLE_POLL = 600
 local ONLINE_FOR = 720
 local SCHEDULE = { 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, 300 }
 local PROTO = 1
+-- Room for the flags of Report(): `next`, `read` with up to 30 ids, and `restored`.
+local REPORT_ROOM = 400
+local TOO_LONG = "Too long to send."
 
 local state = {
 	nextSlot = 1,
@@ -158,6 +161,23 @@ local function Due(now)
 	return due
 end
 
+local function MessageRecord(chat, message)
+	return {
+		token = ns.Store.db.token,
+		chat = chat.id,
+		id = message.id,
+		cwd = chat.cwd,
+		flags = table.concat(ChatFlags(chat), ";"),
+		name = chat.name,
+		text = message.text,
+	}
+end
+
+-- A message that cannot fit becomes an error at once, so it never retries forever.
+local function GiveUp(item)
+	ns.Store.AddReply(item.chat, item.message.id, TOO_LONG, "error")
+end
+
 local function Records(due)
 	local report = table.concat(Report(), ";")
 	local records, ids = {}, {}
@@ -176,19 +196,13 @@ local function Records(due)
 		Add({ token = control.token, chat = control.chat, id = control.id, flags = control.flags })
 	end
 	for _, item in ipairs(due) do
-		local added = Add({
-			token = ns.Store.db.token,
-			chat = item.chat.id,
-			id = item.message.id,
-			cwd = item.chat.cwd,
-			flags = table.concat(ChatFlags(item.chat), ";"),
-			name = item.chat.name,
-			text = item.message.text,
-		})
-		if not added then
+		if Add(MessageRecord(item.chat, item.message)) then
+			table.insert(ids, item.message.id)
+		elseif #records == 0 then
+			GiveUp(item)
+		else
 			break
 		end
-		table.insert(ids, item.message.id)
 	end
 	if #records == 0 then
 		Add({ token = ns.Store.db.token, chat = "relay", id = 0, flags = "h" })
@@ -228,7 +242,16 @@ function Transport.ShowNextStrip()
 	end)
 end
 
+function Transport.Fits(chat, text)
+	local record = MessageRecord(chat, { id = ns.Store.db.nextId, text = text })
+	return #ns.Codec.Payload({ record }) + REPORT_ROOM <= ns.Codec.MAX_PAYLOAD
+end
+
+-- Returns nil for a message that does not fit in one strip.
 function Transport.Send(chat, text)
+	if not Transport.Fits(chat, text) then
+		return nil
+	end
 	local message = ns.Store.AddMessage(chat, text)
 	state.lastSend = GetTime()
 	state.nextPoll = state.lastSend + SCHEDULE[1]

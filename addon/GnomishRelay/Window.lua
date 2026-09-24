@@ -200,15 +200,20 @@ function Window.Refresh()
 	RefreshStatus(chat)
 end
 
+-- Returns false, and shows an error, for a message that does not fit in one strip.
 function Window.Send(text)
 	local chat = Selected() or ns.Store.NewChat()
 	ns.Store.db.selected = chat.id
-	ns.Transport.Send(chat, text)
+	if not ns.Transport.Send(chat, text) then
+		UIErrorsFrame:AddMessage("Too long to send.", 1, 0.1, 0.1)
+		return false
+	end
 	Window.Refresh()
 	-- A click or Enter is a hardware event, the only time ReloadUI is allowed.
 	if ns.Transport.NeedsReload() and not InCombatLockdown() then
 		ReloadUI()
 	end
+	return true
 end
 
 local function BuildCenter()
@@ -259,11 +264,10 @@ local function BuildCenter()
 	ui.input:SetMaxBytes(MAX_INPUT)
 	ui.input:SetScript("OnEnterPressed", function(self)
 		local text = strtrim(self:GetText() or "")
-		self:SetText("")
 		if text == "" then
 			self:ClearFocus()
-		else
-			Window.Send(text)
+		elseif Window.Send(text) then
+			self:SetText("")
 		end
 	end)
 	ui.input:SetScript("OnEscapePressed", function(self)
