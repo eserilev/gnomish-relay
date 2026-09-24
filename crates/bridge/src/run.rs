@@ -98,12 +98,13 @@ impl Loop {
         }
     }
 
+    /// A failed publish waits for the next heartbeat, so it does not log every tick.
     fn publish(&mut self) {
         let body = self.relay.body(now());
-        match slots::publish(&self.paths.addons, &body, self.relay.next_slot()) {
-            Ok(()) => self.changed = false,
-            Err(e) => log(&format!("publish failed: {e:#}")),
+        if let Err(e) = slots::publish(&self.paths.addons, &body, self.relay.next_slot()) {
+            log(&format!("publish failed: {e:#}"));
         }
+        self.changed = false;
     }
 }
 

@@ -29,8 +29,10 @@ impl Watcher {
             return Vec::new();
         };
         let mut ready = Vec::new();
+        let mut present = HashSet::new();
         for entry in entries.flatten() {
             let path = entry.path();
+            present.insert(path.clone());
             // `file_type` does not follow links, so a link to another file is skipped.
             let is_png = path
                 .extension()
@@ -50,6 +52,9 @@ impl Watcher {
                 ready.push(path);
             }
         }
+        // Forget deleted files, so the sets stay as small as the folder.
+        self.done.retain(|p| present.contains(p));
+        self.sizes.retain(|p, _| present.contains(p));
         ready
     }
 }

@@ -1,7 +1,7 @@
 //! Runs the addon in a real Lua 5.1, with WoW's `bit` library as a Lua shim.
 
+// Each test file uses a different part of this module.
 #![allow(dead_code)]
-// each test file uses a different part
 // Clippy sees a shared test module as normal code, so its test exceptions miss it.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 

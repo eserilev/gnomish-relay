@@ -7,6 +7,8 @@ local Store = {}
 ns.Store = Store
 
 local HISTORY_LIMIT = 200
+local DEFAULT_AGENT = "claude"
+local DEFAULT_MODE = "auto-edit"
 local ID_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
 
 local function RandomId(length)
@@ -49,8 +51,8 @@ function Store.NewChat(agent)
 	local chat = {
 		id = RandomId(10),
 		name = "Chat " .. (#Store.db.chats + 1),
-		agent = agent or "claude",
-		mode = "auto-edit",
+		agent = agent or DEFAULT_AGENT,
+		mode = DEFAULT_MODE,
 		cwd = "",
 		history = {},
 		fresh = true,
@@ -130,8 +132,8 @@ function Store.MergeChats(chats)
 			table.insert(Store.db.chats, {
 				id = incoming.id,
 				name = incoming.name or incoming.id,
-				agent = incoming.agent or "claude",
-				mode = incoming.mode or "auto-edit",
+				agent = ns.Codec.IsValidId(incoming.agent) and incoming.agent or DEFAULT_AGENT,
+				mode = incoming.mode == "ask" and "ask" or DEFAULT_MODE,
 				cwd = incoming.cwd or "",
 				history = RestoredHistory(incoming.history),
 			})

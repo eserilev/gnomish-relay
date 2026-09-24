@@ -95,7 +95,8 @@ fn fits(image: &Image, grid: Grid) -> bool {
 }
 
 /// Every cell size from 3 to 8 pixels that matches both calibration rows exactly.
-/// A normal screenshot has none.
+/// A normal screenshot has none. The width steps by 1/200 pixel, so the last of
+/// 200 cells lands at most half a pixel off. The height steps by 1/8 pixel.
 fn grids(image: &Image) -> impl Iterator<Item = Grid> + '_ {
     (24..=64).flat_map(move |y| {
         (600..=1600)

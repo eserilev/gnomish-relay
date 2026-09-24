@@ -86,7 +86,7 @@ mod tests {
     }
 
     #[test]
-    fn slot_names_have_three_digits() {
+    fn slot_names_have_four_digits() {
         assert_eq!(slot_name(1), "GnomishRelay_S0001");
         assert_eq!(slot_name(1000), "GnomishRelay_S1000");
     }

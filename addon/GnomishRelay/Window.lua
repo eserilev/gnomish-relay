@@ -19,22 +19,22 @@ local frame
 local tiles = {}
 local ui = {}
 
+-- The selected chat, or the first chat when none is selected.
 local function Selected()
 	local db = ns.Store.db
-	local chat = db.selected and ns.Store.Chat(db.selected)
-	if not chat and #db.chats > 0 then
-		chat = db.chats[1]
-		db.selected = chat.id
-	end
-	return chat
+	return db.selected and ns.Store.Chat(db.selected) or db.chats[1]
 end
 
-local function Select(chatId)
+local function MarkSelected(chatId)
 	local chat = ns.Store.Chat(chatId)
 	if chat then
 		ns.Store.db.selected = chat.id
 		chat.unread = nil
 	end
+end
+
+local function Select(chatId)
+	MarkSelected(chatId)
 	Window.Refresh()
 end
 
@@ -363,7 +363,8 @@ local function Build()
 end
 
 function Window.Showing(chatId)
-	return frame ~= nil and frame:IsShown() and ns.Store.db.selected == chatId
+	local chat = Selected()
+	return frame ~= nil and frame:IsShown() and chat ~= nil and chat.id == chatId
 end
 
 function Window.Open(chatId)
@@ -371,11 +372,7 @@ function Window.Open(chatId)
 		Build()
 	end
 	if chatId then
-		ns.Store.db.selected = chatId
-		local chat = ns.Store.Chat(chatId)
-		if chat then
-			chat.unread = nil
-		end
+		MarkSelected(chatId)
 	end
 	frame:Show()
 	Window.Refresh()

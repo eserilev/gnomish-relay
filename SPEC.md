@@ -311,8 +311,10 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - The addon sizes a cell to 4 physical pixels. It uses `GetPhysicalScreenSize()`, `SetIgnoreParentScale`, and strata `TOOLTIP`.
 
 **The decoder finds the grid itself.** UI scale makes the cell size fractional. The spike measured 3.875 px wide and 4 px high at 1280×720.
-So each strip starts with a calibration row of known colors. The decoder fits the cell width and height to that row as real numbers, then reads the data rows.
-The search area is the top-left 800×192 pixels of the image.
+So each strip starts with two calibration rows of known colors: row 1 counts 0 to 7, and row 2 counts 7 to 0.
+The decoder tries every cell size from 3 to 8 pixels, and keeps a size that matches both rows exactly. Row 2 runs backwards, so a grid one cell off fails.
+The two rows fix the cell width but not the row height. So the decoder reads the data rows with each size that matches, and keeps the one whose bytes decode as a frame with a valid checksum.
+The search starts at the top-left corner of the image. With 8-pixel cells, a strip is 1600×384 pixels.
 
 **Records in the payload:**
 
@@ -347,8 +349,8 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `next=<n>` | The next slot that the addon loads (7.3). |
 
 **Strip lifetime:**
-The strip stays up until the bridge acknowledges it, or for 40 seconds.
-If no acknowledgment comes, the addon shows the strip again, up to 3 times.
+The strip shows only while its screenshot is taken, about half a second.
+If no acknowledgment comes in 40 seconds, the addon shows the strip again, up to 3 times in all.
 Then the addon uses the reload fallback (7.5).
 
 ### 7.2 Why each channel works
@@ -377,7 +379,7 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 
 Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with two files:
 
-- `GnomishRelay_SNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the Lua file name.
+- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the Lua file name.
 - `Inbox.lua`: the body.
 
 The body sets one global table:

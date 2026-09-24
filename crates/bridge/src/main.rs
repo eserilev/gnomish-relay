@@ -70,11 +70,13 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
         status: Status::Done,
         text: text.as_bytes().to_vec(),
     };
-    // Until the strip reader runs, the next slot comes from the user: `/relay diag` shows it.
-    let next = std::env::var("GNOMISH_NEXT_SLOT")
-        .ok()
-        .and_then(|n| n.parse().ok())
-        .unwrap_or(1);
+    // `say` has no strip to learn the slot from, so the user gives it: `/relay diag` shows it.
+    let next = match std::env::var("GNOMISH_NEXT_SLOT") {
+        Ok(n) => n
+            .parse()
+            .context("GNOMISH_NEXT_SLOT is not a slot number")?,
+        Err(_) => 1,
+    };
     slots::publish(&addons_dir()?, &body(&[reply]), next)?;
     println!(
         "published to {} slots from slot {next}",

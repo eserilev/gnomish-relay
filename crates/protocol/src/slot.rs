@@ -9,7 +9,7 @@ pub const SLOTS: usize = 1000;
 /// The slots that one publish writes, from the next slot that the addon reported.
 pub const SLOT_WINDOW: usize = 30;
 pub const MAX_REPLIES: usize = 30;
-pub const MAX_TEXT: usize = 32_768; // 32 KiB
+pub const MAX_TEXT: usize = 32_768;
 pub const SLOT_BODY_LIMIT: usize = 1024 * 1024;
 
 #[derive(Clone, Copy)]
@@ -49,6 +49,7 @@ fn next_fits(text: &[u8], i: usize, size: usize) -> bool {
 
 /// The length of the longest prefix of `text` whose Lua literal fits in `MAX_TEXT`.
 fn fitting_prefix(text: &[u8]) -> usize {
+    // The two quotes of the literal.
     let mut size = 2;
     let mut i = 0;
     while next_fits(text, i, size) {

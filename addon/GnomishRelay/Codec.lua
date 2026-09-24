@@ -6,6 +6,7 @@ local Codec = {}
 ns.Codec = Codec
 
 local byte, char, floor = string.byte, string.char, math.floor
+local BigEndian = ns.BigEndian
 
 Codec.RS = "\30"
 Codec.US = "\31"
@@ -50,15 +51,6 @@ function Codec.Payload(records)
 		parts[i] = Codec.Record(r)
 	end
 	return table.concat(parts, Codec.RS)
-end
-
-local function BigEndian(n, width)
-	local out = {}
-	for i = width, 1, -1 do
-		out[i] = n % 256
-		n = floor(n / 256)
-	end
-	return char(unpack(out))
 end
 
 function Codec.Fletcher16(s)

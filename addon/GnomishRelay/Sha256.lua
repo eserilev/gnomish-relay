@@ -60,7 +60,7 @@ local function Compress(h, block, at)
 	h[5], h[6], h[7], h[8] = u32(h[5] + e), u32(h[6] + f), u32(h[7] + g), u32(h[8] + hh)
 end
 
-local function BigEndian(n, width)
+function ns.BigEndian(n, width)
 	local out = {}
 	for i = width, 1, -1 do
 		out[i] = n % 256
@@ -76,13 +76,13 @@ function ns.Sha256(msg)
 		0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19,
 	}
 	local zeros = (55 - #msg) % 64
-	local padded = msg .. "\128" .. string.rep("\0", zeros) .. BigEndian(#msg * 8, 8)
+	local padded = msg .. "\128" .. string.rep("\0", zeros) .. ns.BigEndian(#msg * 8, 8)
 	for at = 1, #padded, 64 do
 		Compress(h, padded, at)
 	end
 	local out = {}
 	for i = 1, 8 do
-		out[i] = BigEndian(h[i], 4)
+		out[i] = ns.BigEndian(h[i], 4)
 	end
 	return table.concat(out)
 end

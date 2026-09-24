@@ -118,6 +118,7 @@ local function ChatFlags(chat)
 	return flags
 end
 
+-- Hex keeps every byte of the text safe inside the saved variables file (SPEC.md 7.5).
 local function ToOutbox(item)
 	item.message.outbox = true
 	table.insert(ns.Store.db.outbox, {
@@ -178,12 +179,20 @@ local function GiveUp(item)
 	ns.Store.AddReply(item.chat, item.message.id, TOO_LONG, "error")
 end
 
+local function JoinFlags(a, b)
+	if a == "" then
+		return b
+	end
+	return a .. ";" .. b
+end
+
+-- The report rides on the first record of a strip (SPEC.md 7.1.1).
 local function Records(due)
 	local report = table.concat(Report(), ";")
 	local records, ids = {}, {}
 	local function Add(record)
 		if #records == 0 then
-			record.flags = record.flags == "" and report or record.flags .. ";" .. report
+			record.flags = JoinFlags(record.flags, report)
 		end
 		table.insert(records, record)
 		if #records > ns.Codec.MAX_RECORDS or #ns.Codec.Payload(records) > ns.Codec.MAX_PAYLOAD then
