@@ -82,6 +82,18 @@ mod tests {
         assert!(watcher.ready().is_empty());
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_another_file_is_skipped() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("secret.txt");
+        fs::write(&target, b"x").unwrap();
+        std::os::unix::fs::symlink(&target, dir.path().join("WoWScrnShot_2.png")).unwrap();
+        let mut watcher = Watcher::new(dir.path());
+        watcher.ready();
+        assert!(watcher.ready().is_empty());
+    }
+
     #[test]
     fn other_files_are_ignored() {
         let dir = tempfile::tempdir().unwrap();

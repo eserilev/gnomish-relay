@@ -514,3 +514,162 @@ fn a_stored_message_that_no_longer_fits_becomes_an_error_and_stops_retrying() {
     assert_eq!(last.get::<String>("role").unwrap(), "error");
     assert_eq!(last.get::<String>("text").unwrap(), "Too long to send.");
 }
+
+fn loaded_slots(game: &Game) -> usize {
+    game.wow
+        .get::<Table>("loaded")
+        .unwrap()
+        .pairs::<String, bool>()
+        .count()
+}
+
+#[test]
+fn polls_follow_the_schedule_after_a_send() {
+    let game = Game::start();
+    game.send("go");
+    let mut polls = Vec::new();
+    for second in 1..=30 {
+        game.advance(1.0);
+        polls.push((second, loaded_slots(&game)));
+    }
+    let at = |s: usize| polls[s - 1].1;
+    assert_eq!((at(4), at(5)), (0, 1), "first poll at 5 s");
+    assert_eq!((at(9), at(10)), (1, 2), "second poll at 10 s");
+    assert_eq!((at(15), at(16)), (2, 3), "third poll at 16 s");
+    assert_eq!((at(23), at(24)), (3, 4), "fourth poll at 24 s");
+}
+
+#[test]
+fn with_no_message_open_the_addon_polls_every_ten_minutes() {
+    let game = Game::start();
+    game.advance(6.0);
+    let after_login = loaded_slots(&game);
+    game.advance(590.0);
+    assert_eq!(loaded_slots(&game), after_login);
+    game.advance(20.0);
+    assert_eq!(loaded_slots(&game), after_login + 1);
+}
+
+#[test]
+fn stop_sends_a_stop_record_for_the_chat() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("long task");
+    game.advance(1.0);
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Working,
+        "",
+    )]);
+    game.advance(5.0);
+
+    let stop: Table = game.lua.globals().get("GnomishRelayStop").unwrap();
+    assert!(
+        stop.get::<bool>("shown").unwrap(),
+        "Stop shows while the agent works"
+    );
+    stop.get::<Table>("scripts")
+        .unwrap()
+        .get::<Function>("OnClick")
+        .unwrap()
+        .call::<()>(stop.clone())
+        .unwrap();
+    game.advance(1.0);
+
+    let records = game.last_strip();
+    let stop_record = records
+        .iter()
+        .find(|r| flags(r).contains(&"stop".into()))
+        .expect("a stop record");
+    assert_eq!(stop_record.chat, game.chat_id().as_bytes());
+}
+
+#[test]
+fn the_activity_panel_shows_the_progress_of_a_working_agent() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("build it");
+    game.advance(1.0);
+    let body = format!(
+        "GnomishRelay_SlotData = {{proto = 1, now = 1790211079, replies = {{
+            {{chat = \"{}\", id = {}, status = \"working\", text = \"\", progress = {{\"edit src/main.rs\", \"$ cargo test\"}}}}
+        }}}}",
+        game.chat_id(),
+        first_message_id(&game)
+    );
+    game.wow.set("body", body).unwrap();
+    game.advance(5.0);
+
+    let frames: Table = game.wow.get("frames").unwrap();
+    let texts: Vec<String> = frames
+        .sequence_values::<Table>()
+        .filter_map(Result::ok)
+        .filter(|f| f.get::<String>("kind").unwrap() == "FontString")
+        .filter_map(|f| f.get::<Option<String>>("text").unwrap())
+        .collect();
+    assert!(texts.contains(&"edit src/main.rs".to_owned()), "{texts:?}");
+    assert!(texts.contains(&"$ cargo test".to_owned()), "{texts:?}");
+}
+
+#[test]
+fn a_chat_keeps_its_last_200_entries() {
+    let game = Game::start();
+    game.run("local ns = ... local chat = ns.Store.NewChat() for i = 1, 205 do ns.Store.AddMessage(chat, 'm' .. i) end");
+    let history: Table = game
+        .db()
+        .get::<Table>("chats")
+        .unwrap()
+        .get::<Table>(1)
+        .unwrap()
+        .get("history")
+        .unwrap();
+    assert_eq!(history.raw_len(), 200);
+    assert_eq!(
+        history
+            .get::<Table>(1)
+            .unwrap()
+            .get::<String>("text")
+            .unwrap(),
+        "m6"
+    );
+}
+
+#[test]
+fn a_restore_bundle_skips_a_bad_chat_id_and_a_bad_agent() {
+    let game = Game::start();
+    game.run(
+        "local ns = ... ns.Store.MergeChats({
+            { id = '../../x', name = 'evil' },
+            { id = 'good01', name = 'ok', agent = '|cffff0000fake' },
+        })",
+    );
+    let chats: Table = game.db().get("chats").unwrap();
+    assert_eq!(chats.raw_len(), 1);
+    let chat: Table = chats.get(1).unwrap();
+    assert_eq!(chat.get::<String>("id").unwrap(), "good01");
+    assert_eq!(chat.get::<String>("agent").unwrap(), "claude");
+}
+
+#[test]
+fn when_every_slot_is_used_the_addon_stops_polling_and_asks_for_a_reload() {
+    let all = |wow: &Table| {
+        let loaded: Table = wow.get("loaded").unwrap();
+        for n in 1..=1000 {
+            loaded.set(format!("GnomishRelay_S{n:04}"), true).unwrap();
+        }
+    };
+    let game = Game::start_with(all);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(
+        game.run("local ns = ... return ns.Transport.SlotsLeft()")
+            .as_integer()
+            .unwrap(),
+        0
+    );
+    assert!(
+        game.run("local ns = ... return ns.Transport.NeedsReload()")
+            .as_boolean()
+            .unwrap()
+    );
+}

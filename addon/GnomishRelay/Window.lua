@@ -322,7 +322,7 @@ local function BuildActivity()
 		ui.steps[i] = row
 	end
 
-	ui.stop = CreateFrame("Button", nil, frame, "UIPanelButtonTemplate")
+	ui.stop = CreateFrame("Button", "GnomishRelayStop", frame, "UIPanelButtonTemplate")
 	ui.stop:SetSize(90, 22)
 	ui.stop:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12, 14)
 	ui.stop:SetText("Stop")

@@ -38,19 +38,48 @@ fn log(line: &str) {
     eprintln!("{} {}", now(), line.escape_debug());
 }
 
-struct Loop {
+/// The bridge between the Screenshots folder, the agents, and the slots. `run`
+/// calls `step` four times a second. Tests call it directly.
+pub struct Bridge {
     paths: Paths,
     key: StripKey,
     agent: Arc<dyn Agent>,
     relay: Relay,
+    watcher: Watcher,
     finished: Sender<Finished>,
     results: Receiver<Finished>,
     changed: bool,
+    last_publish: Instant,
 }
 
-impl Loop {
-    fn take_screenshots(&mut self, watcher: &mut Watcher) {
-        for path in watcher.ready() {
+impl Bridge {
+    pub fn new(paths: Paths, folders: Folders, key: StripKey, agent: Arc<dyn Agent>) -> Bridge {
+        let (finished, results) = channel();
+        Bridge {
+            watcher: Watcher::new(&paths.screenshots),
+            paths,
+            key,
+            agent,
+            relay: Relay::new(folders),
+            finished,
+            results,
+            changed: true,
+            last_publish: Instant::now(),
+        }
+    }
+
+    pub fn step(&mut self) {
+        self.take_screenshots();
+        self.start_runs();
+        self.finish_runs();
+        if self.changed || self.last_publish.elapsed() >= HEARTBEAT {
+            self.publish();
+            self.last_publish = Instant::now();
+        }
+    }
+
+    fn take_screenshots(&mut self) {
+        for path in self.watcher.ready() {
             let bytes = match read_strip(&path) {
                 Ok(Some(bytes)) => bytes,
                 Ok(None) => continue,
@@ -109,27 +138,10 @@ impl Loop {
 }
 
 pub fn run(paths: Paths, folders: Folders, key: StripKey, agent: Arc<dyn Agent>) -> Result<()> {
-    let mut watcher = Watcher::new(&paths.screenshots);
     log(&format!("watching {}", paths.screenshots.display()));
-    let (finished, results) = channel();
-    let mut main = Loop {
-        paths,
-        key,
-        agent,
-        relay: Relay::new(folders),
-        finished,
-        results,
-        changed: true,
-    };
-    let mut last_publish = Instant::now();
+    let mut bridge = Bridge::new(paths, folders, key, agent);
     loop {
-        main.take_screenshots(&mut watcher);
-        main.start_runs();
-        main.finish_runs();
-        if main.changed || last_publish.elapsed() >= HEARTBEAT {
-            main.publish();
-            last_publish = Instant::now();
-        }
+        bridge.step();
         thread::sleep(TICK);
     }
 }

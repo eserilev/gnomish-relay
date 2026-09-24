@@ -140,3 +140,22 @@ pub fn screenshot_png(rows: &[Vec<u8>]) -> Vec<u8> {
         &scene(rows, 3.875, 4.0),
     )
 }
+
+/// A frame with a valid tag under `key`, as the addon makes it.
+pub fn signed_frame(time: u32, payload: &[u8], key: &[u8]) -> Vec<u8> {
+    use hmac::{Hmac, Mac};
+    let mut wire = protocol::frame::encode_frame(time, 1, payload, [0; 8]).unwrap();
+    let signed = wire.len() - 8;
+    let mut mac = Hmac::<sha2::Sha256>::new_from_slice(key).unwrap();
+    mac.update(&wire[..signed]);
+    wire[signed..].copy_from_slice(&mac.finalize().into_bytes()[..8]);
+    wire
+}
+
+pub fn hex(bytes: &[u8]) -> String {
+    use std::fmt::Write;
+    bytes.iter().fold(String::new(), |mut out, b| {
+        let _ = write!(out, "{b:02x}");
+        out
+    })
+}
