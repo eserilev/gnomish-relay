@@ -1,0 +1,6 @@
+## Interface: 16001
+## Title: GR Spike: Screenshot
+## Notes: Gnomish Relay spike. Can an addon take a screenshot with no key press?
+## SavedVariables: GRSpikeShotResults
+
+GRSpikeShot.lua

@@ -1,0 +1,6 @@
+## Interface: 16001
+## Title: GR Spike: Files
+## Notes: Gnomish Relay spike. Do the client file-load rules hold under Wine?
+## SavedVariables: GRSpikeFilesResults
+
+GRSpikeFiles.lua
