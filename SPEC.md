@@ -598,18 +598,48 @@ The two priorities are readability and test coverage. `CLAUDE.md` has the rules 
 `crates/protocol` is pure Rust inside the subset that Aeneas supports (see `CLAUDE.md`).
 Charon translates it to LLBC. Aeneas translates LLBC to Lean. The proofs live in `proofs/`.
 
-Theorems, in order:
+The core is the place where untrusted input enters the system: pixels from a screenshot in one direction, agent replies in the other.
+So most theorems are security properties. Each one closes a named attack.
 
-1. **Frame round trip:** for every payload of at most 3200 bytes, `decode_frame(encode_frame(m)) = m`.
-2. **Cell round trip:** packing bytes into 3-bit cells and back gives the same bytes.
-3. **Checksum:** `decode_frame` rejects every frame whose Fletcher-16 does not match.
-4. **Record round trip:** for records with no RS in any field and no US before `text`, `parse(serialize(r)) = r`.
-5. **Lua escape:** the escape function gives a string that a Lua string literal reads back as the input. (This needs a small model of Lua string literals in Lean.)
-6. **Dedup:** a `(token, id)` pair is accepted at most one time while it is in the window.
-7. **Counters:** the empty-ahead rule of the `presence` and `note` counters always holds.
+**Security theorems (untrusted input):**
 
-The MAC uses the `hmac` and `sha2` crates, outside the verified core.
-The core splits a frame into header, payload, checksum, and tag. The bridge checks the tag.
+| # | Theorem | Attack that it closes |
+|---|---|---|
+| S1 | **Decoder totality:** for every image grid, `decode_frame` returns a frame or a defined error. It never panics and never reads out of bounds. | A crafted strip crashes the bridge. |
+| S2 | **Checksum and tag gate:** `decode_frame` returns a frame only if the checksum matches and `verify_tag(key, bytes, tag)` is true. `verify_tag` is an opaque function in the proof. | A fake strip from another addon passes as real. |
+| S3 | **Record parser totality:** for every byte string, `parse_records` returns records or a defined error. | A crafted payload crashes the bridge. |
+| S4 | **Field isolation:** no byte of one field ends up in another field. | Text bleeds into the `cwd` or `flags` field and changes the folder or the permissions. |
+| S5 | **Folder policy:** if `resolve_folder(roots, request)` accepts, the result is inside one of the roots. This holds for every request, also with `..`, `.`, repeated `/`, and trailing `/`. | A message escapes `allowed_roots`, for example `../../.ssh`. |
+| S6 | **No privilege from the game:** the effective permission level is at most the level in the config, for every flag list. `allow_always` from the game never becomes a permanent rule. | A message from the game raises its own permissions. |
+| S7 | **Replay protection:** a `(token, id)` pair is accepted at most one time while it is in the window. | A replayed strip runs a task two times. |
+| S8 | **Lua escape:** for every string, the escape function gives a Lua string literal that reads back as the same string. The output never ends the literal early. | A reply from a malicious agent injects Lua code into the game. |
+| S9 | **Slot body shape:** the slot file writer only puts escaped strings and numbers into a fixed table shape. | A malicious agent changes `proto`, adds fields, or runs code in the slot file. |
+| S10 | **UI escape:** the display sanitizer doubles every `\|` in agent text. | A malicious agent fakes a WoW chat link (`\|H...\|h`), a texture, or a color that imitates a system message. |
+
+**Correctness theorems:**
+
+| # | Theorem |
+|---|---|
+| C1 | **Cell round trip:** bytes → 3-bit cells → bytes gives the same bytes. |
+| C2 | **Frame round trip:** for every payload of at most 3200 bytes, `decode_frame(encode_frame(m)) = m`. |
+| C3 | **Record round trip:** for records with no RS in any field and no US before `text`, `parse(serialize(r)) = r`. |
+
+**Order:** C1 first, because it is the smallest. Then S1, S3, S8, and S5, because those inputs come from outside. Then the rest.
+
+**Proof hygiene:**
+
+- Every theorem ends with `#print axioms`. CI fails if the list contains `sorryAx` or anything other than `propext`, `Classical.choice`, and `Quot.sound`.
+- The Aeneas standard library has 4 `sorry` placeholders (in `Slice` and `StringIter`, checked 2026-09-23). The axiom check catches every proof that depends on them.
+- `native_decide` is not allowed. It adds an extra axiom and trusts compiled code.
+
+**What the proofs do not cover:**
+
+- **The crypto.** HMAC-SHA256 comes from the `hmac` and `sha2` crates. The proofs treat `verify_tag` as opaque. The bridge compares tags in constant time.
+- **The file system.** S5 is about path text. A symbolic link inside a root can still point outside. The bridge resolves links with `canonicalize` and runs the S5 check again on the result.
+- **What the agent does on the host.** A malicious or confused agent can do damage inside its folder, within its permission level. Only the permission level (S6), the folder policy (S5), and the agent sandbox limit that. No proof in this project can make an agent safe.
+- **Hostile addons in the same Lua environment.** See 6.1.
+
+**Design rule from the first proof:** do not cast `bool` to an integer in the core. The Bool casts made the bit proof hard. Integer bit operations (`(v >> 2) & 1`) are easier to prove.
 
 ### 14.2 Quint model of the transport
 
