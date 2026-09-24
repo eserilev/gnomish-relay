@@ -10,3 +10,4 @@ import Protocol.WowText
 import Protocol.Frame.Codec
 import Protocol.Record
 import Protocol.Decimal
+import Protocol.Seen

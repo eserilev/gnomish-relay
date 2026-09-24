@@ -9,12 +9,14 @@ import Protocol.Spec.Slot
 import Protocol.Spec.Rate
 import Protocol.Spec.Popup
 import Protocol.Spec.Policy
+import Protocol.Spec.Seen
 import Protocol.Policy
 import Protocol.Popup
 import Protocol.Lua
 import Protocol.WowText
 import Protocol.Frame.Codec
 import Protocol.Record
+import Protocol.Seen
 
 /-!
 # The theorems, stated
@@ -155,9 +157,6 @@ def S6_answer : Prop :=
 
 /-! ## Replay -/
 
-def seenKeys (s : seen.Seen) : List (List Spec.Byte × Nat) :=
-  s.entries.val.map fun e => (bytes e.token.val, e.id.val)
-
 /-- **S7.** A message is new exactly when it is not remembered. A new message is
 remembered, and only the oldest ones are forgotten, to keep 1000. -/
 def S7_seen : Prop :=
@@ -266,5 +265,6 @@ theorem check_S13_valid_id : S13_valid_id := Protocol.Record.is_valid_id_spec
 theorem check_S3_S4_parse : S3_S4_parse := Protocol.Record.parse_records_sound
 theorem check_C3_serialize : C3_serialize := Protocol.Record.serialize_records_spec
 theorem check_C3_parse : C3_parse := Protocol.Record.parse_records_complete
+theorem check_S7_seen : S7_seen := Protocol.Seen.admit_spec
 
 end Protocol.Statements

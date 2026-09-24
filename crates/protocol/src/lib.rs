@@ -6,10 +6,12 @@
 
 // Aeneas has no model for `From` between integers, for ranges, or for `?`. So we
 // widen with `as`, compare with `<=`, and return errors with `match` or `let else`.
+// Bool-to-integer casts make proofs hard, so we write the `if` out.
 #![allow(
     clippy::cast_lossless,
     clippy::manual_range_contains,
-    clippy::question_mark
+    clippy::question_mark,
+    clippy::bool_to_int_with_if
 )]
 // TODO: remove when every stub in VERIFICATION.md has a body.
 #![allow(

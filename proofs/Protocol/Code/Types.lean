@@ -103,14 +103,14 @@ inductive record.RecordError where
 | BadId : record.RecordError
 
 /-- [protocol::seen::Entry]
-    Source: 'crates/protocol/src/seen.rs', lines 5:0-8:1
+    Source: 'crates/protocol/src/seen.rs', lines 7:0-10:1
     Visibility: public -/
 structure seen.Entry where
   token : alloc.vec.Vec Std.U8
   id : Std.U32
 
 /-- [protocol::seen::Seen]
-    Source: 'crates/protocol/src/seen.rs', lines 11:0-13:1
+    Source: 'crates/protocol/src/seen.rs', lines 13:0-15:1
     Visibility: public -/
 structure seen.Seen where
   entries : alloc.vec.Vec seen.Entry

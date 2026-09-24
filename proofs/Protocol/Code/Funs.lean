@@ -1494,24 +1494,172 @@ def record.serialize_records
   record.serialize_records_loop records (alloc.vec.Vec.new Std.U8) 0#usize
 
 /-- [protocol::seen::SEEN_CAPACITY]
-    Source: 'crates/protocol/src/seen.rs', lines 3:0-3:38
+    Source: 'crates/protocol/src/seen.rs', lines 5:0-5:38
     Visibility: public -/
 @[global_simps, irreducible] def seen.SEEN_CAPACITY : Std.Usize := 1000#usize
 
 /-- [protocol::seen::new_seen]:
-    Source: 'crates/protocol/src/seen.rs', lines 16:0-20:1
+    Source: 'crates/protocol/src/seen.rs', lines 18:0-22:1
     Visibility: public -/
 def seen.new_seen : Result seen.Seen := do
   ok { entries := (alloc.vec.Vec.new seen.Entry) }
 
+/-- [protocol::seen::bytes_equal]: loop body 0:
+    Source: 'crates/protocol/src/seen.rs', lines 29:4-36:1 -/
+@[rust_loop_body]
+def seen.bytes_equal_loop.body
+  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  let i1 := Slice.len a
+  if i < i1
+  then
+    let i2 ← Slice.index_usize a i
+    let i3 ← Slice.index_usize b i
+    if i2 != i3
+    then ok (done false)
+    else let i4 ← i + 1#usize
+         ok (cont i4)
+  else ok (done true)
+
+/-- [protocol::seen::bytes_equal]: loop 0:
+    Source: 'crates/protocol/src/seen.rs', lines 29:4-36:1 -/
+@[rust_loop]
+def seen.bytes_equal_loop
+  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) : Result Bool := do
+  loop
+    (fun i1 => seen.bytes_equal_loop.body a b i1)
+    i
+
+/-- [protocol::seen::bytes_equal]:
+    Source: 'crates/protocol/src/seen.rs', lines 24:0-36:1 -/
+def seen.bytes_equal (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
+  let i := Slice.len a
+  let i1 := Slice.len b
+  if i != i1
+  then ok false
+  else seen.bytes_equal_loop a b 0#usize
+
+/-- [protocol::seen::contains]: loop body 0:
+    Source: 'crates/protocol/src/seen.rs', lines 40:4-47:1 -/
+@[rust_loop_body]
+def seen.contains_loop.body
+  (entries : Slice seen.Entry) (token : Slice Std.U8) (id : Std.U32)
+  (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  let i1 := Slice.len entries
+  if i < i1
+  then
+    let e ← Slice.index_usize entries i
+    if e.id = id
+    then
+      let s := alloc.vec.Vec.deref e.token
+      let b ← seen.bytes_equal s token
+      if b
+      then ok (done true)
+      else let i2 ← i + 1#usize
+           ok (cont i2)
+    else let i2 ← i + 1#usize
+         ok (cont i2)
+  else ok (done false)
+
+/-- [protocol::seen::contains]: loop 0:
+    Source: 'crates/protocol/src/seen.rs', lines 40:4-47:1 -/
+@[rust_loop]
+def seen.contains_loop
+  (entries : Slice seen.Entry) (token : Slice Std.U8) (id : Std.U32)
+  (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun i1 => seen.contains_loop.body entries token id i1)
+    i
+
+/-- [protocol::seen::contains]:
+    Source: 'crates/protocol/src/seen.rs', lines 38:0-47:1 -/
+@[reducible]
+def seen.contains
+  (entries : Slice seen.Entry) (token : Slice Std.U8) (id : Std.U32) :
+  Result Bool
+  := do
+  seen.contains_loop entries token id 0#usize
+
+/-- [protocol::seen::copy_bytes]:
+    Source: 'crates/protocol/src/seen.rs', lines 49:0-53:1 -/
+def seen.copy_bytes
+  (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let i := Slice.len bytes
+  ascii.push_range (alloc.vec.Vec.new Std.U8) bytes 0#usize i
+
+/-- [protocol::seen::copy_entries]: loop body 0:
+    Source: 'crates/protocol/src/seen.rs', lines 59:4-65:5 -/
+@[rust_loop_body]
+def seen.copy_entries_loop.body
+  (entries : Slice seen.Entry) (out : alloc.vec.Vec seen.Entry) (i : Std.Usize)
+  :
+  Result (ControlFlow ((alloc.vec.Vec seen.Entry) × Std.Usize) (alloc.vec.Vec
+    seen.Entry))
+  := do
+  let i1 := Slice.len entries
+  if i < i1
+  then
+    let e ← Slice.index_usize entries i
+    let s := alloc.vec.Vec.deref e.token
+    let v ← seen.copy_bytes s
+    let out1 ← alloc.vec.Vec.push out { e with token := v }
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::seen::copy_entries]: loop 0:
+    Source: 'crates/protocol/src/seen.rs', lines 59:4-65:5 -/
+@[rust_loop]
+def seen.copy_entries_loop
+  (entries : Slice seen.Entry) (out : alloc.vec.Vec seen.Entry) (i : Std.Usize)
+  :
+  Result (alloc.vec.Vec seen.Entry)
+  := do
+  loop
+    (fun (out1, i1) => seen.copy_entries_loop.body entries out1 i1)
+    (out, i)
+
+/-- [protocol::seen::copy_entries]:
+    Source: 'crates/protocol/src/seen.rs', lines 56:0-67:1 -/
+@[reducible]
+def seen.copy_entries
+  (entries : Slice seen.Entry) («from» : Std.Usize) :
+  Result (alloc.vec.Vec seen.Entry)
+  := do
+  seen.copy_entries_loop entries (alloc.vec.Vec.new seen.Entry) «from»
+
+/-- [protocol::seen::first_kept]:
+    Source: 'crates/protocol/src/seen.rs', lines 70:0-72:1 -/
+def seen.first_kept (len : Std.Usize) : Result Std.Usize := do
+  if len >= seen.SEEN_CAPACITY
+  then ok 1#usize
+  else ok 0#usize
+
 /-- [protocol::seen::admit]:
-    Source: 'crates/protocol/src/seen.rs', lines 24:0-26:1
+    Source: 'crates/protocol/src/seen.rs', lines 76:0-86:1
     Visibility: public -/
 def seen.admit
   (history : seen.Seen) (token : Slice Std.U8) (id : Std.U32) :
   Result (Bool × seen.Seen)
   := do
-  fail panic
+  let s := alloc.vec.Vec.deref history.entries
+  let b ← seen.contains s token id
+  if b
+  then ok (false, history)
+  else
+    let s1 := alloc.vec.Vec.deref history.entries
+    let i := alloc.vec.Vec.len history.entries
+    let i1 ← seen.first_kept i
+    let entries ← seen.copy_entries s1 i1
+    let v ← seen.copy_bytes token
+    let entries1 ←
+      alloc.vec.Vec.push entries ({ token := v, id } : seen.Entry)
+    ok (true, { entries := entries1 })
 
 /-- [protocol::slot::MAX_REPLIES]
     Source: 'crates/protocol/src/slot.rs', lines 3:0-3:34

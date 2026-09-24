@@ -22,3 +22,4 @@ import Statements
 #print axioms Protocol.Statements.check_S3_S4_parse
 #print axioms Protocol.Statements.check_C3_serialize
 #print axioms Protocol.Statements.check_C3_parse
+#print axioms Protocol.Statements.check_S7_seen
