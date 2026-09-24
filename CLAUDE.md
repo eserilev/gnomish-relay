@@ -68,12 +68,17 @@ We prove `protocol` correct with Aeneas and Lean. So `protocol` stays inside the
 - Do not call a generic function with a `&mut` type argument (for example `id(&mut x)`).
 - Keep data simple: integers, arrays, slices, `Vec<u8>`, plain structs and enums. Do UTF-8 and string work outside the core.
 - Keep each function small. A small function gives a small proof.
+- No local variable with the same name as a module. In Lean, `cells.X` then means a field of the variable, and the build fails.
+- No `?` operator. Aeneas has no model for it. Use `let ... else`.
+- The Lean code that Aeneas generates must contain no `axiom`. An axiom means that Aeneas did not know a function, and the proof then trusts it blindly.
 - Do not cast `bool` to an integer. Use integer bit operations, for example `(v >> 2) & 1`.
-- No `native_decide` in proofs. Every theorem ends with `#print axioms`, and only `propext`, `Classical.choice`, and `Quot.sound` are allowed.
+- No `native_decide`, `bv_decide`, or `bv_tac` in proofs. They add a native-code axiom. Prove bit facts bit by bit: `ext i hi`, `interval_cases i`, `simp`.
+- Add each top theorem to `proofs/Axioms.lean`. Only `propext`, `Classical.choice`, and `Quot.sound` are allowed.
+- Put bit arithmetic in tiny helper functions that take and return integers. Large functions make the proof time out.
 - Every function that reads untrusted input returns a value or a defined error for every input. It never panics. Prove it.
 
 If a change to `protocol` breaks the Aeneas translation, fix the code, not the proof tooling.
-Run the translation before you commit a change to `protocol`.
+Before you commit a change to `protocol`, run `scripts/check-proofs.sh`. It regenerates the Lean code, builds the proofs, and checks the axioms.
 
 ## Tooling
 

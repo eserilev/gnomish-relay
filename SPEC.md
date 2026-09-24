@@ -654,7 +654,7 @@ So most theorems are security properties. Each one closes a named attack.
 
 | # | Theorem |
 |---|---|
-| C1 | **Cell round trip:** bytes → 3-bit cells → bytes gives the same bytes. |
+| C1 | **Cell round trip:** bytes → 3-bit cells → bytes gives the same bytes, followed by the zero padding of the last group. **Proved** (`Protocol.Cell.cells_round_trip`, 2026-09-23), for inputs up to 65536 bytes. |
 | C2 | **Frame round trip:** for every payload of at most 3200 bytes, `decode_frame(encode_frame(m)) = m`. |
 | C3 | **Record round trip:** for records with no RS in any field and no US before `text`, `parse(serialize(r)) = r`. |
 
@@ -662,7 +662,9 @@ So most theorems are security properties. Each one closes a named attack.
 
 **Proof hygiene:**
 
-- Every theorem ends with `#print axioms`. CI fails if the list contains `sorryAx` or anything other than `propext`, `Classical.choice`, and `Quot.sound`.
+- `proofs/Axioms.lean` prints the axioms of every top theorem. `scripts/check-proofs.sh` fails if the list contains anything other than `propext`, `Classical.choice`, and `Quot.sound`.
+- `bv_decide` and Aeneas's `bv_tac` add a native-code axiom, so they are not allowed. Bit facts are proved bit by bit (`ext`, then `simp`), which the kernel checks.
+- The generated Lean in `proofs/Protocol/Code` is in the repo. `scripts/check-proofs.sh` regenerates it and fails if it differs.
 - The Aeneas standard library has 4 `sorry` placeholders (in `Slice` and `StringIter`, checked 2026-09-23). The axiom check catches every proof that depends on them.
 - `native_decide` is not allowed. It adds an extra axiom and trusts compiled code.
 
@@ -673,7 +675,11 @@ So most theorems are security properties. Each one closes a named attack.
 - **What the agent does on the host.** A malicious or confused agent can do damage inside its folder, within its permission level. Only the permission level (S6), the folder policy (S5), and the agent sandbox limit that. No proof in this project can make an agent safe.
 - **Hostile addons in the same Lua environment.** See 6.1.
 
-**Design rule from the first proof:** do not cast `bool` to an integer in the core. The Bool casts made the bit proof hard. Integer bit operations (`(v >> 2) & 1`) are easier to prove.
+**Design rules from the first proofs:**
+
+- Do not cast `bool` to an integer in the core. Integer bit operations (`(v >> 2) & 1`) are easier to prove.
+- Put bit arithmetic in tiny helpers that take and return integers (`cell_at`, `append_cell`). One large function with 30 bit operations timed out in the proof. The same code split into helpers proves in seconds.
+- The cell codec works in groups: 3 bytes (24 bits) are exactly 8 cells. The bit stream is the same as in 7.1. The encoder pads the last group with zero bytes, and the frame header carries the real length.
 
 ### 14.2 Quint model of the transport
 
