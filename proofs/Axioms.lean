@@ -26,3 +26,6 @@ import Statements
 #print axioms Protocol.Statements.check_S14_admit
 #print axioms Protocol.Statements.check_S14_window
 #print axioms Protocol.Statements.check_S14_queue
+#print axioms Protocol.Statements.check_S9_slot_body
+#print axioms Protocol.Statements.check_S12_prepare
+#print axioms Protocol.Statements.check_S12_bound

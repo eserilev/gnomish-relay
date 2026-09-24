@@ -39,7 +39,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
 | 12 | S5: folder policy | `folder` | `S5_folder`, `S5_folder_complete` | stated |
 | 13 | S7: replay protection | `seen` | `S7_seen` | proved |
 | 14 | S14: rate limit and queue | `rate` | `S14_admit`, `S14_window`, `S14_queue` | proved |
-| 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | stated |
+| 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | todo |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | todo |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | todo |

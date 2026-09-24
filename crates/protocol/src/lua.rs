@@ -1,7 +1,7 @@
 //! Lua string literals for the slot files. WoW runs a slot file as Lua code, so a
 //! bad escape lets an agent reply run code in the game. See `SPEC.md` 14.1, S8.
 
-fn is_plain(b: u8) -> bool {
+pub(crate) fn is_plain(b: u8) -> bool {
     b' ' <= b && b <= b'~' && b != b'"' && b != b'\\'
 }
 

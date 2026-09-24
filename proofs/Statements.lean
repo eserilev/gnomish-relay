@@ -18,6 +18,7 @@ import Protocol.Frame.Codec
 import Protocol.Record
 import Protocol.Seen
 import Protocol.Rate
+import Protocol.Slot
 
 /-!
 # The theorems, stated
@@ -270,5 +271,8 @@ theorem check_S7_seen : S7_seen := Protocol.Seen.admit_spec
 theorem check_S14_admit : S14_admit := Protocol.Rate.admit_message_spec
 theorem check_S14_window : S14_window := Protocol.Rate.window_spec
 theorem check_S14_queue : S14_queue := Protocol.Rate.enqueue_spec
+theorem check_S9_slot_body : S9_slot_body := Protocol.Slot.slot_body_spec
+theorem check_S12_prepare : S12_prepare := Protocol.Slot.prepare_replies_spec
+theorem check_S12_bound : S12_bound := Protocol.Slot.slot_body_bound
 
 end Protocol.Statements
