@@ -5,3 +5,5 @@ import Statements
 #print axioms Protocol.Statements.check_C1
 #print axioms Protocol.Statements.check_S11_fresh
 #print axioms Protocol.Statements.check_S2_S11_check
+#print axioms Protocol.Statements.check_S6_level
+#print axioms Protocol.Statements.check_S6_answer

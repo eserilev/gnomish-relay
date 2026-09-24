@@ -48,7 +48,7 @@ inductive frame.Reject where
 | Future : frame.Reject
 
 /-- [protocol::policy::Level]
-    Source: 'crates/protocol/src/policy.rs', lines 5:0-9:1
+    Source: 'crates/protocol/src/policy.rs', lines 6:0-10:1
     Visibility: public -/
 @[discriminant isize]
 inductive policy.Level where
@@ -57,7 +57,7 @@ inductive policy.Level where
 | FullAuto : policy.Level
 
 /-- [protocol::policy::Answer]
-    Source: 'crates/protocol/src/policy.rs', lines 12:0-17:1
+    Source: 'crates/protocol/src/policy.rs', lines 14:0-19:1
     Visibility: public -/
 @[discriminant isize]
 inductive policy.Answer where

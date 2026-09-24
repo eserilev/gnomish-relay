@@ -426,41 +426,57 @@ def policy.Level.Insts.CoreMarkerCopy : core.marker.Copy policy.Level := {
 }
 
 /-- [protocol::policy::{impl core::clone::Clone for protocol::policy::Answer}::clone]:
-    Source: 'crates/protocol/src/policy.rs', lines 11:9-11:14
+    Source: 'crates/protocol/src/policy.rs', lines 12:9-12:14
     Visibility: public -/
 def policy.Answer.Insts.CoreCloneClone.clone
   (self : policy.Answer) : Result policy.Answer := do
   ok self
 
 /-- Trait implementation: [protocol::policy::{impl core::clone::Clone for protocol::policy::Answer}]
-    Source: 'crates/protocol/src/policy.rs', lines 11:9-11:14 -/
+    Source: 'crates/protocol/src/policy.rs', lines 12:9-12:14 -/
 @[reducible]
 def policy.Answer.Insts.CoreCloneClone : core.clone.Clone policy.Answer := {
   clone := policy.Answer.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [protocol::policy::{impl core::marker::Copy for protocol::policy::Answer}]
-    Source: 'crates/protocol/src/policy.rs', lines 11:16-11:20 -/
+    Source: 'crates/protocol/src/policy.rs', lines 12:16-12:20 -/
 @[reducible]
 def policy.Answer.Insts.CoreMarkerCopy : core.marker.Copy policy.Answer := {
   cloneInst := policy.Answer.Insts.CoreCloneClone
 }
 
+/-- [protocol::policy::rank]:
+    Source: 'crates/protocol/src/policy.rs', lines 21:0-27:1 -/
+def policy.rank (level : policy.Level) : Result Std.U8 := do
+  match level with
+  | policy.Level.Ask => ok 0#u8
+  | policy.Level.AutoEdit => ok 1#u8
+  | policy.Level.FullAuto => ok 2#u8
+
 /-- [protocol::policy::effective_level]:
-    Source: 'crates/protocol/src/policy.rs', lines 20:0-22:1
+    Source: 'crates/protocol/src/policy.rs', lines 31:0-37:1
     Visibility: public -/
 def policy.effective_level
   (config : policy.Level) (requested : policy.Level) :
   Result policy.Level
   := do
-  fail panic
+  let i ← policy.rank requested
+  let i1 ← policy.rank config
+  if i < i1
+  then ok requested
+  else ok config
 
 /-- [protocol::policy::answer_from_game]:
-    Source: 'crates/protocol/src/policy.rs', lines 26:0-28:1
+    Source: 'crates/protocol/src/policy.rs', lines 41:0-46:1
     Visibility: public -/
 def policy.answer_from_game
   (answer : policy.Answer) : Result policy.Answer := do
-  fail panic
+  match answer with
+  | policy.Answer.AllowOnce => ok policy.Answer.AllowOnce
+  | policy.Answer.AllowAlways => ok policy.Answer.AllowOnce
+  | policy.Answer.RejectOnce => ok policy.Answer.RejectOnce
+  | policy.Answer.RejectAlways => ok policy.Answer.RejectAlways
 
 /-- [protocol::popup::COMMAND_BUDGET]
     Source: 'crates/protocol/src/popup.rs', lines 6:0-6:38

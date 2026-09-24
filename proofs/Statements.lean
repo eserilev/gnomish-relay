@@ -8,6 +8,8 @@ import Protocol.Spec.WowText
 import Protocol.Spec.Slot
 import Protocol.Spec.Rate
 import Protocol.Spec.Popup
+import Protocol.Spec.Policy
+import Protocol.Policy
 
 /-!
 # The theorems, stated
@@ -136,11 +138,6 @@ def S5_folder_complete : Prop :=
 
 /-! ## Permissions -/
 
-def rank : policy.Level → Nat
-  | .Ask => 0
-  | .AutoEdit => 1
-  | .FullAuto => 2
-
 /-- **S6.** The game can lower the level, never raise it. -/
 def S6_level : Prop :=
   ∀ config requested : policy.Level,
@@ -247,5 +244,7 @@ def S15_faithful : Prop :=
 theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
 theorem check_S11_fresh : S11_fresh := Protocol.Frame.is_fresh_spec
 theorem check_S2_S11_check : S2_S11_check := Protocol.Frame.check_frame_spec
+theorem check_S6_level : S6_level := Protocol.Policy.effective_level_spec
+theorem check_S6_answer : S6_answer := Protocol.Policy.answer_from_game_spec
 
 end Protocol.Statements

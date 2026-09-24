@@ -74,6 +74,7 @@ We prove `protocol` correct with Aeneas and Lean. So `protocol` stays inside the
 - Do not cast `bool` to an integer. Use integer bit operations, for example `(v >> 2) & 1`.
 - No `native_decide`, `bv_decide`, or `bv_tac` in proofs. They add a native-code axiom. Prove bit facts bit by bit: `ext i hi`, `interval_cases i`, `simp`.
 - Add each top theorem to `proofs/Axioms.lean`. Only `propext`, `Classical.choice`, and `Quot.sound` are allowed.
+- `cases` on an enum fails when the goal uses `⦃ ⦄`. Use `induction x` instead.
 - Put bit arithmetic in tiny helper functions that take and return integers. Large functions make the proof time out.
 - Every function that reads untrusted input returns a value or a defined error for every input. It never panics. Prove it.
 

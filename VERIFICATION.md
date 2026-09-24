@@ -28,7 +28,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
 | 1 | C1: cell round trip | `cell` | `C1` | proved |
 | 2 | S11: freshness | `frame::is_fresh` | `S11_fresh` | proved |
 | 3 | S2 + S11: frame check | `frame::check_frame` | `S2_S11_check` | proved |
-| 4 | S6: permission level and answers | `policy` | `S6_level`, `S6_answer` | stated |
+| 4 | S6: permission level and answers | `policy` | `S6_level`, `S6_answer` | proved |
 | 5 | S15: permission popup | `popup` | `S15_popup`, `S15_printable`, `S15_faithful` | stated |
 | 6 | S8: Lua literals | `lua` | `S8_lua_string`, `S8_reads_back` | stated |
 | 7 | S10: WoW chat text | `wow_text` | `S10_chat_safe` | stated |
