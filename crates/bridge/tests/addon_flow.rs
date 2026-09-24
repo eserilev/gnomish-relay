@@ -44,6 +44,31 @@ impl Game {
 
     /// `before` runs before login, for example to mark slots as loaded.
     fn start_with(before: impl FnOnce(&Table)) -> Game {
+        Game::boot(None, before)
+    }
+
+    /// `/reload`: WoW saves `GnomishRelayDB` as Lua text, and a new UI session loads it.
+    /// The clock of the game goes on.
+    fn reload(&self) -> Game {
+        self.reload_after(0)
+    }
+
+    /// A logout, and a login `gap` seconds later.
+    fn reload_after(&self, gap: i64) -> Game {
+        let saved = self.saved_variables();
+        let clock = self.run("return time()").as_integer().unwrap();
+        Game::boot(Some(saved), |wow| wow.set("epoch", clock + gap).unwrap())
+    }
+
+    fn saved_variables(&self) -> String {
+        self.wow
+            .get::<Function>("Save")
+            .unwrap()
+            .call("GnomishRelayDB")
+            .unwrap()
+    }
+
+    fn boot(saved: Option<String>, before: impl FnOnce(&Table)) -> Game {
         let lua = lua(Bits::Unsigned);
         let wow: Table = lua
             .load(repo_file("addon/tests/wow.lua"))
@@ -51,6 +76,9 @@ impl Game {
             .call(())
             .unwrap();
         before(&wow);
+        if let Some(saved) = saved {
+            lua.load(saved).set_name("GnomishRelay.lua").exec().unwrap();
+        }
         let ns = lua.create_table().unwrap();
         ns.set("key", lua.create_string(KEY).unwrap()).unwrap();
         load_into(&lua, &ns, FILES);
@@ -161,6 +189,14 @@ fn flags(record: &Record) -> Vec<String> {
         .split(';')
         .map(String::from)
         .collect()
+}
+
+fn loaded_slots(game: &Game) -> usize {
+    game.wow
+        .get::<Table>("loaded")
+        .unwrap()
+        .pairs::<String, bool>()
+        .count()
 }
 
 fn first_message_id(game: &Game) -> u32 {
@@ -274,7 +310,7 @@ fn an_acknowledged_message_is_not_shown_again() {
 }
 
 #[test]
-fn an_unacknowledged_message_goes_to_the_outbox_after_three_shows() {
+fn an_unacknowledged_message_goes_to_the_outbox_as_a_signed_frame() {
     let game = Game::start();
     game.send("anyone there?");
     game.advance(130.0);
@@ -282,15 +318,26 @@ fn an_unacknowledged_message_goes_to_the_outbox_after_three_shows() {
     assert_eq!(game.shots(), 3);
     let outbox: Table = game.db().get("outbox").unwrap();
     assert_eq!(outbox.raw_len(), 1);
-    let entry: Table = outbox.get(1).unwrap();
-    assert_eq!(
-        entry.get::<String>("text").unwrap(),
-        "616e796f6e652074686572653f"
-    );
+    let hex: String = outbox.get::<Table>(1).unwrap().get("frame").unwrap();
+    let wire: Vec<u8> = (0..hex.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
+        .collect();
+    let records = receive(
+        &wire,
+        &StripKey::from_hex(&common::hex(KEY)).unwrap(),
+        1_790_211_209,
+    )
+    .unwrap();
+    assert_eq!(records[0].text, b"anyone there?");
     assert!(
         game.run("local ns = ... return ns.Transport.NeedsReload()")
             .as_boolean()
             .unwrap()
+    );
+    assert!(
+        game.saved_variables()
+            .contains(&format!("[\"frame\"] = \"{hex}\""))
     );
 }
 
@@ -495,32 +542,68 @@ fn a_message_too_long_for_a_strip_stays_in_the_box_and_starts_no_screenshots() {
 }
 
 #[test]
-fn a_stored_message_that_no_longer_fits_becomes_an_error_and_stops_retrying() {
+fn a_change_to_saved_data_after_a_send_does_not_change_the_strip() {
     let game = Game::start();
-    game.send("short");
-    game.run("local ns = ... ns.Store.db.chats[1].cwd = string.rep('d', 3200)");
-    game.advance(300.0);
+    game.send("the real task");
+    game.advance(1.0);
+    game.run(
+        "local ns = ... local chat = ns.Store.db.chats[1]
+         chat.cwd = '/etc' chat.history[1].text = 'rm -rf ~'",
+    );
+    game.advance(41.0);
 
-    assert!(game.shots() <= 3, "got {} shots", game.shots());
-    let history: Table = game
-        .db()
-        .get::<Table>("chats")
-        .unwrap()
-        .get::<Table>(1)
-        .unwrap()
-        .get("history")
-        .unwrap();
-    let last: Table = history.get(history.raw_len()).unwrap();
-    assert_eq!(last.get::<String>("role").unwrap(), "error");
-    assert_eq!(last.get::<String>("text").unwrap(), "Too long to send.");
+    let retry = game.last_strip();
+    assert_eq!(retry[0].text, b"the real task");
+    assert_eq!(retry[0].cwd, b"");
 }
 
-fn loaded_slots(game: &Game) -> usize {
-    game.wow
-        .get::<Table>("loaded")
-        .unwrap()
-        .pairs::<String, bool>()
-        .count()
+#[test]
+fn after_a_reload_the_stored_signed_frame_goes_out_as_it_is() {
+    let game = Game::start();
+    game.send("survive the reload");
+    let game = game.reload();
+    game.run("local ns = ... ns.Store.db.chats[1].history[1].text = 'changed'");
+    game.advance(2.0);
+
+    let records = (1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .collect::<Vec<_>>();
+    let message = records
+        .iter()
+        .find(|r| r.id != 0)
+        .expect("the stored frame");
+    assert_eq!(message.text, b"survive the reload");
+}
+
+fn last_entry(game: &Game) -> Table {
+    let chats: Table = game.db().get("chats").unwrap();
+    let history: Table = chats.get::<Table>(1).unwrap().get("history").unwrap();
+    history.get(history.raw_len()).unwrap()
+}
+
+#[test]
+fn an_outbox_frame_that_the_bridge_never_takes_asks_to_be_sent_again() {
+    let game = Game::start();
+    game.send("stuck in the outbox");
+    let game = game.reload();
+    game.advance(300.0);
+    assert_eq!(
+        last_entry(&game).get::<String>("text").unwrap(),
+        "Not sent. Send it again."
+    );
+}
+
+#[test]
+fn a_stored_frame_too_old_at_login_asks_to_be_sent_again() {
+    let game = Game::start();
+    game.send("sent before a long break");
+    game.advance(1.0);
+    let game = game.reload_after(300);
+    game.advance(2.0);
+    assert_eq!(
+        last_entry(&game).get::<String>("text").unwrap(),
+        "Not sent. Send it again."
+    );
 }
 
 #[test]

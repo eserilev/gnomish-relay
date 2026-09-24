@@ -53,6 +53,18 @@ function Codec.Payload(records)
 	return table.concat(parts, Codec.RS)
 end
 
+function Codec.Hex(s)
+	return (s:gsub(".", function(c)
+		return string.format("%02x", c:byte())
+	end))
+end
+
+function Codec.FromHex(hex)
+	return (hex:gsub("%x%x", function(pair)
+		return char(tonumber(pair, 16))
+	end))
+end
+
 function Codec.Fletcher16(s)
 	local s1, s2 = 0, 0
 	for i = 1, #s do

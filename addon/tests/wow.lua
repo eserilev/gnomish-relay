@@ -180,6 +180,38 @@ function wow.Advance(seconds)
 	wow.now = stop
 end
 
+-- The saved variables file as WoW writes it at /reload: `name = { ["key"] = value, ... }`.
+function wow.Save(name)
+	local out = {}
+	local function Write(value, indent)
+		if type(value) == "table" then
+			table.insert(out, "{\n")
+			local keys = {}
+			for k in pairs(value) do
+				table.insert(keys, k)
+			end
+			table.sort(keys, function(x, y)
+				return tostring(x) < tostring(y)
+			end)
+			for _, k in ipairs(keys) do
+				local key = type(k) == "number" and "[" .. k .. "]" or string.format("[%q]", k)
+				table.insert(out, indent .. "\t" .. key .. " = ")
+				Write(value[k], indent .. "\t")
+				table.insert(out, ",\n")
+			end
+			table.insert(out, indent .. "}")
+		elseif type(value) == "string" then
+			table.insert(out, string.format("%q", value))
+		else
+			table.insert(out, tostring(value))
+		end
+	end
+	table.insert(out, name .. " = ")
+	Write(_G[name], "")
+	table.insert(out, "\n")
+	return table.concat(out)
+end
+
 -- The cells of the strip on screen, by row, from the colors of the visible textures.
 local function StripCells()
 	local rows = {}

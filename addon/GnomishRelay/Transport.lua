@@ -19,6 +19,9 @@ local PROTO = 1
 -- Room for the flags of Report(): `next`, `read` with up to 30 ids, and `restored`.
 local REPORT_ROOM = 400
 local TOO_LONG = "Too long to send."
+local NOT_SENT = "Not sent. Send it again."
+-- The bridge accepts a frame up to 300 s old (S11). Keep a margin for the screenshot.
+local FRESH_FOR = 270
 
 local state = {
 	nextSlot = 1,
@@ -30,6 +33,9 @@ local state = {
 	controls = {},
 	bodyDone = {},
 	working = {},
+	-- The record of each message, taken at send time from our own code. Strips come
+	-- from here, never from GnomishRelayDB, which any addon can change (SPEC.md 6.6.1).
+	private = {},
 	lastNow = nil,
 	missing = false,
 	mismatch = false,
@@ -40,12 +46,6 @@ Transport.OnReply = function() end
 
 local function SlotName(n)
 	return string.format("GnomishRelay_S%04d", n)
-end
-
-local function Hex(s)
-	return (tostring(s or ""):gsub(".", function(c)
-		return string.format("%02x", c:byte())
-	end))
 end
 
 function Transport.Init()
@@ -118,50 +118,6 @@ local function ChatFlags(chat)
 	return flags
 end
 
--- Hex keeps every byte of the text safe inside the saved variables file (SPEC.md 7.5).
-local function ToOutbox(item)
-	item.message.outbox = true
-	table.insert(ns.Store.db.outbox, {
-		token = ns.Store.db.token,
-		chat = item.chat.id,
-		id = item.message.id,
-		flags = table.concat(ChatFlags(item.chat), ";"),
-		cwd = Hex(item.chat.cwd),
-		name = Hex(item.chat.name),
-		text = Hex(item.message.text),
-	})
-end
-
-local function RemoveFromOutbox(chatId, id)
-	local outbox = ns.Store.db.outbox
-	for i = #outbox, 1, -1 do
-		if outbox[i].chat == chatId and outbox[i].id == id then
-			table.remove(outbox, i)
-		end
-	end
-end
-
--- Open messages that the bridge has not acknowledged, and that still have tries left.
-local function Due(now)
-	local due = {}
-	for _, item in ipairs(ns.Store.Open()) do
-		local message = item.message
-		local shown = state.shows[message.id]
-		if not message.acked and not message.outbox then
-			if not shown then
-				table.insert(due, item)
-			elseif now - shown.at >= RETRY then
-				if shown.count < SHOWS then
-					table.insert(due, item)
-				else
-					ToOutbox(item)
-				end
-			end
-		end
-	end
-	return due
-end
-
 local function MessageRecord(chat, message)
 	return {
 		token = ns.Store.db.token,
@@ -174,9 +130,90 @@ local function MessageRecord(chat, message)
 	}
 end
 
--- A message that cannot fit becomes an error at once, so it never retries forever.
-local function GiveUp(item)
-	ns.Store.AddReply(item.chat, item.message.id, TOO_LONG, "error")
+local function Copy(t)
+	local out = {}
+	for k, v in pairs(t) do
+		out[k] = v
+	end
+	return out
+end
+
+local function Sign(records, frameId)
+	return ns.Codec.Frame(time(), frameId, ns.Codec.Payload(records), ns.key)
+end
+
+-- The message ends as an error at once, so it never retries forever.
+local function GiveUp(item, text)
+	ns.Store.AddReply(item.chat, item.message.id, text, "error")
+end
+
+-- The outbox holds a signed frame, so the bridge checks it as it checks a strip
+-- (SPEC.md 7.5). Hex keeps every byte safe inside the saved variables file.
+local function ToOutbox(item, frame, signedAt)
+	item.message.outbox = true
+	table.insert(ns.Store.db.outbox, {
+		chat = item.chat.id,
+		id = item.message.id,
+		frame = ns.Codec.Hex(frame),
+		at = signedAt,
+	})
+end
+
+local function OutboxEntry(chatId, id)
+	for i, entry in ipairs(ns.Store.db.outbox) do
+		if entry.chat == chatId and entry.id == id then
+			return entry, i
+		end
+	end
+end
+
+local function RemoveFromOutbox(chatId, id)
+	local _, i = OutboxEntry(chatId, id)
+	if i then
+		table.remove(ns.Store.db.outbox, i)
+	end
+end
+
+-- An outbox frame that the bridge has not taken in time is too old to take now.
+local function ExpireOutbox(item)
+	local entry = OutboxEntry(item.chat.id, item.message.id)
+	if not entry or time() - entry.at >= FRESH_FOR then
+		RemoveFromOutbox(item.chat.id, item.message.id)
+		item.message.outbox = nil
+		GiveUp(item, NOT_SENT)
+	end
+end
+
+-- Open messages that the bridge has not acknowledged, and that are due for a strip.
+-- `due` have their private record. `stored` come from before a /reload: only their
+-- signed frame is left, and it goes out as it is.
+local function Due(now)
+	local due, stored = {}, {}
+	for _, item in ipairs(ns.Store.Open()) do
+		local message = item.message
+		local shown = state.shows[message.id]
+		item.record = state.private[message.id]
+		if message.outbox then
+			ExpireOutbox(item)
+		elseif message.acked then
+			item.record = nil
+		elseif not item.record and time() - (message.signedAt or 0) >= FRESH_FOR then
+			GiveUp(item, NOT_SENT)
+		elseif not shown or now - shown.at >= RETRY then
+			if shown and shown.count >= SHOWS then
+				if item.record then
+					ToOutbox(item, Sign({ item.record }, message.id), time())
+				else
+					ToOutbox(item, ns.Codec.FromHex(message.frame), message.signedAt)
+				end
+			elseif item.record then
+				table.insert(due, item)
+			else
+				table.insert(stored, item)
+			end
+		end
+	end
+	return due, stored
 end
 
 local function JoinFlags(a, b)
@@ -205,10 +242,10 @@ local function Records(due)
 		Add({ token = control.token, chat = control.chat, id = control.id, flags = control.flags })
 	end
 	for _, item in ipairs(due) do
-		if Add(MessageRecord(item.chat, item.message)) then
+		if Add(Copy(item.record)) then
 			table.insert(ids, item.message.id)
 		elseif #records == 0 then
-			GiveUp(item)
+			GiveUp(item, TOO_LONG)
 		else
 			break
 		end
@@ -219,24 +256,15 @@ local function Records(due)
 	return records, ids
 end
 
-function Transport.ShowNextStrip()
-	if ns.Strip.Busy() or not ns.key then
-		return
+-- `reporting` is the slot that the strip reports, or nil for a stored frame.
+local function ShowFrame(frame, ids, controls, reporting)
+	if reporting then
+		-- A hello that comes due during the shot stays due.
+		state.helloDue = false
 	end
-	local now = GetTime()
-	local due = Due(now)
-	if #due == 0 and #state.controls == 0 and not state.helloDue then
-		return
-	end
-	local records, ids = Records(due)
-	local frame = ns.Codec.Frame(time(), ids[1] or 0, ns.Codec.Payload(records), ns.key)
-	local reporting = state.nextSlot
-	local controls = #state.controls
-	-- A hello that comes due during the shot stays due.
-	state.helloDue = false
 	ns.Strip.Show(frame, function(ok)
 		if not ok then
-			state.helloDue = true
+			state.helloDue = state.helloDue or reporting ~= nil
 			return
 		end
 		for _, id in ipairs(ids) do
@@ -246,9 +274,28 @@ function Transport.ShowNextStrip()
 		for _ = 1, controls do
 			table.remove(state.controls, 1)
 		end
-		state.reported = reporting
+		if reporting then
+			state.reported = reporting
+		end
 		Transport.OnChange()
 	end)
+end
+
+function Transport.ShowNextStrip()
+	if ns.Strip.Busy() or not ns.key then
+		return
+	end
+	local due, stored = Due(GetTime())
+	if #stored > 0 then
+		local message = stored[1].message
+		ShowFrame(ns.Codec.FromHex(message.frame), { message.id }, 0, nil)
+		return
+	end
+	if #due == 0 and #state.controls == 0 and not state.helloDue then
+		return
+	end
+	local records, ids = Records(due)
+	ShowFrame(Sign(records, ids[1] or 0), ids, #state.controls, state.nextSlot)
 end
 
 function Transport.Fits(chat, text)
@@ -262,6 +309,10 @@ function Transport.Send(chat, text)
 		return nil
 	end
 	local message = ns.Store.AddMessage(chat, text)
+	local record = MessageRecord(chat, message)
+	state.private[message.id] = record
+	message.frame = ns.Codec.Hex(Sign({ record }, message.id))
+	message.signedAt = time()
 	state.lastSend = GetTime()
 	state.nextPoll = state.lastSend + SCHEDULE[1]
 	Transport.ShowNextStrip()
