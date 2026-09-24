@@ -61,14 +61,18 @@ References in this spec to `wow-claude` files use the path in that repo, for exa
 ## 6. Threat model
 
 The bridge runs agents that edit code and run commands.
-The input to the bridge comes from pixels on the screen.
-So the bridge treats every decoded strip as untrusted input.
+Input reaches the bridge from four places: screenshots, the hook socket, the config file, and agent output.
+The bridge treats all four as untrusted input.
 
 ### 6.1 Attackers
 
 | Attacker | How | Defense |
 |---|---|---|
-| Another window over the game (browser, video, overlay) | Shows a fake strip | Capture reads the WoW window content, not a screen region. Each strip carries a MAC. |
+| Another window over the game (browser, video, overlay) | Shows a fake strip | WoW takes the screenshot itself, so other windows are not in it. With the capture fallback, capture reads the window content. Each strip carries a MAC. |
+| A local program | Drops a crafted PNG into the Screenshots folder, or replaces a slot folder with a symbolic link | MAC and freshness check (6.3). Image size limit before decoding. No writes or deletes through symbolic links (6.2). |
+| A local program | Connects to the hook socket and sends fake pings | Socket mode 0600. Size limit and rate limit. Ping text goes through the same escapes as agent text. |
+| A malicious or prompt-injected agent | Writes a reply that injects Lua or fakes WoW chat links. Asks for permission with a false label. Writes a huge reply. | Lua escape and UI escape (S8 to S10). Honest permission popup (6.5). Size limits (S12). |
+| An old screenshot | A strip is replayed from an old file, for example after `state.json` is lost | Freshness check (S11). |
 | Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our functions or draw a strip. | Partial. Keep all addon functions local. The bridge policy (6.2) limits the damage. |
 | A stream or recording | The strip shows the prompt on screen | None. Do not stream while you use the relay. The README says this. |
 
@@ -83,6 +87,17 @@ So the bridge limits what any message from the game can do.
 3. An "allow" answer from the game applies to the current session only. A permanent rule needs a confirmation outside the game (a desktop notification or the terminal).
 4. The bridge limits the message rate: at most 10 messages per minute (config key `max_messages_per_minute`).
 5. The bridge never runs the agent with `full-auto` unless the config sets it for that agent.
+6. The bridge rejects frames with a timestamp more than 5 minutes old or more than 1 minute in the future (S11).
+7. The bridge never writes, renames, or deletes through a symbolic link. It opens files with `O_NOFOLLOW` (Unix) or checks the reparse point (Windows).
+8. The bridge deletes only the screenshots that it decoded as valid strips. It never deletes other screenshots.
+9. The bridge limits sizes: an image before decoding (4096 × 4096 px), a hook message (64 KB), a reply record (32 KB), a slot body (S12), and each chat queue (20 messages).
+10. The bridge resolves symbolic links in a chat folder with `canonicalize`, then checks `allowed_roots` again on the result.
+11. The bridge never starts a process through a shell. It passes the command as an argument list.
+12. The bridge gives each agent process only an allowlist of environment variables (`PATH`, `HOME`, `LANG`, `TERM`, and the variables in the agent config). All others, for example API keys of other tools, stay out.
+13. The bridge writes prompt files with mode 0600 in a private folder, and deletes them after the run.
+14. Setup writes `config.toml` with mode 0600, because it holds the strip key.
+15. The bridge escapes control characters and newlines in `bridge.log`, so a prompt cannot fake a log line.
+16. The bridge sends a restore bundle only in answer to a hello with a valid MAC.
 
 ### 6.3 Strip authentication
 
@@ -90,10 +105,23 @@ The setup step makes a random 32-byte key.
 It writes the key into the addon (as a file-local value) and into the bridge config.
 Each strip ends with a truncated HMAC-SHA256 tag (8 bytes) of the header and payload.
 The bridge drops each strip with a wrong tag, and logs it.
+The bridge compares tags in constant time (`subtle::ConstantTimeEq`).
 
 Open point: the cost of HMAC-SHA256 in WoW Lua (with the `bit` library). The spike measures it.
 
-### 6.4 Known leaks
+### 6.4 Honest permission popup
+
+A malicious agent can ask for permission with a false label, for example "run tests" for `rm -rf ~`.
+So the popup never shows the label of the agent as the main text. Rules:
+
+- The popup text comes from the raw tool input: the real command line, or the real file path.
+- If the text is too long, the popup shows the start and the end, with a visible "cut" mark in the middle.
+- Control characters, Unicode bidi characters, and zero-width characters show as visible escapes, for example `<U+202E>`.
+- The label of the agent shows below the raw command, marked as "the agent says".
+
+Theorem S15 covers these rules.
+
+### 6.5 Known leaks
 
 - Reply text sits in a global table after a slot loads. Any addon can read it.
 - The strip shows the prompt text on screen for up to 40 seconds.
@@ -121,11 +149,12 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 **Frame layout (bytes):**
 
 ```
-[0x6E 0x52] [version] [frame id hi, lo] [len hi, lo] [payload: len bytes] [fletcher16 s1, s2] [mac: 8 bytes]
+[0x6E 0x52] [version] [time: 4 bytes] [frame id hi, lo] [len hi, lo] [payload: len bytes] [fletcher16 s1, s2] [mac: 8 bytes]
 ```
 
 - Magic bytes `0x6E 0x52` differ from `wow-claude` (`0xC7 0x1A`). A wrong magic means "not a strip".
 - `version` is the protocol version, 1 for this spec.
+- `time` is the Unix time from `time()` in the game, big-endian. The bridge uses it for the freshness check (S11).
 - `frame id` is the message id modulo 65536. It only tells frames apart. The record ids are the real keys.
 - Fletcher-16 covers version to payload. It catches capture errors.
 - The MAC covers magic to checksum. It stops fake strips (6.3).
@@ -615,6 +644,11 @@ So most theorems are security properties. Each one closes a named attack.
 | S8 | **Lua escape:** for every string, the escape function gives a Lua string literal that reads back as the same string. The output never ends the literal early. | A reply from a malicious agent injects Lua code into the game. |
 | S9 | **Slot body shape:** the slot file writer only puts escaped strings and numbers into a fixed table shape. | A malicious agent changes `proto`, adds fields, or runs code in the slot file. |
 | S10 | **UI escape:** the display sanitizer doubles every `\|` in agent text. | A malicious agent fakes a WoW chat link (`\|H...\|h`), a texture, or a color that imitates a system message. |
+| S11 | **Freshness:** the bridge accepts a frame only if its time is at most 5 minutes old and at most 1 minute in the future. | An old screenshot of a strip is replayed. The MAC is still valid, so S2 does not stop it. |
+| S12 | **Size bounds:** for every input, a slot body is at most 1 MB, and each reply record in it is at most 32 KB. | A malicious agent writes a huge reply, and the bridge writes 200 huge slot files. |
+| S13 | **ID charset:** the id validator accepts only `[a-z0-9_-]`, 1 to 32 characters. | A chat id like `../../x` reaches a file path or a state key. |
+| S14 | **Rate limit and queue cap:** the limiter never admits more than N messages in any window. A chat queue never holds more than 20 messages. | Strip spam fills memory or starts many runs. |
+| S15 | **Honest popup:** the popup text contains the full raw command, or its start and end with a cut mark. It contains no raw control, bidi, or zero-width characters. | A malicious agent asks for permission with a false label, or hides the dangerous part of a command. |
 
 **Correctness theorems:**
 
@@ -624,7 +658,7 @@ So most theorems are security properties. Each one closes a named attack.
 | C2 | **Frame round trip:** for every payload of at most 3200 bytes, `decode_frame(encode_frame(m)) = m`. |
 | C3 | **Record round trip:** for records with no RS in any field and no US before `text`, `parse(serialize(r)) = r`. |
 
-**Order:** C1 first, because it is the smallest. Then S1, S3, S8, and S5, because those inputs come from outside. Then the rest.
+**Order:** C1 first, because it is the smallest. Then S15 and S11, because they close the most real risks. Then S1, S3, S8, and S5, because those inputs come from outside. Then the rest.
 
 **Proof hygiene:**
 
@@ -663,6 +697,43 @@ Write the model before the bridge state machine. The Rust state machine follows 
 - **Fake agent and fake capture** for the bridge loop. No test needs the game or a real LLM, except live tests marked `#[ignore]`.
 - **Coverage gates:** `protocol` 95% of lines, `bridge` and `agents` 80%.
 - **CI** on Linux, Windows, and macOS. CI runs everything except live capture.
+
+### 14.4 Fuzz targets
+
+Each target runs in CI for a short time and nightly for a long time. Every crash becomes a regression test.
+
+| Target | Why |
+|---|---|
+| Frame decoder and record parser | Backs up S1 and S3 on the compiled code. |
+| PNG decoding with the size limit | Any local program can write to the Screenshots folder. We did not write the PNG decoder. |
+| Hook socket messages | Any process of the same user can connect. |
+| `resolve_folder` with Unix and Windows path forms | Windows has `\\?\`, UNC paths, `C:foo`, `file:stream`, and reserved names such as `CON`. S5 must hold for all of them. |
+| Lua escape, with the output loaded in a real Lua 5.1 VM | Backs up S8 against the real Lua parser. Inputs include NUL bytes, invalid UTF-8, and `]]`. |
+| UI escape and popup text | Backs up S10 and S15. |
+| `config.toml` parser | A broken or hostile config gives an error, never a wider permission. |
+
+### 14.5 Security tests
+
+Each rule in 6.2 has at least one named test. These are the ones that need a real file system or a real process:
+
+- A slot folder replaced by a symbolic link: the bridge refuses to write.
+- A symbolic link in the Screenshots folder: the bridge does not follow it and does not delete its target.
+- A normal screenshot with no strip: the bridge leaves it alone.
+- A prompt such as `; rm -rf ~`: the agent gets it as one argument.
+- A prompt file: it has mode 0600 in a private folder, and it is gone after the run.
+- `config.toml` after setup: it has mode 0600.
+- The tag check: it uses `subtle::ConstantTimeEq` (a test on the code, not on timing).
+- A hello with a new token and a bad MAC: no restore bundle.
+- The environment of an agent process: it contains only the allowlist.
+- A prompt with newlines: `bridge.log` has one line for it.
+- On macOS and Windows: `allowed_roots` works with a root in a different letter case.
+
+### 14.6 Supply chain
+
+- `cargo deny` (licenses, sources, duplicate versions) and `cargo audit` (known CVEs) run in CI.
+- `Cargo.lock` is in the repo.
+- The verified core (`crates/protocol`) has no dependencies. Every dependency there is code that we trust but do not prove.
+- New dependencies in the bridge need a reason in the commit or PR.
 
 ## 15. Build order
 
