@@ -8,3 +8,4 @@ import Protocol.Popup
 import Protocol.Lua
 import Protocol.WowText
 import Protocol.Frame.Codec
+import Protocol.Record

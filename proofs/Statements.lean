@@ -14,6 +14,7 @@ import Protocol.Popup
 import Protocol.Lua
 import Protocol.WowText
 import Protocol.Frame.Codec
+import Protocol.Record
 
 /-!
 # The theorems, stated
@@ -261,5 +262,6 @@ theorem check_C2_encode_too_long : C2_encode_too_long := Protocol.Frame.encode_f
 theorem check_C2_decode : C2_decode := Protocol.Frame.decode_frame_complete
 theorem check_S1_S2_decode : S1_S2_decode := Protocol.Frame.decode_frame_sound
 theorem check_S2_signed_len : S2_signed_len := Protocol.Frame.signed_len_spec
+theorem check_S13_valid_id : S13_valid_id := Protocol.Record.is_valid_id_spec
 
 end Protocol.Statements

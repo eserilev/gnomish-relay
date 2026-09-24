@@ -1085,14 +1085,80 @@ def rate.enqueue
     Visibility: public -/
 @[global_simps, irreducible] def record.MAX_RECORDS : Std.Usize := 16#usize
 
+/-- [protocol::record::is_id_byte]:
+    Source: 'crates/protocol/src/record.rs', lines 31:0-33:1 -/
+def record.is_id_byte (b : Std.U8) : Result Bool := do
+  if 97#u8 <= b
+  then
+    if b <= 122#u8
+    then ok true
+    else
+      if 48#u8 <= b
+      then
+        if b <= 57#u8
+        then ok true
+        else if b = 95#u8
+             then ok true
+             else ok (b = 45#u8)
+      else if b = 95#u8
+           then ok true
+           else ok (b = 45#u8)
+  else
+    if 48#u8 <= b
+    then
+      if b <= 57#u8
+      then ok true
+      else if b = 95#u8
+           then ok true
+           else ok (b = 45#u8)
+    else if b = 95#u8
+         then ok true
+         else ok (b = 45#u8)
+
+/-- [protocol::record::is_valid_id]: loop body 0:
+    Source: 'crates/protocol/src/record.rs', lines 42:4-49:1
+    Visibility: public -/
+@[rust_loop_body]
+def record.is_valid_id_loop.body
+  (bytes : Slice Std.U8) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    let i2 ← Slice.index_usize bytes i
+    let b ← record.is_id_byte i2
+    if b
+    then let i3 ← i + 1#usize
+         ok (cont i3)
+    else ok (done false)
+  else ok (done true)
+
+/-- [protocol::record::is_valid_id]: loop 0:
+    Source: 'crates/protocol/src/record.rs', lines 42:4-49:1
+    Visibility: public -/
+@[rust_loop]
+def record.is_valid_id_loop
+  (bytes : Slice Std.U8) (i : Std.Usize) : Result Bool := do
+  loop
+    (fun i1 => record.is_valid_id_loop.body bytes i1)
+    i
+
 /-- [protocol::record::is_valid_id]:
-    Source: 'crates/protocol/src/record.rs', lines 33:0-35:1
+    Source: 'crates/protocol/src/record.rs', lines 37:0-49:1
     Visibility: public -/
 def record.is_valid_id (bytes : Slice Std.U8) : Result Bool := do
-  fail panic
+  let b ← core.slice.Slice.is_empty bytes
+  if b
+  then ok false
+  else
+    let i := Slice.len bytes
+    if i > record.MAX_ID_LEN
+    then ok false
+    else record.is_valid_id_loop bytes 0#usize
 
 /-- [protocol::record::parse_records]:
-    Source: 'crates/protocol/src/record.rs', lines 38:0-40:1
+    Source: 'crates/protocol/src/record.rs', lines 52:0-54:1
     Visibility: public -/
 def record.parse_records
   (payload : Slice Std.U8) :
@@ -1101,7 +1167,7 @@ def record.parse_records
   fail panic
 
 /-- [protocol::record::serialize_records]:
-    Source: 'crates/protocol/src/record.rs', lines 43:0-45:1
+    Source: 'crates/protocol/src/record.rs', lines 57:0-59:1
     Visibility: public -/
 def record.serialize_records
   (records : Slice record.Record) : Result (alloc.vec.Vec Std.U8) := do
