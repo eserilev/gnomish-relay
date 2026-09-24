@@ -5,3 +5,4 @@ import Protocol.Frame.Fresh
 import Protocol.Policy
 import Protocol.Ascii
 import Protocol.Popup
+import Protocol.Lua

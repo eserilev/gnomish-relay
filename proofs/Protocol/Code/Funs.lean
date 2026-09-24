@@ -457,11 +457,84 @@ def frame.check_frame
       else ok (core.result.Result.Ok ())
   else ok (core.result.Result.Err frame.Reject.BadTag)
 
+/-- [protocol::lua::is_plain]:
+    Source: 'crates/protocol/src/lua.rs', lines 4:0-6:1 -/
+def lua.is_plain (b : Std.U8) : Result Bool := do
+  if 32#u8 <= b
+  then
+    if b <= 126#u8
+    then if b != 34#u8
+         then ok (b != 92#u8)
+         else ok false
+    else ok false
+  else ok false
+
+/-- [protocol::lua::push_escape]:
+    Source: 'crates/protocol/src/lua.rs', lines 9:0-14:1 -/
+def lua.push_escape
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← alloc.vec.Vec.push out 92#u8
+  let i ← b / 100#u8
+  let i1 ← 48#u8 + i
+  let out2 ← alloc.vec.Vec.push out1 i1
+  let i2 ← b / 10#u8
+  let i3 ← i2 % 10#u8
+  let i4 ← 48#u8 + i3
+  let out3 ← alloc.vec.Vec.push out2 i4
+  let i5 ← b % 10#u8
+  let i6 ← 48#u8 + i5
+  alloc.vec.Vec.push out3 i6
+
+/-- [protocol::lua::push_escaped]:
+    Source: 'crates/protocol/src/lua.rs', lines 16:0-22:1 -/
+def lua.push_escaped
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let b1 ← lua.is_plain b
+  if b1
+  then alloc.vec.Vec.push out b
+  else lua.push_escape out b
+
+/-- [protocol::lua::lua_string]: loop body 0:
+    Source: 'crates/protocol/src/lua.rs', lines 30:4-33:5
+    Visibility: public -/
+@[rust_loop_body]
+def lua.lua_string_loop.body
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    let i2 ← Slice.index_usize bytes i
+    let out1 ← lua.push_escaped out i2
+    let i3 ← i + 1#usize
+    ok (cont (out1, i3))
+  else ok (done out)
+
+/-- [protocol::lua::lua_string]: loop 0:
+    Source: 'crates/protocol/src/lua.rs', lines 30:4-33:5
+    Visibility: public -/
+@[rust_loop]
+def lua.lua_string_loop
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => lua.lua_string_loop.body bytes out1 i1)
+    (out, i)
+
 /-- [protocol::lua::lua_string]:
-    Source: 'crates/protocol/src/lua.rs', lines 6:0-8:1
+    Source: 'crates/protocol/src/lua.rs', lines 26:0-36:1
     Visibility: public -/
 def lua.lua_string (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
-  fail panic
+  let out ← alloc.vec.Vec.push (alloc.vec.Vec.new Std.U8) 34#u8
+  let out1 ← lua.lua_string_loop bytes out 0#usize
+  alloc.vec.Vec.push out1 34#u8
 
 /-- [protocol::policy::{impl core::clone::Clone for protocol::policy::Level}::clone]:
     Source: 'crates/protocol/src/policy.rs', lines 4:9-4:14

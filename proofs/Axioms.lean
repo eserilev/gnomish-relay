@@ -10,3 +10,5 @@ import Statements
 #print axioms Protocol.Statements.check_S15_popup
 #print axioms Protocol.Statements.check_S15_printable
 #print axioms Protocol.Statements.check_S15_faithful
+#print axioms Protocol.Statements.check_S8_lua_string
+#print axioms Protocol.Statements.check_S8_reads_back
