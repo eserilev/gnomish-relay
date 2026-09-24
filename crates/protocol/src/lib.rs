@@ -25,6 +25,7 @@ pub mod policy;
 pub mod popup;
 pub mod rate;
 pub mod record;
+pub mod restore;
 pub mod seen;
 pub mod slot;
 pub mod wow_text;

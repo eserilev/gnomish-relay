@@ -6,6 +6,7 @@ import Protocol.Spec.Folder
 import Protocol.Spec.Lua
 import Protocol.Spec.WowText
 import Protocol.Spec.Slot
+import Protocol.Spec.Restore
 import Protocol.Spec.Rate
 import Protocol.Spec.Popup
 import Protocol.Spec.Policy
@@ -19,6 +20,7 @@ import Protocol.Record
 import Protocol.Seen
 import Protocol.Rate
 import Protocol.Slot
+import Protocol.Restore
 import Protocol.Folder.Code
 
 /-!
@@ -202,6 +204,26 @@ def S12_bound : Prop :=
   ∀ (now : Nat) (replies : List slot.Reply), now < 2 ^ 32 → fitsSlot replies →
     (slotBodyBytes now replies).length ≤ slotBodyLimit
 
+/-! ## Restore bundle -/
+
+/-- **S18.** The restore file is exactly the fixed template with escaped holes. -/
+def S18_restore_body : Prop :=
+  ∀ (token : Slice U8) (chats : Slice restore.Chat), fitsRestore (bytes token.val) chats.val →
+    restore.restore_body token chats ⦃ v => bytes v.val = restoreBytes (bytes token.val) chats.val ⦄
+
+/-- **S18.** `prepare_restore` keeps the last 16 chats and the last 10 messages of each,
+cuts only the ends of strings, and makes them fit. -/
+def S18_prepare : Prop :=
+  ∀ chats : Slice restore.Chat,
+    restore.prepare_restore chats ⦃ ps =>
+      ps.val.length ≤ maxChats ∧ (∀ c ∈ ps.val, fitsChat c) ∧
+      List.Forall₂ chatFrom (chats.val.drop (chats.val.length - maxChats)) ps.val ⦄
+
+/-- **S19.** A restore file that fits is at most 512 KiB. -/
+def S19_bound : Prop :=
+  ∀ (token : List Spec.Byte) (chats : List restore.Chat), fitsRestore token chats →
+    (restoreBytes token chats).length ≤ restoreLimit
+
 /-! ## WoW chat text -/
 
 /-- **S10.** WoW shows `chat_safe` output as exactly the original text, with no escape code. -/
@@ -275,6 +297,9 @@ theorem check_S14_queue : S14_queue := Protocol.Rate.enqueue_spec
 theorem check_S9_slot_body : S9_slot_body := Protocol.Slot.slot_body_spec
 theorem check_S12_prepare : S12_prepare := Protocol.Slot.prepare_replies_spec
 theorem check_S12_bound : S12_bound := Protocol.Slot.slot_body_bound
+theorem check_S18_restore_body : S18_restore_body := Protocol.Restore.restore_body_spec
+theorem check_S18_prepare : S18_prepare := Protocol.Restore.prepare_restore_spec
+theorem check_S19_bound : S19_bound := Protocol.Restore.restore_bound
 theorem check_S5_folder : S5_folder := Protocol.Folder.folder_sound
 theorem check_S5_folder_complete : S5_folder_complete := Protocol.Folder.folder_complete
 

@@ -1954,6 +1954,460 @@ def record.serialize_records
   (records : Slice record.Record) : Result (alloc.vec.Vec Std.U8) := do
   record.serialize_records_loop records (alloc.vec.Vec.new Std.U8) 0#usize
 
+/-- [protocol::restore::MAX_CHATS]
+    Source: 'crates/protocol/src/restore.rs', lines 9:0-9:32
+    Visibility: public -/
+@[global_simps, irreducible] def restore.MAX_CHATS : Std.Usize := 16#usize
+
+/-- [protocol::restore::MAX_HISTORY]
+    Source: 'crates/protocol/src/restore.rs', lines 10:0-10:34
+    Visibility: public -/
+@[global_simps, irreducible] def restore.MAX_HISTORY : Std.Usize := 10#usize
+
+/-- [protocol::restore::MAX_NAME]
+    Source: 'crates/protocol/src/restore.rs', lines 11:0-11:31
+    Visibility: public -/
+@[global_simps, irreducible] def restore.MAX_NAME : Std.Usize := 64#usize
+
+/-- [protocol::restore::MAX_CWD]
+    Source: 'crates/protocol/src/restore.rs', lines 12:0-12:32
+    Visibility: public -/
+@[global_simps, irreducible] def restore.MAX_CWD : Std.Usize := 1024#usize
+
+/-- [protocol::restore::MAX_ENTRY_TEXT]
+    Source: 'crates/protocol/src/restore.rs', lines 13:0-13:38
+    Visibility: public -/
+@[global_simps, irreducible]
+def restore.MAX_ENTRY_TEXT : Std.Usize := 500#usize
+
+/-- [protocol::restore::{impl core::clone::Clone for protocol::restore::Role}::clone]:
+    Source: 'crates/protocol/src/restore.rs', lines 15:9-15:14
+    Visibility: public -/
+def restore.Role.Insts.CoreCloneClone.clone
+  (self : restore.Role) : Result restore.Role := do
+  ok self
+
+/-- Trait implementation: [protocol::restore::{impl core::clone::Clone for protocol::restore::Role}]
+    Source: 'crates/protocol/src/restore.rs', lines 15:9-15:14 -/
+@[reducible]
+def restore.Role.Insts.CoreCloneClone : core.clone.Clone restore.Role := {
+  clone := restore.Role.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::restore::{impl core::marker::Copy for protocol::restore::Role}]
+    Source: 'crates/protocol/src/restore.rs', lines 15:16-15:20 -/
+@[reducible]
+def restore.Role.Insts.CoreMarkerCopy : core.marker.Copy restore.Role := {
+  cloneInst := restore.Role.Insts.CoreCloneClone
+}
+
+/-- [protocol::restore::HEAD]
+    Source: 'crates/protocol/src/restore.rs', lines 36:0-36:60 -/
+@[global_simps, irreducible]
+def restore.HEAD : Array Std.U8 32#usize :=
+  Array.make 32#usize [
+    71#u8, 110#u8, 111#u8, 109#u8, 105#u8, 115#u8, 104#u8, 82#u8, 101#u8,
+    108#u8, 97#u8, 121#u8, 95#u8, 82#u8, 101#u8, 115#u8, 116#u8, 111#u8,
+    114#u8, 101#u8, 32#u8, 61#u8, 32#u8, 123#u8, 116#u8, 111#u8, 107#u8,
+    101#u8, 110#u8, 32#u8, 61#u8, 32#u8
+    ]
+
+/-- [protocol::restore::CHATS]
+    Source: 'crates/protocol/src/restore.rs', lines 37:0-37:42 -/
+@[global_simps, irreducible]
+def restore.CHATS : Array Std.U8 12#usize :=
+  Array.make 12#usize [
+    44#u8, 32#u8, 99#u8, 104#u8, 97#u8, 116#u8, 115#u8, 32#u8, 61#u8, 32#u8,
+    123#u8, 10#u8
+    ]
+
+/-- [protocol::restore::TAIL]
+    Source: 'crates/protocol/src/restore.rs', lines 38:0-38:31 -/
+@[global_simps, irreducible]
+def restore.TAIL : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 125#u8, 125#u8, 10#u8 ]
+
+/-- [protocol::restore::ID]
+    Source: 'crates/protocol/src/restore.rs', lines 39:0-39:31 -/
+@[global_simps, irreducible]
+def restore.ID : Array Std.U8 6#usize :=
+  Array.make 6#usize [ 123#u8, 105#u8, 100#u8, 32#u8, 61#u8, 32#u8 ]
+
+/-- [protocol::restore::NAME]
+    Source: 'crates/protocol/src/restore.rs', lines 40:0-40:36 -/
+@[global_simps, irreducible]
+def restore.NAME : Array Std.U8 9#usize :=
+  Array.make 9#usize [
+    44#u8, 32#u8, 110#u8, 97#u8, 109#u8, 101#u8, 32#u8, 61#u8, 32#u8
+    ]
+
+/-- [protocol::restore::AGENT]
+    Source: 'crates/protocol/src/restore.rs', lines 41:0-41:39 -/
+@[global_simps, irreducible]
+def restore.AGENT : Array Std.U8 10#usize :=
+  Array.make 10#usize [
+    44#u8, 32#u8, 97#u8, 103#u8, 101#u8, 110#u8, 116#u8, 32#u8, 61#u8, 32#u8
+    ]
+
+/-- [protocol::restore::CWD]
+    Source: 'crates/protocol/src/restore.rs', lines 42:0-42:34 -/
+@[global_simps, irreducible]
+def restore.CWD : Array Std.U8 8#usize :=
+  Array.make 8#usize [
+    44#u8, 32#u8, 99#u8, 119#u8, 100#u8, 32#u8, 61#u8, 32#u8
+    ]
+
+/-- [protocol::restore::HISTORY]
+    Source: 'crates/protocol/src/restore.rs', lines 43:0-43:46 -/
+@[global_simps, irreducible]
+def restore.HISTORY : Array Std.U8 14#usize :=
+  Array.make 14#usize [
+    44#u8, 32#u8, 104#u8, 105#u8, 115#u8, 116#u8, 111#u8, 114#u8, 121#u8,
+    32#u8, 61#u8, 32#u8, 123#u8, 10#u8
+    ]
+
+/-- [protocol::restore::CHAT_END]
+    Source: 'crates/protocol/src/restore.rs', lines 44:0-44:36 -/
+@[global_simps, irreducible]
+def restore.CHAT_END : Array Std.U8 4#usize :=
+  Array.make 4#usize [ 125#u8, 125#u8, 44#u8, 10#u8 ]
+
+/-- [protocol::restore::ROLE]
+    Source: 'crates/protocol/src/restore.rs', lines 45:0-45:35 -/
+@[global_simps, irreducible]
+def restore.ROLE : Array Std.U8 8#usize :=
+  Array.make 8#usize [
+    123#u8, 114#u8, 111#u8, 108#u8, 101#u8, 32#u8, 61#u8, 32#u8
+    ]
+
+/-- [protocol::restore::ENTRY_ID]
+    Source: 'crates/protocol/src/restore.rs', lines 46:0-46:38 -/
+@[global_simps, irreducible]
+def restore.ENTRY_ID : Array Std.U8 7#usize :=
+  Array.make 7#usize [ 44#u8, 32#u8, 105#u8, 100#u8, 32#u8, 61#u8, 32#u8 ]
+
+/-- [protocol::restore::TEXT]
+    Source: 'crates/protocol/src/restore.rs', lines 47:0-47:36 -/
+@[global_simps, irreducible]
+def restore.TEXT : Array Std.U8 9#usize :=
+  Array.make 9#usize [
+    44#u8, 32#u8, 116#u8, 101#u8, 120#u8, 116#u8, 32#u8, 61#u8, 32#u8
+    ]
+
+/-- [protocol::restore::ENTRY_END]
+    Source: 'crates/protocol/src/restore.rs', lines 48:0-48:36 -/
+@[global_simps, irreducible]
+def restore.ENTRY_END : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 125#u8, 44#u8, 10#u8 ]
+
+/-- [protocol::restore::USER]
+    Source: 'crates/protocol/src/restore.rs', lines 49:0-49:35 -/
+@[global_simps, irreducible]
+def restore.USER : Array Std.U8 6#usize :=
+  Array.make 6#usize [ 34#u8, 117#u8, 115#u8, 101#u8, 114#u8, 34#u8 ]
+
+/-- [protocol::restore::AGENT_ROLE]
+    Source: 'crates/protocol/src/restore.rs', lines 50:0-50:42 -/
+@[global_simps, irreducible]
+def restore.AGENT_ROLE : Array Std.U8 7#usize :=
+  Array.make 7#usize [ 34#u8, 97#u8, 103#u8, 101#u8, 110#u8, 116#u8, 34#u8 ]
+
+/-- [protocol::restore::ERROR]
+    Source: 'crates/protocol/src/restore.rs', lines 51:0-51:37 -/
+@[global_simps, irreducible]
+def restore.ERROR : Array Std.U8 7#usize :=
+  Array.make 7#usize [ 34#u8, 101#u8, 114#u8, 114#u8, 111#u8, 114#u8, 34#u8 ]
+
+/-- [protocol::slot::min_len]:
+    Source: 'crates/protocol/src/slot.rs', lines 62:0-64:1 -/
+def slot.min_len (n : Std.Usize) (max : Std.Usize) : Result Std.Usize := do
+  if n > max
+  then ok max
+  else ok n
+
+/-- [protocol::restore::cut]:
+    Source: 'crates/protocol/src/restore.rs', lines 54:0-58:1 -/
+def restore.cut
+  (bytes : Slice Std.U8) (max : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let i := Slice.len bytes
+  let i1 ← slot.min_len i max
+  ascii.push_range (alloc.vec.Vec.new Std.U8) bytes 0#usize i1
+
+/-- [protocol::restore::keep_from]:
+    Source: 'crates/protocol/src/restore.rs', lines 61:0-63:1 -/
+def restore.keep_from
+  (len : Std.Usize) (max : Std.Usize) : Result Std.Usize := do
+  if len > max
+  then len - max
+  else ok 0#usize
+
+/-- [protocol::restore::prepare_entry]:
+    Source: 'crates/protocol/src/restore.rs', lines 65:0-71:1 -/
+def restore.prepare_entry (entry : restore.Entry) : Result restore.Entry := do
+  let s := alloc.vec.Vec.deref entry.text
+  let v ← restore.cut s restore.MAX_ENTRY_TEXT
+  ok { entry with text := v }
+
+/-- [protocol::restore::prepare_history]: loop body 0:
+    Source: 'crates/protocol/src/restore.rs', lines 76:4-79:5 -/
+@[rust_loop_body]
+def restore.prepare_history_loop.body
+  (history : Slice restore.Entry) (out : alloc.vec.Vec restore.Entry)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec restore.Entry) × Std.Usize)
+    (alloc.vec.Vec restore.Entry))
+  := do
+  let i1 := Slice.len history
+  if i < i1
+  then
+    let e ← Slice.index_usize history i
+    let e1 ← restore.prepare_entry e
+    let out1 ← alloc.vec.Vec.push out e1
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::restore::prepare_history]: loop 0:
+    Source: 'crates/protocol/src/restore.rs', lines 76:4-79:5 -/
+@[rust_loop]
+def restore.prepare_history_loop
+  (history : Slice restore.Entry) (out : alloc.vec.Vec restore.Entry)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec restore.Entry)
+  := do
+  loop
+    (fun (out1, i1) => restore.prepare_history_loop.body history out1 i1)
+    (out, i)
+
+/-- [protocol::restore::prepare_history]:
+    Source: 'crates/protocol/src/restore.rs', lines 73:0-81:1 -/
+def restore.prepare_history
+  (history : Slice restore.Entry) : Result (alloc.vec.Vec restore.Entry) := do
+  let i := Slice.len history
+  let i1 ← restore.keep_from i restore.MAX_HISTORY
+  restore.prepare_history_loop history (alloc.vec.Vec.new restore.Entry) i1
+
+/-- [protocol::restore::prepare_chat]:
+    Source: 'crates/protocol/src/restore.rs', lines 83:0-91:1 -/
+def restore.prepare_chat (chat : restore.Chat) : Result restore.Chat := do
+  let s := alloc.vec.Vec.deref chat.id
+  let v ← restore.cut s record.MAX_ID_LEN
+  let s1 := alloc.vec.Vec.deref chat.name
+  let v1 ← restore.cut s1 restore.MAX_NAME
+  let s2 := alloc.vec.Vec.deref chat.agent
+  let v2 ← restore.cut s2 record.MAX_ID_LEN
+  let s3 := alloc.vec.Vec.deref chat.cwd
+  let v3 ← restore.cut s3 restore.MAX_CWD
+  let s4 := alloc.vec.Vec.deref chat.history
+  let v4 ← restore.prepare_history s4
+  ok { id := v, «name» := v1, agent := v2, cwd := v3, history := v4 }
+
+/-- [protocol::restore::prepare_restore]: loop body 0:
+    Source: 'crates/protocol/src/restore.rs', lines 99:4-102:5
+    Visibility: public -/
+@[rust_loop_body]
+def restore.prepare_restore_loop.body
+  (chats : Slice restore.Chat) (out : alloc.vec.Vec restore.Chat)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec restore.Chat) × Std.Usize)
+    (alloc.vec.Vec restore.Chat))
+  := do
+  let i1 := Slice.len chats
+  if i < i1
+  then
+    let c ← Slice.index_usize chats i
+    let c1 ← restore.prepare_chat c
+    let out1 ← alloc.vec.Vec.push out c1
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::restore::prepare_restore]: loop 0:
+    Source: 'crates/protocol/src/restore.rs', lines 99:4-102:5
+    Visibility: public -/
+@[rust_loop]
+def restore.prepare_restore_loop
+  (chats : Slice restore.Chat) (out : alloc.vec.Vec restore.Chat)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec restore.Chat)
+  := do
+  loop
+    (fun (out1, i1) => restore.prepare_restore_loop.body chats out1 i1)
+    (out, i)
+
+/-- [protocol::restore::prepare_restore]:
+    Source: 'crates/protocol/src/restore.rs', lines 96:0-104:1
+    Visibility: public -/
+def restore.prepare_restore
+  (chats : Slice restore.Chat) : Result (alloc.vec.Vec restore.Chat) := do
+  let i := Slice.len chats
+  let i1 ← restore.keep_from i restore.MAX_CHATS
+  restore.prepare_restore_loop chats (alloc.vec.Vec.new restore.Chat) i1
+
+/-- [protocol::restore::push_role]:
+    Source: 'crates/protocol/src/restore.rs', lines 106:0-112:1 -/
+def restore.push_role
+  (out : alloc.vec.Vec Std.U8) (role : restore.Role) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  match role with
+  | restore.Role.User =>
+    let s ← lift (Array.to_slice restore.USER)
+    ascii.push_bytes out s
+  | restore.Role.Agent =>
+    let s ← lift (Array.to_slice restore.AGENT_ROLE)
+    ascii.push_bytes out s
+  | restore.Role.Error =>
+    let s ← lift (Array.to_slice restore.ERROR)
+    ascii.push_bytes out s
+
+/-- [protocol::restore::push_entry]:
+    Source: 'crates/protocol/src/restore.rs', lines 114:0-122:1 -/
+def restore.push_entry
+  (out : alloc.vec.Vec Std.U8) (entry : restore.Entry) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let s ← lift (Array.to_slice restore.ROLE)
+  let out1 ← ascii.push_bytes out s
+  let out2 ← restore.push_role out1 entry.role
+  let s1 ← lift (Array.to_slice restore.ENTRY_ID)
+  let out3 ← ascii.push_bytes out2 s1
+  let out4 ← ascii.push_decimal out3 entry.id
+  let s2 ← lift (Array.to_slice restore.TEXT)
+  let out5 ← ascii.push_bytes out4 s2
+  let s3 := alloc.vec.Vec.deref entry.text
+  let v ← lua.lua_string s3
+  let s4 := alloc.vec.Vec.deref v
+  let out6 ← ascii.push_bytes out5 s4
+  let s5 ← lift (Array.to_slice restore.ENTRY_END)
+  ascii.push_bytes out6 s5
+
+/-- [protocol::restore::push_history]: loop body 0:
+    Source: 'crates/protocol/src/restore.rs', lines 126:4-129:5 -/
+@[rust_loop_body]
+def restore.push_history_loop.body
+  (history : Slice restore.Entry) (out : alloc.vec.Vec Std.U8) (i : Std.Usize)
+  :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len history
+  if i < i1
+  then
+    let e ← Slice.index_usize history i
+    let out1 ← restore.push_entry out e
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::restore::push_history]: loop 0:
+    Source: 'crates/protocol/src/restore.rs', lines 126:4-129:5 -/
+@[rust_loop]
+def restore.push_history_loop
+  (out : alloc.vec.Vec Std.U8) (history : Slice restore.Entry) (i : Std.Usize)
+  :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => restore.push_history_loop.body history out1 i1)
+    (out, i)
+
+/-- [protocol::restore::push_history]:
+    Source: 'crates/protocol/src/restore.rs', lines 124:0-130:1 -/
+@[reducible]
+def restore.push_history
+  (out : alloc.vec.Vec Std.U8) (history : Slice restore.Entry) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  restore.push_history_loop out history 0#usize
+
+/-- [protocol::restore::push_chat]:
+    Source: 'crates/protocol/src/restore.rs', lines 132:0-144:1 -/
+def restore.push_chat
+  (out : alloc.vec.Vec Std.U8) (chat : restore.Chat) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let s ← lift (Array.to_slice restore.ID)
+  let out1 ← ascii.push_bytes out s
+  let s1 := alloc.vec.Vec.deref chat.id
+  let v ← lua.lua_string s1
+  let s2 := alloc.vec.Vec.deref v
+  let out2 ← ascii.push_bytes out1 s2
+  let s3 ← lift (Array.to_slice restore.NAME)
+  let out3 ← ascii.push_bytes out2 s3
+  let s4 := alloc.vec.Vec.deref chat.name
+  let v1 ← lua.lua_string s4
+  let s5 := alloc.vec.Vec.deref v1
+  let out4 ← ascii.push_bytes out3 s5
+  let s6 ← lift (Array.to_slice restore.AGENT)
+  let out5 ← ascii.push_bytes out4 s6
+  let s7 := alloc.vec.Vec.deref chat.agent
+  let v2 ← lua.lua_string s7
+  let s8 := alloc.vec.Vec.deref v2
+  let out6 ← ascii.push_bytes out5 s8
+  let s9 ← lift (Array.to_slice restore.CWD)
+  let out7 ← ascii.push_bytes out6 s9
+  let s10 := alloc.vec.Vec.deref chat.cwd
+  let v3 ← lua.lua_string s10
+  let s11 := alloc.vec.Vec.deref v3
+  let out8 ← ascii.push_bytes out7 s11
+  let s12 ← lift (Array.to_slice restore.HISTORY)
+  let out9 ← ascii.push_bytes out8 s12
+  let s13 := alloc.vec.Vec.deref chat.history
+  let out10 ← restore.push_history out9 s13
+  let s14 ← lift (Array.to_slice restore.CHAT_END)
+  ascii.push_bytes out10 s14
+
+/-- [protocol::restore::restore_body]: loop body 0:
+    Source: 'crates/protocol/src/restore.rs', lines 155:4-158:5
+    Visibility: public -/
+@[rust_loop_body]
+def restore.restore_body_loop.body
+  (chats : Slice restore.Chat) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len chats
+  if i < i1
+  then
+    let c ← Slice.index_usize chats i
+    let out1 ← restore.push_chat out c
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::restore::restore_body]: loop 0:
+    Source: 'crates/protocol/src/restore.rs', lines 155:4-158:5
+    Visibility: public -/
+@[rust_loop]
+def restore.restore_body_loop
+  (chats : Slice restore.Chat) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => restore.restore_body_loop.body chats out1 i1)
+    (out, i)
+
+/-- [protocol::restore::restore_body]:
+    Source: 'crates/protocol/src/restore.rs', lines 149:0-161:1
+    Visibility: public -/
+def restore.restore_body
+  (token : Slice Std.U8) (chats : Slice restore.Chat) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let s ← lift (Array.to_slice restore.HEAD)
+  let out ← ascii.push_bytes (alloc.vec.Vec.new Std.U8) s
+  let v ← lua.lua_string token
+  let s1 := alloc.vec.Vec.deref v
+  let out1 ← ascii.push_bytes out s1
+  let s2 ← lift (Array.to_slice restore.CHATS)
+  let out2 ← ascii.push_bytes out1 s2
+  let out3 ← restore.restore_body_loop chats out2 0#usize
+  let s3 ← lift (Array.to_slice restore.TAIL)
+  ascii.push_bytes out3 s3
+
 /-- [protocol::seen::SEEN_CAPACITY]
     Source: 'crates/protocol/src/seen.rs', lines 5:0-5:38
     Visibility: public -/
@@ -2264,13 +2718,6 @@ def slot.fitting_prefix_loop
 @[reducible]
 def slot.fitting_prefix (text : Slice Std.U8) : Result Std.Usize := do
   slot.fitting_prefix_loop text 2#usize 0#usize
-
-/-- [protocol::slot::min_len]:
-    Source: 'crates/protocol/src/slot.rs', lines 62:0-64:1 -/
-def slot.min_len (n : Std.Usize) (max : Std.Usize) : Result Std.Usize := do
-  if n > max
-  then ok max
-  else ok n
 
 /-- [protocol::slot::first_kept]:
     Source: 'crates/protocol/src/slot.rs', lines 67:0-73:1 -/

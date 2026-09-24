@@ -59,7 +59,7 @@ fn fitting_prefix(text: &[u8]) -> usize {
     i
 }
 
-fn min_len(n: usize, max: usize) -> usize {
+pub(crate) fn min_len(n: usize, max: usize) -> usize {
     if n > max { max } else { n }
 }
 

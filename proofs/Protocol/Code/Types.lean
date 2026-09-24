@@ -109,6 +109,33 @@ inductive record.RecordError where
 | BadChat : record.RecordError
 | BadId : record.RecordError
 
+/-- [protocol::restore::Role]
+    Source: 'crates/protocol/src/restore.rs', lines 16:0-20:1
+    Visibility: public -/
+@[discriminant isize]
+inductive restore.Role where
+| User : restore.Role
+| Agent : restore.Role
+| Error : restore.Role
+
+/-- [protocol::restore::Entry]
+    Source: 'crates/protocol/src/restore.rs', lines 22:0-26:1
+    Visibility: public -/
+structure restore.Entry where
+  role : restore.Role
+  id : Std.U32
+  text : alloc.vec.Vec Std.U8
+
+/-- [protocol::restore::Chat]
+    Source: 'crates/protocol/src/restore.rs', lines 28:0-34:1
+    Visibility: public -/
+structure restore.Chat where
+  id : alloc.vec.Vec Std.U8
+  «name» : alloc.vec.Vec Std.U8
+  agent : alloc.vec.Vec Std.U8
+  cwd : alloc.vec.Vec Std.U8
+  history : alloc.vec.Vec restore.Entry
+
 /-- [protocol::seen::Entry]
     Source: 'crates/protocol/src/seen.rs', lines 7:0-10:1
     Visibility: public -/
