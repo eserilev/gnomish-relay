@@ -53,9 +53,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: nightly
-      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2
-        with:
-          tool: cargo-fuzz
+      # From source: the prebuilt cargo-fuzz targets musl, and the sanitizer needs glibc.
+      - run: cargo install cargo-fuzz --version 0.13.2 --locked
       - run: scripts/fuzz.sh 30
 
   proofs:
@@ -64,6 +63,10 @@ jobs:
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: cachix/install-nix-action@13d8dd58da0234aa297dedd986986ccb8e7f3e24 # v31
+      # The Nix store keeps the built tools, so only a change in proofs/TOOLS rebuilds them.
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: nix-charon-aeneas-${{ hashFiles('proofs/TOOLS') }}
       # The Aeneas flake pins the Charon commit that proofs/TOOLS names.
       - name: Build Charon and Aeneas
         run: |
