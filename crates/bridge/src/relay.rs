@@ -99,6 +99,11 @@ impl Relay {
         self.next_slot
     }
 
+    /// A `/reload` frees every slot, so the next body starts at slot 1 (SPEC.md 7.3).
+    pub fn reset_window(&mut self) {
+        self.next_slot = 1;
+    }
+
     /// The records that the addon has not read. The body holds all of them.
     pub fn unread(&self) -> usize {
         self.records.len()
@@ -442,6 +447,14 @@ mod tests {
         let mut relay = relay();
         relay.on_frame(&[record("relay", 0, "h;next=57", "")], NOW);
         assert_eq!(relay.next_slot(), 57);
+    }
+
+    #[test]
+    fn a_reload_starts_the_slot_window_at_one() {
+        let mut relay = relay();
+        relay.on_frame(&[record("relay", 0, "h;next=57", "")], NOW);
+        relay.reset_window();
+        assert_eq!(relay.next_slot(), 1);
     }
 
     #[test]

@@ -1,0 +1,7 @@
+GnomishRelayDB = {
+	["outbox"] = {
+		{
+			["frame"] = "6e5201",
+		},
+	},
+}

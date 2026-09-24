@@ -23,6 +23,7 @@ struct Dirs {
     _root: tempfile::TempDir,
     addons: std::path::PathBuf,
     screenshots: std::path::PathBuf,
+    accounts: std::path::PathBuf,
 }
 
 fn folders() -> Dirs {
@@ -30,12 +31,15 @@ fn folders() -> Dirs {
     let addons = root.path().join("Interface/AddOns");
     let screenshots = root.path().join("Screenshots");
     fs::create_dir_all(&addons).unwrap();
+    let accounts = root.path().join("WTF/Account");
     fs::create_dir_all(&screenshots).unwrap();
+    fs::create_dir_all(&accounts).unwrap();
     slots::install(&addons, b"GnomishRelay_SlotData = nil\n").unwrap();
     Dirs {
         _root: root,
         addons,
         screenshots,
+        accounts,
     }
 }
 
@@ -43,6 +47,7 @@ fn bridge(f: &Dirs) -> Bridge {
     let paths = Paths {
         addons: f.addons.clone(),
         screenshots: f.screenshots.clone(),
+        accounts: f.accounts.clone(),
     };
     let folders = Folders {
         roots: vec![b"/home/x".to_vec()],
@@ -56,9 +61,23 @@ fn bridge(f: &Dirs) -> Bridge {
     )
 }
 
-fn strip_png(key: &[u8], text: &str) -> Vec<u8> {
+fn frame(key: &[u8], text: &str) -> Vec<u8> {
     let payload = format!("tok\x1fc1\x1f7\x1f\x1f\x1f\x1f{text}");
-    screenshot_png(&strip_rows(&signed_frame(now(), payload.as_bytes(), key)))
+    signed_frame(now(), payload.as_bytes(), key)
+}
+
+fn strip_png(key: &[u8], text: &str) -> Vec<u8> {
+    screenshot_png(&strip_rows(&frame(key, text)))
+}
+
+fn write_saved_variables(f: &Dirs, frame: &[u8]) {
+    let dir = f.accounts.join("ACCOUNT1/SavedVariables");
+    fs::create_dir_all(&dir).unwrap();
+    let text = format!(
+        "GnomishRelayDB = {{\n\t[\"outbox\"] = {{\n\t\t{{\n\t\t\t[\"frame\"] = \"{}\",\n\t\t}},\n\t}},\n}}\n",
+        hex(frame)
+    );
+    fs::write(dir.join("GnomishRelay.lua"), text).unwrap();
 }
 
 fn slot_body(addons: &Path) -> String {
@@ -108,5 +127,27 @@ fn a_normal_screenshot_and_a_strip_with_a_bad_tag_stay_untouched() {
     step_until(&mut bridge, || false);
     assert!(user.exists());
     assert!(forged.exists());
+    assert!(!slot_body(&f.addons).contains("rm -rf"));
+}
+
+#[test]
+fn an_outbox_frame_in_the_saved_variables_comes_back_as_an_echo() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    write_saved_variables(&f, &frame(KEY, "sent by reload"));
+
+    let answered = step_until(&mut bridge, || {
+        slot_body(&f.addons).contains("echo: sent by reload")
+    });
+    assert!(answered, "{}", slot_body(&f.addons));
+}
+
+#[test]
+fn an_outbox_frame_with_a_bad_tag_never_runs() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    write_saved_variables(&f, &frame(b"another key, 32 bytes long......", "rm -rf ~"));
+
+    step_until(&mut bridge, || false);
     assert!(!slot_body(&f.addons).contains("rm -rf"));
 }

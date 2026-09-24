@@ -87,6 +87,6 @@ Each target checks the property of its proof on the compiled code, not only "no 
 `frame` (S1, C2), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1),
 `lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), and
 `popup` (S15), `screenshot` (any file in the Screenshots folder never panics the
-bridge), and `relay` (the promises of the transport model on the real state machine:
+bridge), `saved` (any saved variables text never panics the frame reader), and `relay` (the promises of the transport model on the real state machine:
 no message runs twice, at most 30 unread records, no job outside the root). The hook
 socket and config targets wait for those parts. `scripts/fuzz.sh SECONDS` runs them all.

@@ -318,27 +318,18 @@ fn an_unacknowledged_message_goes_to_the_outbox_as_a_signed_frame() {
     assert_eq!(game.shots(), 3);
     let outbox: Table = game.db().get("outbox").unwrap();
     assert_eq!(outbox.raw_len(), 1);
-    let hex: String = outbox.get::<Table>(1).unwrap().get("frame").unwrap();
-    let wire: Vec<u8> = (0..hex.len())
-        .step_by(2)
-        .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).unwrap())
-        .collect();
-    let records = receive(
-        &wire,
-        &StripKey::from_hex(&common::hex(KEY)).unwrap(),
-        1_790_211_209,
-    )
-    .unwrap();
-    assert_eq!(records[0].text, b"anyone there?");
     assert!(
         game.run("local ns = ... return ns.Transport.NeedsReload()")
             .as_boolean()
             .unwrap()
     );
-    assert!(
-        game.saved_variables()
-            .contains(&format!("[\"frame\"] = \"{hex}\""))
-    );
+    let frames = bridge::saved::frames(&game.saved_variables());
+    assert!(!frames.is_empty());
+    let key = StripKey::from_hex(&common::hex(KEY)).unwrap();
+    for frame in frames {
+        let records = receive(&frame, &key, 1_790_211_209).unwrap();
+        assert_eq!(records[0].text, b"anyone there?");
+    }
 }
 
 #[test]

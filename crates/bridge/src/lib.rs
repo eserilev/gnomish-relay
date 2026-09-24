@@ -9,6 +9,7 @@ pub mod fs_safe;
 pub mod receive;
 pub mod relay;
 pub mod run;
+pub mod saved;
 pub mod screenshots;
 pub mod slots;
 pub mod strip;

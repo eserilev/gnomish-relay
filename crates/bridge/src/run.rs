@@ -11,6 +11,7 @@ use anyhow::Result;
 use crate::agent::Agent;
 use crate::receive::{StripKey, receive};
 use crate::relay::{Folders, Job, Outcome, Relay};
+use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots;
 
@@ -23,6 +24,8 @@ type Finished = (Job, Result<String, String>);
 pub struct Paths {
     pub addons: PathBuf,
     pub screenshots: PathBuf,
+    /// `WTF/Account`, which holds the saved variables of each account.
+    pub accounts: PathBuf,
 }
 
 #[allow(clippy::cast_possible_truncation)] // u32 seconds last until 2106
@@ -46,6 +49,7 @@ pub struct Bridge {
     agent: Arc<dyn Agent>,
     relay: Relay,
     watcher: Watcher,
+    saved: saved::Watcher,
     finished: Sender<Finished>,
     results: Receiver<Finished>,
     changed: bool,
@@ -57,6 +61,7 @@ impl Bridge {
         let (finished, results) = channel();
         Bridge {
             watcher: Watcher::new(&paths.screenshots),
+            saved: saved::Watcher::new(&paths.accounts),
             paths,
             key,
             agent,
@@ -70,6 +75,7 @@ impl Bridge {
 
     pub fn step(&mut self) {
         self.take_screenshots();
+        self.take_saved_variables();
         self.start_runs();
         self.finish_runs();
         if self.changed || self.last_publish.elapsed() >= HEARTBEAT {
@@ -88,18 +94,44 @@ impl Bridge {
                     continue;
                 }
             };
-            match receive(&bytes, &self.key, now()) {
-                Ok(records) => {
-                    let outcomes = self.relay.on_frame(&records, now());
-                    let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
-                    log(&format!("strip: {} records, {accepted} new", records.len()));
-                    // Only a valid strip goes, never a screenshot of the user (SPEC.md 6.2, rule 8).
-                    if let Err(e) = std::fs::remove_file(&path) {
-                        log(&format!("cannot delete {}: {e}", path.display()));
-                    }
-                    self.changed = true;
-                }
-                Err(reason) => log(&format!("rejected {}: {reason:?}", path.display())),
+            if !self.take_frame(&bytes, "strip") {
+                log(&format!("rejected {}", path.display()));
+                continue;
+            }
+            // Only a valid strip goes, never a screenshot of the user (SPEC.md 6.2, rule 8).
+            if let Err(e) = std::fs::remove_file(&path) {
+                log(&format!("cannot delete {}: {e}", path.display()));
+            }
+        }
+    }
+
+    /// A changed file means a `/reload`: the outbox frames get the same checks as a strip.
+    fn take_saved_variables(&mut self) {
+        for text in self.saved.changed() {
+            self.relay.reset_window();
+            self.changed = true;
+            for frame in saved::frames(&text) {
+                self.take_frame(&frame, "outbox");
+            }
+        }
+    }
+
+    /// Returns false for a frame that fails the tag, the time, or the format check.
+    fn take_frame(&mut self, bytes: &[u8], source: &str) -> bool {
+        match receive(bytes, &self.key, now()) {
+            Ok(records) => {
+                let outcomes = self.relay.on_frame(&records, now());
+                let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
+                log(&format!(
+                    "{source}: {} records, {accepted} new",
+                    records.len()
+                ));
+                self.changed = true;
+                true
+            }
+            Err(reason) => {
+                log(&format!("{source} rejected: {reason:?}"));
+                false
             }
         }
     }

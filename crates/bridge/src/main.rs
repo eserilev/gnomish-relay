@@ -27,13 +27,13 @@ fn addons_dir() -> Result<PathBuf> {
     Ok(PathBuf::from(dir))
 }
 
-/// `Interface/AddOns` is two levels below the folder that holds `Screenshots`.
-fn screenshots_dir(addons: &std::path::Path) -> Result<PathBuf> {
+/// `Interface/AddOns` is two levels below the folder that holds `Screenshots` and `WTF`.
+fn game_dir(addons: &std::path::Path) -> Result<PathBuf> {
     let game = addons
         .parent()
         .and_then(std::path::Path::parent)
         .context("GNOMISH_ADDONS has no game folder")?;
-    Ok(game.join("Screenshots"))
+    Ok(game.to_owned())
 }
 
 fn folders() -> Result<Folders> {
@@ -96,8 +96,10 @@ fn main() -> Result<()> {
         }
         ["run"] => {
             let addons = addons_dir()?;
+            let game = game_dir(&addons)?;
             let paths = Paths {
-                screenshots: screenshots_dir(&addons)?,
+                screenshots: game.join("Screenshots"),
+                accounts: game.join("WTF").join("Account"),
                 addons,
             };
             run(

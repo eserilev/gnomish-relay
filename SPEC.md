@@ -454,7 +454,7 @@ The addon uses the reload fallback when the strip gets no acknowledgment, the po
 1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store.
 2. The addon asks the user to press a key. `ReloadUI` needs a hardware event, and the key catcher stays off in combat.
 3. WoW writes the saved variables file at reload.
-4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 750 ms).
+4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 250 ms).
 5. The bridge writes the reply into `GnomishRelay/Inbox.lua`. The main addon reads it at the next reload.
 
 After each `/reload`, the addon shows the strip again for every sent message that has no reply and is not in the outbox.
@@ -990,7 +990,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 4. **Done: `protocol` crate with Aeneas.** Frame, cells, records, slot body, escapes, and every theorem in 14.1. `VERIFICATION.md` has the status.
 5. **Done: slot writer.** Publish a fixed reply. Make sure that it shows in the game. Passed in the game on 2026-09-24: `install`, then `say`, then `/relay poll` showed the reply. The steps are in `addon/README.md`.
 6. **Addon port** with the stub harness and the differential tests.
-7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Next (7b):** the reload outbox, the restore bundle, and `state.json`.
+7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Next (7b):** `state.json` and the restore bundle.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check.
 9. **ACP backend.** Test with one agent first.
 10. **`note` signal and pings:** the hook CLI and the socket.
