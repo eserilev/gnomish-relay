@@ -47,7 +47,7 @@ fn decode(frame: &Frame) -> Result<Message, DecodeError>
 - Newtypes for IDs (`ChatId`, `MessageId`, `SessionId`). Enums in place of `bool` flags.
 - One module, one idea. The file name says what is inside.
 - No `unwrap()` or `expect()` outside tests.
-- Errors: `thiserror` in library crates, `anyhow` only in the `bridge` binary.
+- Errors: `thiserror` in library crates. The `bridge` crate is one application, so its library and binary use `anyhow`.
 
 ## Tests
 
