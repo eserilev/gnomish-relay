@@ -111,8 +111,43 @@ fn expand(path: &str, home: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// The proved resolver (S5) knows only `/`. Windows also splits at `\`, and
+/// `canonicalize` there adds a `\\?\` prefix.
+fn portable(path: &str, windows: bool) -> Vec<u8> {
+    if !windows {
+        return path.as_bytes().to_vec();
+    }
+    let path = path.strip_prefix(r"\\?\").unwrap_or(path);
+    path.replace('\\', "/").into_bytes()
+}
+
 fn bytes(path: &Path) -> Vec<u8> {
-    path.to_string_lossy().as_bytes().to_vec()
+    portable(&path.to_string_lossy(), cfg!(windows))
+}
+
+/// A folder from the game, in the form that the resolver checks. On Windows a `\`
+/// becomes `/`, so each `..` counts. A `:` never passes there: it starts a drive
+/// or names a stream.
+/// The resolver starts its result with `/`. On Windows the drive comes first.
+pub fn native_folder(resolved: Vec<u8>, windows: bool) -> Vec<u8> {
+    match resolved.as_slice() {
+        [b'/', _, b':', ..] if windows => resolved[1..].to_vec(),
+        _ => resolved,
+    }
+}
+
+pub fn folder_request(raw: &[u8], windows: bool) -> Option<Vec<u8>> {
+    if !windows {
+        return Some(raw.to_vec());
+    }
+    if raw.contains(&b':') {
+        return None;
+    }
+    Some(
+        raw.iter()
+            .map(|&b| if b == b'\\' { b'/' } else { b })
+            .collect(),
+    )
 }
 
 /// `canonicalize` resolves links, so a root that is a link names its real folder
@@ -243,7 +278,7 @@ mod tests {
         allowed_roots = ["~/Code"]
         default_agent = "claude"
         [wow]
-        path = "/games/wow"
+        path = "~/wow"
         [agents.claude]
         permission = "auto-edit"
     "#;
@@ -256,7 +291,7 @@ mod tests {
         assert_eq!(config.policy.folders.roots, [bytes(&root)]);
         assert_eq!(config.policy.folders.base, bytes(&root));
         assert_eq!(config.policy.agents["claude"], Permission::AutoEdit);
-        assert_eq!(config.wow, PathBuf::from("/games/wow"));
+        assert_eq!(config.wow, home.path().join("wow"));
     }
 
     #[test]
@@ -317,6 +352,28 @@ mod tests {
         let config = home.parse(&default_text(Path::new(wow))).unwrap();
         assert_eq!(config.policy.agents["claude"], Permission::Ask);
         assert_eq!(config.wow, PathBuf::from(wow));
+    }
+
+    #[test]
+    fn a_windows_request_splits_at_backslashes_and_never_names_a_drive() {
+        assert_eq!(folder_request(br"..\..\x", true).unwrap(), b"../../x");
+        assert_eq!(folder_request(br"sub\dir", true).unwrap(), b"sub/dir");
+        assert_eq!(folder_request(br"C:\Windows", true), None);
+        assert_eq!(folder_request(b"file.txt:stream", true), None);
+        assert_eq!(folder_request(br"a\b", false).unwrap(), br"a\b");
+    }
+
+    #[test]
+    fn a_windows_folder_starts_with_its_drive() {
+        assert_eq!(native_folder(b"/C:/Code/x".to_vec(), true), b"C:/Code/x");
+        assert_eq!(native_folder(b"/home/x".to_vec(), true), b"/home/x");
+        assert_eq!(native_folder(b"/C:/x".to_vec(), false), b"/C:/x");
+    }
+
+    #[test]
+    fn a_windows_root_loses_its_prefix_and_uses_slashes() {
+        assert_eq!(portable(r"\\?\C:\Users\x\Code", true), b"C:/Users/x/Code");
+        assert_eq!(portable(r"/home/x\y", false), br"/home/x\y");
     }
 
     #[test]

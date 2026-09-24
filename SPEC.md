@@ -93,6 +93,7 @@ So the bridge bounds what any message from the game can do (6.6).
 8. The bridge deletes only the screenshots that it decoded as valid strips. It never deletes other screenshots.
 9. The bridge limits sizes: an image before decoding (4096 × 4096 px), a hook message (64 KB), a reply record (32 KB), a slot body (S12), and each chat queue (20 messages).
 10. The bridge resolves symbolic links in a chat folder with `canonicalize`, then checks `allowed_roots` again on the result.
+17. The proved resolver (S5) splits paths only at `/`. On Windows, the bridge first turns each `\` of a game folder into `/`, so each `..` counts. It refuses a game folder with `:`, which starts a drive or names a stream. Roots lose the `\\?\` prefix of `canonicalize`.
 11. The bridge never starts a process through a shell. It passes the command as an argument list.
 12. The bridge gives each agent process only an allowlist of environment variables (`PATH`, `HOME`, `LANG`, `TERM`, and the variables in the agent config). All others, for example API keys of other tools, stay out.
 13. The bridge writes prompt files with mode 0600 in a private folder, and deletes them after the run.

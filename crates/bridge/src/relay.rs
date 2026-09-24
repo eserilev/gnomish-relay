@@ -13,7 +13,7 @@ use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 
 use serde::{Deserialize, Serialize};
 
-use crate::config::{Permission, Policy};
+use crate::config::{Permission, Policy, folder_request, native_folder};
 use crate::flags::{self, Flags};
 use crate::history::{ChatLog, History, Speaker};
 use crate::state::{SavedRecord, SavedStatus, State};
@@ -236,7 +236,9 @@ impl Relay {
         self.history
             .add_message(log, MessageId(r.id), &text(&r.text));
         let folders = &self.policy.folders;
-        let Some(cwd) = resolve_folder(&folders.roots, &folders.base, &r.cwd) else {
+        let request = folder_request(&r.cwd, cfg!(windows));
+        let resolved = request.and_then(|cwd| resolve_folder(&folders.roots, &folders.base, &cwd));
+        let Some(cwd) = resolved else {
             self.set_record(
                 &text(&r.token),
                 &chat,
@@ -263,7 +265,7 @@ impl Relay {
             id: MessageId(r.id),
             agent,
             permission,
-            cwd: text(&cwd),
+            cwd: text(&native_folder(cwd, cfg!(windows))),
             session: if flags.new_session {
                 Session::New
             } else {
