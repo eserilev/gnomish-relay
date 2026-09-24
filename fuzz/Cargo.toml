@@ -11,6 +11,7 @@ cargo-fuzz = true
 libfuzzer-sys = "0.4"
 mlua = { version = "0.10", features = ["lua51", "vendored"] }
 protocol = { path = "../crates/protocol" }
+bridge = { path = "../crates/bridge" }
 
 # Not a member of the main workspace: fuzzing needs nightly and libFuzzer.
 [workspace]
@@ -60,6 +61,20 @@ bench = false
 [[bin]]
 name = "lua_model"
 path = "fuzz_targets/lua_model.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "screenshot"
+path = "fuzz_targets/screenshot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "relay"
+path = "fuzz_targets/relay.rs"
 test = false
 doc = false
 bench = false

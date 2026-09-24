@@ -19,7 +19,7 @@ const STOPPED: &str = "Stopped.";
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ChatId(pub String);
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct MessageId(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -97,6 +97,11 @@ impl Relay {
 
     pub fn next_slot(&self) -> usize {
         self.next_slot
+    }
+
+    /// The records that the addon has not read. The body holds all of them.
+    pub fn unread(&self) -> usize {
+        self.records.len()
     }
 
     /// Takes one frame. The flags of its first record carry the report of the addon.
