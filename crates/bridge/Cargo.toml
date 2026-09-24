@@ -15,8 +15,11 @@ anyhow = "1"
 protocol = { path = "../protocol" }
 
 [dev-dependencies]
-# Tests load each published body in a real Lua 5.1, the Lua version of WoW.
+# Tests run the addon in a real Lua 5.1, the Lua version of WoW, and check its
+# strip tags against the Rust HMAC.
+hmac = "0.12"
 mlua = { version = "0.10", features = ["lua51", "vendored"] }
+sha2 = "0.10"
 tempfile = "3"
 
 [lints]

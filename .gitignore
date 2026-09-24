@@ -2,3 +2,5 @@ __pycache__/
 spikes/last-strip.png
 target/
 proofs/.lake/
+# The strip key. scripts/dev-link.sh writes it.
+addon/GnomishRelay/Key.lua

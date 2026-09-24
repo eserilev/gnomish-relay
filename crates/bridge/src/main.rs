@@ -14,7 +14,8 @@ use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 const USAGE: &str = "\
 usage:
   gnomish-relay install          make the slot addons (game closed)
-  gnomish-relay say <text>       publish one reply, from slot 1 or from $GNOMISH_NEXT_SLOT
+  gnomish-relay say <chat> <id> <text>
+                                 publish a reply to message <id> (from `/relay diag`)
 
 The AddOns folder comes from GNOMISH_ADDONS.";
 
@@ -33,10 +34,10 @@ fn body(replies: &[Reply]) -> Result<Vec<u8>> {
     Ok(slot_body(now()?, &prepare_replies(replies)))
 }
 
-fn say(text: &str) -> Result<()> {
+fn say(chat: &str, id: &str, text: &str) -> Result<()> {
     let reply = Reply {
-        chat: b"relay".to_vec(),
-        id: now()?,
+        chat: chat.as_bytes().to_vec(),
+        id: id.parse().context("the message id is a number")?,
         status: Status::Done,
         text: text.as_bytes().to_vec(),
     };
@@ -62,7 +63,7 @@ fn main() -> Result<()> {
             println!("made {} slots in {}", protocol::slot::SLOTS, dir.display());
             Ok(())
         }
-        ["say", text] => say(text),
+        ["say", chat, id, text] => say(chat, id, text),
         _ => bail!("{USAGE}"),
     }
 }

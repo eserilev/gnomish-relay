@@ -107,7 +107,7 @@ Each strip ends with a truncated HMAC-SHA256 tag (8 bytes) of the header and pay
 The bridge drops each strip with a wrong tag, and logs it.
 The bridge compares tags in constant time (`subtle::ConstantTimeEq`).
 
-Open point: the cost of HMAC-SHA256 in WoW Lua (with the `bit` library). The spike measures it.
+The cost of HMAC-SHA256 in Lua: about 0.1 ms for a full 3221-byte strip under LuaJIT with the JIT off. The plain Lua 5.1 of WoW is a few times slower, still well under 1 ms.
 
 ### 6.4 Honest permission popup
 
@@ -200,7 +200,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `d` | The chat is deleted. The bridge drops its transcript and session. The addon keeps the id in `db.forget` and sends it with each hello until the bridge acknowledges it. |
 | `agent=<name>` | The agent for a new chat. |
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
-| `read=<id>,<id>` | The final replies that the addon has shown since its last `read` flag. The bridge then takes them out of the slot body (7.3). |
+| `read=<id>,<id>` | The final replies in the last body that the addon has shown. The bridge then takes them out of the slot body (7.3). A lost strip loses nothing: the next strip names them again. |
 | `restored` | The addon has applied the restore bundle for its token (7.6). |
 | `next=<n>` | The next slot that the addon loads (7.3). |
 
@@ -638,15 +638,27 @@ The mockup is the reference for the layout.
 
 ### 13.2 Code
 
-The first version starts from the `wow-claude` addon. These changes are necessary:
+The addon is our own code. It uses the design of `wow-claude`, not its files.
+All state is local to the addon files, which share one table. The files load in this order:
 
-- Rename to `GnomishRelay`: folder, `.toc`, saved variables, slot names.
-- Keep all functions and state local to the addon files. Expose only what the slot files need.
-- Add the MAC (6.3), the new frame header (7.1), and the version check (7.7).
-- Add an agent name and a permission level to each chat.
-- Add the permission popup (9.3).
-- Add pings (section 10) to the chat window and the game chat.
-- Add the `note` signal family (7.4).
+| File | Job |
+|---|---|
+| `Key.lua` | The strip key. `scripts/dev-link.sh` writes it, and git ignores it. |
+| `Sha256.lua` | SHA-256 and HMAC-SHA256 for the strip tag. |
+| `Codec.lua` | Records, frames, and cells: the Lua side of `crates/protocol`. |
+| `Store.lua` | The saved data: token, chats, and the outbox. |
+| `Strip.lua` | Draws a frame and takes one screenshot of it. |
+| `Transport.lua` | The strip retries, the poll schedule, the slots, and the flags. It follows `models/transport.qnt`. |
+| `Window.lua` | The window of 13.1. |
+| `Core.lua` | Startup, slash commands, and the whisper line. |
+
+Message ids start from the clock, so the ids after a saved-data wipe never repeat the ids in an older body.
+
+The tests run the addon in a real Lua 5.1 with a fake WoW API (`addon/tests/wow.lua`), from `crates/bridge/tests`.
+They decode each strip with the proved Rust decoder and check its tag against the Rust HMAC.
+They also check the SHA code against both kinds of `bit` results: unsigned as in WoW, and signed as in LuaJIT.
+
+Still to come: the permission popup (9.3), pings (section 10), the side tabs, the agent dropdown, and the emblem texture.
 
 Slash commands:
 
@@ -654,9 +666,8 @@ Slash commands:
 |---|---|
 | `/relay` | Open or close the window. |
 | `/ai <text>` | Send a message to the current chat. |
-| `/relay new <agent> [name]` | Start a new chat with an agent. |
-| `/relay cd <folder>` | Set the folder of the current chat. It must be inside `allowed_roots`. |
 | `/relay diag` | Show transport diagnostics. |
+| `/relay poll` | Load the next slot now. |
 
 ## 14. Verification and tests
 
