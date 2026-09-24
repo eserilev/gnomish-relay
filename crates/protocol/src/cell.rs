@@ -107,8 +107,6 @@ pub fn decode_cells(cells: &[u8]) -> Option<Vec<u8>> {
             cells[i + 6],
             cells[i + 7],
         ];
-        // Not `?`: Aeneas has no model for it and would add an axiom.
-        #[allow(clippy::question_mark)]
         let Some([a, b, c]) = decode_group(group) else {
             return None;
         };

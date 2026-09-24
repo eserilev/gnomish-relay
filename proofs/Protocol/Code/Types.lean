@@ -79,7 +79,7 @@ structure rate.ChatQueue where
   ids : alloc.vec.Vec Std.U32
 
 /-- [protocol::record::Record]
-    Source: 'crates/protocol/src/record.rs', lines 12:0-20:1
+    Source: 'crates/protocol/src/record.rs', lines 15:0-23:1
     Visibility: public -/
 structure record.Record where
   token : alloc.vec.Vec Std.U8
@@ -91,7 +91,7 @@ structure record.Record where
   text : alloc.vec.Vec Std.U8
 
 /-- [protocol::record::RecordError]
-    Source: 'crates/protocol/src/record.rs', lines 22:0-29:1
+    Source: 'crates/protocol/src/record.rs', lines 26:0-33:1
     Visibility: public -/
 @[discriminant isize]
 inductive record.RecordError where

@@ -4,9 +4,13 @@
 //! We prove it correct with Aeneas, so it stays inside the Rust subset that
 //! Aeneas supports. `CLAUDE.md` lists the rules.
 
-// Aeneas has no model for `From` between integers or for ranges, so we widen
-// with `as` and compare with `<=`.
-#![allow(clippy::cast_lossless, clippy::manual_range_contains)]
+// Aeneas has no model for `From` between integers, for ranges, or for `?`. So we
+// widen with `as`, compare with `<=`, and return errors with `match` or `let else`.
+#![allow(
+    clippy::cast_lossless,
+    clippy::manual_range_contains,
+    clippy::question_mark
+)]
 // TODO: remove when every stub in VERIFICATION.md has a body.
 #![allow(
     unused_variables,

@@ -311,7 +311,7 @@ def cell.encode_cells
   cell.encode_cells_loop bytes (alloc.vec.Vec.new Std.U8) 0#usize
 
 /-- [protocol::cell::decode_cells]: loop body 0:
-    Source: 'crates/protocol/src/cell.rs', lines 99:4-121:1
+    Source: 'crates/protocol/src/cell.rs', lines 99:4-119:1
     Visibility: public -/
 @[rust_loop_body]
 def cell.decode_cells_loop.body
@@ -354,7 +354,7 @@ def cell.decode_cells_loop.body
   else ok (done (some bytes))
 
 /-- [protocol::cell::decode_cells]: loop 0:
-    Source: 'crates/protocol/src/cell.rs', lines 99:4-121:1
+    Source: 'crates/protocol/src/cell.rs', lines 99:4-119:1
     Visibility: public -/
 @[rust_loop]
 def cell.decode_cells_loop
@@ -366,7 +366,7 @@ def cell.decode_cells_loop
     (bytes, i)
 
 /-- [protocol::cell::decode_cells]:
-    Source: 'crates/protocol/src/cell.rs', lines 93:0-121:1
+    Source: 'crates/protocol/src/cell.rs', lines 93:0-119:1
     Visibility: public -/
 def cell.decode_cells
   (cells : Slice Std.U8) : Result (Option (alloc.vec.Vec Std.U8)) := do
@@ -1066,27 +1066,27 @@ def rate.enqueue
   fail panic
 
 /-- [protocol::record::RS]
-    Source: 'crates/protocol/src/record.rs', lines 7:0-7:24
+    Source: 'crates/protocol/src/record.rs', lines 9:0-9:24
     Visibility: public -/
 @[global_simps, irreducible] def record.RS : Std.U8 := 30#u8
 
 /-- [protocol::record::US]
-    Source: 'crates/protocol/src/record.rs', lines 8:0-8:24
+    Source: 'crates/protocol/src/record.rs', lines 10:0-10:24
     Visibility: public -/
 @[global_simps, irreducible] def record.US : Std.U8 := 31#u8
 
 /-- [protocol::record::MAX_ID_LEN]
-    Source: 'crates/protocol/src/record.rs', lines 9:0-9:33
+    Source: 'crates/protocol/src/record.rs', lines 11:0-11:33
     Visibility: public -/
 @[global_simps, irreducible] def record.MAX_ID_LEN : Std.Usize := 32#usize
 
 /-- [protocol::record::MAX_RECORDS]
-    Source: 'crates/protocol/src/record.rs', lines 10:0-10:34
+    Source: 'crates/protocol/src/record.rs', lines 12:0-12:34
     Visibility: public -/
 @[global_simps, irreducible] def record.MAX_RECORDS : Std.Usize := 16#usize
 
 /-- [protocol::record::is_id_byte]:
-    Source: 'crates/protocol/src/record.rs', lines 31:0-33:1 -/
+    Source: 'crates/protocol/src/record.rs', lines 35:0-37:1 -/
 def record.is_id_byte (b : Std.U8) : Result Bool := do
   if 97#u8 <= b
   then
@@ -1116,7 +1116,7 @@ def record.is_id_byte (b : Std.U8) : Result Bool := do
          else ok (b = 45#u8)
 
 /-- [protocol::record::is_valid_id]: loop body 0:
-    Source: 'crates/protocol/src/record.rs', lines 42:4-49:1
+    Source: 'crates/protocol/src/record.rs', lines 46:4-53:1
     Visibility: public -/
 @[rust_loop_body]
 def record.is_valid_id_loop.body
@@ -1135,7 +1135,7 @@ def record.is_valid_id_loop.body
   else ok (done true)
 
 /-- [protocol::record::is_valid_id]: loop 0:
-    Source: 'crates/protocol/src/record.rs', lines 42:4-49:1
+    Source: 'crates/protocol/src/record.rs', lines 46:4-53:1
     Visibility: public -/
 @[rust_loop]
 def record.is_valid_id_loop
@@ -1145,7 +1145,7 @@ def record.is_valid_id_loop
     i
 
 /-- [protocol::record::is_valid_id]:
-    Source: 'crates/protocol/src/record.rs', lines 37:0-49:1
+    Source: 'crates/protocol/src/record.rs', lines 41:0-53:1
     Visibility: public -/
 def record.is_valid_id (bytes : Slice Std.U8) : Result Bool := do
   let b ← core.slice.Slice.is_empty bytes
@@ -1157,21 +1157,330 @@ def record.is_valid_id (bytes : Slice Std.U8) : Result Bool := do
     then ok false
     else record.is_valid_id_loop bytes 0#usize
 
+/-- [protocol::record::find_byte]: loop body 0:
+    Source: 'crates/protocol/src/record.rs', lines 58:4-65:1 -/
+@[rust_loop_body]
+def record.find_byte_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (target : Std.U8)
+  (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize bytes i
+    if i1 = target
+    then ok (done i)
+    else let i2 ← i + 1#usize
+         ok (cont i2)
+  else ok (done «end»)
+
+/-- [protocol::record::find_byte]: loop 0:
+    Source: 'crates/protocol/src/record.rs', lines 58:4-65:1 -/
+@[rust_loop]
+def record.find_byte_loop
+  (bytes : Slice Std.U8) («end» : Std.Usize) (target : Std.U8)
+  (i : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun i1 => record.find_byte_loop.body bytes «end» target i1)
+    i
+
+/-- [protocol::record::find_byte]:
+    Source: 'crates/protocol/src/record.rs', lines 56:0-65:1 -/
+@[reducible]
+def record.find_byte
+  (bytes : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize)
+  (target : Std.U8) :
+  Result Std.Usize
+  := do
+  record.find_byte_loop bytes «end» target «from»
+
+/-- [protocol::record::copy_field]:
+    Source: 'crates/protocol/src/record.rs', lines 67:0-71:1 -/
+def record.copy_field
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  ascii.push_range (alloc.vec.Vec.new Std.U8) bytes start «end»
+
+/-- [protocol::record::digits_value]: loop body 0:
+    Source: 'crates/protocol/src/record.rs', lines 77:4-86:1 -/
+@[rust_loop_body]
+def record.digits_value_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (value : Std.U64)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.U64 × Std.Usize) (Option Std.U64))
+  := do
+  if i < «end»
+  then
+    let b ← Slice.index_usize bytes i
+    if b < 48#u8
+    then ok (done none)
+    else
+      if b > 57#u8
+      then ok (done none)
+      else
+        let i1 ← value * 10#u64
+        let i2 ← b - 48#u8
+        let i3 ← lift (UScalar.cast .U64 i2)
+        let value1 ← i1 + i3
+        let i4 ← i + 1#usize
+        ok (cont (value1, i4))
+  else ok (done (some value))
+
+/-- [protocol::record::digits_value]: loop 0:
+    Source: 'crates/protocol/src/record.rs', lines 77:4-86:1 -/
+@[rust_loop]
+def record.digits_value_loop
+  (bytes : Slice Std.U8) («end» : Std.Usize) (value : Std.U64)
+  (i : Std.Usize) :
+  Result (Option Std.U64)
+  := do
+  loop
+    (fun (value1, i1) => record.digits_value_loop.body bytes «end» value1 i1)
+    (value, i)
+
+/-- [protocol::record::digits_value]:
+    Source: 'crates/protocol/src/record.rs', lines 74:0-86:1 -/
+@[reducible]
+def record.digits_value
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (Option Std.U64)
+  := do
+  record.digits_value_loop bytes «end» 0#u64 start
+
+/-- [protocol::record::parse_decimal]:
+    Source: 'crates/protocol/src/record.rs', lines 90:0-105:1 -/
+def record.parse_decimal
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (Option Std.U32)
+  := do
+  let n ← «end» - start
+  if n = 0#usize
+  then ok none
+  else
+    if n > 10#usize
+    then ok none
+    else
+      if n > 1#usize
+      then
+        let i ← Slice.index_usize bytes start
+        if i = 48#u8
+        then ok none
+        else
+          let o ← record.digits_value bytes start «end»
+          match o with
+          | none => ok none
+          | some value =>
+            let i1 ← lift (UScalar.cast .U64 core.num.U32.MAX)
+            if value > i1
+            then ok none
+            else let i2 ← lift (UScalar.cast .U32 value)
+                 ok (some i2)
+      else
+        let o ← record.digits_value bytes start «end»
+        match o with
+        | none => ok none
+        | some value =>
+          let i ← lift (UScalar.cast .U64 core.num.U32.MAX)
+          if value > i
+          then ok none
+          else let i1 ← lift (UScalar.cast .U32 value)
+               ok (some i1)
+
+/-- [protocol::record::parse_record]:
+    Source: 'crates/protocol/src/record.rs', lines 108:0-153:1 -/
+def record.parse_record
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (core.result.Result record.Record record.RecordError)
+  := do
+  let u1 ← record.find_byte bytes start «end» record.US
+  if u1 = «end»
+  then ok (core.result.Result.Err record.RecordError.MissingField)
+  else
+    let i ← u1 + 1#usize
+    let u2 ← record.find_byte bytes i «end» record.US
+    if u2 = «end»
+    then ok (core.result.Result.Err record.RecordError.MissingField)
+    else
+      let i1 ← u2 + 1#usize
+      let u3 ← record.find_byte bytes i1 «end» record.US
+      if u3 = «end»
+      then ok (core.result.Result.Err record.RecordError.MissingField)
+      else
+        let i2 ← u3 + 1#usize
+        let u4 ← record.find_byte bytes i2 «end» record.US
+        if u4 = «end»
+        then ok (core.result.Result.Err record.RecordError.MissingField)
+        else
+          let i3 ← u4 + 1#usize
+          let u5 ← record.find_byte bytes i3 «end» record.US
+          if u5 = «end»
+          then ok (core.result.Result.Err record.RecordError.MissingField)
+          else
+            let i4 ← u5 + 1#usize
+            let u6 ← record.find_byte bytes i4 «end» record.US
+            if u6 = «end»
+            then ok (core.result.Result.Err record.RecordError.MissingField)
+            else
+              let token ← record.copy_field bytes start u1
+              let s := alloc.vec.Vec.deref token
+              let b ← record.is_valid_id s
+              if b
+              then
+                let chat ← record.copy_field bytes i u2
+                let s1 := alloc.vec.Vec.deref chat
+                let b1 ← record.is_valid_id s1
+                if b1
+                then
+                  let o ← record.parse_decimal bytes i1 u3
+                  match o with
+                  | none =>
+                    ok (core.result.Result.Err record.RecordError.BadId)
+                  | some id =>
+                    let v ← record.copy_field bytes i2 u4
+                    let v1 ← record.copy_field bytes i3 u5
+                    let v2 ← record.copy_field bytes i4 u6
+                    let i5 ← u6 + 1#usize
+                    let v3 ← record.copy_field bytes i5 «end»
+                    ok (core.result.Result.Ok
+                      {
+                        token,
+                        chat,
+                        id,
+                        cwd := v,
+                        flags := v1,
+                        «name» := v2,
+                        text := v3
+                      })
+                else ok (core.result.Result.Err record.RecordError.BadChat)
+              else ok (core.result.Result.Err record.RecordError.BadToken)
+
+/-- [protocol::record::parse_records]: loop body 0:
+    Source: 'crates/protocol/src/record.rs', lines 162:4-174:1
+    Visibility: public -/
+@[rust_loop_body]
+def record.parse_records_loop.body
+  (payload : Slice Std.U8) (records : alloc.vec.Vec record.Record)
+  (start : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec record.Record) × Std.Usize)
+    (core.result.Result (alloc.vec.Vec record.Record) record.RecordError))
+  := do
+  let i := Slice.len payload
+  if start <= i
+  then
+    let i1 := Slice.len payload
+    let «end» ← record.find_byte payload start i1 record.RS
+    let i2 := alloc.vec.Vec.len records
+    if i2 = record.MAX_RECORDS
+    then ok (done (core.result.Result.Err record.RecordError.TooMany))
+    else
+      let r ← record.parse_record payload start «end»
+      match r with
+      | core.result.Result.Ok r1 =>
+        let records1 ← alloc.vec.Vec.push records r1
+        let start1 ← «end» + 1#usize
+        ok (cont (records1, start1))
+      | core.result.Result.Err e => ok (done (core.result.Result.Err e))
+  else ok (done (core.result.Result.Ok records))
+
+/-- [protocol::record::parse_records]: loop 0:
+    Source: 'crates/protocol/src/record.rs', lines 162:4-174:1
+    Visibility: public -/
+@[rust_loop]
+def record.parse_records_loop
+  (payload : Slice Std.U8) (records : alloc.vec.Vec record.Record)
+  (start : Std.Usize) :
+  Result (core.result.Result (alloc.vec.Vec record.Record) record.RecordError)
+  := do
+  loop
+    (fun (records1, start1) => record.parse_records_loop.body payload records1
+      start1)
+    (records, start)
+
 /-- [protocol::record::parse_records]:
-    Source: 'crates/protocol/src/record.rs', lines 52:0-54:1
+    Source: 'crates/protocol/src/record.rs', lines 155:0-174:1
     Visibility: public -/
 def record.parse_records
   (payload : Slice Std.U8) :
   Result (core.result.Result (alloc.vec.Vec record.Record) record.RecordError)
   := do
-  fail panic
+  let b ← core.slice.Slice.is_empty payload
+  if b
+  then ok (core.result.Result.Err record.RecordError.Empty)
+  else
+    record.parse_records_loop payload (alloc.vec.Vec.new record.Record) 0#usize
+
+/-- [protocol::record::push_record]:
+    Source: 'crates/protocol/src/record.rs', lines 176:0-190:1 -/
+def record.push_record
+  (out : alloc.vec.Vec Std.U8) (r : record.Record) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let s := alloc.vec.Vec.deref r.token
+  let out1 ← ascii.push_bytes out s
+  let out2 ← alloc.vec.Vec.push out1 record.US
+  let s1 := alloc.vec.Vec.deref r.chat
+  let out3 ← ascii.push_bytes out2 s1
+  let out4 ← alloc.vec.Vec.push out3 record.US
+  let out5 ← ascii.push_decimal out4 r.id
+  let out6 ← alloc.vec.Vec.push out5 record.US
+  let s2 := alloc.vec.Vec.deref r.cwd
+  let out7 ← ascii.push_bytes out6 s2
+  let out8 ← alloc.vec.Vec.push out7 record.US
+  let s3 := alloc.vec.Vec.deref r.flags
+  let out9 ← ascii.push_bytes out8 s3
+  let out10 ← alloc.vec.Vec.push out9 record.US
+  let s4 := alloc.vec.Vec.deref r.name
+  let out11 ← ascii.push_bytes out10 s4
+  let out12 ← alloc.vec.Vec.push out11 record.US
+  let s5 := alloc.vec.Vec.deref r.text
+  ascii.push_bytes out12 s5
+
+/-- [protocol::record::serialize_records]: loop body 0:
+    Source: 'crates/protocol/src/record.rs', lines 196:4-202:5
+    Visibility: public -/
+@[rust_loop_body]
+def record.serialize_records_loop.body
+  (records : Slice record.Record) (out : alloc.vec.Vec Std.U8) (i : Std.Usize)
+  :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len records
+  if i < i1
+  then
+    let out1 ←
+      if i > 0#usize
+      then alloc.vec.Vec.push out record.RS
+      else ok out
+    let r ← Slice.index_usize records i
+    let out2 ← record.push_record out1 r
+    let i2 ← i + 1#usize
+    ok (cont (out2, i2))
+  else ok (done out)
+
+/-- [protocol::record::serialize_records]: loop 0:
+    Source: 'crates/protocol/src/record.rs', lines 196:4-202:5
+    Visibility: public -/
+@[rust_loop]
+def record.serialize_records_loop
+  (records : Slice record.Record) (out : alloc.vec.Vec Std.U8) (i : Std.Usize)
+  :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => record.serialize_records_loop.body records out1 i1)
+    (out, i)
 
 /-- [protocol::record::serialize_records]:
-    Source: 'crates/protocol/src/record.rs', lines 57:0-59:1
+    Source: 'crates/protocol/src/record.rs', lines 193:0-204:1
     Visibility: public -/
+@[reducible]
 def record.serialize_records
   (records : Slice record.Record) : Result (alloc.vec.Vec Std.U8) := do
-  fail panic
+  record.serialize_records_loop records (alloc.vec.Vec.new Std.U8) 0#usize
 
 /-- [protocol::seen::SEEN_CAPACITY]
     Source: 'crates/protocol/src/seen.rs', lines 3:0-3:38

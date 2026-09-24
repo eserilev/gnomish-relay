@@ -10,6 +10,8 @@ root=$(git rev-parse --show-toplevel)
 llbc=$root/target/protocol.llbc
 
 mkdir -p "$root/target"
+# Start clean, so a file from an older run cannot hide a problem.
+rm -rf "$root/proofs/Protocol/Code"
 (cd "$root/crates/protocol" && PATH=$charon_dir/bin:$PATH charon cargo --preset=aeneas --dest-file="$llbc")
 "$aeneas_dir/bin/aeneas" -backend lean "$llbc" -dest "$root/proofs" -subdir /Protocol/Code -split-files
 
