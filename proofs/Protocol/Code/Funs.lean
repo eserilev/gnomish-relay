@@ -1358,49 +1358,52 @@ def record.parse_record
               else ok (core.result.Result.Err record.RecordError.BadToken)
 
 /-- [protocol::record::parse_records]: loop body 0:
-    Source: 'crates/protocol/src/record.rs', lines 162:4-174:1
+    Source: 'crates/protocol/src/record.rs', lines 164:4-180:1
     Visibility: public -/
 @[rust_loop_body]
 def record.parse_records_loop.body
   (payload : Slice Std.U8) (records : alloc.vec.Vec record.Record)
-  (start : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec record.Record) × Std.Usize)
+  (start : Std.Usize) (more : Bool) :
+  Result (ControlFlow ((alloc.vec.Vec record.Record) × Std.Usize × Bool)
     (core.result.Result (alloc.vec.Vec record.Record) record.RecordError))
   := do
-  let i := Slice.len payload
-  if start <= i
+  if more
   then
-    let i1 := Slice.len payload
-    let «end» ← record.find_byte payload start i1 record.RS
-    let i2 := alloc.vec.Vec.len records
-    if i2 = record.MAX_RECORDS
+    let i := Slice.len payload
+    let «end» ← record.find_byte payload start i record.RS
+    let i1 := alloc.vec.Vec.len records
+    if i1 = record.MAX_RECORDS
     then ok (done (core.result.Result.Err record.RecordError.TooMany))
     else
       let r ← record.parse_record payload start «end»
       match r with
       | core.result.Result.Ok r1 =>
         let records1 ← alloc.vec.Vec.push records r1
-        let start1 ← «end» + 1#usize
-        ok (cont (records1, start1))
+        let i2 := Slice.len payload
+        if «end» = i2
+        then ok (cont (records1, start, false))
+        else
+          let start1 ← «end» + 1#usize
+          ok (cont (records1, start1, true))
       | core.result.Result.Err e => ok (done (core.result.Result.Err e))
   else ok (done (core.result.Result.Ok records))
 
 /-- [protocol::record::parse_records]: loop 0:
-    Source: 'crates/protocol/src/record.rs', lines 162:4-174:1
+    Source: 'crates/protocol/src/record.rs', lines 164:4-180:1
     Visibility: public -/
 @[rust_loop]
 def record.parse_records_loop
   (payload : Slice Std.U8) (records : alloc.vec.Vec record.Record)
-  (start : Std.Usize) :
+  (start : Std.Usize) (more : Bool) :
   Result (core.result.Result (alloc.vec.Vec record.Record) record.RecordError)
   := do
   loop
-    (fun (records1, start1) => record.parse_records_loop.body payload records1
-      start1)
-    (records, start)
+    (fun (records1, start1, more1) => record.parse_records_loop.body payload
+      records1 start1 more1)
+    (records, start, more)
 
 /-- [protocol::record::parse_records]:
-    Source: 'crates/protocol/src/record.rs', lines 155:0-174:1
+    Source: 'crates/protocol/src/record.rs', lines 155:0-180:1
     Visibility: public -/
 def record.parse_records
   (payload : Slice Std.U8) :
@@ -1411,9 +1414,10 @@ def record.parse_records
   then ok (core.result.Result.Err record.RecordError.Empty)
   else
     record.parse_records_loop payload (alloc.vec.Vec.new record.Record) 0#usize
+      true
 
 /-- [protocol::record::push_record]:
-    Source: 'crates/protocol/src/record.rs', lines 176:0-190:1 -/
+    Source: 'crates/protocol/src/record.rs', lines 182:0-196:1 -/
 def record.push_record
   (out : alloc.vec.Vec Std.U8) (r : record.Record) :
   Result (alloc.vec.Vec Std.U8)
@@ -1439,7 +1443,7 @@ def record.push_record
   ascii.push_bytes out12 s5
 
 /-- [protocol::record::serialize_records]: loop body 0:
-    Source: 'crates/protocol/src/record.rs', lines 196:4-202:5
+    Source: 'crates/protocol/src/record.rs', lines 202:4-208:5
     Visibility: public -/
 @[rust_loop_body]
 def record.serialize_records_loop.body
@@ -1462,7 +1466,7 @@ def record.serialize_records_loop.body
   else ok (done out)
 
 /-- [protocol::record::serialize_records]: loop 0:
-    Source: 'crates/protocol/src/record.rs', lines 196:4-202:5
+    Source: 'crates/protocol/src/record.rs', lines 202:4-208:5
     Visibility: public -/
 @[rust_loop]
 def record.serialize_records_loop
@@ -1475,7 +1479,7 @@ def record.serialize_records_loop
     (out, i)
 
 /-- [protocol::record::serialize_records]:
-    Source: 'crates/protocol/src/record.rs', lines 193:0-204:1
+    Source: 'crates/protocol/src/record.rs', lines 199:0-210:1
     Visibility: public -/
 @[reducible]
 def record.serialize_records

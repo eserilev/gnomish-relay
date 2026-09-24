@@ -158,8 +158,10 @@ pub fn parse_records(payload: &[u8]) -> Result<Vec<Record>, RecordError> {
     }
     let mut records = Vec::new();
     let mut start = 0;
-    // One record per pass. After the last record, `start` is past the end.
-    while start <= payload.len() {
+    let mut more = true;
+    // One record per pass. The last record ends at the end of the payload.
+    // `end + 1` only runs when `end` is before the end, so it cannot overflow.
+    while more {
         let end = find_byte(payload, start, payload.len(), RS);
         if records.len() == MAX_RECORDS {
             return Err(RecordError::TooMany);
@@ -168,7 +170,11 @@ pub fn parse_records(payload: &[u8]) -> Result<Vec<Record>, RecordError> {
             Ok(r) => records.push(r),
             Err(e) => return Err(e),
         }
-        start = end + 1;
+        if end == payload.len() {
+            more = false;
+        } else {
+            start = end + 1;
+        }
     }
     Ok(records)
 }

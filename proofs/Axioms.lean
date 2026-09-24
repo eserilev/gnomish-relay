@@ -19,3 +19,4 @@ import Statements
 #print axioms Protocol.Statements.check_S1_S2_decode
 #print axioms Protocol.Statements.check_S2_signed_len
 #print axioms Protocol.Statements.check_S13_valid_id
+#print axioms Protocol.Statements.check_S3_S4_parse

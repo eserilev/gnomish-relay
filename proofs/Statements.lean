@@ -263,5 +263,6 @@ theorem check_C2_decode : C2_decode := Protocol.Frame.decode_frame_complete
 theorem check_S1_S2_decode : S1_S2_decode := Protocol.Frame.decode_frame_sound
 theorem check_S2_signed_len : S2_signed_len := Protocol.Frame.signed_len_spec
 theorem check_S13_valid_id : S13_valid_id := Protocol.Record.is_valid_id_spec
+theorem check_S3_S4_parse : S3_S4_parse := Protocol.Record.parse_records_sound
 
 end Protocol.Statements
