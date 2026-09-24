@@ -759,7 +759,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 2. **Skipped: capture spike.** Step 1 passed. Capture the top-left 800×192 pixels of the WoW window content 4 times per second. Save one frame as PNG. Test the portal and X11 paths.
 3. **Done: Wine rules spike.** Test the five rules in 7.2 under Wine: the `ctl` self-test, a fresh read of a load-on-demand file, and "a new file is not found". Results in `spikes/README.md`. The HMAC-SHA256 cost in WoW Lua is not measured yet.
 4. **Done: `protocol` crate with Aeneas.** Frame, cells, records, slot body, escapes, and every theorem in 14.1. `VERIFICATION.md` has the status.
-5. **Slot writer.** Publish a fixed reply. Make sure that it shows in the game. The steps are in `addon/README.md`.
+5. **Done: slot writer.** Publish a fixed reply. Make sure that it shows in the game. Passed in the game on 2026-09-24: `install`, then `say`, then `/relay poll` showed the reply. The steps are in `addon/README.md`.
 6. **Addon port** with the stub harness and the differential tests.
 7. **Done: Quint model** of the transport. Next: the bridge state machine, queue, and publisher, which follow the model.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check.
