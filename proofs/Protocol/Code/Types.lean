@@ -17,4 +17,120 @@ set_option maxRecDepth 2048
 
 namespace protocol
 
+/-- [protocol::frame::Frame]
+    Source: 'crates/protocol/src/frame.rs', lines 21:0-26:1
+    Visibility: public -/
+structure frame.Frame where
+  time : Std.U32
+  frame_id : Std.U16
+  payload : alloc.vec.Vec Std.U8
+  tag : Array Std.U8 8#usize
+
+/-- [protocol::frame::FrameError]
+    Source: 'crates/protocol/src/frame.rs', lines 28:0-35:1
+    Visibility: public -/
+@[discriminant isize]
+inductive frame.FrameError where
+| TooShort : frame.FrameError
+| BadMagic : frame.FrameError
+| BadVersion : frame.FrameError
+| TooLong : frame.FrameError
+| Truncated : frame.FrameError
+| BadChecksum : frame.FrameError
+
+/-- [protocol::frame::Reject]
+    Source: 'crates/protocol/src/frame.rs', lines 37:0-41:1
+    Visibility: public -/
+@[discriminant isize]
+inductive frame.Reject where
+| BadTag : frame.Reject
+| Stale : frame.Reject
+| Future : frame.Reject
+
+/-- [protocol::policy::Level]
+    Source: 'crates/protocol/src/policy.rs', lines 5:0-9:1
+    Visibility: public -/
+@[discriminant isize]
+inductive policy.Level where
+| Ask : policy.Level
+| AutoEdit : policy.Level
+| FullAuto : policy.Level
+
+/-- [protocol::policy::Answer]
+    Source: 'crates/protocol/src/policy.rs', lines 12:0-17:1
+    Visibility: public -/
+@[discriminant isize]
+inductive policy.Answer where
+| AllowOnce : policy.Answer
+| AllowAlways : policy.Answer
+| RejectOnce : policy.Answer
+| RejectAlways : policy.Answer
+
+/-- [protocol::rate::RateLimiter]
+    Source: 'crates/protocol/src/rate.rs', lines 8:0-10:1
+    Visibility: public -/
+structure rate.RateLimiter where
+  times : alloc.vec.Vec Std.U32
+
+/-- [protocol::rate::ChatQueue]
+    Source: 'crates/protocol/src/rate.rs', lines 12:0-14:1
+    Visibility: public -/
+structure rate.ChatQueue where
+  ids : alloc.vec.Vec Std.U32
+
+/-- [protocol::record::Record]
+    Source: 'crates/protocol/src/record.rs', lines 12:0-20:1
+    Visibility: public -/
+structure record.Record where
+  token : alloc.vec.Vec Std.U8
+  chat : alloc.vec.Vec Std.U8
+  id : Std.U32
+  cwd : alloc.vec.Vec Std.U8
+  flags : alloc.vec.Vec Std.U8
+  «name» : alloc.vec.Vec Std.U8
+  text : alloc.vec.Vec Std.U8
+
+/-- [protocol::record::RecordError]
+    Source: 'crates/protocol/src/record.rs', lines 22:0-29:1
+    Visibility: public -/
+@[discriminant isize]
+inductive record.RecordError where
+| Empty : record.RecordError
+| TooMany : record.RecordError
+| MissingField : record.RecordError
+| BadToken : record.RecordError
+| BadChat : record.RecordError
+| BadId : record.RecordError
+
+/-- [protocol::seen::Entry]
+    Source: 'crates/protocol/src/seen.rs', lines 5:0-8:1
+    Visibility: public -/
+structure seen.Entry where
+  token : alloc.vec.Vec Std.U8
+  id : Std.U32
+
+/-- [protocol::seen::Seen]
+    Source: 'crates/protocol/src/seen.rs', lines 11:0-13:1
+    Visibility: public -/
+structure seen.Seen where
+  entries : alloc.vec.Vec seen.Entry
+
+/-- [protocol::slot::Status]
+    Source: 'crates/protocol/src/slot.rs', lines 8:0-12:1
+    Visibility: public -/
+@[discriminant isize]
+inductive slot.Status where
+| Working : slot.Status
+| Done : slot.Status
+| Error : slot.Status
+
+/-- [protocol::slot::Reply]
+    Source: 'crates/protocol/src/slot.rs', lines 14:0-19:1
+    Visibility: public -/
+structure slot.Reply where
+  chat : alloc.vec.Vec Std.U8
+  id : Std.U32
+  status : slot.Status
+  text : alloc.vec.Vec Std.U8
+
 end protocol

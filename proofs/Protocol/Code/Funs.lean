@@ -275,4 +275,334 @@ def cell.decode_cells
   then cell.decode_cells_loop cells (alloc.vec.Vec.new Std.U8) 0#usize
   else ok none
 
+/-- [protocol::folder::resolve_folder]:
+    Source: 'crates/protocol/src/folder.rs', lines 9:0-11:1
+    Visibility: public -/
+def folder.resolve_folder
+  (roots : Slice (alloc.vec.Vec Std.U8)) (base : Slice Std.U8)
+  (request : Slice Std.U8) :
+  Result (Option (alloc.vec.Vec Std.U8))
+  := do
+  fail panic
+
+/-- [protocol::frame::MAGIC]
+    Source: 'crates/protocol/src/frame.rs', lines 10:0-10:40
+    Visibility: public -/
+@[global_simps, irreducible]
+def frame.MAGIC : Array Std.U8 2#usize := Array.make 2#usize [ 110#u8, 82#u8 ]
+
+/-- [protocol::frame::VERSION]
+    Source: 'crates/protocol/src/frame.rs', lines 11:0-11:26
+    Visibility: public -/
+@[global_simps, irreducible] def frame.VERSION : Std.U8 := 1#u8
+
+/-- [protocol::frame::HEADER_LEN]
+    Source: 'crates/protocol/src/frame.rs', lines 12:0-12:33
+    Visibility: public -/
+@[global_simps, irreducible] def frame.HEADER_LEN : Std.Usize := 11#usize
+
+/-- [protocol::frame::CHECKSUM_LEN]
+    Source: 'crates/protocol/src/frame.rs', lines 13:0-13:34
+    Visibility: public -/
+@[global_simps, irreducible] def frame.CHECKSUM_LEN : Std.Usize := 2#usize
+
+/-- [protocol::frame::TAG_LEN]
+    Source: 'crates/protocol/src/frame.rs', lines 14:0-14:29
+    Visibility: public -/
+@[global_simps, irreducible] def frame.TAG_LEN : Std.Usize := 8#usize
+
+/-- [protocol::frame::MAX_PAYLOAD]
+    Source: 'crates/protocol/src/frame.rs', lines 15:0-15:36
+    Visibility: public -/
+@[global_simps, irreducible] def frame.MAX_PAYLOAD : Std.Usize := 3200#usize
+
+/-- [protocol::frame::MAX_AGE]
+    Source: 'crates/protocol/src/frame.rs', lines 18:0-18:29
+    Visibility: public -/
+@[global_simps, irreducible] def frame.MAX_AGE : Std.U32 := 300#u32
+
+/-- [protocol::frame::MAX_AHEAD]
+    Source: 'crates/protocol/src/frame.rs', lines 19:0-19:30
+    Visibility: public -/
+@[global_simps, irreducible] def frame.MAX_AHEAD : Std.U32 := 60#u32
+
+/-- [protocol::frame::encode_frame]:
+    Source: 'crates/protocol/src/frame.rs', lines 45:0-47:1
+    Visibility: public -/
+def frame.encode_frame
+  (time : Std.U32) (frame_id : Std.U16) (payload : Slice Std.U8)
+  (tag : Array Std.U8 8#usize) :
+  Result (Option (alloc.vec.Vec Std.U8))
+  := do
+  fail panic
+
+/-- [protocol::frame::decode_frame]:
+    Source: 'crates/protocol/src/frame.rs', lines 50:0-52:1
+    Visibility: public -/
+def frame.decode_frame
+  (bytes : Slice Std.U8) :
+  Result (core.result.Result frame.Frame frame.FrameError)
+  := do
+  fail panic
+
+/-- [protocol::frame::signed_len]:
+    Source: 'crates/protocol/src/frame.rs', lines 56:0-58:1
+    Visibility: public -/
+def frame.signed_len (f : frame.Frame) : Result Std.Usize := do
+  fail panic
+
+/-- [protocol::frame::is_fresh]:
+    Source: 'crates/protocol/src/frame.rs', lines 61:0-63:1
+    Visibility: public -/
+def frame.is_fresh (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
+  fail panic
+
+/-- [protocol::frame::check_frame]:
+    Source: 'crates/protocol/src/frame.rs', lines 66:0-68:1
+    Visibility: public -/
+def frame.check_frame
+  (frame_time : Std.U32) (tag_ok : Bool) (now : Std.U32) :
+  Result (core.result.Result Unit frame.Reject)
+  := do
+  fail panic
+
+/-- [protocol::lua::lua_string]:
+    Source: 'crates/protocol/src/lua.rs', lines 6:0-8:1
+    Visibility: public -/
+def lua.lua_string (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  fail panic
+
+/-- [protocol::policy::{impl core::clone::Clone for protocol::policy::Level}::clone]:
+    Source: 'crates/protocol/src/policy.rs', lines 4:9-4:14
+    Visibility: public -/
+def policy.Level.Insts.CoreCloneClone.clone
+  (self : policy.Level) : Result policy.Level := do
+  ok self
+
+/-- Trait implementation: [protocol::policy::{impl core::clone::Clone for protocol::policy::Level}]
+    Source: 'crates/protocol/src/policy.rs', lines 4:9-4:14 -/
+@[reducible]
+def policy.Level.Insts.CoreCloneClone : core.clone.Clone policy.Level := {
+  clone := policy.Level.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::policy::{impl core::marker::Copy for protocol::policy::Level}]
+    Source: 'crates/protocol/src/policy.rs', lines 4:16-4:20 -/
+@[reducible]
+def policy.Level.Insts.CoreMarkerCopy : core.marker.Copy policy.Level := {
+  cloneInst := policy.Level.Insts.CoreCloneClone
+}
+
+/-- [protocol::policy::{impl core::clone::Clone for protocol::policy::Answer}::clone]:
+    Source: 'crates/protocol/src/policy.rs', lines 11:9-11:14
+    Visibility: public -/
+def policy.Answer.Insts.CoreCloneClone.clone
+  (self : policy.Answer) : Result policy.Answer := do
+  ok self
+
+/-- Trait implementation: [protocol::policy::{impl core::clone::Clone for protocol::policy::Answer}]
+    Source: 'crates/protocol/src/policy.rs', lines 11:9-11:14 -/
+@[reducible]
+def policy.Answer.Insts.CoreCloneClone : core.clone.Clone policy.Answer := {
+  clone := policy.Answer.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::policy::{impl core::marker::Copy for protocol::policy::Answer}]
+    Source: 'crates/protocol/src/policy.rs', lines 11:16-11:20 -/
+@[reducible]
+def policy.Answer.Insts.CoreMarkerCopy : core.marker.Copy policy.Answer := {
+  cloneInst := policy.Answer.Insts.CoreCloneClone
+}
+
+/-- [protocol::policy::effective_level]:
+    Source: 'crates/protocol/src/policy.rs', lines 20:0-22:1
+    Visibility: public -/
+def policy.effective_level
+  (config : policy.Level) (requested : policy.Level) :
+  Result policy.Level
+  := do
+  fail panic
+
+/-- [protocol::policy::answer_from_game]:
+    Source: 'crates/protocol/src/policy.rs', lines 26:0-28:1
+    Visibility: public -/
+def policy.answer_from_game
+  (answer : policy.Answer) : Result policy.Answer := do
+  fail panic
+
+/-- [protocol::popup::COMMAND_BUDGET]
+    Source: 'crates/protocol/src/popup.rs', lines 6:0-6:38
+    Visibility: public -/
+@[global_simps, irreducible] def popup.COMMAND_BUDGET : Std.Usize := 300#usize
+
+/-- [protocol::popup::LABEL_BUDGET]
+    Source: 'crates/protocol/src/popup.rs', lines 7:0-7:36
+    Visibility: public -/
+@[global_simps, irreducible] def popup.LABEL_BUDGET : Std.Usize := 120#usize
+
+/-- [protocol::popup::popup_text]:
+    Source: 'crates/protocol/src/popup.rs', lines 12:0-14:1
+    Visibility: public -/
+def popup.popup_text
+  (command : Slice Std.U8) (label : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  fail panic
+
+/-- [protocol::rate::MAX_MESSAGES]
+    Source: 'crates/protocol/src/rate.rs', lines 3:0-3:35
+    Visibility: public -/
+@[global_simps, irreducible] def rate.MAX_MESSAGES : Std.Usize := 10#usize
+
+/-- [protocol::rate::WINDOW_SECONDS]
+    Source: 'crates/protocol/src/rate.rs', lines 4:0-4:35
+    Visibility: public -/
+@[global_simps, irreducible] def rate.WINDOW_SECONDS : Std.U32 := 60#u32
+
+/-- [protocol::rate::MAX_QUEUE]
+    Source: 'crates/protocol/src/rate.rs', lines 5:0-5:32
+    Visibility: public -/
+@[global_simps, irreducible] def rate.MAX_QUEUE : Std.Usize := 20#usize
+
+/-- [protocol::rate::admit_message]:
+    Source: 'crates/protocol/src/rate.rs', lines 17:0-19:1
+    Visibility: public -/
+def rate.admit_message
+  (limiter : rate.RateLimiter) (now : Std.U32) :
+  Result (Bool × rate.RateLimiter)
+  := do
+  fail panic
+
+/-- [protocol::rate::enqueue]:
+    Source: 'crates/protocol/src/rate.rs', lines 23:0-25:1
+    Visibility: public -/
+def rate.enqueue
+  (queue : rate.ChatQueue) (id : Std.U32) :
+  Result (Option rate.ChatQueue)
+  := do
+  fail panic
+
+/-- [protocol::record::RS]
+    Source: 'crates/protocol/src/record.rs', lines 7:0-7:24
+    Visibility: public -/
+@[global_simps, irreducible] def record.RS : Std.U8 := 30#u8
+
+/-- [protocol::record::US]
+    Source: 'crates/protocol/src/record.rs', lines 8:0-8:24
+    Visibility: public -/
+@[global_simps, irreducible] def record.US : Std.U8 := 31#u8
+
+/-- [protocol::record::MAX_ID_LEN]
+    Source: 'crates/protocol/src/record.rs', lines 9:0-9:33
+    Visibility: public -/
+@[global_simps, irreducible] def record.MAX_ID_LEN : Std.Usize := 32#usize
+
+/-- [protocol::record::MAX_RECORDS]
+    Source: 'crates/protocol/src/record.rs', lines 10:0-10:34
+    Visibility: public -/
+@[global_simps, irreducible] def record.MAX_RECORDS : Std.Usize := 16#usize
+
+/-- [protocol::record::is_valid_id]:
+    Source: 'crates/protocol/src/record.rs', lines 33:0-35:1
+    Visibility: public -/
+def record.is_valid_id (bytes : Slice Std.U8) : Result Bool := do
+  fail panic
+
+/-- [protocol::record::parse_records]:
+    Source: 'crates/protocol/src/record.rs', lines 38:0-40:1
+    Visibility: public -/
+def record.parse_records
+  (payload : Slice Std.U8) :
+  Result (core.result.Result (alloc.vec.Vec record.Record) record.RecordError)
+  := do
+  fail panic
+
+/-- [protocol::record::serialize_records]:
+    Source: 'crates/protocol/src/record.rs', lines 43:0-45:1
+    Visibility: public -/
+def record.serialize_records
+  (records : Slice record.Record) : Result (alloc.vec.Vec Std.U8) := do
+  fail panic
+
+/-- [protocol::seen::SEEN_CAPACITY]
+    Source: 'crates/protocol/src/seen.rs', lines 3:0-3:38
+    Visibility: public -/
+@[global_simps, irreducible] def seen.SEEN_CAPACITY : Std.Usize := 1000#usize
+
+/-- [protocol::seen::new_seen]:
+    Source: 'crates/protocol/src/seen.rs', lines 16:0-20:1
+    Visibility: public -/
+def seen.new_seen : Result seen.Seen := do
+  ok { entries := (alloc.vec.Vec.new seen.Entry) }
+
+/-- [protocol::seen::admit]:
+    Source: 'crates/protocol/src/seen.rs', lines 24:0-26:1
+    Visibility: public -/
+def seen.admit
+  (history : seen.Seen) (token : Slice Std.U8) (id : Std.U32) :
+  Result (Bool × seen.Seen)
+  := do
+  fail panic
+
+/-- [protocol::slot::MAX_REPLIES]
+    Source: 'crates/protocol/src/slot.rs', lines 3:0-3:34
+    Visibility: public -/
+@[global_simps, irreducible] def slot.MAX_REPLIES : Std.Usize := 30#usize
+
+/-- [protocol::slot::MAX_TEXT]
+    Source: 'crates/protocol/src/slot.rs', lines 4:0-4:38
+    Visibility: public -/
+@[global_simps, irreducible]
+def slot.MAX_TEXT : Result Std.Usize := 32#usize * 1024#usize
+
+/-- [protocol::slot::SLOT_BODY_LIMIT]
+    Source: 'crates/protocol/src/slot.rs', lines 5:0-5:47
+    Visibility: public -/
+@[global_simps, irreducible]
+def slot.SLOT_BODY_LIMIT : Result Std.Usize := 1024#usize * 1024#usize
+
+/-- [protocol::slot::{impl core::clone::Clone for protocol::slot::Status}::clone]:
+    Source: 'crates/protocol/src/slot.rs', lines 7:9-7:14
+    Visibility: public -/
+def slot.Status.Insts.CoreCloneClone.clone
+  (self : slot.Status) : Result slot.Status := do
+  ok self
+
+/-- Trait implementation: [protocol::slot::{impl core::clone::Clone for protocol::slot::Status}]
+    Source: 'crates/protocol/src/slot.rs', lines 7:9-7:14 -/
+@[reducible]
+def slot.Status.Insts.CoreCloneClone : core.clone.Clone slot.Status := {
+  clone := slot.Status.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::slot::{impl core::marker::Copy for protocol::slot::Status}]
+    Source: 'crates/protocol/src/slot.rs', lines 7:16-7:20 -/
+@[reducible]
+def slot.Status.Insts.CoreMarkerCopy : core.marker.Copy slot.Status := {
+  cloneInst := slot.Status.Insts.CoreCloneClone
+}
+
+/-- [protocol::slot::prepare_replies]:
+    Source: 'crates/protocol/src/slot.rs', lines 24:0-26:1
+    Visibility: public -/
+def slot.prepare_replies
+  (replies : Slice slot.Reply) : Result (alloc.vec.Vec slot.Reply) := do
+  fail panic
+
+/-- [protocol::slot::slot_body]:
+    Source: 'crates/protocol/src/slot.rs', lines 29:0-31:1
+    Visibility: public -/
+def slot.slot_body
+  (now : Std.U32) (replies : Slice slot.Reply) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  fail panic
+
+/-- [protocol::wow_text::chat_safe]:
+    Source: 'crates/protocol/src/wow_text.rs', lines 6:0-8:1
+    Visibility: public -/
+def wow_text.chat_safe
+  (text : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  fail panic
+
 end protocol
