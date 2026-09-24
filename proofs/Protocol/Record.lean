@@ -381,7 +381,7 @@ theorem parse_record_sound (src : Slice U8) (start stop : Usize) (hle : start.va
       bytes (region src start.val stop.val) := by
     rw [hregion]
     simp only [recordBytes, hid, bytes, List.map_append, List.map_cons, us_bv, List.append_assoc,
-      List.cons_append, List.singleton_append, List.nil_append]
+      List.cons_append, List.nil_append]
   refine ⟨?_, hrb⟩
   -- Well-formed: valid ids, and no field bleeds into the next.
   have hsub : ∀ l : List U8, (∀ x ∈ l, x ∈ region src start.val stop.val) → RS ∉ bytes l := by
@@ -756,7 +756,7 @@ theorem recordsBytes_take_succ (rs : List record.Record) (k : Nat) (hk : k < rs.
       recordsBytes (rs.take k) ++ (if k > 0 then [RS] else []) ++ recordBytes rs[k] := by
   rw [List.take_add_one, List.getElem?_eq_getElem hk, Option.toList_some]
   by_cases h0 : k = 0
-  · subst h0; simp [recordsBytes_single, recordsBytes]
+  · subst h0; simp [recordsBytes]
   · have hne : rs.take k ≠ [] := by
       rw [ne_eq, List.take_eq_nil_iff]
       rintro (h | h)
