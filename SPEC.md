@@ -69,9 +69,9 @@ The bridge treats all four as untrusted input.
 | Attacker | How | Defense |
 |---|---|---|
 | Another window over the game (browser, video, overlay) | Shows a fake strip | WoW takes the screenshot itself, so other windows are not in it. With the capture fallback, capture reads the window content. Each strip carries a MAC. |
-| A local program | Drops a crafted PNG into the Screenshots folder, or replaces a slot folder with a symbolic link | MAC and freshness check (6.3). Image size limit before decoding. No writes or deletes through symbolic links (6.2). |
+| A local program | Drops a crafted PNG into the Screenshots folder, or replaces a slot folder with a symbolic link | MAC (6.3) and freshness check (S11). Image size limit before decoding. No writes or deletes through symbolic links (6.2). |
 | A local program | Connects to the hook socket and sends fake pings | Socket mode 0600. Size limit and rate limit. Ping text goes through the same escapes as agent text. |
-| A malicious or prompt-injected agent | Writes a reply that injects Lua or fakes WoW chat links. Asks for permission with a false label. Writes a huge reply. | Lua escape and UI escape (S8 to S10). Honest permission popup (6.5). Size limits (S12). |
+| A malicious or prompt-injected agent | Writes a reply that injects Lua or fakes WoW chat links. Asks for permission with a false label. Writes a huge reply. | Lua escape and UI escape (S8 to S10). Honest permission popup (6.4). Size limits (S12). |
 | An old screenshot | A strip is replayed from an old file, for example after `state.json` is lost | Freshness check (S11). |
 | Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our functions or draw a strip. | Partial. Keep all addon functions local. The bridge policy (6.2) limits the damage. |
 | A stream or recording | The strip shows the prompt on screen | None. Do not stream while you use the relay. The README says this. |
