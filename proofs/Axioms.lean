@@ -29,3 +29,5 @@ import Statements
 #print axioms Protocol.Statements.check_S9_slot_body
 #print axioms Protocol.Statements.check_S12_prepare
 #print axioms Protocol.Statements.check_S12_bound
+#print axioms Protocol.Statements.check_S5_folder
+#print axioms Protocol.Statements.check_S5_folder_complete

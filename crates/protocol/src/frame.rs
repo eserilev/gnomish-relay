@@ -109,6 +109,11 @@ pub fn encode_frame(time: u32, frame_id: u16, payload: &[u8], tag: [u8; 8]) -> O
 }
 
 /// Bytes after the tag are ignored. They are the zero padding of the last cell group.
+///
+/// # Errors
+///
+/// A `FrameError` for a frame that is short, cut off, too long, or has a bad
+/// magic, version, or checksum.
 pub fn decode_frame(bytes: &[u8]) -> Result<Frame, FrameError> {
     let n = bytes.len();
     if n < HEADER_LEN + CHECKSUM_LEN + TAG_LEN {
@@ -174,6 +179,10 @@ pub fn is_fresh(frame_time: u32, now: u32) -> bool {
 }
 
 /// `tag_ok` comes from the bridge, which checks the HMAC over `signed_len` bytes.
+///
+/// # Errors
+///
+/// `BadTag` for a bad HMAC, `Stale` or `Future` for a time outside the window.
 pub fn check_frame(frame_time: u32, tag_ok: bool, now: u32) -> Result<(), Reject> {
     if !tag_ok {
         return Err(Reject::BadTag);

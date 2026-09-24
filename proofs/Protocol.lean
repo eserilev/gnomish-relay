@@ -13,3 +13,5 @@ import Protocol.Decimal
 import Protocol.Seen
 import Protocol.Rate
 import Protocol.Slot
+import Protocol.Folder.Pure
+import Protocol.Folder.Code

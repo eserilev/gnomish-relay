@@ -152,6 +152,10 @@ fn parse_record(bytes: &[u8], start: usize, end: usize) -> Result<Record, Record
     })
 }
 
+/// # Errors
+///
+/// A `RecordError` if the payload is empty, has too many records, or has a record
+/// with a missing field or a bad token, chat, or id.
 pub fn parse_records(payload: &[u8]) -> Result<Vec<Record>, RecordError> {
     if payload.is_empty() {
         return Err(RecordError::Empty);

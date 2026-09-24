@@ -4,21 +4,16 @@
 //! We prove it correct with Aeneas, so it stays inside the Rust subset that
 //! Aeneas supports. `CLAUDE.md` lists the rules.
 
-// Aeneas has no model for `From` between integers, for ranges, or for `?`. So we
-// widen with `as`, compare with `<=`, and return errors with `match` or `let else`.
+// Aeneas has no model for `From` between integers, for ranges, for `?`, or for
+// `is_empty`. So we widen with `as`, compare with `<=`, return errors with `match`
+// or `let else`, and compare `len()` with zero.
 // Bool-to-integer casts make proofs hard, so we write the `if` out.
 #![allow(
     clippy::cast_lossless,
     clippy::manual_range_contains,
     clippy::question_mark,
-    clippy::bool_to_int_with_if
-)]
-// TODO: remove when every stub in VERIFICATION.md has a body.
-#![allow(
-    unused_variables,
-    clippy::missing_errors_doc,
-    clippy::missing_panics_doc,
-    clippy::needless_pass_by_value
+    clippy::bool_to_int_with_if,
+    clippy::len_zero
 )]
 
 pub mod ascii;

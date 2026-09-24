@@ -17,6 +17,13 @@ set_option maxRecDepth 2048
 
 namespace protocol
 
+/-- [protocol::folder::Walk]
+    Source: 'crates/protocol/src/folder.rs', lines 14:0-18:1 -/
+structure folder.Walk where
+  ok : Bool
+  stack : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  depth : Std.Usize
+
 /-- [protocol::frame::Frame]
     Source: 'crates/protocol/src/frame.rs', lines 26:0-31:1
     Visibility: public -/

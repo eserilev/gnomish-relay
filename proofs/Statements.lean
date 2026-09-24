@@ -19,6 +19,7 @@ import Protocol.Record
 import Protocol.Seen
 import Protocol.Rate
 import Protocol.Slot
+import Protocol.Folder.Code
 
 /-!
 # The theorems, stated
@@ -274,5 +275,7 @@ theorem check_S14_queue : S14_queue := Protocol.Rate.enqueue_spec
 theorem check_S9_slot_body : S9_slot_body := Protocol.Slot.slot_body_spec
 theorem check_S12_prepare : S12_prepare := Protocol.Slot.prepare_replies_spec
 theorem check_S12_bound : S12_bound := Protocol.Slot.slot_body_bound
+theorem check_S5_folder : S5_folder := Protocol.Folder.folder_sound
+theorem check_S5_folder_complete : S5_folder_complete := Protocol.Folder.folder_complete
 
 end Protocol.Statements

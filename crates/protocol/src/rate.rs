@@ -32,7 +32,7 @@ fn still_counting(times: &[u32], now: u32) -> Vec<u32> {
 }
 
 #[must_use]
-pub fn admit_message(limiter: RateLimiter, now: u32) -> (bool, RateLimiter) {
+pub fn admit_message(limiter: &RateLimiter, now: u32) -> (bool, RateLimiter) {
     let mut kept = still_counting(&limiter.times, now);
     if kept.len() < MAX_MESSAGES {
         kept.push(now);
@@ -61,7 +61,7 @@ mod tests {
         let mut limiter = RateLimiter { times: Vec::new() };
         let mut out = Vec::new();
         for &t in times {
-            let (ok, next) = admit_message(limiter, t);
+            let (ok, next) = admit_message(&limiter, t);
             limiter = next;
             out.push(ok);
         }

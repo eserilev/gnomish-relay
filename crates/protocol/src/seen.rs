@@ -21,7 +21,7 @@ pub fn new_seen() -> Seen {
     }
 }
 
-fn bytes_equal(a: &[u8], b: &[u8]) -> bool {
+pub(crate) fn bytes_equal(a: &[u8], b: &[u8]) -> bool {
     if a.len() != b.len() {
         return false;
     }
@@ -46,7 +46,7 @@ fn contains(entries: &[Entry], token: &[u8], id: u32) -> bool {
     false
 }
 
-fn copy_bytes(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn copy_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     push_range(&mut out, bytes, 0, bytes.len());
     out
