@@ -195,14 +195,19 @@ fn push_record(out: &mut Vec<u8>, r: &Record) {
     push_bytes(out, &r.text);
 }
 
+/// An RS goes between records, not before the first one.
+fn push_separator(out: &mut Vec<u8>, i: usize) {
+    if i > 0 {
+        out.push(RS);
+    }
+}
+
 #[must_use]
 pub fn serialize_records(records: &[Record]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < records.len() {
-        if i > 0 {
-            out.push(RS);
-        }
+        push_separator(&mut out, i);
         push_record(&mut out, &records[i]);
         i += 1;
     }

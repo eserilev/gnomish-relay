@@ -20,3 +20,4 @@ import Statements
 #print axioms Protocol.Statements.check_S2_signed_len
 #print axioms Protocol.Statements.check_S13_valid_id
 #print axioms Protocol.Statements.check_S3_S4_parse
+#print axioms Protocol.Statements.check_C3_serialize

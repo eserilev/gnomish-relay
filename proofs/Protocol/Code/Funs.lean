@@ -1442,8 +1442,18 @@ def record.push_record
   let s5 := alloc.vec.Vec.deref r.text
   ascii.push_bytes out12 s5
 
+/-- [protocol::record::push_separator]:
+    Source: 'crates/protocol/src/record.rs', lines 199:0-203:1 -/
+def record.push_separator
+  (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  if i > 0#usize
+  then alloc.vec.Vec.push out record.RS
+  else ok out
+
 /-- [protocol::record::serialize_records]: loop body 0:
-    Source: 'crates/protocol/src/record.rs', lines 202:4-208:5
+    Source: 'crates/protocol/src/record.rs', lines 209:4-213:5
     Visibility: public -/
 @[rust_loop_body]
 def record.serialize_records_loop.body
@@ -1455,10 +1465,7 @@ def record.serialize_records_loop.body
   let i1 := Slice.len records
   if i < i1
   then
-    let out1 ←
-      if i > 0#usize
-      then alloc.vec.Vec.push out record.RS
-      else ok out
+    let out1 ← record.push_separator out i
     let r ← Slice.index_usize records i
     let out2 ← record.push_record out1 r
     let i2 ← i + 1#usize
@@ -1466,7 +1473,7 @@ def record.serialize_records_loop.body
   else ok (done out)
 
 /-- [protocol::record::serialize_records]: loop 0:
-    Source: 'crates/protocol/src/record.rs', lines 202:4-208:5
+    Source: 'crates/protocol/src/record.rs', lines 209:4-213:5
     Visibility: public -/
 @[rust_loop]
 def record.serialize_records_loop
@@ -1479,7 +1486,7 @@ def record.serialize_records_loop
     (out, i)
 
 /-- [protocol::record::serialize_records]:
-    Source: 'crates/protocol/src/record.rs', lines 199:0-210:1
+    Source: 'crates/protocol/src/record.rs', lines 206:0-215:1
     Visibility: public -/
 @[reducible]
 def record.serialize_records

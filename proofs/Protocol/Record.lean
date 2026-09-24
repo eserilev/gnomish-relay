@@ -706,4 +706,119 @@ theorem parse_records_sound (payload : Slice U8) :
   intro res hres
   exact hres
 
+/-! ## The serializer (C3) -/
+
+@[simp] theorem deref_val {α : Type} (v : alloc.vec.Vec α) : (alloc.vec.Vec.deref v).val = v.val := rfl
+
+theorem push_record_spec (out : alloc.vec.Vec U8) (r : record.Record)
+    (hroom : out.val.length + (recordBytes r).length + 10 ≤ Usize.max) :
+    record.push_record out r ⦃ o => bytes o.val = bytes out.val ++ recordBytes r ⦄ := by
+  have hR : (recordBytes r).length = r.token.val.length + 1 + r.chat.val.length + 1 +
+      (decimal r.id.val).length + 1 + r.cwd.val.length + 1 + r.flags.val.length + 1 +
+      r.«name».val.length + 1 + r.text.val.length := by
+    simp [recordBytes, bytes]; omega
+  unfold record.push_record
+  step*
+  -- The length after each step.
+  all_goals try have l2 : out2.val.length = out1.val.length + 1 := by rw [out2_post]; simp
+  all_goals try have l4 : out4.val.length = out3.val.length + 1 := by rw [out4_post]; simp
+  all_goals try (
+    have l5 : out5.val.length = out4.val.length + (decimal r.id.val).length := by
+      have := congrArg List.length out5_post1; simp [bytes] at this; omega)
+  all_goals try have l6 : out6.val.length = out5.val.length + 1 := by rw [out6_post]; simp
+  all_goals try have l8 : out8.val.length = out7.val.length + 1 := by rw [out8_post]; simp
+  all_goals try have l10 : out10.val.length = out9.val.length + 1 := by rw [out10_post]; simp
+  all_goals try have l12 : out12.val.length = out11.val.length + 1 := by rw [out12_post]; simp
+  all_goals try (simp only [deref_val] at *; omega)
+  rw [o_post1, out12_post, out11_post1, out10_post, out9_post1, out8_post, out7_post1, out6_post]
+  simp only [Protocol.Popup.bytes_append]
+  rw [out5_post1, out4_post, Protocol.Popup.bytes_append, out3_post1, Protocol.Popup.bytes_append,
+    out2_post, Protocol.Popup.bytes_append, out1_post1, Protocol.Popup.bytes_append]
+  simp [recordBytes, bytes, us_bv]
+
+attribute [step] push_record_spec
+
+@[step]
+theorem push_separator_spec (out : alloc.vec.Vec U8) (i : Usize) (hroom : out.val.length + 1 ≤ Usize.max) :
+    record.push_separator out i ⦃ o =>
+      bytes o.val = bytes out.val ++ (if i.val > 0 then [RS] else []) ∧
+      o.val.length ≤ out.val.length + 1 ⦄ := by
+  unfold record.push_separator
+  split
+  · step*
+    refine ⟨?_, by simp [o_post]⟩
+    rw [o_post, Protocol.Popup.bytes_append, if_pos (by scalar_tac)]
+    simp [bytes, rs_bv]
+  · step*
+
+theorem recordsBytes_take_succ (rs : List record.Record) (k : Nat) (hk : k < rs.length) :
+    recordsBytes (rs.take (k + 1)) =
+      recordsBytes (rs.take k) ++ (if k > 0 then [RS] else []) ++ recordBytes rs[k] := by
+  rw [List.take_add_one, List.getElem?_eq_getElem hk, Option.toList_some]
+  by_cases h0 : k = 0
+  · subst h0; simp [recordsBytes_single, recordsBytes]
+  · have hne : rs.take k ≠ [] := by
+      rw [ne_eq, List.take_eq_nil_iff]
+      rintro (h | h)
+      · exact h0 h
+      · simp [h] at hk
+    rw [recordsBytes_snoc _ _ hne, if_pos (by omega)]
+    simp
+
+theorem recordsBytes_take_length_le (rs : List record.Record) (k : Nat) :
+    (recordsBytes (rs.take k)).length ≤ (recordsBytes rs).length := by
+  suffices ∀ d, (recordsBytes (rs.take (rs.length - d))).length ≤ (recordsBytes rs).length by
+    by_cases hk : k ≤ rs.length
+    · have := this (rs.length - k); rwa [show rs.length - (rs.length - k) = k by omega] at this
+    · rw [List.take_of_length_le (by omega)]
+  intro d
+  induction d with
+  | zero => simp
+  | succ d ih =>
+    by_cases hd : d < rs.length
+    · have := recordsBytes_take_succ rs (rs.length - (d + 1)) (by omega)
+      rw [show rs.length - (d + 1) + 1 = rs.length - d by omega] at this
+      have := congrArg List.length this
+      simp only [List.length_append] at this
+      omega
+    · rw [show rs.length - (d + 1) = 0 by omega]; simp [recordsBytes]
+
+def SerializeInv (rs : Slice record.Record) (st : alloc.vec.Vec U8 × Usize) : Prop :=
+  st.2.val ≤ rs.val.length ∧ bytes st.1.val = recordsBytes (rs.val.take st.2.val)
+
+theorem serialize_records_loop_spec (rs : Slice record.Record) (out : alloc.vec.Vec U8) (i : Usize)
+    (hmax : (recordsBytes rs.val).length ≤ 2 ^ 20) (hinv : SerializeInv rs (out, i)) :
+    record.serialize_records_loop rs out i ⦃ v => bytes v.val = recordsBytes rs.val ⦄ := by
+  have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
+  unfold record.serialize_records_loop
+  apply loop.spec_decr_nat (fun st => rs.val.length - st.2.val) (SerializeInv rs) _ _ _ _ hinv
+  rintro ⟨out, i⟩ ⟨hi, hout⟩
+  simp only at hi hout
+  have hlen : out.val.length = (recordsBytes (rs.val.take i.val)).length := by
+    have := congrArg List.length hout; simpa [bytes] using this
+  have hle := recordsBytes_take_length_le rs.val i.val
+  unfold record.serialize_records_loop.body
+  step*
+  · -- Room for the next record.
+    have hlt : i.val < rs.val.length := by scalar_tac
+    have hsucc := congrArg List.length (recordsBytes_take_succ rs.val i.val hlt)
+    have hle1 := recordsBytes_take_length_le rs.val (i.val + 1)
+    simp only [List.length_append] at hsucc
+    rw [r_post]
+    split at hsucc <;> simp at hsucc <;> omega
+  · -- One more record: the invariant holds for i + 1.
+    have hlt : i.val < rs.val.length := by scalar_tac
+    refine ⟨⟨by scalar_tac, ?_⟩, by scalar_tac⟩
+    rw [out2_post, out1_post1, hout, i2_post, recordsBytes_take_succ _ _ hlt, r_post]
+  · -- Past the end.
+    have : i.val = rs.val.length := by scalar_tac
+    rw [hout, this, List.take_length]
+
+/-- **C3, serializer.** -/
+theorem serialize_records_spec (rs : Slice record.Record) (hmax : (recordsBytes rs.val).length ≤ 2 ^ 20) :
+    record.serialize_records rs ⦃ v => bytes v.val = recordsBytes rs.val ⦄ := by
+  unfold record.serialize_records
+  apply serialize_records_loop_spec rs _ _ hmax
+  simp [SerializeInv, bytes, recordsBytes]
+
 end Protocol.Record
