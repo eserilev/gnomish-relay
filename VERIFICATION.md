@@ -35,7 +35,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
 | 8 | C2: frame encoder | `frame::encode_frame` | `C2_encode`, `C2_encode_too_long` | proved |
 | 9 | C2 + S1 + S2: frame decoder | `frame::decode_frame`, `signed_len` | `C2_decode`, `S1_S2_decode`, `S2_signed_len` | proved |
 | 10 | S13: id charset | `record::is_valid_id` | `S13_valid_id` | proved |
-| 11 | C3 + S3 + S4: records | `record` | `C3_parse`, `C3_serialize`, `S3_S4_parse` | stated |
+| 11 | C3 + S3 + S4: records | `record` | `C3_parse`, `C3_serialize`, `S3_S4_parse` | proved |
 | 12 | S5: folder policy | `folder` | `S5_folder`, `S5_folder_complete` | stated |
 | 13 | S7: replay protection | `seen` | `S7_seen` | stated |
 | 14 | S14: rate limit and queue | `rate` | `S14_admit`, `S14_window`, `S14_queue` | stated |

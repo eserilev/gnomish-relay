@@ -265,5 +265,6 @@ theorem check_S2_signed_len : S2_signed_len := Protocol.Frame.signed_len_spec
 theorem check_S13_valid_id : S13_valid_id := Protocol.Record.is_valid_id_spec
 theorem check_S3_S4_parse : S3_S4_parse := Protocol.Record.parse_records_sound
 theorem check_C3_serialize : C3_serialize := Protocol.Record.serialize_records_spec
+theorem check_C3_parse : C3_parse := Protocol.Record.parse_records_complete
 
 end Protocol.Statements

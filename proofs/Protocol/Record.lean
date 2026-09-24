@@ -821,4 +821,158 @@ theorem serialize_records_spec (rs : Slice record.Record) (hmax : (recordsBytes 
   apply serialize_records_loop_spec rs _ _ hmax
   simp [SerializeInv, bytes, recordsBytes]
 
+/-! ## Well-formed records parse back (C3) -/
+
+theorem rs_not_idByte : ¬ idByte RS := by
+  simp [idByte, RS, ch, BitVec.le_def]
+
+theorem rs_not_mem_recordBytes (r : record.Record) (hwf : wellFormed r) : RS ∉ recordBytes r := by
+  obtain ⟨vt, vc, ⟨cw, -⟩, ⟨cf, -⟩, ⟨cn, -⟩, ct⟩ := hwf
+  have hus : RS ≠ US := by decide
+  have hdec : RS ∉ decimal r.id.val := by
+    intro h
+    have := Protocol.Popup.decimal_printable r.id.val RS h
+    revert this; decide
+  have hid : ∀ l, validId l → RS ∉ l := fun l hv h => rs_not_idByte (hv.2.2 RS h)
+  simp only [recordBytes, List.mem_append, List.mem_singleton, not_or]
+  exact ⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨⟨hid _ vt, hus⟩, hid _ vc⟩, hus⟩, hdec⟩, hus⟩, cw⟩, hus⟩, cf⟩, hus⟩, cn⟩, hus⟩, ct⟩
+
+theorem recordsBytes_cons (r : record.Record) (tail : List record.Record) :
+    recordsBytes (r :: tail) = recordBytes r ++ (if tail = [] then [] else RS :: recordsBytes tail) := by
+  unfold recordsBytes
+  split
+  · rename_i h; subst h; simp
+  · rename_i h
+    rw [List.map_cons, List.intercalate_cons_of_ne_nil (by simpa using h)]
+    simp
+
+def ParseInv (payload : Slice U8) (rs : List record.Record)
+    (st : alloc.vec.Vec record.Record × Usize × Bool) : Prop :=
+  ∃ k, st.1.val = rs.take k ∧ k ≤ rs.length ∧
+    (st.2.2 = true → k < rs.length ∧ st.2.1.val ≤ payload.val.length ∧
+      bytes (payload.val.drop st.2.1.val) = recordsBytes (rs.drop k)) ∧
+    (st.2.2 = false → k = rs.length)
+
+theorem parse_records_loop_complete (payload : Slice U8) (rs : List record.Record)
+    (hlen : rs.length ≤ 16) (hwf : ∀ r ∈ rs, wellFormed r)
+    (records : alloc.vec.Vec record.Record) (start : Usize) (more : Bool)
+    (hinv : ParseInv payload rs (records, start, more)) :
+    record.parse_records_loop payload records start more ⦃ res => ∃ out, res = .Ok out ∧ out.val = rs ⦄ := by
+  unfold record.parse_records_loop
+  apply loop.spec_decr_nat
+    (fun st => if st.2.2 then payload.val.length + 1 - st.2.1.val else 0) (ParseInv payload rs)
+    _ _ _ _ hinv
+  rintro ⟨records, start, more⟩ ⟨k, hrec, hk, hmore, hdone⟩
+  simp only at hrec hk hmore hdone
+  unfold record.parse_records_loop.body
+  dsimp only
+  split
+  · rename_i hm
+    obtain ⟨hk', hs, hrest⟩ := hmore hm
+    rw [List.drop_eq_getElem_cons hk', recordsBytes_cons] at hrest
+    obtain ⟨A, Z, hAZ, hA, hZ⟩ := List.map_eq_append_iff.mp hrest
+    have hwfk := hwf rs[k] (List.getElem_mem hk')
+    have hRSA : record.RS ∉ A := by
+      intro h
+      apply rs_not_mem_recordBytes _ hwfk
+      rw [← hA, ← rs_bv]
+      exact List.mem_map_of_mem h
+    have hrlen : records.val.length = k := by rw [hrec, List.length_take]; omega
+    step as ⟨«end», hend⟩
+    split
+    · -- Not too many: only k < 16 records so far.
+      exfalso
+      rename_i hmax
+      have := congrArg UScalar.val hmax
+      simp [hrlen] at this
+      omega
+    have hfull : (payload.val.drop start.val).take (payload.len.val - start.val) = payload.val.drop start.val :=
+      List.take_of_length_le (by simp)
+    by_cases htail : rs.drop (k + 1) = []
+    · -- The last record: the payload ends after it.
+      rw [if_pos htail] at hZ
+      have hZ0 : Z = [] := List.map_eq_nil_iff.mp hZ
+      rw [hZ0, List.append_nil] at hAZ
+      have hend_eq : «end».val = payload.val.length := by
+        obtain ⟨h1, h2, -, hat⟩ := hend
+        by_contra hne
+        have hlt : «end».val < payload.val.length := by simp at h2; omega
+        have hx := hat hlt (by simpa using hlt)
+        apply hRSA
+        have : (payload.val.drop start.val)[«end».val - start.val]'(by simp; omega) = record.RS := by
+          simp [Nat.add_sub_cancel' h1, hx]
+        rw [← this]
+        simp only [hAZ]
+        exact List.getElem_mem _
+      have hreg : bytes (region payload start.val «end».val) = recordBytes rs[k] := by
+        unfold region
+        rw [hend_eq, List.take_of_length_le (by simp), hAZ, ← hA]; rfl
+      step with parse_record_complete payload start «end» (by simp [hend_eq]; omega)
+        (by simp [hend_eq]) rs[k] hwfk hreg
+      step*
+      have hk1 : k + 1 = rs.length := by
+        have := List.length_drop (l := rs) (i := k + 1); rw [htail] at this; simp at this; omega
+      refine ⟨⟨k + 1, ?_, by omega, fun h => absurd h (by simp), fun _ => hk1⟩, by simp; omega⟩
+      have hr1 : r = .Ok r1 := by assumption
+      rw [r_post] at hr1; cases hr1
+      rw [records1_post, hrec, List.take_add_one, List.getElem?_eq_getElem hk']
+      rfl
+    · -- More records follow after an RS.
+      rw [if_neg htail] at hZ
+      obtain ⟨x, Z', hZx, hx, hZ'⟩ := List.map_eq_cons_iff.mp hZ
+      have hxrs : x = record.RS := (UScalar.eq_equiv_bv_eq x record.RS).mpr (hx.trans rs_bv.symm)
+      rw [hZx, hxrs] at hAZ
+      have hform : (payload.val.drop start.val).take (payload.len.val - start.val) = A ++ record.RS :: Z' := by
+        rw [hfull, hAZ]
+      have hend_eq := find_first payload.val start.val payload.len.val «end».val A Z' record.RS
+        (by simp) hRSA hform hend
+      obtain ⟨hlt, -, -, hrest'⟩ := region_cons payload.val _ _ _ _ _ (by simp) hform
+      have hreg : bytes (region payload start.val «end».val) = recordBytes rs[k] := by
+        unfold region
+        rw [hend_eq, Nat.add_sub_cancel_left, region_prefix _ _ _ _ _ _ hform, ← hA]; rfl
+      step with parse_record_complete payload start «end» (by omega) (by simp at hlt; omega)
+        rs[k] hwfk hreg
+      step*
+      have hr1 : r = .Ok r1 := by assumption
+      rw [r_post] at hr1; cases hr1
+      have hk1 : k + 1 < rs.length := by
+        by_contra h
+        exact htail (List.drop_eq_nil_of_le (by omega))
+      have hs1 : start1.val = start.val + A.length + 1 := by rw [start1_post, hend_eq]
+      have hlt' : start.val + A.length < payload.val.length := by simp at hlt; exact hlt
+      have hdrop1 : payload.val.drop start1.val = Z' := by
+        rw [hs1, ← hrest']
+        exact (List.take_of_length_le (by simp)).symm
+      refine ⟨⟨k + 1, ?_, by omega, fun _ => ⟨hk1, by rw [hs1]; exact hlt', ?_⟩, fun h => absurd h (by simp)⟩, ?_⟩
+      · rw [records1_post, hrec, List.take_add_one, List.getElem?_eq_getElem hk']
+        rfl
+      · rw [hdrop1, bytes, hZ']
+      · simp only [if_true]
+        exact (by omega : payload.val.length + 1 - start1.val < payload.val.length + 1 - start.val)
+  · -- The loop is done.
+    have hk2 := hdone (by simpa using ‹¬ more = true›)
+    step*
+    exact ⟨records, rfl, by rw [hrec, hk2, List.take_length]⟩
+
+theorem recordsBytes_ne_nil (rs : List record.Record) (h : rs ≠ []) : recordsBytes rs ≠ [] := by
+  obtain ⟨r, t, rfl⟩ := List.exists_cons_of_ne_nil h
+  rw [recordsBytes_cons]
+  simp [recordBytes]
+
+/-- **C3, parser.** -/
+theorem parse_records_complete (rs : List record.Record) (payload : Slice U8)
+    (h1 : 1 ≤ rs.length) (h16 : rs.length ≤ maxRecords) (hwf : ∀ r ∈ rs, wellFormed r)
+    (hp : bytes payload.val = recordsBytes rs) :
+    record.parse_records payload ⦃ res => ∃ out, res = .Ok out ∧ out.val = rs ⦄ := by
+  unfold maxRecords at h16
+  unfold record.parse_records
+  step*
+  · exfalso
+    apply recordsBytes_ne_nil rs (by intro h; simp [h] at h1)
+    rw [← hp]
+    have : payload.val.length = 0 := by scalar_tac
+    simp [bytes, List.length_eq_zero_iff.mp this]
+  · apply parse_records_loop_complete payload rs h16 hwf
+    exact ⟨0, by simp, by omega, fun _ => ⟨by omega, by simp, by simpa using hp⟩, fun h => absurd h (by simp)⟩
+
 end Protocol.Record
