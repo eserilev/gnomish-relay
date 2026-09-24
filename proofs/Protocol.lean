@@ -3,3 +3,5 @@ import Protocol.Cell.Spec
 import Protocol.Cell.Proofs
 import Protocol.Frame.Fresh
 import Protocol.Policy
+import Protocol.Ascii
+import Protocol.Popup

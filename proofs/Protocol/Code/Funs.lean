@@ -18,6 +18,65 @@ set_option maxRecDepth 2048
 
 namespace protocol
 
+/-- [protocol::ascii::push_bytes]: loop body 0:
+    Source: 'crates/protocol/src/ascii.rs', lines 5:4-8:5
+    Visibility: public -/
+@[rust_loop_body]
+def ascii.push_bytes_loop.body
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    let i2 ← Slice.index_usize bytes i
+    let out1 ← alloc.vec.Vec.push out i2
+    let i3 ← i + 1#usize
+    ok (cont (out1, i3))
+  else ok (done out)
+
+/-- [protocol::ascii::push_bytes]: loop 0:
+    Source: 'crates/protocol/src/ascii.rs', lines 5:4-8:5
+    Visibility: public -/
+@[rust_loop]
+def ascii.push_bytes_loop
+  (out : alloc.vec.Vec Std.U8) (bytes : Slice Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => ascii.push_bytes_loop.body bytes out1 i1)
+    (out, i)
+
+/-- [protocol::ascii::push_bytes]:
+    Source: 'crates/protocol/src/ascii.rs', lines 3:0-9:1
+    Visibility: public -/
+@[reducible]
+def ascii.push_bytes
+  (out : alloc.vec.Vec Std.U8) (bytes : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  ascii.push_bytes_loop out bytes 0#usize
+
+/-- [protocol::ascii::push_decimal]:
+    Source: 'crates/protocol/src/ascii.rs', lines 12:0-17:1
+    Visibility: public -/
+def ascii.push_decimal
+  (out : alloc.vec.Vec Std.U8) (n : Std.U32) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ←
+    if n >= 10#u32
+    then do
+         let i ← n / 10#u32
+         ascii.push_decimal out i
+    else ok out
+  let i ← n % 10#u32
+  let i1 ← lift (UScalar.cast .U8 i)
+  let i2 ← 48#u8 + i1
+  alloc.vec.Vec.push out1 i2
+partial_fixpoint
+
 /-- [protocol::cell::BYTES_PER_GROUP]
     Source: 'crates/protocol/src/cell.rs', lines 11:0-11:37
     Visibility: public -/
@@ -488,14 +547,171 @@ def policy.answer_from_game
     Visibility: public -/
 @[global_simps, irreducible] def popup.LABEL_BUDGET : Std.Usize := 120#usize
 
+/-- [protocol::popup::CUT_START]
+    Source: 'crates/protocol/src/popup.rs', lines 12:0-12:38 -/
+@[global_simps, irreducible]
+def popup.CUT_START : Array Std.U8 6#usize :=
+  Array.make 6#usize [ 32#u8, 91#u8, 46#u8, 46#u8, 46#u8, 32#u8 ]
+
+/-- [protocol::popup::CUT_END]
+    Source: 'crates/protocol/src/popup.rs', lines 13:0-13:47 -/
+@[global_simps, irreducible]
+def popup.CUT_END : Array Std.U8 16#usize :=
+  Array.make 16#usize [
+    32#u8, 98#u8, 121#u8, 116#u8, 101#u8, 115#u8, 32#u8, 99#u8, 117#u8, 116#u8,
+    32#u8, 46#u8, 46#u8, 46#u8, 93#u8, 32#u8
+    ]
+
+/-- [protocol::popup::AGENT_SAYS]
+    Source: 'crates/protocol/src/popup.rs', lines 14:0-14:52 -/
+@[global_simps, irreducible]
+def popup.AGENT_SAYS : Array Std.U8 17#usize :=
+  Array.make 17#usize [
+    10#u8, 116#u8, 104#u8, 101#u8, 32#u8, 97#u8, 103#u8, 101#u8, 110#u8,
+    116#u8, 32#u8, 115#u8, 97#u8, 121#u8, 115#u8, 58#u8, 32#u8
+    ]
+
+/-- [protocol::popup::LABEL_CUT]
+    Source: 'crates/protocol/src/popup.rs', lines 15:0-15:38 -/
+@[global_simps, irreducible]
+def popup.LABEL_CUT : Array Std.U8 6#usize :=
+  Array.make 6#usize [ 32#u8, 91#u8, 46#u8, 46#u8, 46#u8, 93#u8 ]
+
+/-- [protocol::popup::clamp_to_u32]:
+    Source: 'crates/protocol/src/popup.rs', lines 18:0-24:1 -/
+def popup.clamp_to_u32 (n : Std.Usize) : Result Std.U32 := do
+  let i ← lift (UScalar.cast .Usize core.num.U32.MAX)
+  if n > i
+  then ok core.num.U32.MAX
+  else ok (UScalar.cast .U32 n)
+
+/-- [protocol::popup::hex_digit]:
+    Source: 'crates/protocol/src/popup.rs', lines 26:0-28:1 -/
+def popup.hex_digit (n : Std.U8) : Result Std.U8 := do
+  if n < 10#u8
+  then 48#u8 + n
+  else let i ← n - 10#u8
+       97#u8 + i
+
+/-- [protocol::popup::push_shown]:
+    Source: 'crates/protocol/src/popup.rs', lines 30:0-42:1 -/
+def popup.push_shown
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  if b = 92#u8
+  then let out1 ← alloc.vec.Vec.push out 92#u8
+       alloc.vec.Vec.push out1 92#u8
+  else
+    if 32#u8 <= b
+    then
+      if b <= 126#u8
+      then alloc.vec.Vec.push out b
+      else
+        let out1 ← alloc.vec.Vec.push out 92#u8
+        let out2 ← alloc.vec.Vec.push out1 120#u8
+        let i ← b / 16#u8
+        let i1 ← popup.hex_digit i
+        let out3 ← alloc.vec.Vec.push out2 i1
+        let i2 ← b % 16#u8
+        let i3 ← popup.hex_digit i2
+        alloc.vec.Vec.push out3 i3
+    else
+      let out1 ← alloc.vec.Vec.push out 92#u8
+      let out2 ← alloc.vec.Vec.push out1 120#u8
+      let i ← b / 16#u8
+      let i1 ← popup.hex_digit i
+      let out3 ← alloc.vec.Vec.push out2 i1
+      let i2 ← b % 16#u8
+      let i3 ← popup.hex_digit i2
+      alloc.vec.Vec.push out3 i3
+
+/-- [protocol::popup::push_shown_range]: loop body 0:
+    Source: 'crates/protocol/src/popup.rs', lines 46:4-49:5 -/
+@[rust_loop_body]
+def popup.push_shown_range_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize bytes i
+    let out1 ← popup.push_shown out i1
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::popup::push_shown_range]: loop 0:
+    Source: 'crates/protocol/src/popup.rs', lines 46:4-49:5 -/
+@[rust_loop]
+def popup.push_shown_range_loop
+  (out : alloc.vec.Vec Std.U8) (bytes : Slice Std.U8) («end» : Std.Usize)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => popup.push_shown_range_loop.body bytes «end» out1 i1)
+    (out, i)
+
+/-- [protocol::popup::push_shown_range]:
+    Source: 'crates/protocol/src/popup.rs', lines 44:0-50:1 -/
+@[reducible]
+def popup.push_shown_range
+  (out : alloc.vec.Vec Std.U8) (bytes : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  popup.push_shown_range_loop out bytes «end» start
+
+/-- [protocol::popup::push_command]:
+    Source: 'crates/protocol/src/popup.rs', lines 52:0-64:1 -/
+def popup.push_command
+  (out : alloc.vec.Vec Std.U8) (command : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let n := Slice.len command
+  if n <= popup.COMMAND_BUDGET
+  then popup.push_shown_range out command 0#usize n
+  else
+    let half ← popup.COMMAND_BUDGET / 2#usize
+    let out1 ← popup.push_shown_range out command 0#usize half
+    let s ← lift (Array.to_slice popup.CUT_START)
+    let out2 ← ascii.push_bytes out1 s
+    let i ← n - popup.COMMAND_BUDGET
+    let i1 ← popup.clamp_to_u32 i
+    let out3 ← ascii.push_decimal out2 i1
+    let s1 ← lift (Array.to_slice popup.CUT_END)
+    let out4 ← ascii.push_bytes out3 s1
+    let i2 ← n - half
+    popup.push_shown_range out4 command i2 n
+
+/-- [protocol::popup::push_label]:
+    Source: 'crates/protocol/src/popup.rs', lines 66:0-74:1 -/
+def popup.push_label
+  (out : alloc.vec.Vec Std.U8) (label : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let n := Slice.len label
+  if n <= popup.LABEL_BUDGET
+  then popup.push_shown_range out label 0#usize n
+  else
+    let out1 ← popup.push_shown_range out label 0#usize popup.LABEL_BUDGET
+    let s ← lift (Array.to_slice popup.LABEL_CUT)
+    ascii.push_bytes out1 s
+
 /-- [protocol::popup::popup_text]:
-    Source: 'crates/protocol/src/popup.rs', lines 12:0-14:1
+    Source: 'crates/protocol/src/popup.rs', lines 79:0-85:1
     Visibility: public -/
 def popup.popup_text
   (command : Slice Std.U8) (label : Slice Std.U8) :
   Result (alloc.vec.Vec Std.U8)
   := do
-  fail panic
+  let out ← popup.push_command (alloc.vec.Vec.new Std.U8) command
+  let s ← lift (Array.to_slice popup.AGENT_SAYS)
+  let out1 ← ascii.push_bytes out s
+  popup.push_label out1 label
 
 /-- [protocol::rate::MAX_MESSAGES]
     Source: 'crates/protocol/src/rate.rs', lines 3:0-3:35

@@ -69,6 +69,8 @@ We prove `protocol` correct with Aeneas and Lean. So `protocol` stays inside the
 - Keep data simple: integers, arrays, slices, `Vec<u8>`, plain structs and enums. Do UTF-8 and string work outside the core.
 - Keep each function small. A small function gives a small proof.
 - No local variable with the same name as a module. In Lean, `cells.X` then means a field of the variable, and the build fails.
+- Byte-string constants are arrays (`const X: [u8; 6] = *b"...";`), not `&[u8]`. Aeneas cannot translate a reference in a constant.
+- No `loop { ... break }` with array updates. Aeneas could not translate it. A `while` loop or plain recursion works.
 - No `?` operator. Aeneas has no model for it. Use `let ... else`.
 - The Lean code that Aeneas generates must contain no `axiom`. An axiom means that Aeneas did not know a function, and the proof then trusts it blindly.
 - Do not cast `bool` to an integer. Use integer bit operations, for example `(v >> 2) & 1`.

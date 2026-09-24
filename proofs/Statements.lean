@@ -10,6 +10,7 @@ import Protocol.Spec.Rate
 import Protocol.Spec.Popup
 import Protocol.Spec.Policy
 import Protocol.Policy
+import Protocol.Popup
 
 /-!
 # The theorems, stated
@@ -246,5 +247,8 @@ theorem check_S11_fresh : S11_fresh := Protocol.Frame.is_fresh_spec
 theorem check_S2_S11_check : S2_S11_check := Protocol.Frame.check_frame_spec
 theorem check_S6_level : S6_level := Protocol.Policy.effective_level_spec
 theorem check_S6_answer : S6_answer := Protocol.Policy.answer_from_game_spec
+theorem check_S15_popup : S15_popup := Protocol.Popup.popup_text_spec
+theorem check_S15_printable : S15_printable := Protocol.Popup.popup_printable
+theorem check_S15_faithful : S15_faithful := Protocol.Popup.showBytes_faithful
 
 end Protocol.Statements
