@@ -137,7 +137,7 @@ Each layer covers a hole in the layer before it. No layer depends on a model tha
 |---|---|---|
 | 1. Signed state and the taint warning | Did our own code make this message, and did anything change it? | Addon |
 | 2. Game ceiling | What can a message from the game do at most? | Bridge config |
-| 3. Action classifier | Is this tool call allowed, to ask, or denied? | Bridge, proved in `protocol` |
+| 3. Action classifier | Does this tool call run, ask in the game, ask on the desktop, or never run? | Bridge, proved in `protocol` |
 | 4. Sandbox | What can happen when layers 1 to 3 fail? | Operating system |
 
 The trust of "always allow" (6.6.5) rests on layers 2 to 4. It never rests on layer 1.
@@ -179,8 +179,16 @@ Every message from the game (a strip or the reload outbox) runs under one ceilin
 
 #### 6.6.3 Action classifier
 
-The bridge classifies each tool call before it runs: `deny`, `ask`, or `allow`, in this order from strict to open.
-It works on the structured tool input, never on the prompt text. The same input always gives the same answer.
+The bridge classifies each tool call before it runs. It works on the structured tool input, never on the prompt text. The same input always gives the same answer.
+
+There are four answers, in this order from strict to open:
+
+| Answer | Meaning |
+|---|---|
+| `deny` | Never runs. Only for the files that guard the relay itself. |
+| `desktop` | The user approves on the desktop. The game popup says "Approve on your desktop". No addon can click a desktop prompt. |
+| `ask` | The user approves in the game popup (6.4). |
+| `allow` | Runs with no question. |
 
 **How tool calls reach it:**
 
@@ -190,15 +198,16 @@ It works on the structured tool input, never on the prompt text. The same input 
 
 **Rules:**
 
-- **Unknown tools are denied.** The classifier knows file reads, file writes, and shell commands. Every other tool is denied in `game`: web fetch, web search, MCP tools, and subagents.
-- **Paths:** each path in the tool input, and each redirect target of a command, is resolved with `canonicalize` at check time. A write must be inside the chat folder. A read must be inside `allowed_roots`. Both use `resolve_folder` (S5).
-- **Denied paths, for reads and writes:** `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gnomish-relay`, `.env` files, keychains, and browser profiles.
-- **Denied paths, for writes:** files that code on the host runs later, outside the sandbox. They are `.claude/`, `.git/hooks/`, `.git/config`, `.envrc`, `.vscode/`, and `.github/workflows/`.
-- **Commands:** a real shell parser splits each command. A command that does not parse is denied.
-- **Denied commands:** `eval`, command substitution (`$(...)`, backticks), a pipe into a shell, `cmd.exe`, and PowerShell. PowerShell stays denied until the classifier has a PowerShell parser.
+- **Unknown tools are `desktop`.** The classifier knows file reads, file writes, and shell commands. Every other tool is `desktop` in `game`: web fetch, web search, MCP tools, and subagents.
+- **Paths:** each path in the tool input, and each redirect target of a command, is resolved with `canonicalize` at check time. A write outside the chat folder is `desktop`. A read outside `allowed_roots` is `desktop`. Both checks use `resolve_folder` (S5).
+- **`deny` paths:** the strip key, `config.toml`, and everything else in `~/.config/gnomish-relay`. An approved access would let the agent sign fake strips or raise its own ceiling.
+- **`desktop` paths, for reads and writes:** `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env` files, keychains, and browser profiles.
+- **`desktop` paths, for writes:** files that code on the host runs later, outside the sandbox. They are `.claude/`, `.git/hooks/`, `.git/config`, `.envrc`, `.vscode/`, and `.github/workflows/`.
+- **Commands:** a real shell parser splits each command. A command that does not parse is `desktop`. The popup shows its raw text (6.4).
+- **`desktop` commands:** `eval`, command substitution (`$(...)`, backticks), a pipe into a shell, `sudo`, `cmd.exe`, and PowerShell. PowerShell stays `desktop` until the classifier has a PowerShell parser.
 - **Commands that run other commands** (`find -exec`, `xargs`, `env`, `git -c`, `sh -c`, `bash -c`, `python -c`, `node -e`, `perl -e`) always ask.
 - **Network tools** (`curl`, `wget`, `nc`, `ssh`, `scp`, and more) always ask.
-- **Never "always":** `rm -r`, `sudo`, `chmod`, `chown`, `git push --force`, `git reset --hard`, and the commands that run other commands. They get "Allow once" at most.
+- **Never "always":** `rm -r`, `chmod`, `chown`, `git push --force`, `git reset --hard`, the commands that run other commands, and every `desktop` answer. They get "Allow once" at most.
 - A prompt keyword (for example `.ssh` or `token`) is only a signal. It moves the whole run to `ask`. It is never the wall.
 
 The classifier core is pure and lives in `protocol`. Theorems S16 and S17 cover it.
@@ -210,7 +219,7 @@ The bridge starts every agent process for a game message inside a sandbox. The u
 | Rule | Value |
 |---|---|
 | Write | The chat folder, and a private temp folder |
-| Read | The system, except the denied paths of 6.6.3, which are hidden |
+| Read | The system, except the `desktop` and `deny` paths of 6.6.3, which are hidden |
 | Network | Only through a bridge proxy that allows the agent's own API host |
 | Children | Every child process, for example `cargo test`, is inside the same sandbox |
 
@@ -241,11 +250,11 @@ Settings from the project and the user do not apply to these runs, because array
 **Fallback, when a backend has no sandbox:**
 
 - The game ceiling drops to `ask` for every command.
-- "Always allow" is off for commands that run code: build, test, run, and install.
+- "Always allow" for a command that runs code (build, test, run, install) needs a second step in the game. The popup then says: "No sandbox on this computer. This rule lets the agent run any code that it writes, with your full access. Allow always anyway?"
 - File edits inside the chat folder still work.
-- The window shows one line: "No sandbox: commands need your answer."
+- The chat header shows "No sandbox".
 
-On Windows, the setup recommends Codex, or Claude under WSL2. Both have a sandbox there.
+On Windows, the setup recommends Codex, or Claude under WSL2. Both have a sandbox there. A Windows sandbox for other agents comes later (17).
 
 #### 6.6.5 "Always allow"
 
@@ -255,7 +264,7 @@ Any game message can come from another addon (6.6.1). So a rule is safe to add w
 1. The popup (6.4) shows the exact rule, for example "Always allow `cargo test *` in lighthouse".
 2. A rule covers one command pattern in one project. It never covers a whole tool, for example "all Bash".
 3. If the backend of the chat has a sandbox (6.6.4), one click in the game adds the rule. The game and the desktop both show "Rule added: cargo test * (lighthouse)", each with **Undo**. Neither blocks.
-4. With the fallback of 6.6.4, a rule for a command that runs code needs a confirmation on the desktop.
+4. With the fallback of 6.6.4, a rule for a command that runs code needs the second warning step of 6.6.4.
 5. The "never always" commands of 6.6.3 get "Allow once" at most.
 6. A rule expires after 30 days. The Settings tab of the window lists every rule and its expiry, and removes one with a click.
 
@@ -464,6 +473,34 @@ The bundle holds up to 16 chats, 40 messages each, 2000 characters per message.
 - On a mismatch, the addon shows "bridge and addon versions do not match" and stops sending.
 - Pool sizes live in one place: the `protocol` crate. The setup step writes them into the addon.
 
+### 7.8 Design for breakage
+
+The transport rests on client behaviors that Blizzard never promised: an addon can call `Screenshot()`, and a load-on-demand addon reads its files fresh.
+A client patch can break either one. So a patch costs a day of work, not the project.
+
+**One interface per direction.** The core never knows which channel carries a message.
+
+| Direction | Interface | Channels, in order |
+|---|---|---|
+| Out (game to bridge) | Addon `Out.Send(frame)`, bridge `trait FrameSource` | Strip by `Screenshot()`, strip by screen capture (section 11), reload outbox (7.5) |
+| In (bridge to game) | Addon `In.Poll()`, bridge `trait Publisher` | Slots (7.3), fonts (a spike in 15), reload inbox (7.5) |
+
+- The protocol core, the model, and the proofs work on frames and records. They do not change when a channel changes.
+- A new channel is one new module on each side, with its own tests. Nothing else changes.
+
+**Self-test and health report.**
+
+- At login, the addon tests each channel. It takes one screenshot of a test strip, and it loads one slot and checks that the body is fresh.
+- The hello carries the result and the client build from `GetBuildInfo()`: `out=shot`, `in=slots`, and `build=<number>`.
+- If a channel fails, the addon moves to the next one of the table and shows one line: "Screenshots are blocked. Using screen capture."
+- `/relay diag` shows each channel and its last success. `gnomish-relay doctor` does the same on the desktop.
+
+**Builds.**
+
+- The bridge keeps the last client build that passed the self-test.
+- On a new build, the bridge logs it. The window shows "New game version: checking the relay" until the self-test passes.
+- A known break goes into a table in the bridge, so the setup can name the channel that works on each build.
+
 ## 8. Architecture
 
 ```
@@ -581,6 +618,19 @@ enum StopReason { EndTurn, MaxTokens, Refusal, Cancelled }
 | `native-claude` | `claude -p --output-format stream-json --verbose --resume <id>` | Yes | No | Yes, from `permission_denials` |
 | `native-codex` | `codex exec --json` | Yes | No | No. Fixed level from config. |
 | `command` | A command template. The prompt goes in, plain text comes out. | No | No | No. Fixed level from config. |
+
+**Support levels.** Any agent with a command line runs. How well the relay protects it depends on what the bridge can see:
+
+| Level | Connection | What the classifier sees | Examples |
+|---|---|---|---|
+| Full | ACP, or a tool-call hook | Every tool call, before it runs | Gemini CLI, Claude, Codex through `codex-acp`, any ACP agent |
+| Sandbox only | `command` | Nothing | Aider, `llm`, a script |
+| Trusted | `command` with no sandbox | Nothing | The same agents on Windows |
+
+- A Full agent runs in its "ask for everything" mode. The classifier then answers most questions itself. In a looser mode the agent acts without asking, and the classifier never sees the action.
+- `command` needs the sandbox. With no sandbox, the level is Trusted: it is off by default, and the config turns it on after a warning.
+- The chat header shows the level next to the agent name, for example "Aider · trusted".
+- An ACP agent needs one line in the config. An agent with a hook system needs a small hook command. Every other CLI agent uses `command`.
 
 ACP agents (checked 2026-09-23):
 
@@ -834,8 +884,8 @@ So most theorems are security properties. Each one closes a named attack.
 | S13 | **ID charset:** the id validator accepts only `[a-z0-9_-]`, 1 to 32 characters. | A chat id like `../../x` reaches a file path or a state key. |
 | S14 | **Rate limit and queue cap:** the limiter never admits more than N messages in any window. A chat queue never holds more than 20 messages. | Strip spam fills memory or starts many runs. |
 | S15 | **Honest popup:** the popup text contains the full raw command, or its start and end with a cut mark. It contains no raw control, bidi, or zero-width characters. | A malicious agent asks for permission with a false label, or hides the dangerous part of a command. |
-| S16 | **Classifier paths:** let `paths(call)` be the path fields of a file tool, plus the redirect targets and the working folder of a command. Command arguments are out of scope. If `classify(call) = allow`, then every write path is inside the chat folder, every read path is inside `allowed_roots`, and no path is inside a denied path. | An allowed tool call reads `~/.ssh` or writes outside the project. |
-| S17 | **Classifier ceiling:** with the order `deny < ask < allow`, for every tool call and every rule list from the game, `classify(call, rules) ≤ classify(call, config)`. A "never always" command and an unknown tool never get `allow` from a rule. | A rule from the game, or a crafted command, gets more than the config allows. |
+| S16 | **Classifier paths:** let `paths(call)` be the path fields of a file tool, plus the redirect targets and the working folder of a command. Command arguments are out of scope. If `classify(call) ≥ ask`, then every write path is inside the chat folder, every read path is inside `allowed_roots`, and no path is a `desktop` or `deny` path. If a path is inside `~/.config/gnomish-relay`, then `classify(call) = deny`. | An approved tool call in the game reads `~/.ssh`, writes outside the project, or reads the strip key. |
+| S17 | **Classifier ceiling:** with the order `deny < desktop < ask < allow`, for every tool call and every rule list from the game, `classify(call, rules) ≤ classify(call, config)`. A "never always" command and an unknown tool never get `allow` from a rule. | A rule from the game, or a crafted command, gets more than the config allows. |
 
 **Correctness theorems:**
 
