@@ -1,0 +1,65 @@
+[package]
+name = "protocol-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2024"
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+mlua = { version = "0.10", features = ["lua51", "vendored"] }
+protocol = { path = "../crates/protocol" }
+
+# Not a member of the main workspace: fuzzing needs nightly and libFuzzer.
+[workspace]
+
+[[bin]]
+name = "frame"
+path = "fuzz_targets/frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "records"
+path = "fuzz_targets/records.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "folder"
+path = "fuzz_targets/folder.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lua"
+path = "fuzz_targets/lua.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "chat_text"
+path = "fuzz_targets/chat_text.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "popup"
+path = "fuzz_targets/popup.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "lua_model"
+path = "fuzz_targets/lua_model.rs"
+test = false
+doc = false
+bench = false

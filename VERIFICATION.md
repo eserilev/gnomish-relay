@@ -21,7 +21,7 @@ reading it and ends by updating it.
 
 ## Status
 
-Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
+Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that is not a proof), `blocked`.
 
 | # | Item | Rust | Statement | Status |
 |---|---|---|---|---|
@@ -41,7 +41,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
 | 14 | S14: rate limit and queue | `rate` | `S14_admit`, `S14_window`, `S14_queue` | proved |
 | 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | blocked |
-| 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | todo |
+| 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | todo |
 
 The order puts the highest risk first (S15, S11), then the parsers of untrusted
@@ -73,3 +73,11 @@ decides it. Until then, `scripts/check-model.sh` checks only `runsOnce`.
 The model also fixes one point that SPEC does not state: after `/reload`, the addon
 shows the strip again for every open message that is not in the outbox. Without
 it, `noStuckMessage` fails at every `/reload`.
+
+### Item 17: what the fuzz targets check
+
+Each target checks the property of its proof on the compiled code, not only "no crash":
+`frame` (S1, C2), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1),
+`lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), and
+`popup` (S15). The PNG, hook socket, and config targets of SPEC 14.4 belong to the
+bridge, so they wait for it. `scripts/fuzz.sh SECONDS` runs them all.

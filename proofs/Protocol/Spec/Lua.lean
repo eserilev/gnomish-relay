@@ -5,8 +5,8 @@ import Protocol.Spec.Bytes
 
 A model of `read_string` in Lua 5.1 `llex.c`. WoW uses Lua 5.1. The model covers
 every escape that Lua 5.1 knows, not only the ones that `lua_string` writes, so the
-theorem is about the real lexer. `spikes` fuzzing checks the model against a real
-Lua 5.1 VM.
+theorem is about the real lexer. The `lua_model` fuzz target checks the model
+against a real Lua 5.1 VM.
 -/
 
 namespace Protocol.Spec
