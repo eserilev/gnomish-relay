@@ -13,7 +13,7 @@ pub struct StripKey(Vec<u8>);
 impl StripKey {
     pub fn from_hex(hex: &str) -> Result<StripKey> {
         let hex = hex.trim();
-        if hex.len() != 64 {
+        if hex.len() != 64 || !hex.is_ascii() {
             bail!("the strip key is not 64 hex digits");
         }
         let key = (0..32)
@@ -123,8 +123,26 @@ mod tests {
     }
 
     #[test]
+    fn bytes_that_are_not_a_frame_are_rejected() {
+        assert_eq!(
+            receive(b"not a frame", &key(), NOW).err(),
+            Some(Rejected::NotAFrame)
+        );
+    }
+
+    #[test]
+    fn a_signed_frame_with_broken_records_is_rejected() {
+        let wire = signed(NOW, b"only\x1ftwo fields", &key());
+        assert_eq!(
+            receive(&wire, &key(), NOW).err(),
+            Some(Rejected::BadRecords)
+        );
+    }
+
+    #[test]
     fn a_key_must_be_32_hex_bytes() {
         assert!(StripKey::from_hex("abcd").is_err());
         assert!(StripKey::from_hex(&"zz".repeat(32)).is_err());
+        assert!(StripKey::from_hex(&"é".repeat(32)).is_err());
     }
 }

@@ -1,6 +1,6 @@
 //! Finds the strip in a screenshot and reads its bytes (SPEC.md 7.1).
 
-use anyhow::{Result, bail};
+use anyhow::{Context, Result, bail};
 use protocol::cell::decode_cells;
 use protocol::frame::decode_frame;
 
@@ -17,11 +17,6 @@ pub struct Image {
 }
 
 impl Image {
-    fn new(width: usize, height: usize, rgb: Vec<u8>) -> Image {
-        assert_eq!(rgb.len(), width * height * 3);
-        Image { width, height, rgb }
-    }
-
     pub fn from_png(bytes: &[u8]) -> Result<Image> {
         let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
@@ -42,11 +37,14 @@ impl Image {
             other => bail!("screenshot has color type {other:?}"),
         };
         let (width, height) = (info.width as usize, info.height as usize);
-        let rgb = buf[..info.buffer_size()]
+        let pixels = buf
+            .get(..info.buffer_size())
+            .context("the PNG frame is larger than its buffer")?;
+        let rgb = pixels
             .chunks_exact(channels)
             .flat_map(|px| [px[0], px[1], px[2]])
             .collect();
-        Ok(Image::new(width, height, rgb))
+        Ok(Image { width, height, rgb })
     }
 
     /// Bit 2 is red, bit 1 is green, bit 0 is blue. Each channel is on at 128 or more.
@@ -55,8 +53,11 @@ impl Image {
             return None;
         }
         let at = (y * self.width + x) * 3;
-        let on = |c: u8| u8::from(c >= 128);
-        Some(on(self.rgb[at]) << 2 | on(self.rgb[at + 1]) << 1 | on(self.rgb[at + 2]))
+        let [red, green, blue] = self.rgb.get(at..at + 3)? else {
+            return None;
+        };
+        let on = |channel: u8| u8::from(channel >= 128);
+        Some(on(*red) << 2 | on(*green) << 1 | on(*blue))
     }
 }
 
@@ -161,7 +162,7 @@ pub mod tests {
                 }
             }
         }
-        Image::new(width, height, rgb)
+        Image { width, height, rgb }
     }
 
     pub fn strip_rows(frame: &[u8]) -> Vec<Vec<u8>> {
@@ -225,6 +226,101 @@ pub mod tests {
                 .payload,
             b"png"
         );
+    }
+
+    fn encode(
+        width: u32,
+        height: u32,
+        color: png::ColorType,
+        depth: png::BitDepth,
+        data: &[u8],
+    ) -> Vec<u8> {
+        let mut png_bytes = Vec::new();
+        let mut encoder = png::Encoder::new(&mut png_bytes, width, height);
+        encoder.set_color(color);
+        encoder.set_depth(depth);
+        encoder
+            .write_header()
+            .unwrap()
+            .write_image_data(data)
+            .unwrap();
+        png_bytes
+    }
+
+    fn with_alpha(image: &Image) -> Vec<u8> {
+        image
+            .rgb
+            .chunks(3)
+            .flat_map(|px| [px[0], px[1], px[2], 255])
+            .collect()
+    }
+
+    #[test]
+    fn an_rgba_screenshot_decodes() {
+        let image = render(&strip_rows(&frame(b"rgba")), 3.875, 4.0);
+        let png_bytes = encode(
+            1280,
+            720,
+            png::ColorType::Rgba,
+            png::BitDepth::Eight,
+            &with_alpha(&image),
+        );
+        let read_back = Image::from_png(&png_bytes).unwrap();
+        assert_eq!(
+            decode_frame(&read(&read_back).unwrap())
+                .ok()
+                .unwrap()
+                .payload,
+            b"rgba"
+        );
+    }
+
+    #[test]
+    fn a_16_bit_screenshot_decodes() {
+        let image = render(&strip_rows(&frame(b"deep")), 4.0, 4.0);
+        let wide: Vec<u8> = image.rgb.iter().flat_map(|&c| [c, c]).collect();
+        let png_bytes = encode(
+            1280,
+            720,
+            png::ColorType::Rgb,
+            png::BitDepth::Sixteen,
+            &wide,
+        );
+        let read_back = Image::from_png(&png_bytes).unwrap();
+        assert_eq!(
+            decode_frame(&read(&read_back).unwrap())
+                .ok()
+                .unwrap()
+                .payload,
+            b"deep"
+        );
+    }
+
+    #[test]
+    fn a_grayscale_image_is_an_error() {
+        let png_bytes = encode(
+            4,
+            4,
+            png::ColorType::Grayscale,
+            png::BitDepth::Eight,
+            &[0; 16],
+        );
+        assert!(Image::from_png(&png_bytes).is_err());
+    }
+
+    #[test]
+    fn a_cut_off_png_is_an_error_not_a_panic() {
+        let image = render(&strip_rows(&frame(b"cut")), 4.0, 4.0);
+        let png_bytes = encode(
+            1280,
+            720,
+            png::ColorType::Rgb,
+            png::BitDepth::Eight,
+            &image.rgb,
+        );
+        for len in [0, 8, 33, 100, png_bytes.len() / 2] {
+            assert!(Image::from_png(&png_bytes[..len]).is_err(), "length {len}");
+        }
     }
 
     #[test]
