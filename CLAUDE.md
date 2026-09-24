@@ -55,7 +55,7 @@ fn decode(frame: &Frame) -> Result<Message, DecodeError>
 - Test names are sentences: `decode_rejects_strip_with_bad_mac`, not `test_decode_3`.
 - Each test reads top to bottom: arrange, act, assert. No shared magic fixtures across files.
 - Use the fake agent and the fake capture for bridge tests. No test needs the game or a real LLM, except tests marked `#[ignore]` for live runs.
-- Coverage gates (`cargo llvm-cov`): `protocol` 95% of lines, `bridge` and `agents` 80%. `capture` has no gate. Golden screenshots cover it.
+- Coverage gates (`scripts/check-coverage.sh`, run in CI): `protocol` 95% of lines, `bridge` 80%. The planned `agents` crate gets 80%. The planned `capture` crate has no gate: golden screenshots cover it.
 - A bug fix starts with a failing test.
 
 ## The verified core (`crates/protocol`)
@@ -87,8 +87,8 @@ Before every commit, run `scripts/check-all.sh`. It runs fmt, clippy, the tests,
 ## Tooling
 
 - `cargo fmt` and `cargo clippy --all-targets -- -D warnings` pass before every commit.
-- `stylua` and `luacheck` pass for the addon.
-- `#![forbid(unsafe_code)]` in every crate except `capture`. In `capture`, each `unsafe` block has a `// SAFETY:` comment.
+- `stylua` and `selene` pass for the addon. `wow.yml` lists the WoW globals that the addon uses; add a new one there.
+- `#![forbid(unsafe_code)]` in every crate, through the workspace lints. The planned `capture` crate is the one exception: each `unsafe` block there has a `// SAFETY:` comment.
 
 ## Commits
 

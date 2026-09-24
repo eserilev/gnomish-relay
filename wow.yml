@@ -1,0 +1,71 @@
+# The WoW API that the addon uses, for selene. Lua 5.1 plus these globals.
+base: lua51
+globals:
+  bit:
+    struct: BitLib
+  C_AddOns:
+    any: true
+  C_CVar:
+    any: true
+  C_Timer:
+    any: true
+  SOUNDKIT:
+    any: true
+  UIParent:
+    any: true
+  UIErrorsFrame:
+    any: true
+  GameTooltip:
+    any: true
+  ActionStatus:
+    any: true
+  DEFAULT_CHAT_FRAME:
+    any: true
+  ChatFontNormal:
+    any: true
+  UISpecialFrames:
+    property: new-fields
+  SlashCmdList:
+    property: new-fields
+  CreateFrame:
+    args: [{type: string}, {type: any, required: false}, {type: any, required: false}, {type: any, required: false}]
+  GetTime:
+    args: []
+  time:
+    args: []
+  GetPhysicalScreenSize:
+    args: []
+  InCombatLockdown:
+    args: []
+  ReloadUI:
+    args: []
+  Screenshot:
+    args: []
+  PlaySound:
+    args: [{type: any}]
+  SetCVar:
+    args: [{type: string}, {type: any}]
+  SetPortraitToTexture:
+    args: [{type: any}, {type: any}]
+  hooksecurefunc:
+    args: [{type: any}, {type: any, required: false}, {type: any, required: false}]
+  strtrim:
+    args: [{type: string}]
+  unpack:
+    args: [{type: table}, {type: number, required: false}, {type: number, required: false}]
+  GnomishRelayDB:
+    property: full-write
+  GnomishRelay_SlotData:
+    property: full-write
+  SLASH_GNOMISHRELAY1:
+    property: full-write
+  SLASH_GNOMISHRELAYASK1:
+    property: full-write
+structs:
+  BitLib:
+    band: {args: [{type: number}, {type: "..."}]}
+    bor: {args: [{type: number}, {type: "..."}]}
+    bxor: {args: [{type: number}, {type: "..."}]}
+    bnot: {args: [{type: number}]}
+    lshift: {args: [{type: number}, {type: number}]}
+    rshift: {args: [{type: number}, {type: number}]}
