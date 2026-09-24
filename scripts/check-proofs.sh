@@ -14,6 +14,15 @@ fi
 cd "$root/proofs"
 lake build
 
+# Every locked statement needs its axiom check.
+checks=$(grep -oE '^theorem check_[A-Za-z0-9_]+' Statements.lean | sed 's/theorem //' | sort)
+printed=$(grep -oE 'Statements\.check_[A-Za-z0-9_]+' Axioms.lean | sed 's/Statements\.//' | sort)
+if [ "$checks" != "$printed" ]; then
+    echo "error: Axioms.lean must print the axioms of every check_ theorem:" >&2
+    diff <(echo "$checks") <(echo "$printed") >&2 || true
+    exit 1
+fi
+
 # Only the three standard axioms. No sorry, no native code from bv_decide or native_decide.
 lake env lean Axioms.lean | python3 -c '
 import re, sys

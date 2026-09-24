@@ -42,7 +42,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | blocked |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
-| 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | todo |
+| 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |
 
 The order puts the highest risk first (S15, S11), then the parsers of untrusted
 input, then the rest.

@@ -1,0 +1,4 @@
+* text=auto eol=lf
+*.png binary
+# Byte-exact fuzz inputs. Some hold \r\n on purpose.
+fuzz/seeds/** binary

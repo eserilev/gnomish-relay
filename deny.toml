@@ -1,0 +1,13 @@
+# Supply chain rules for the main workspace (SPEC 14.6).
+
+[licenses]
+allow = ["MIT", "Apache-2.0"]
+# The bridge crates will need Apache-2.0. The core has no dependencies yet.
+unused-allowed-license = "allow"
+
+[bans]
+multiple-versions = "deny"
+
+[sources]
+unknown-registry = "deny"
+unknown-git = "deny"
