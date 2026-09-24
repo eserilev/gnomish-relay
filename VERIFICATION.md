@@ -40,7 +40,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
 | 13 | S7: replay protection | `seen` | `S7_seen` | proved |
 | 14 | S14: rate limit and queue | `rate` | `S14_admit`, `S14_window`, `S14_queue` | proved |
 | 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
-| 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | todo |
+| 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | blocked |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | todo |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | todo |
 
@@ -54,4 +54,22 @@ Their tests are in SPEC 14.3 and 14.5.
 
 ## Notes and blockers
 
-None yet.
+### Item 16: three of the four transport properties fail on SPEC as written
+
+`quint run` finds a counterexample for each of these. The model follows SPEC 7, so
+the gaps are in the design, not in the model. Each fix changes SPEC, so a person
+decides it. Until then, `scripts/check-model.sh` checks only `runsOnce`.
+
+- `runsOnce` (the agent never runs one message twice): holds in 150,000 traces.
+- `noLostReply` fails. A body holds the last 30 records (SPEC 7.3). If 31 records
+  arrive before the addon loads a slot, the oldest reply drops out unread. This
+  happens when the slot pool is empty and the user does not press the reload key.
+- `noStuckMessage` fails for the same reason. The addon takes a message off the
+  strip when it sees the `working` record. If the `done` record then drops out, no
+  path sends the message again. The bridge drops the retry as a duplicate.
+- `restoreSafe` fails. The restore bundle rides on "the next 3 publishes" (SPEC 7.6).
+  If 3 publishes happen before the addon loads a slot, the bundle is gone.
+
+The model also fixes one point that SPEC does not state: after `/reload`, the addon
+shows the strip again for every open message that is not in the outbox. Without
+it, `noStuckMessage` fails at every `/reload`.
