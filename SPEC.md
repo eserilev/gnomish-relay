@@ -73,20 +73,21 @@ The bridge treats all four as untrusted input.
 | A local program | Connects to the hook socket and sends fake pings | Socket mode 0600. Size limit and rate limit. Ping text goes through the same escapes as agent text. |
 | A malicious or prompt-injected agent | Writes a reply that injects Lua or fakes WoW chat links. Asks for permission with a false label. Writes a huge reply. | Lua escape and UI escape (S8 to S10). Honest permission popup (6.4). Size limits (S12). |
 | An old screenshot | A strip is replayed from an old file, for example after `state.json` is lost | Freshness check (S11). |
-| Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our functions or draw a strip. | Partial. Keep all addon functions local. The bridge policy (6.2) limits the damage. |
+| Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our handlers, fill our input box, click our buttons, read and change `GnomishRelayDB`, and replace a slot body during a load. | Signed state (6.6.1) stops changes to stored messages. The taint warning is designed to catch naive calls. The ceiling, the classifier, and the sandbox (6.6.2 to 6.6.4) bound every game message, whoever sent it. |
+| A prompt injection in a file | The agent reads a README, an issue, or a web page with hidden instructions | The action classifier (6.6.3) and the sandbox (6.6.4). Layer 1 does not help: the prompt came from the user. |
 | A stream or recording | The strip shows the prompt on screen | None. Do not stream while you use the relay. The README says this. |
 
-A hostile addon in the same Lua environment can always act as the user.
-No design inside the game can stop this.
-So the bridge limits what any message from the game can do.
+A hostile addon in the same Lua environment can call every entry point of our addon.
+No WoW mechanism proves that the user typed a message (6.6.1).
+So the bridge bounds what any message from the game can do (6.6).
 
 ### 6.2 Bridge policy
 
 1. The folder of a chat must be inside `allowed_roots` from the config. The bridge rejects all other folders.
 2. The permission level of each agent comes only from the bridge config. A message from the game cannot raise it.
-3. An "allow" answer from the game applies to the current session only. A permanent rule needs a confirmation outside the game (a desktop notification or the terminal).
+3. A permanent "always allow" rule from the game follows 6.6.5.
 4. The bridge limits the message rate: at most 10 messages per minute (config key `max_messages_per_minute`).
-5. The bridge never runs the agent with `full-auto` unless the config sets it for that agent.
+5. The bridge never runs the agent with `full-auto` unless the config sets it for that agent. The classifier and the sandbox still apply (6.6.2).
 6. The bridge rejects frames with a timestamp more than 5 minutes old or more than 1 minute in the future (S11).
 7. The bridge never writes, renames, or deletes through a symbolic link. It opens files with `O_NOFOLLOW` (Unix) or checks the reparse point (Windows).
 8. The bridge deletes only the screenshots that it decoded as valid strips. It never deletes other screenshots.
@@ -124,7 +125,139 @@ Theorem S15 covers these rules.
 ### 6.5 Known leaks
 
 - Reply text sits in a global table after a slot loads. Any addon can read it.
-- The strip shows the prompt text on screen for up to 40 seconds.
+- `GnomishRelayDB` is a global table. Any addon can read the chats in it.
+- The strip is signed, not encrypted. The prompt is in the pixels of each strip screenshot until the bridge deletes it. If the bridge does not run, these files stay. A cloud sync of the Screenshots folder (for example OneDrive on Windows) copies them.
+- Code in the sandbox can still send data to the allowed API host, for example with an upload under another account key. A proxy that ends TLS and pins the account closes this. It is not in v1.
+
+### 6.6 Four layers of defense
+
+Each layer covers a hole in the layer before it. No layer depends on a model that judges another model.
+
+| Layer | Question | Where |
+|---|---|---|
+| 1. Signed state and the taint warning | Did our own code make this message, and did anything change it? | Addon |
+| 2. Game ceiling | What can a message from the game do at most? | Bridge config |
+| 3. Action classifier | Is this tool call allowed, to ask, or denied? | Bridge, proved in `protocol` |
+| 4. Sandbox | What can happen when layers 1 to 3 fail? | Operating system |
+
+The trust of "always allow" (6.6.5) rests on layers 2 to 4. It never rests on layer 1.
+
+#### 6.6.1 Signed state and the taint warning
+
+**Signed state.** Another addon can change `GnomishRelayDB` without a call to our code. So the addon signs messages from private state:
+
+- The addon keeps the text of each open message in its private table (`ns`), not only in `GnomishRelayDB`.
+- When the user sends a message, the addon signs it at once. It stores the signed frame and its time in `GnomishRelayDB`, next to the text.
+- After a `/reload`, the addon sends only frames with a valid tag. It never signs text that it reads back from `GnomishRelayDB`.
+- An outbox entry (7.5) is the same signed frame. The bridge checks the tag, the time, and the replay store for it (S2, S11, S7), as for a strip.
+- A permission answer carries a hash of the exact text that the popup showed: `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256, in hex. The bridge refuses an answer whose hash does not match its own text of the request.
+
+**Taint warning.** WoW tracks which addon tainted each variable, and `issecurevariable(table, key)` returns its name.
+At each entry point, the addon writes a probe value and reads its taint. If the taint names another addon, the addon refuses the action and shows one line: "Blocked: <addon> tried to send as you."
+This catches a naive attack only. It is not a trust decision:
+
+- Taint probably moves to the last data that the code read. Our handler reads our own tables before the probe, so the probe can name "GnomishRelay" for any caller. The spike in 15 tests this.
+- Some attacks need no call to our code. A secure macro button can run `/ai …` on the user's own click. Another addon can fill the chat box with `/ai …` and wait for the user to press Enter.
+- A hostile addon that loads first can replace `issecurevariable`.
+
+No WoW mechanism lets an addon prove that the user typed a message. So layers 2 to 4 assume that any game message can come from another addon.
+
+#### 6.6.2 Game ceiling
+
+Every message from the game (a strip or the reload outbox) runs under one ceiling from `config.toml`. No message from the game can raise it (S6).
+
+| Setting | Default |
+|---|---|
+| Write | The chat folder only (the `auto-edit` level of 9.3) |
+| Read | `allowed_roots` |
+| Commands | The allow table of the config. All others ask. |
+| Network | The agent's own API host only (6.6.4). Allowing a network tool does not widen the proxy. |
+
+- The `full-auto` level (6.2 rule 5) skips the questions only. The classifier denials and the sandbox still apply.
+- The game never answers a permission request of a terminal session, and never sends a task to one. Terminal sessions only send pings (section 10). The bridge does not run them, so this spec gives them no rules.
+- The bridge shows a desktop notice for each game message: "New task from WoW: <first line>". The config can turn this off.
+
+#### 6.6.3 Action classifier
+
+The bridge classifies each tool call before it runs: `deny`, `ask`, or `allow`, in this order from strict to open.
+It works on the structured tool input, never on the prompt text. The same input always gives the same answer.
+
+**How tool calls reach it:**
+
+- ACP: through `session/request_permission`.
+- Claude: through a `PreToolUse` hook, `gnomish-relay-hook pretool`. This subcommand ignores `GNOMISH_RELAY_JOB`, and it fails closed: if the bridge does not answer, the answer is `deny`.
+- `native-codex exec` sends no tool calls to the bridge. So a game message runs Codex through ACP (`codex-acp`) only.
+
+**Rules:**
+
+- **Unknown tools are denied.** The classifier knows file reads, file writes, and shell commands. Every other tool is denied in `game`: web fetch, web search, MCP tools, and subagents.
+- **Paths:** each path in the tool input, and each redirect target of a command, is resolved with `canonicalize` at check time. A write must be inside the chat folder. A read must be inside `allowed_roots`. Both use `resolve_folder` (S5).
+- **Denied paths, for reads and writes:** `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gnomish-relay`, `.env` files, keychains, and browser profiles.
+- **Denied paths, for writes:** files that code on the host runs later, outside the sandbox. They are `.claude/`, `.git/hooks/`, `.git/config`, `.envrc`, `.vscode/`, and `.github/workflows/`.
+- **Commands:** a real shell parser splits each command. A command that does not parse is denied.
+- **Denied commands:** `eval`, command substitution (`$(...)`, backticks), a pipe into a shell, `cmd.exe`, and PowerShell. PowerShell stays denied until the classifier has a PowerShell parser.
+- **Commands that run other commands** (`find -exec`, `xargs`, `env`, `git -c`, `sh -c`, `bash -c`, `python -c`, `node -e`, `perl -e`) always ask.
+- **Network tools** (`curl`, `wget`, `nc`, `ssh`, `scp`, and more) always ask.
+- **Never "always":** `rm -r`, `sudo`, `chmod`, `chown`, `git push --force`, `git reset --hard`, and the commands that run other commands. They get "Allow once" at most.
+- A prompt keyword (for example `.ssh` or `token`) is only a signal. It moves the whole run to `ask`. It is never the wall.
+
+The classifier core is pure and lives in `protocol`. Theorems S16 and S17 cover it.
+
+#### 6.6.4 Sandbox
+
+The bridge starts every agent process for a game message inside a sandbox. The user does nothing.
+
+| Rule | Value |
+|---|---|
+| Write | The chat folder, and a private temp folder |
+| Read | The system, except the denied paths of 6.6.3, which are hidden |
+| Network | Only through a bridge proxy that allows the agent's own API host |
+| Children | Every child process, for example `cargo test`, is inside the same sandbox |
+
+The sandbox closes the hole that a classifier cannot close: an allowed command such as `cargo test` runs code that the agent can edit first.
+It covers shell commands. The file tools of Claude run outside it, so the classifier (6.6.3) guards them.
+
+What each backend enforces:
+
+| Backend | Linux | macOS | Windows |
+|---|---|---|---|
+| Claude | Its own sandbox (bubblewrap) | Its own sandbox (Seatbelt) | None: fallback. Under WSL2, as Linux. |
+| Codex through ACP | Its own sandbox, `workspace-write` | Its own sandbox, `workspace-write` | Its own Windows sandbox |
+| Other agents | `@anthropic-ai/sandbox-runtime` around the command | `@anthropic-ai/sandbox-runtime` around the command | None: fallback |
+
+**Claude settings.** The bridge starts Claude with a `--settings` value that sets:
+
+- `sandbox.enabled` to true
+- `allowUnsandboxedCommands` to false, so Claude cannot retry a command outside the sandbox
+- `failIfUnavailable` to true, so a sandbox that does not start stops the run
+- the credentials and network settings of the table above, with a strict allowlist
+
+Settings from the project and the user do not apply to these runs, because array keys such as `excludedCommands` merge from every scope. The flag for this is an open question (17).
+
+**Codex.** Its `workspace-write` blocks the network for commands. Its model traffic does not go through the bridge proxy. Its read scope is an open question (17).
+
+**Processes.** For game messages, the bridge starts one ACP process per chat folder, so the write rule applies per chat (9.4).
+
+**Fallback, when a backend has no sandbox:**
+
+- The game ceiling drops to `ask` for every command.
+- "Always allow" is off for commands that run code: build, test, run, and install.
+- File edits inside the chat folder still work.
+- The window shows one line: "No sandbox: commands need your answer."
+
+On Windows, the setup recommends Codex, or Claude under WSL2. Both have a sandbox there.
+
+#### 6.6.5 "Always allow"
+
+The goal is one click for the common case, with a bounded worst case.
+Any game message can come from another addon (6.6.1). So a rule is safe to add with one click only when the sandbox bounds what the rule allows.
+
+1. The popup (6.4) shows the exact rule, for example "Always allow `cargo test *` in lighthouse".
+2. A rule covers one command pattern in one project. It never covers a whole tool, for example "all Bash".
+3. If the backend of the chat has a sandbox (6.6.4), one click in the game adds the rule. The game and the desktop both show "Rule added: cargo test * (lighthouse)", each with **Undo**. Neither blocks.
+4. With the fallback of 6.6.4, a rule for a command that runs code needs a confirmation on the desktop.
+5. The "never always" commands of 6.6.3 get "Allow once" at most.
+6. A rule expires after 30 days. The Settings tab of the window lists every rule and its expiry, and removes one with a click.
 
 ## 7. Transport
 
@@ -306,7 +439,7 @@ Total file count for slots and signals: about 17,000.
 
 The addon uses the reload fallback when the strip gets no acknowledgment, the pool is empty, or the slots are missing.
 
-1. The addon writes the message into `outbox` in its saved variables. Text and folder are hex-encoded.
+1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store.
 2. The addon asks the user to press a key. `ReloadUI` needs a hardware event, and the key catcher stays off in combat.
 3. WoW writes the saved variables file at reload.
 4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 750 ms).
@@ -474,6 +607,7 @@ Each backend maps the level differently:
 - `acp`: the bridge sets the session mode. Mode IDs differ per agent, so the config has a `modes` table per agent.
 - `native-claude`: `--permission-mode` and `--allowedTools`.
 - `native-codex` and `command`: the level is fixed by the command in the config. The addon shows the level in the chat header. If the level is `full-auto`, the addon shows a warning.
+- For game messages, Codex runs through ACP only, so the classifier sees its tool calls (6.6.3).
 
 **Live permission flow (ACP):**
 
@@ -485,13 +619,13 @@ Each backend maps the level differently:
 
 Rules:
 
-- `allow_always` from the game counts as `allow_once` for the session (6.2 rule 3).
+- `allow_always` from the game follows 6.6.5.
 - The run timeout stops while the run waits for a permission answer. A separate `permission_timeout_minutes` applies (default 10). After it, the bridge answers "cancelled".
 - If the game closes or reloads, open requests stay in the next publish until they time out.
 
 ### 9.4 Agent processes
 
-- ACP: one agent process per agent kind. It serves many sessions.
+- ACP: one agent process per agent kind. It serves many sessions. For game messages: one process per chat folder, inside the sandbox (6.6.4).
 - `native-*` and `command`: one process per run.
 - `max_parallel_runs` counts active runs, not processes.
 - If an ACP process stops, the bridge starts it again and resumes the open sessions. If a session cannot resume, the bridge reports an error for that chat.
@@ -690,7 +824,7 @@ So most theorems are security properties. Each one closes a named attack.
 | S3 | **Record parser totality:** for every byte string, `parse_records` returns records or a defined error. | A crafted payload crashes the bridge. |
 | S4 | **Field isolation:** no byte of one field ends up in another field. | Text bleeds into the `cwd` or `flags` field and changes the folder or the permissions. |
 | S5 | **Folder policy:** if `resolve_folder(roots, request)` accepts, the result is inside one of the roots. This holds for every request, also with `..`, `.`, repeated `/`, and trailing `/`. | A message escapes `allowed_roots`, for example `../../.ssh`. |
-| S6 | **No privilege from the game:** the effective permission level is at most the level in the config, for every flag list. `allow_always` from the game never becomes a permanent rule. | A message from the game raises its own permissions. |
+| S6 | **No privilege from the game:** the effective permission level is at most the level in the config, for every flag list. A rule from the game is bounded by S17, and never covers a "never always" command. | A message from the game raises its own permissions. |
 | S7 | **Replay protection:** a `(token, id)` pair is accepted at most one time while it is in the window. | A replayed strip runs a task two times. |
 | S8 | **Lua escape:** for every string, the escape function gives a Lua string literal that reads back as the same string. The output never ends the literal early. | A reply from a malicious agent injects Lua code into the game. |
 | S9 | **Slot body shape:** the slot file writer only puts escaped strings and numbers into a fixed table shape. | A malicious agent changes `proto`, adds fields, or runs code in the slot file. |
@@ -700,6 +834,8 @@ So most theorems are security properties. Each one closes a named attack.
 | S13 | **ID charset:** the id validator accepts only `[a-z0-9_-]`, 1 to 32 characters. | A chat id like `../../x` reaches a file path or a state key. |
 | S14 | **Rate limit and queue cap:** the limiter never admits more than N messages in any window. A chat queue never holds more than 20 messages. | Strip spam fills memory or starts many runs. |
 | S15 | **Honest popup:** the popup text contains the full raw command, or its start and end with a cut mark. It contains no raw control, bidi, or zero-width characters. | A malicious agent asks for permission with a false label, or hides the dangerous part of a command. |
+| S16 | **Classifier paths:** let `paths(call)` be the path fields of a file tool, plus the redirect targets and the working folder of a command. Command arguments are out of scope. If `classify(call) = allow`, then every write path is inside the chat folder, every read path is inside `allowed_roots`, and no path is inside a denied path. | An allowed tool call reads `~/.ssh` or writes outside the project. |
+| S17 | **Classifier ceiling:** with the order `deny < ask < allow`, for every tool call and every rule list from the game, `classify(call, rules) ≤ classify(call, config)`. A "never always" command and an unknown tool never get `allow` from a rule. | A rule from the game, or a crafted command, gets more than the config allows. |
 
 **Correctness theorems:**
 
@@ -810,6 +946,8 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
+**Taint spike (before the taint warning ships):** a second test addon calls the send handler of our addon, calls a closure that reads our tables before the probe, fills our input box, and clicks our buttons. The spike records what the probe names in each case, on the Forever client under Wine, Windows, and macOS. Some cases will likely name "GnomishRelay". Nothing in 6.6.5 depends on this spike.
+
 ## 16. Development environment
 
 - `dev gnomish-relay` opens tmux with nvim, the agent, and a terminal in this folder.
@@ -818,6 +956,10 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 - Aeneas and Charon are built in `~/verif`. `proofs/TOOLS` pins their commits, and CI builds the same commits with Nix.
 
 ## 17. Open questions
+
+- Can an AppContainer or a restricted token give Claude and other agents a sandbox on native Windows?
+- Which `claude` flag keeps the project and user settings out of a run (6.6.4)?
+- What can Codex read inside `workspace-write`?
 
 1. Does X11 capture of the WoW window work under XWayland? (Only for the fallback.)
 2. Can font files replace the `.wav` signals?
