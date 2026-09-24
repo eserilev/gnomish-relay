@@ -86,20 +86,13 @@ fn setup(wow: &str) -> Result<()> {
     }
     std::fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
     write_atomic(&dir, config::FILE, config::default_text(&wow).as_bytes())?;
-    owner_only(&dir.join(config::FILE))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let owner_only = std::fs::Permissions::from_mode(0o600);
+        std::fs::set_permissions(dir.join(config::FILE), owner_only)?;
+    }
     println!("wrote {}", dir.join(config::FILE).display());
-    Ok(())
-}
-
-#[cfg(unix)]
-fn owner_only(path: &Path) -> Result<()> {
-    use std::os::unix::fs::PermissionsExt;
-    std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600))?;
-    Ok(())
-}
-
-#[cfg(not(unix))]
-fn owner_only(_path: &Path) -> Result<()> {
     Ok(())
 }
 

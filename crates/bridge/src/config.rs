@@ -162,23 +162,16 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
     })
 }
 
-/// Any user who can write the config can raise the ceiling of every message.
 #[cfg(unix)]
-fn check_owner_only(meta: &fs::Metadata, path: &Path) -> Result<()> {
+fn others_can_write(meta: &fs::Metadata) -> bool {
     use std::os::unix::fs::PermissionsExt;
-    if meta.permissions().mode() & 0o022 != 0 {
-        bail!(
-            "other users can write {}. Run: chmod 600 {}",
-            path.display(),
-            path.display()
-        );
-    }
-    Ok(())
+    meta.permissions().mode() & 0o022 != 0
 }
 
+// TODO: check the ACL when the Windows build ships.
 #[cfg(not(unix))]
-fn check_owner_only(_meta: &fs::Metadata, _path: &Path) -> Result<()> {
-    Ok(())
+fn others_can_write(_meta: &fs::Metadata) -> bool {
+    false
 }
 
 pub fn load(dir: &Path, home: &Path) -> Result<Config> {
@@ -192,7 +185,14 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
     if !meta.is_file() || meta.len() > MAX_FILE {
         bail!("{} is not a config file", path.display());
     }
-    check_owner_only(&meta, &path)?;
+    // Any user who can write the config can raise the ceiling of every message.
+    if others_can_write(&meta) {
+        bail!(
+            "other users can write {}. Run: chmod 600 {}",
+            path.display(),
+            path.display()
+        );
+    }
     let text = fs::read_to_string(&path)?;
     parse(&text, home).with_context(|| format!("{} is not valid", path.display()))
 }
