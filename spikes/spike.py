@@ -4,6 +4,7 @@
   spike.py install   copy the test addons and make the test files (game closed)
   spike.py mutate    change the test files (game running, after /grfiles before)
   spike.py shot      read the newest screenshot and look for the test strip
+  spike.py sizes     install the slot-size test (game closed)
   spike.py results   print the results that the addons saved
   spike.py remove    delete the test addons from the game folder
 """
@@ -20,7 +21,9 @@ WOW = Path(os.environ.get(
 ))
 ADDONS = WOW / "Interface" / "AddOns"
 HERE = Path(__file__).resolve().parent
-TEST_ADDONS = ["GRSpikeShot", "GRSpikeFiles", "GRSpikeSlot1", "GRSpikeSlot2", "GRSpikeLate"]
+BODY_SIZES = {"100K": 100 * 1024, "1M": 1024 * 1024, "5M": 5 * 1024 * 1024}
+TEST_ADDONS = ["GRSpikeShot", "GRSpikeFiles", "GRSpikeSlot1", "GRSpikeSlot2", "GRSpikeLate",
+               "GRSpikeSize"] + [f"GRSpikeBody{s}" for s in BODY_SIZES]
 
 # The same silent sound that wow-claude uses: 8 kHz, 8-bit, mono, 80 samples.
 SAMPLES = 80
@@ -138,12 +141,42 @@ def shot():
     print(f"Top-left corner saved to {out}")
 
 
+def slot_body(limit):
+    """A slot body in the real shape. Every text byte is escaped, the worst case for the Lua parser."""
+    text = "\\010" * 8000  # 32 KB of escapes, the largest reply text
+    head = "GRSpikeBodyData = {proto = 1, now = 1790211079, replies = {\n"
+    reply = '{chat = "c1", id = %d, status = "done", text = "' + text + '"},\n'
+    parts, size, n = [head], len(head), 0
+    while size + len(reply) + 3 <= limit:
+        n += 1
+        line = reply % n
+        parts.append(line)
+        size += len(line)
+    parts.append("}}\n")
+    return "".join(parts)
+
+
+def sizes():
+    if not WOW.is_dir():
+        sys.exit(f"WoW folder not found: {WOW}\nSet WOW_DIR to the _classic_beta_ folder.")
+    shutil.rmtree(ADDONS / "GRSpikeSize", ignore_errors=True)
+    shutil.copytree(HERE / "addons" / "GRSpikeSize", ADDONS / "GRSpikeSize")
+    for label, limit in BODY_SIZES.items():
+        name = f"GRSpikeBody{label}"
+        toc = (f"## Interface: 16001\n## Title: {name}\n## LoadOnDemand: 1\n"
+               "## Dependencies: GRSpikeSize\n\nInbox.lua\n")
+        write(ADDONS / name / f"{name}.toc", toc)
+        write(ADDONS / name / "Inbox.lua", slot_body(limit))
+    print(f"Installed into {ADDONS}")
+    print("Next: start WoW, enable the GR Spike addons, log in, run /grsize.")
+
+
 def results():
     accounts = sorted((WOW / "WTF" / "Account").glob("*/SavedVariables"))
     if not accounts:
         sys.exit("No saved variables yet. Log out or /reload so that WoW writes them.")
     for sv in accounts:
-        for name in ("GRSpikeFiles.lua", "GRSpikeShot.lua"):
+        for name in ("GRSpikeFiles.lua", "GRSpikeShot.lua", "GRSpikeSize.lua"):
             f = sv / name
             if f.exists():
                 print(f"== {f}")
@@ -157,7 +190,7 @@ def remove():
 
 
 if __name__ == "__main__":
-    commands = {"install": install, "mutate": mutate, "shot": shot, "results": results, "remove": remove}
+    commands = {"install": install, "mutate": mutate, "shot": shot, "sizes": sizes, "results": results, "remove": remove}
     if len(sys.argv) != 2 or sys.argv[1] not in commands:
         sys.exit(__doc__)
     commands[sys.argv[1]]()

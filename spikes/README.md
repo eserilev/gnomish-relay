@@ -1,11 +1,12 @@
 # Spikes
 
-Two small test addons. Their results decide the transport design (SPEC.md section 15, steps 1 and 3).
+Small test addons. Their results decide the transport design (SPEC.md section 15, steps 1 and 3).
 
 | Addon | Question |
 |---|---|
 | `GRSpikeShot` | Can an addon call `Screenshot()` with no key press? Does the strip survive in the image? |
 | `GRSpikeFiles` | Do the five client file-load rules (SPEC.md 7.2) hold under Wine? |
+| `GRSpikeSize` | How long does the game stall when it loads a big slot body? |
 
 `spike.py` installs the addons, changes the test files, reads the screenshot, and prints the saved results.
 If the game is not in the default Lutris prefix, set `WOW_DIR` to the `_classic_beta_` folder.
@@ -47,6 +48,21 @@ Each check prints PASS or FAIL in the chat.
 18. Type `/reload` one more time. WoW then writes the results to disk.
 19. Run `spikes/spike.py results` and give the output to the agent.
 20. Run `spikes/spike.py remove` when the tests are finished.
+
+### Size test
+
+This test is separate. Do it in its own game session.
+
+1. Close WoW.
+2. Run `spikes/spike.py sizes`. It makes slot bodies of 100 KB, 1 MB, and 5 MB.
+   Every text byte in them is an escape, the slowest case for the Lua parser.
+3. Start WoW, enable the "GR Spike" addons, and log in.
+4. Type `/grsize`. Each line gives the load time in milliseconds.
+5. Type `/reload`, then `/grsize` again. Do this 3 times, so that we see the spread.
+6. Run `spikes/spike.py results` and give the output to the agent.
+
+A load of more than about 16 ms drops a frame. The results set the size limit
+of a slot body (SPEC.md 7.3, S12). The limit is now 1 MB.
 
 ## What the checks mean
 

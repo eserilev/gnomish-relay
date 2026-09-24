@@ -1,0 +1,6 @@
+## Interface: 16001
+## Title: GR Spike: Size
+## Notes: Gnomish Relay spike. How long does a big slot body take to load?
+## SavedVariables: GRSpikeSizeResults
+
+GRSpikeSize.lua
