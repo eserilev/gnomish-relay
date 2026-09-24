@@ -32,8 +32,8 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `blocked`.
 | 5 | S15: permission popup | `popup`, `ascii` | `S15_popup`, `S15_printable`, `S15_faithful` | proved |
 | 6 | S8: Lua literals | `lua` | `S8_lua_string`, `S8_reads_back` | proved |
 | 7 | S10: WoW chat text | `wow_text` | `S10_chat_safe` | proved |
-| 8 | C2: frame encoder | `frame::encode_frame` | `C2_encode`, `C2_encode_too_long` | stated |
-| 9 | C2 + S1 + S2: frame decoder | `frame::decode_frame`, `signed_len` | `C2_decode`, `S1_S2_decode`, `S2_signed_len` | stated |
+| 8 | C2: frame encoder | `frame::encode_frame` | `C2_encode`, `C2_encode_too_long` | proved |
+| 9 | C2 + S1 + S2: frame decoder | `frame::decode_frame`, `signed_len` | `C2_decode`, `S1_S2_decode`, `S2_signed_len` | proved |
 | 10 | S13: id charset | `record::is_valid_id` | `S13_valid_id` | stated |
 | 11 | C3 + S3 + S4: records | `record` | `C3_parse`, `C3_serialize`, `S3_S4_parse` | stated |
 | 12 | S5: folder policy | `folder` | `S5_folder`, `S5_folder_complete` | stated |

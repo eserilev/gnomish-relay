@@ -8,6 +8,15 @@ pub fn push_bytes(out: &mut Vec<u8>, bytes: &[u8]) {
     }
 }
 
+/// Appends `bytes[start..end]`.
+pub fn push_range(out: &mut Vec<u8>, bytes: &[u8], start: usize, end: usize) {
+    let mut i = start;
+    while i < end {
+        out.push(bytes[i]);
+        i += 1;
+    }
+}
+
 /// Decimal digits, most significant first, no leading zero.
 pub fn push_decimal(out: &mut Vec<u8>, n: u32) {
     if n >= 10 {

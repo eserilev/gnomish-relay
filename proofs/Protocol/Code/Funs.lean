@@ -58,8 +58,50 @@ def ascii.push_bytes
   := do
   ascii.push_bytes_loop out bytes 0#usize
 
+/-- [protocol::ascii::push_range]: loop body 0:
+    Source: 'crates/protocol/src/ascii.rs', lines 14:4-17:5
+    Visibility: public -/
+@[rust_loop_body]
+def ascii.push_range_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize bytes i
+    let out1 ← alloc.vec.Vec.push out i1
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::ascii::push_range]: loop 0:
+    Source: 'crates/protocol/src/ascii.rs', lines 14:4-17:5
+    Visibility: public -/
+@[rust_loop]
+def ascii.push_range_loop
+  (out : alloc.vec.Vec Std.U8) (bytes : Slice Std.U8) («end» : Std.Usize)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => ascii.push_range_loop.body bytes «end» out1 i1)
+    (out, i)
+
+/-- [protocol::ascii::push_range]:
+    Source: 'crates/protocol/src/ascii.rs', lines 12:0-18:1
+    Visibility: public -/
+@[reducible]
+def ascii.push_range
+  (out : alloc.vec.Vec Std.U8) (bytes : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  ascii.push_range_loop out bytes «end» start
+
 /-- [protocol::ascii::push_decimal]:
-    Source: 'crates/protocol/src/ascii.rs', lines 12:0-17:1
+    Source: 'crates/protocol/src/ascii.rs', lines 21:0-26:1
     Visibility: public -/
 def ascii.push_decimal
   (out : alloc.vec.Vec Std.U8) (n : Std.U32) :
@@ -345,73 +387,277 @@ def folder.resolve_folder
   fail panic
 
 /-- [protocol::frame::MAGIC]
-    Source: 'crates/protocol/src/frame.rs', lines 10:0-10:40
+    Source: 'crates/protocol/src/frame.rs', lines 13:0-13:40
     Visibility: public -/
 @[global_simps, irreducible]
 def frame.MAGIC : Array Std.U8 2#usize := Array.make 2#usize [ 110#u8, 82#u8 ]
 
 /-- [protocol::frame::VERSION]
-    Source: 'crates/protocol/src/frame.rs', lines 11:0-11:26
+    Source: 'crates/protocol/src/frame.rs', lines 14:0-14:26
     Visibility: public -/
 @[global_simps, irreducible] def frame.VERSION : Std.U8 := 1#u8
 
 /-- [protocol::frame::HEADER_LEN]
-    Source: 'crates/protocol/src/frame.rs', lines 12:0-12:33
+    Source: 'crates/protocol/src/frame.rs', lines 15:0-15:33
     Visibility: public -/
 @[global_simps, irreducible] def frame.HEADER_LEN : Std.Usize := 11#usize
 
 /-- [protocol::frame::CHECKSUM_LEN]
-    Source: 'crates/protocol/src/frame.rs', lines 13:0-13:34
+    Source: 'crates/protocol/src/frame.rs', lines 16:0-16:34
     Visibility: public -/
 @[global_simps, irreducible] def frame.CHECKSUM_LEN : Std.Usize := 2#usize
 
 /-- [protocol::frame::TAG_LEN]
-    Source: 'crates/protocol/src/frame.rs', lines 14:0-14:29
+    Source: 'crates/protocol/src/frame.rs', lines 17:0-17:29
     Visibility: public -/
 @[global_simps, irreducible] def frame.TAG_LEN : Std.Usize := 8#usize
 
 /-- [protocol::frame::MAX_PAYLOAD]
-    Source: 'crates/protocol/src/frame.rs', lines 15:0-15:36
+    Source: 'crates/protocol/src/frame.rs', lines 18:0-18:36
     Visibility: public -/
 @[global_simps, irreducible] def frame.MAX_PAYLOAD : Std.Usize := 3200#usize
 
 /-- [protocol::frame::MAX_AGE]
-    Source: 'crates/protocol/src/frame.rs', lines 18:0-18:29
+    Source: 'crates/protocol/src/frame.rs', lines 21:0-21:29
     Visibility: public -/
 @[global_simps, irreducible] def frame.MAX_AGE : Std.U32 := 300#u32
 
 /-- [protocol::frame::MAX_AHEAD]
-    Source: 'crates/protocol/src/frame.rs', lines 19:0-19:30
+    Source: 'crates/protocol/src/frame.rs', lines 22:0-22:30
     Visibility: public -/
 @[global_simps, irreducible] def frame.MAX_AHEAD : Std.U32 := 60#u32
 
+/-- [protocol::frame::push_be16]:
+    Source: 'crates/protocol/src/frame.rs', lines 50:0-53:1 -/
+def frame.push_be16
+  (out : alloc.vec.Vec Std.U8) (n : Std.U16) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let i ← n >>> 8#i32
+  let i1 ← lift (UScalar.cast .U8 i)
+  let out1 ← alloc.vec.Vec.push out i1
+  let i2 ← lift (UScalar.cast .U8 n)
+  alloc.vec.Vec.push out1 i2
+
+/-- [protocol::frame::push_be32]:
+    Source: 'crates/protocol/src/frame.rs', lines 55:0-60:1 -/
+def frame.push_be32
+  (out : alloc.vec.Vec Std.U8) (n : Std.U32) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let i ← n >>> 24#i32
+  let i1 ← lift (UScalar.cast .U8 i)
+  let out1 ← alloc.vec.Vec.push out i1
+  let i2 ← n >>> 16#i32
+  let i3 ← lift (UScalar.cast .U8 i2)
+  let out2 ← alloc.vec.Vec.push out1 i3
+  let i4 ← n >>> 8#i32
+  let i5 ← lift (UScalar.cast .U8 i4)
+  let out3 ← alloc.vec.Vec.push out2 i5
+  let i6 ← lift (UScalar.cast .U8 n)
+  alloc.vec.Vec.push out3 i6
+
+/-- [protocol::frame::read_be16]:
+    Source: 'crates/protocol/src/frame.rs', lines 62:0-64:1 -/
+def frame.read_be16
+  (bytes : Slice Std.U8) («at» : Std.Usize) : Result Std.U16 := do
+  let i ← Slice.index_usize bytes «at»
+  let i1 ← lift (UScalar.cast .U16 i)
+  let i2 ← i1 <<< 8#i32
+  let i3 ← «at» + 1#usize
+  let i4 ← Slice.index_usize bytes i3
+  let i5 ← lift (UScalar.cast .U16 i4)
+  ok (i2 ||| i5)
+
+/-- [protocol::frame::read_be32]:
+    Source: 'crates/protocol/src/frame.rs', lines 66:0-71:1 -/
+def frame.read_be32
+  (bytes : Slice Std.U8) («at» : Std.Usize) : Result Std.U32 := do
+  let i ← Slice.index_usize bytes «at»
+  let i1 ← lift (UScalar.cast .U32 i)
+  let i2 ← i1 <<< 24#i32
+  let i3 ← «at» + 1#usize
+  let i4 ← Slice.index_usize bytes i3
+  let i5 ← lift (UScalar.cast .U32 i4)
+  let i6 ← i5 <<< 16#i32
+  let i7 ← lift (i2 ||| i6)
+  let i8 ← «at» + 2#usize
+  let i9 ← Slice.index_usize bytes i8
+  let i10 ← lift (UScalar.cast .U32 i9)
+  let i11 ← i10 <<< 8#i32
+  let i12 ← lift (i7 ||| i11)
+  let i13 ← «at» + 3#usize
+  let i14 ← Slice.index_usize bytes i13
+  let i15 ← lift (UScalar.cast .U32 i14)
+  ok (i12 ||| i15)
+
+/-- [protocol::frame::fletcher16]: loop body 0:
+    Source: 'crates/protocol/src/frame.rs', lines 78:4-82:5 -/
+@[rust_loop_body]
+def frame.fletcher16_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (s1 : Std.U16) (s2 : Std.U16)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.U16 × Std.U16 × Std.Usize) (Std.U16 × Std.U16))
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize bytes i
+    let i2 ← lift (UScalar.cast .U16 i1)
+    let i3 ← s1 + i2
+    let s11 ← i3 % 255#u16
+    let i4 ← s2 + s11
+    let s21 ← i4 % 255#u16
+    let i5 ← i + 1#usize
+    ok (cont (s11, s21, i5))
+  else ok (done (s1, s2))
+
+/-- [protocol::frame::fletcher16]: loop 0:
+    Source: 'crates/protocol/src/frame.rs', lines 78:4-82:5 -/
+@[rust_loop]
+def frame.fletcher16_loop
+  (bytes : Slice Std.U8) («end» : Std.Usize) (s1 : Std.U16) (s2 : Std.U16)
+  (i : Std.Usize) :
+  Result (Std.U16 × Std.U16)
+  := do
+  loop
+    (fun (s11, s21, i1) => frame.fletcher16_loop.body bytes «end» s11 s21 i1)
+    (s1, s2, i)
+
+/-- [protocol::frame::fletcher16]:
+    Source: 'crates/protocol/src/frame.rs', lines 74:0-84:1 -/
+def frame.fletcher16
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (Std.U8 × Std.U8)
+  := do
+  let (s1, s2) ← frame.fletcher16_loop bytes «end» 0#u16 0#u16 start
+  let i ← lift (UScalar.cast .U8 s1)
+  let i1 ← lift (UScalar.cast .U8 s2)
+  ok (i, i1)
+
+/-- [protocol::frame::payload_len]:
+    Source: 'crates/protocol/src/frame.rs', lines 87:0-89:1 -/
+def frame.payload_len (payload : Slice Std.U8) : Result Std.U16 := do
+  let i := Slice.len payload
+  ok (UScalar.cast .U16 i)
+
 /-- [protocol::frame::encode_frame]:
-    Source: 'crates/protocol/src/frame.rs', lines 46:0-48:1
+    Source: 'crates/protocol/src/frame.rs', lines 93:0-109:1
     Visibility: public -/
 def frame.encode_frame
   (time : Std.U32) (frame_id : Std.U16) (payload : Slice Std.U8)
   (tag : Array Std.U8 8#usize) :
   Result (Option (alloc.vec.Vec Std.U8))
   := do
-  fail panic
+  let i := Slice.len payload
+  if i > frame.MAX_PAYLOAD
+  then ok none
+  else
+    let s ← lift (Array.to_slice frame.MAGIC)
+    let out ← ascii.push_bytes (alloc.vec.Vec.new Std.U8) s
+    let out1 ← alloc.vec.Vec.push out frame.VERSION
+    let out2 ← frame.push_be32 out1 time
+    let out3 ← frame.push_be16 out2 frame_id
+    let i1 ← frame.payload_len payload
+    let out4 ← frame.push_be16 out3 i1
+    let out5 ← ascii.push_bytes out4 payload
+    let s1 := alloc.vec.Vec.deref out5
+    let i2 := alloc.vec.Vec.len out5
+    let (s11, s2) ← frame.fletcher16 s1 2#usize i2
+    let out6 ← alloc.vec.Vec.push out5 s11
+    let out7 ← alloc.vec.Vec.push out6 s2
+    let s3 ← lift (Array.to_slice tag)
+    let out8 ← ascii.push_bytes out7 s3
+    ok (some out8)
 
 /-- [protocol::frame::decode_frame]:
-    Source: 'crates/protocol/src/frame.rs', lines 51:0-53:1
+    Source: 'crates/protocol/src/frame.rs', lines 112:0-154:1
     Visibility: public -/
 def frame.decode_frame
   (bytes : Slice Std.U8) :
   Result (core.result.Result frame.Frame frame.FrameError)
   := do
-  fail panic
+  let n := Slice.len bytes
+  let i ← frame.HEADER_LEN + frame.CHECKSUM_LEN
+  let i1 ← i + frame.TAG_LEN
+  if n < i1
+  then ok (core.result.Result.Err frame.FrameError.TooShort)
+  else
+    let i2 ← Slice.index_usize bytes 0#usize
+    let i3 ← Array.index_usize frame.MAGIC 0#usize
+    if i2 != i3
+    then ok (core.result.Result.Err frame.FrameError.BadMagic)
+    else
+      let i4 ← Slice.index_usize bytes 1#usize
+      let i5 ← Array.index_usize frame.MAGIC 1#usize
+      if i4 != i5
+      then ok (core.result.Result.Err frame.FrameError.BadMagic)
+      else
+        let i6 ← Slice.index_usize bytes 2#usize
+        if i6 != frame.VERSION
+        then ok (core.result.Result.Err frame.FrameError.BadVersion)
+        else
+          let i7 ← frame.read_be16 bytes 9#usize
+          let len ← lift (UScalar.cast .Usize i7)
+          if len > frame.MAX_PAYLOAD
+          then ok (core.result.Result.Err frame.FrameError.TooLong)
+          else
+            let «end» ← frame.HEADER_LEN + len
+            let i8 ← «end» + frame.CHECKSUM_LEN
+            let i9 ← i8 + frame.TAG_LEN
+            if n < i9
+            then ok (core.result.Result.Err frame.FrameError.Truncated)
+            else
+              let (s1, s2) ← frame.fletcher16 bytes 2#usize «end»
+              let i10 ← Slice.index_usize bytes «end»
+              if i10 != s1
+              then ok (core.result.Result.Err frame.FrameError.BadChecksum)
+              else
+                let i11 ← «end» + 1#usize
+                let i12 ← Slice.index_usize bytes i11
+                if i12 != s2
+                then ok (core.result.Result.Err frame.FrameError.BadChecksum)
+                else
+                  let payload ←
+                    ascii.push_range (alloc.vec.Vec.new Std.U8) bytes
+                      frame.HEADER_LEN «end»
+                  let i13 ← Slice.index_usize bytes i8
+                  let i14 ← i8 + 1#usize
+                  let i15 ← Slice.index_usize bytes i14
+                  let i16 ← i8 + 2#usize
+                  let i17 ← Slice.index_usize bytes i16
+                  let i18 ← i8 + 3#usize
+                  let i19 ← Slice.index_usize bytes i18
+                  let i20 ← i8 + 4#usize
+                  let i21 ← Slice.index_usize bytes i20
+                  let i22 ← i8 + 5#usize
+                  let i23 ← Slice.index_usize bytes i22
+                  let i24 ← i8 + 6#usize
+                  let i25 ← Slice.index_usize bytes i24
+                  let i26 ← i8 + 7#usize
+                  let i27 ← Slice.index_usize bytes i26
+                  let i28 ← frame.read_be32 bytes 3#usize
+                  let i29 ← frame.read_be16 bytes 7#usize
+                  ok (core.result.Result.Ok
+                    {
+                      time := i28,
+                      frame_id := i29,
+                      payload,
+                      tag :=
+                        (Array.make 8#usize [
+                          i13, i15, i17, i19, i21, i23, i25, i27
+                          ])
+                    })
 
 /-- [protocol::frame::signed_len]:
-    Source: 'crates/protocol/src/frame.rs', lines 57:0-59:1
+    Source: 'crates/protocol/src/frame.rs', lines 158:0-160:1
     Visibility: public -/
 def frame.signed_len (f : frame.Frame) : Result Std.Usize := do
-  fail panic
+  let i := alloc.vec.Vec.len f.payload
+  let i1 ← frame.HEADER_LEN + i
+  i1 + frame.CHECKSUM_LEN
 
 /-- [protocol::frame::is_stale]:
-    Source: 'crates/protocol/src/frame.rs', lines 62:0-64:1 -/
+    Source: 'crates/protocol/src/frame.rs', lines 163:0-165:1 -/
 def frame.is_stale (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
   let i ← lift (UScalar.cast .U64 now)
   let i1 ← lift (UScalar.cast .U64 frame_time)
@@ -420,7 +666,7 @@ def frame.is_stale (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
   ok (i > i3)
 
 /-- [protocol::frame::is_ahead]:
-    Source: 'crates/protocol/src/frame.rs', lines 66:0-68:1 -/
+    Source: 'crates/protocol/src/frame.rs', lines 167:0-169:1 -/
 def frame.is_ahead (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
   let i ← lift (UScalar.cast .U64 frame_time)
   let i1 ← lift (UScalar.cast .U64 now)
@@ -429,7 +675,7 @@ def frame.is_ahead (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
   ok (i > i3)
 
 /-- [protocol::frame::is_fresh]:
-    Source: 'crates/protocol/src/frame.rs', lines 71:0-73:1
+    Source: 'crates/protocol/src/frame.rs', lines 172:0-174:1
     Visibility: public -/
 def frame.is_fresh (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
   let b ← frame.is_stale frame_time now
@@ -439,7 +685,7 @@ def frame.is_fresh (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
        ok (¬ b1)
 
 /-- [protocol::frame::check_frame]:
-    Source: 'crates/protocol/src/frame.rs', lines 76:0-87:1
+    Source: 'crates/protocol/src/frame.rs', lines 177:0-188:1
     Visibility: public -/
 def frame.check_frame
   (frame_time : Std.U32) (tag_ok : Bool) (now : Std.U32) :

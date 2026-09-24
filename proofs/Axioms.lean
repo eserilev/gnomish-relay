@@ -13,3 +13,8 @@ import Statements
 #print axioms Protocol.Statements.check_S8_lua_string
 #print axioms Protocol.Statements.check_S8_reads_back
 #print axioms Protocol.Statements.check_S10_chat_safe
+#print axioms Protocol.Statements.check_C2_encode
+#print axioms Protocol.Statements.check_C2_encode_too_long
+#print axioms Protocol.Statements.check_C2_decode
+#print axioms Protocol.Statements.check_S1_S2_decode
+#print axioms Protocol.Statements.check_S2_signed_len

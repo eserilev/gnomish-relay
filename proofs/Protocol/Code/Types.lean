@@ -18,7 +18,7 @@ set_option maxRecDepth 2048
 namespace protocol
 
 /-- [protocol::frame::Frame]
-    Source: 'crates/protocol/src/frame.rs', lines 21:0-26:1
+    Source: 'crates/protocol/src/frame.rs', lines 26:0-31:1
     Visibility: public -/
 structure frame.Frame where
   time : Std.U32
@@ -27,7 +27,7 @@ structure frame.Frame where
   tag : Array Std.U8 8#usize
 
 /-- [protocol::frame::FrameError]
-    Source: 'crates/protocol/src/frame.rs', lines 28:0-35:1
+    Source: 'crates/protocol/src/frame.rs', lines 34:0-41:1
     Visibility: public -/
 @[discriminant isize]
 inductive frame.FrameError where
@@ -39,7 +39,7 @@ inductive frame.FrameError where
 | BadChecksum : frame.FrameError
 
 /-- [protocol::frame::Reject]
-    Source: 'crates/protocol/src/frame.rs', lines 38:0-42:1
+    Source: 'crates/protocol/src/frame.rs', lines 44:0-48:1
     Visibility: public -/
 @[discriminant isize]
 inductive frame.Reject where

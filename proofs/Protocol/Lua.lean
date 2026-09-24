@@ -19,7 +19,7 @@ theorem is_plain_spec (b : U8) :
   unfold lua.is_plain
   step*
 
-theorem digit_bv (x : U8) (n : Nat) (h : n < 10) (hx : x.val = 48 + n) :
+theorem digit_bv (x : U8) (n : Nat) (_h : n < 10) (hx : x.val = 48 + n) :
     x.bv = ch '0' + BitVec.ofNat 8 n := by
   rw [U8_bv_eq_ofNat, hx]
   apply BitVec.eq_of_toNat_eq
@@ -174,8 +174,7 @@ theorem luaReadBody_escaped (s rest : List Spec.Byte) :
 /-- **S8, reader.** -/
 theorem lua_reads_back (s rest : List Spec.Byte) :
     luaReadString (luaLiteral s ++ rest) = some (s, rest) := by
-  simp only [luaLiteral, List.cons_append, luaReadString, if_true, List.append_assoc,
-    List.singleton_append]
+  simp only [luaLiteral, List.cons_append, luaReadString, if_true, List.append_assoc]
   exact luaReadBody_escaped s rest
 
 end Protocol.Lua

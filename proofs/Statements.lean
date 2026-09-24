@@ -13,6 +13,7 @@ import Protocol.Policy
 import Protocol.Popup
 import Protocol.Lua
 import Protocol.WowText
+import Protocol.Frame.Codec
 
 /-!
 # The theorems, stated
@@ -255,5 +256,10 @@ theorem check_S15_faithful : S15_faithful := Protocol.Popup.showBytes_faithful
 theorem check_S8_lua_string : S8_lua_string := Protocol.Lua.lua_string_spec
 theorem check_S8_reads_back : S8_reads_back := Protocol.Lua.lua_reads_back
 theorem check_S10_chat_safe : S10_chat_safe := Protocol.WowText.chat_safe_spec
+theorem check_C2_encode : C2_encode := Protocol.Frame.encode_frame_spec
+theorem check_C2_encode_too_long : C2_encode_too_long := Protocol.Frame.encode_frame_too_long
+theorem check_C2_decode : C2_decode := Protocol.Frame.decode_frame_complete
+theorem check_S1_S2_decode : S1_S2_decode := Protocol.Frame.decode_frame_sound
+theorem check_S2_signed_len : S2_signed_len := Protocol.Frame.signed_len_spec
 
 end Protocol.Statements

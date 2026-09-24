@@ -116,4 +116,29 @@ theorem push_decimal_spec (out : alloc.vec.Vec U8) (n : U32)
 termination_by n.val
 decreasing_by all_goals scalar_tac
 
+def PushRangeInv (out0 : alloc.vec.Vec U8) (src : Slice U8) (start : Nat)
+    (st : alloc.vec.Vec U8 × Usize) : Prop :=
+  start ≤ st.2.val ∧ st.1.val = out0.val ++ (src.val.drop start).take (st.2.val - start)
+
+@[step]
+theorem push_range_spec (out : alloc.vec.Vec U8) (src : Slice U8) (start stop : Usize)
+    (hle : start.val ≤ stop.val) (hstop : stop.val ≤ src.val.length)
+    (hroom : out.val.length + (stop.val - start.val) ≤ Usize.max) :
+    ascii.push_range out src start stop ⦃ r =>
+      r.val = out.val ++ (src.val.drop start.val).take (stop.val - start.val) ⦄ := by
+  unfold ascii.push_range ascii.push_range_loop
+  apply loop.spec_decr_nat (fun st => stop.val - st.2.val)
+    (fun st => st.2.val ≤ stop.val ∧ PushRangeInv out src start.val st) _ _ _ _
+    ⟨hle, by simp [PushRangeInv]⟩
+  rintro ⟨cur, i⟩ ⟨hi, hs, hcur⟩
+  simp only at hi hs hcur
+  unfold ascii.push_range_loop.body
+  step*
+  · rw [hcur]; simp; scalar_tac
+  · have hlt : i.val < src.val.length := by scalar_tac
+    refine ⟨by scalar_tac, ⟨by scalar_tac, ?_⟩, by scalar_tac⟩
+    rw [out1_post, hcur, i2_post, show i.val + 1 - start.val = (i.val - start.val) + 1 by omega,
+      List.take_add_one, List.getElem?_eq_getElem (by simp; omega)]
+    simp [Nat.add_sub_cancel' hs, i1_post]
+
 end Protocol.Ascii
