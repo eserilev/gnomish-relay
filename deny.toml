@@ -7,6 +7,9 @@ unused-allowed-license = "allow"
 
 [bans]
 multiple-versions = "deny"
+skip = [
+  { crate = "miniz_oxide@0.8", reason = "png 0.18 uses it directly and 0.9 through flate2" },
+]
 
 [sources]
 unknown-registry = "deny"

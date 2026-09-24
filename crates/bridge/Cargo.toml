@@ -12,14 +12,15 @@ path = "src/main.rs"
 
 [dependencies]
 anyhow = "1"
+# The strip tag (SPEC.md 6.3). `verify_truncated_left` compares in constant time.
+hmac = "0.12"
+sha2 = "0.10"
+png = "0.18.1"
 protocol = { path = "../protocol" }
 
 [dev-dependencies]
-# Tests run the addon in a real Lua 5.1, the Lua version of WoW, and check its
-# strip tags against the Rust HMAC.
-hmac = "0.12"
+# Tests run the addon in a real Lua 5.1, the Lua version of WoW.
 mlua = { version = "0.10", features = ["lua51", "vendored"] }
-sha2 = "0.10"
 tempfile = "3"
 
 [lints]

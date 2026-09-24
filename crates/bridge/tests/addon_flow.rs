@@ -5,6 +5,12 @@
 
 mod common;
 
+use std::fmt::Write;
+
+use bridge::agent::{Agent, Echo};
+use bridge::receive::{StripKey, receive};
+use bridge::relay::Relay;
+use bridge::strip::{self, Image};
 use common::{Bits, load_into, lua, repo_file};
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
@@ -96,14 +102,17 @@ impl Game {
         self.wow.get::<Table>("shots").unwrap().raw_len()
     }
 
-    /// Decodes screenshot `n` the way the bridge does, and checks its tag.
-    fn strip(&self, n: usize) -> Vec<Record> {
+    /// The cells of screenshot `n`, row by row, calibration rows first.
+    fn shot_rows(&self, n: usize) -> Vec<Vec<u8>> {
         let rows: Table = self.wow.get::<Table>("shots").unwrap().get(n).unwrap();
-        let mut cells = Vec::new();
-        for row in 3..=rows.raw_len() {
-            let row: Vec<u8> = rows.get(row).unwrap();
-            cells.extend(row);
-        }
+        (1..=rows.raw_len())
+            .map(|row| rows.get(row).unwrap())
+            .collect()
+    }
+
+    /// Decodes screenshot `n` with the Rust decoder, and checks its tag.
+    fn strip(&self, n: usize) -> Vec<Record> {
+        let mut cells: Vec<u8> = self.shot_rows(n).into_iter().skip(2).flatten().collect();
         cells.truncate(cells.len() / 8 * 8);
         let wire = decode_cells(&cells).expect("the strip holds whole cell groups");
         let frame = decode_frame(&wire)
@@ -136,6 +145,42 @@ impl Game {
     fn printed(&self) -> Vec<String> {
         self.wow.get::<Vec<String>>("printed").unwrap()
     }
+}
+
+/// Draws the cells the way WoW does at 1280x720, where a cell is 3.875 by 4 pixels,
+/// and saves the image as a PNG.
+#[allow(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    clippy::cast_precision_loss
+)]
+fn screenshot_png(rows: &[Vec<u8>]) -> Vec<u8> {
+    let (width, height, pitch_x, pitch_y) = (1280usize, 720usize, 3.875, 4.0);
+    let mut rgb = vec![70u8; width * height * 3];
+    for (r, row) in rows.iter().enumerate() {
+        for (c, &cell) in row.iter().enumerate() {
+            let xs = (c as f64 * pitch_x) as usize..((c + 1) as f64 * pitch_x) as usize;
+            for y in (r as f64 * pitch_y) as usize..((r + 1) as f64 * pitch_y) as usize {
+                for x in xs.clone() {
+                    let at = (y * width + x) * 3;
+                    rgb[at..at + 3].copy_from_slice(&[
+                        255 * (cell >> 2 & 1),
+                        255 * (cell >> 1 & 1),
+                        255 * (cell & 1),
+                    ]);
+                }
+            }
+        }
+    }
+    let mut png_bytes = Vec::new();
+    let mut encoder = png::Encoder::new(&mut png_bytes, width as u32, height as u32);
+    encoder.set_color(png::ColorType::Rgb);
+    encoder
+        .write_header()
+        .unwrap()
+        .write_image_data(&rgb)
+        .unwrap();
+    png_bytes
 }
 
 fn reply(chat: &str, id: u32, status: Status, text: &str) -> Reply {
@@ -413,4 +458,44 @@ fn a_click_on_the_whisper_link_opens_that_chat() {
     let frame: Table = game.lua.globals().get("GnomishRelayFrame").unwrap();
     assert!(frame.get::<bool>("shown").unwrap());
     assert_eq!(game.db().get::<String>("selected").unwrap(), id);
+}
+
+#[test]
+fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
+    let game = Game::start();
+    game.send("ping the relay");
+    game.advance(1.0);
+    let now = 1_790_211_080;
+
+    let png = screenshot_png(&game.shot_rows(game.shots()));
+    let bytes = strip::read(&Image::from_png(&png).unwrap()).expect("the bridge finds the strip");
+    let hex = KEY.iter().fold(String::new(), |mut hex, b| {
+        let _ = write!(hex, "{b:02x}");
+        hex
+    });
+    let records = receive(&bytes, &StripKey::from_hex(&hex).unwrap(), now).unwrap();
+    let mut relay = Relay::default();
+    relay.on_frame(&records, now);
+    let job = relay.next_job().expect("the message is queued");
+    relay.finish(&job, Echo.run(&job));
+    game.wow
+        .set("body", game.lua.create_string(relay.body(now)).unwrap())
+        .unwrap();
+    game.advance(5.0);
+
+    let history: Table = game
+        .db()
+        .get::<Table>("chats")
+        .unwrap()
+        .get::<Table>(1)
+        .unwrap()
+        .get("history")
+        .unwrap();
+    let last: Table = history.get(history.raw_len()).unwrap();
+    assert_eq!(last.get::<String>("text").unwrap(), "echo: ping the relay");
+    assert!(
+        game.printed()
+            .iter()
+            .any(|l| l.contains("echo: ping the relay"))
+    );
 }

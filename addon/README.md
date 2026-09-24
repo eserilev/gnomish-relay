@@ -12,10 +12,12 @@ The addon side of Gnomish Relay. SPEC.md section 13 describes it.
 5. Start WoW, make sure that "Gnomish Relay" is on in the AddOns list, and log in.
 6. Type `/relay` to open the window, or `/ai <message>` to send from the chat line.
 
-The bridge does not read strips yet. To see a reply to your last message, type `/relay diag`
-for the chat and message ids, then run `cargo run -q --bin gnomish-relay -- say <chat> <id> "hello"`.
-The next poll shows it, or `/relay poll` at once. `say` writes 30 slots from slot 1; after more
-polls than that, set `GNOMISH_NEXT_SLOT` to the slot from `/relay diag`.
+7. In a terminal, run `cargo run -q --bin gnomish-relay -- run`. It reads the strips,
+   answers each message with the echo agent, and publishes the reply.
+8. Type a message in the window. The reply "echo: <your message>" comes back as a
+   whisper at the next poll, 5 to 10 seconds later.
+
+`say <chat> <id> <text>` publishes a reply by hand. `/relay diag` shows the ids.
 
 Older versions made 200 slots named `GnomishRelay_S001` to `S200`. With the game closed, delete them:
 `rm -r "$GNOMISH_ADDONS"/GnomishRelay_S[0-9][0-9][0-9]`
