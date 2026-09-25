@@ -1,60 +1,27 @@
 //! The Agent Client Protocol backend (SPEC.md 9), protocol version 1. JSON-RPC 2.0,
 //! one message per line, over the stdin and stdout of the agent process.
 //!
-//! The agent is untrusted: every line has a size limit, the whole run has a deadline,
-//! and the process gets only the environment variables of the allowlist.
+//! The process limits of `process.rs` and `turn.rs` apply to the agent.
 
 use std::collections::BTreeMap;
-use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
-use std::sync::{Arc, Mutex};
-use std::thread;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use serde_json::{Value, json};
 
 use protocol::live::OptionKind;
 use protocol::popup::popup_text;
 
-use crate::agent::{Agent, Choice, Control, Event, Events, Question, Run, SessionInfo, StopSignal};
+use crate::agent::{
+    Agent, Choice, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Run, SessionInfo,
+    exchange_text,
+};
 use crate::config::Permission;
-use crate::program::find_program;
+use crate::process::{AgentProcess, cut};
 use crate::relay::{Job, Work};
+use crate::turn::{STOPPED, Turn};
 
 const PROTOCOL_VERSION: u64 = 1;
-/// A tool call with a large diff fits in far less.
-const MAX_LINE: usize = 8 * 1024 * 1024;
-/// The slot body cuts a reply at 32 KiB anyway.
-const MAX_REPLY: usize = 256 * 1024;
-const STDERR_TAIL: usize = 2048;
-/// After a crash, stdout can close before stderr is read to the end.
-const STDERR_WAIT: Duration = Duration::from_millis(500);
-/// Each agent process gets these, plus the ones in its `env` list (SPEC.md 6.2, rule 12).
-const BASE_ENV: [&str; 11] = [
-    "PATH",
-    "HOME",
-    "LANG",
-    "TERM",
-    "USER",
-    "TMPDIR",
-    "SYSTEMROOT",
-    "USERPROFILE",
-    "APPDATA",
-    "LOCALAPPDATA",
-    "TEMP",
-];
 const METHOD_NOT_FOUND: i64 = -32601;
-/// How often a wait for the agent checks the stop signal.
-const POLL: Duration = Duration::from_millis(100);
-/// After `session/cancel`, the agent gets this long to end the turn. Then it is killed.
-const CANCEL_GRACE: Duration = Duration::from_secs(10);
-const STOPPED: &str = "Stopped.";
-const NEW_SESSION: &str = "(New session: the agent could not resume the old one.)";
-/// A progress line or a refused tool call is at most this long.
-const MAX_STEP: usize = 200;
-/// The prompt of a replayed exchange, on one line.
-const MAX_PROMPT: usize = 300;
 
 pub struct AcpAgent {
     pub command: Vec<String>,
@@ -222,20 +189,8 @@ impl Replay {
     }
 
     fn text(&self) -> String {
-        if self.prompt.is_empty() && self.answer.is_empty() {
-            return String::new();
-        }
-        let prompt: String = self.prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-        format!("{prompt}\n{}", self.answer)
+        exchange_text(&self.prompt, &self.answer)
     }
-}
-
-/// What `check-agent` prints about a new agent entry.
-pub struct Report {
-    pub name: String,
-    pub version: String,
-    pub load_session: bool,
-    pub modes: Vec<String>,
 }
 
 impl AcpAgent {
@@ -256,6 +211,14 @@ impl AcpAgent {
             modes: session.modes,
         })
     }
+}
+
+/// What `check-agent` prints about a new agent entry.
+pub struct Report {
+    pub name: String,
+    pub version: String,
+    pub load_session: bool,
+    pub modes: Vec<String>,
 }
 
 /// One `session/update` from the agent, as the bridge uses it.
@@ -378,89 +341,29 @@ fn modes_of(result: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
-type Line = Result<Value, String>;
-
 struct Connection {
-    child: Child,
-    stdin: ChildStdin,
-    lines: Receiver<Line>,
-    stderr: Arc<Mutex<Vec<u8>>>,
-    stderr_done: Receiver<()>,
+    process: AgentProcess,
+    turn: Turn,
     next_id: u64,
-    deadline: Instant,
     reply: String,
     refused: Vec<String>,
     permission: Permission,
-    stop: StopSignal,
-    events: Events,
-    permission_timeout: Duration,
     /// The session that `session/cancel` names.
     session: Option<String>,
-    cancel_sent: bool,
     /// Set while `session/load` replays a session for an attach.
     replay: Option<Replay>,
 }
 
-impl Drop for Connection {
-    fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
-    }
-}
-
 impl Connection {
     fn start(agent: &AcpAgent, cwd: &str, control: Control) -> Result<Connection, String> {
-        let (program, args) = agent
-            .command
-            .split_first()
-            .ok_or("The agent has no command.")?;
-        let path = std::env::var_os("PATH").unwrap_or_default();
-        let found = find_program(program, &path, cfg!(windows))
-            .ok_or_else(|| format!("Cannot start {program}: not found on PATH"))?;
-        let mut command = Command::new(found);
-        command
-            .args(args)
-            .current_dir(cwd)
-            .env_clear()
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-        for name in BASE_ENV
-            .iter()
-            .copied()
-            .chain(agent.env.iter().map(String::as_str))
-        {
-            if let Some(value) = std::env::var_os(name) {
-                command.env(name, value);
-            }
-        }
-        // Tells a hook of the agent that this run comes from the bridge (SPEC.md 10).
-        command.env("GNOMISH_RELAY_JOB", "1");
-        let mut child = command
-            .spawn()
-            .map_err(|e| format!("Cannot start {program}: {e}"))?;
-        let stdin = child.stdin.take().ok_or("The agent has no stdin.")?;
-        let stdout = child.stdout.take().ok_or("The agent has no stdout.")?;
-        let stderr_pipe = child.stderr.take().ok_or("The agent has no stderr.")?;
-        let stderr = Arc::new(Mutex::new(Vec::new()));
-        let (done, stderr_done) = channel();
-        keep_tail(stderr_pipe, Arc::clone(&stderr), done);
         Ok(Connection {
-            child,
-            stdin,
-            lines: read_lines(stdout),
-            stderr,
-            stderr_done,
+            process: AgentProcess::start(&agent.command, &[], &agent.env, cwd)?,
+            turn: Turn::new(agent.timeout, agent.permission_timeout, control),
             next_id: 1,
-            deadline: Instant::now() + agent.timeout,
             reply: String::new(),
             refused: Vec::new(),
             permission: Permission::Ask,
-            stop: control.stop,
-            events: control.events,
-            permission_timeout: agent.permission_timeout,
             session: None,
-            cancel_sent: false,
             replay: None,
         })
     }
@@ -565,7 +468,7 @@ impl Connection {
             "session/prompt",
             &json!({ "sessionId": session, "prompt": [{ "type": "text", "text": text }] }),
         )?;
-        if self.cancel_sent {
+        if self.turn.stopping() {
             return Err(STOPPED.into());
         }
         let reply = std::mem::take(&mut self.reply);
@@ -590,12 +493,7 @@ impl Connection {
     }
 
     fn send(&mut self, message: &Value) -> Result<(), String> {
-        let mut line = message.to_string();
-        line.push('\n');
-        self.stdin
-            .write_all(line.as_bytes())
-            .and_then(|()| self.stdin.flush())
-            .map_err(|_| self.stopped())
+        self.process.send(message)
     }
 
     fn request(&mut self, method: &str, params: &Value) -> Result<Value, String> {
@@ -622,39 +520,16 @@ impl Connection {
         }
     }
 
+    /// At Stop, the agent gets `session/cancel`. With no session yet, there is nothing
+    /// to cancel.
     fn receive(&mut self) -> Result<Value, String> {
-        loop {
-            if self.stop.requested() && !self.cancel_sent {
-                self.cancel()?;
-            }
-            let left = self.deadline.saturating_duration_since(Instant::now());
-            if left.is_zero() {
-                return Err(if self.cancel_sent {
-                    STOPPED
-                } else {
-                    "Timed out."
-                }
-                .into());
-            }
-            match self.lines.recv_timeout(left.min(POLL)) {
-                Ok(line) => return line,
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) if self.cancel_sent => {
-                    return Err(STOPPED.into());
-                }
-                Err(RecvTimeoutError::Disconnected) => return Err(self.stopped()),
-            }
-        }
-    }
-
-    /// Asks the agent to end the turn. With no session yet, there is nothing to end.
-    fn cancel(&mut self) -> Result<(), String> {
-        self.cancel_sent = true;
-        let Some(session) = self.session.clone() else {
-            return Err(STOPPED.into());
-        };
-        self.deadline = self.deadline.min(Instant::now() + CANCEL_GRACE);
-        self.send(&json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": session } }))
+        let session = self.session.clone();
+        self.turn.receive(&mut self.process, |agent| {
+            let Some(session) = session else {
+                return Err(STOPPED.into());
+            };
+            agent.send(&json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": session } }))
+        })
     }
 
     /// A request or a notification from the agent.
@@ -685,16 +560,14 @@ impl Connection {
                 let room = MAX_REPLY.saturating_sub(self.reply.len());
                 self.reply.push_str(cut(&text, room));
             }
-            Update::Step(line) => {
-                self.events.send(Event::Progress(line));
-            }
+            Update::Step(line) => self.turn.progress(line),
             Update::UserChunk(_) | Update::Other => {}
         }
     }
 
     fn answer(&mut self, params: &Value) -> Value {
         // ACP says: after `session/cancel`, every open request gets "cancelled".
-        if self.cancel_sent {
+        if self.turn.stopping() {
             return cancelled();
         }
         let offered = params
@@ -705,7 +578,7 @@ impl Connection {
         if self.permission == Permission::FullAuto {
             return select(&offered, "allow_once").unwrap_or_else(cancelled);
         }
-        if !self.events.listening() {
+        if !self.turn.listening() {
             let title = text_at(params, "/toolCall/title").unwrap_or("a tool call");
             self.refused.push(cut(title, MAX_STEP).to_owned());
             return select(&offered, "reject_once").unwrap_or_else(cancelled);
@@ -725,28 +598,8 @@ impl Connection {
                 label: label.clone(),
             })
             .collect();
-        let text = request.text;
-        let (answer, answers) = channel();
-        if !self.events.send(Event::Question(Question {
-            text,
-            choices,
-            answer,
-        })) {
-            return cancelled();
-        }
-        let asked = Instant::now();
-        let chosen = loop {
-            if self.stop.requested() || asked.elapsed() >= self.permission_timeout {
-                break None;
-            }
-            match answers.recv_timeout(POLL) {
-                Ok(chosen) => break chosen,
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => break None,
-            }
-        };
-        self.deadline += asked.elapsed();
-        chosen
+        self.turn
+            .ask_game(request.text, choices)
             .and_then(|i| request.options.get(i))
             .map(|(id, _, _)| id.clone())
             .map_or_else(
@@ -754,72 +607,4 @@ impl Connection {
                 |id| json!({ "outcome": "selected", "optionId": id }),
             )
     }
-
-    fn stopped(&mut self) -> String {
-        let _ = self.stderr_done.recv_timeout(STDERR_WAIT);
-        let tail = self.stderr.lock().map(|t| t.clone()).unwrap_or_default();
-        let tail = String::from_utf8_lossy(&tail);
-        match tail.lines().rev().find(|l| !l.trim().is_empty()) {
-            Some(last) => format!("The agent stopped: {}", cut(last.trim(), 300)),
-            None => "The agent stopped.".into(),
-        }
-    }
-}
-
-/// The longest start of `text` with at most `max` bytes that ends on a character.
-fn cut(text: &str, max: usize) -> &str {
-    let mut end = text.len().min(max);
-    while !text.is_char_boundary(end) {
-        end -= 1;
-    }
-    &text[..end]
-}
-
-/// Sends each line as JSON. A line over the limit or a line that is not JSON ends the stream.
-fn read_lines(stdout: impl Read + Send + 'static) -> Receiver<Line> {
-    let (tx, rx) = channel();
-    thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        loop {
-            let mut buf = Vec::new();
-            let read = reader
-                .by_ref()
-                .take(MAX_LINE as u64 + 1)
-                .read_until(b'\n', &mut buf);
-            let line = match read {
-                Ok(0) | Err(_) => return,
-                Ok(_) if buf.len() > MAX_LINE => {
-                    Err("The agent sent a message over the size limit.".to_owned())
-                }
-                Ok(_) if buf.iter().all(u8::is_ascii_whitespace) => continue,
-                Ok(_) => serde_json::from_slice(&buf)
-                    .map_err(|_| "The agent sent a line that is not JSON.".to_owned()),
-            };
-            let end = line.is_err();
-            if tx.send(line).is_err() || end {
-                return;
-            }
-        }
-    });
-    rx
-}
-
-/// Keeps the last bytes of stderr for an error message, and drains the rest, so a
-/// chatty agent never blocks on a full pipe.
-fn keep_tail(stderr: impl Read + Send + 'static, tail: Arc<Mutex<Vec<u8>>>, done: Sender<()>) {
-    thread::spawn(move || {
-        // The sender drops when the thread ends, and that wakes `stopped`.
-        let _done = done;
-        let mut stderr = stderr;
-        let mut chunk = [0u8; 4096];
-        while let Ok(n) = stderr.read(&mut chunk) {
-            if n == 0 {
-                return;
-            }
-            let Ok(mut tail) = tail.lock() else { return };
-            tail.extend_from_slice(&chunk[..n]);
-            let extra = tail.len().saturating_sub(STDERR_TAIL);
-            tail.drain(..extra);
-        }
-    });
 }

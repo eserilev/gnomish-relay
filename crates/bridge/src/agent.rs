@@ -11,6 +11,24 @@ use crate::acp::AcpAgent;
 use crate::config::{Config, Kind};
 use crate::relay::{ChatId, Job, MessageId};
 
+/// The slot body cuts a reply at 32 KiB anyway.
+pub const MAX_REPLY: usize = 256 * 1024;
+/// A progress line or a refused tool call is at most this long.
+pub const MAX_STEP: usize = 200;
+/// The prompt of a replayed exchange, on one line.
+pub const MAX_PROMPT: usize = 300;
+pub const NEW_SESSION: &str = "(New session: the agent could not resume the old one.)";
+
+/// The last exchange of a saved session for an attach (SPEC.md 9.6): the prompt on the
+/// first line, the answer below. An empty session gives an empty text.
+pub fn exchange_text(prompt: &str, answer: &str) -> String {
+    if prompt.is_empty() && answer.is_empty() {
+        return String::new();
+    }
+    let prompt: String = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+    format!("{prompt}\n{answer}")
+}
+
 /// Set by Stop in the game while a run is in progress.
 #[derive(Clone, Default)]
 pub struct StopSignal(Arc<AtomicBool>);
