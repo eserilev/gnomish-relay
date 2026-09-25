@@ -250,6 +250,12 @@ local function Records(due)
 	for _, control in ipairs(state.controls) do
 		Add({ token = control.token, chat = control.chat, id = control.id, flags = control.flags })
 	end
+	local forgets = {}
+	for _, chatId in ipairs(ns.Store.db.forget) do
+		if Add({ token = ns.Store.db.token, chat = chatId, id = 0, flags = "d" }) then
+			table.insert(forgets, chatId)
+		end
+	end
 	for _, item in ipairs(due) do
 		if Add(Copy(item.record)) then
 			table.insert(ids, item.message.id)
@@ -262,11 +268,27 @@ local function Records(due)
 	if #records == 0 then
 		Add({ token = ns.Store.db.token, chat = "relay", id = 0, flags = "h" })
 	end
-	return records, ids
+	return records, ids, forgets
+end
+
+-- A strip can go out while the bridge is off. So a delete stays in `forget` and
+-- rides on later strips until one goes out while the bridge is online.
+local function Forgotten(chatIds)
+	if not Transport.Online() then
+		return
+	end
+	local forget = ns.Store.db.forget
+	for _, chatId in ipairs(chatIds) do
+		for i = #forget, 1, -1 do
+			if forget[i] == chatId then
+				table.remove(forget, i)
+			end
+		end
+	end
 end
 
 -- `reporting` is the slot that the strip reports, or nil for a stored frame.
-local function ShowFrame(frame, ids, controls, reporting)
+local function ShowFrame(frame, ids, controls, reporting, forgets)
 	if reporting then
 		-- A hello that comes due during the shot stays due.
 		state.helloDue = false
@@ -284,6 +306,7 @@ local function ShowFrame(frame, ids, controls, reporting)
 		for _ = 1, controls do
 			table.remove(state.controls, 1)
 		end
+		Forgotten(forgets or {})
 		if reporting then
 			state.reported = reporting
 		end
@@ -304,8 +327,8 @@ function Transport.ShowNextStrip()
 	if #due == 0 and #state.controls == 0 and not state.helloDue then
 		return
 	end
-	local records, ids = Records(due)
-	ShowFrame(Sign(records, ids[1] or 0), ids, #state.controls, state.nextSlot)
+	local records, ids, forgets = Records(due)
+	ShowFrame(Sign(records, ids[1] or 0), ids, #state.controls, state.nextSlot, forgets)
 end
 
 function Transport.Fits(chat, text)
@@ -328,6 +351,14 @@ function Transport.Send(chat, text)
 	Transport.ShowNextStrip()
 	Transport.OnChange()
 	return message
+end
+
+function Transport.Delete(chat)
+	state.working[chat.id] = nil
+	ns.Store.DeleteChat(chat.id)
+	state.helloDue = true
+	Transport.ShowNextStrip()
+	Transport.OnChange()
 end
 
 function Transport.Stop(chat)
@@ -468,6 +499,9 @@ function Transport.Poll()
 		Apply(data)
 		ApplyRestore(restore)
 		ApplyLive(live)
+		if #ns.Store.db.forget > 0 and Transport.Online() then
+			state.helloDue = true
+		end
 	end
 	Transport.OnChange()
 end

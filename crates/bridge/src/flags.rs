@@ -9,6 +9,7 @@ pub struct Flags {
     pub new_session: bool,
     pub restored: bool,
     pub stop: bool,
+    pub delete: bool,
     pub next: Option<usize>,
     pub read: Vec<u32>,
     pub agent: Option<String>,
@@ -82,6 +83,7 @@ pub fn parse(bytes: &[u8]) -> Flags {
                 "n" => flags.new_session = true,
                 "restored" => flags.restored = true,
                 "stop" => flags.stop = true,
+                "d" => flags.delete = true,
                 _ => {}
             },
             Some(("next", n)) => flags.next = n.parse().ok(),
@@ -110,7 +112,7 @@ mod tests {
     #[test]
     fn every_known_flag_parses() {
         let f = parse(
-            b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop;build=70009;out=shot;in=missing;ver=1",
+            b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop;build=70009;out=shot;in=missing;ver=1;d",
         );
         assert_eq!(
             f,
@@ -119,6 +121,7 @@ mod tests {
                 new_session: true,
                 restored: true,
                 stop: true,
+                delete: true,
                 next: Some(42),
                 read: vec![7, 9],
                 agent: Some("claude".into()),

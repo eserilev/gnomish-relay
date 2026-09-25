@@ -58,7 +58,7 @@ local function Tile(index)
 	if tile then
 		return tile
 	end
-	tile = CreateFrame("Button", nil, ui.chats)
+	tile = CreateFrame("Button", "GnomishRelayTile" .. index, ui.chats)
 	tile:SetSize(SIDE - 12, TILE_HEIGHT)
 	tile:SetPoint("TOPLEFT", ui.chats, "TOPLEFT", 6, -6 - (index - 1) * (TILE_HEIGHT + 4))
 	tile.bg = tile:CreateTexture(nil, "BACKGROUND")
@@ -67,8 +67,13 @@ local function Tile(index)
 	tile.name = Label(tile, "GameFontNormal", "TOPLEFT", 10, -9)
 	tile.agent = Label(tile, "GameFontHighlightSmall", "BOTTOMLEFT", 10, 9)
 	tile.mark = Label(tile, "GameFontNormalLarge", "RIGHT", -10, 0)
-	tile:SetScript("OnClick", function(self)
-		if self.chatId then
+	tile:RegisterForClicks("LeftButtonUp", "RightButtonUp")
+	tile:SetScript("OnClick", function(self, button)
+		if button == "RightButton" then
+			if self.chatId then
+				Window.AskDelete(self.chatId)
+			end
+		elseif self.chatId then
 			Select(self.chatId)
 		else
 			Select(ns.Store.NewChat().id)
@@ -337,6 +342,54 @@ local function BuildActivity()
 	ui.stop:Hide()
 end
 
+local function BuildConfirm()
+	ui.confirm = CreateFrame("Frame", "GnomishRelayConfirm", frame)
+	ui.confirm:SetFrameStrata("DIALOG")
+	ui.confirm:SetSize(320, 90)
+	ui.confirm:SetPoint("CENTER", frame, "CENTER", 0, 40)
+	ui.confirm:EnableMouse(true)
+	local background = ui.confirm:CreateTexture(nil, "BACKGROUND")
+	background:SetAllPoints()
+	background:SetColorTexture(0, 0, 0, 0.9)
+	ui.confirmText = Label(ui.confirm, "GameFontHighlight", "TOPLEFT", 12, -14)
+	ui.confirmText:SetWidth(296)
+	local delete = CreateFrame("Button", "GnomishRelayConfirmDelete", ui.confirm, "UIPanelButtonTemplate")
+	delete:SetSize(100, 22)
+	delete:SetPoint("BOTTOMLEFT", ui.confirm, "BOTTOMLEFT", 12, 12)
+	delete:SetText("Delete")
+	delete:SetScript("OnClick", function()
+		local chat = ns.Store.Chat(ui.confirm.chatId)
+		ui.confirm:Hide()
+		if chat then
+			ns.Transport.Delete(chat)
+		end
+	end)
+	local cancel = CreateFrame("Button", "GnomishRelayConfirmCancel", ui.confirm, "UIPanelButtonTemplate")
+	cancel:SetSize(100, 22)
+	cancel:SetPoint("BOTTOMRIGHT", ui.confirm, "BOTTOMRIGHT", -12, 12)
+	cancel:SetText("Cancel")
+	cancel:SetScript("OnClick", function()
+		ui.confirm:Hide()
+	end)
+	ui.confirm:Hide()
+end
+
+-- A chat that still works gets Stop and Delete in one click: the bridge stops the run.
+function Window.AskDelete(chatId)
+	local chat = ns.Store.Chat(chatId)
+	if not chat then
+		return
+	end
+	local name = ns.Relay.Plain(chat.name)
+	if ns.Transport.Working(chat.id) then
+		ui.confirmText:SetText(string.format('Stop and delete "%s"?', name))
+	else
+		ui.confirmText:SetText(string.format('Delete "%s"?', name))
+	end
+	ui.confirm.chatId = chat.id
+	ui.confirm:Show()
+end
+
 local function Build()
 	frame = CreateFrame("Frame", "GnomishRelayFrame", UIParent, "PortraitFrameTemplate")
 	frame:SetSize(WIDTH, HEIGHT)
@@ -361,6 +414,7 @@ local function Build()
 	ui.chats = Inset(frame, 6, -60, SIDE, 30)
 	BuildCenter()
 	BuildActivity()
+	BuildConfirm()
 	frame:Hide()
 end
 

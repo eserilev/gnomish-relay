@@ -1026,3 +1026,94 @@ fn a_screenshot_of_the_player_does_not_end_our_strip() {
         .any(|r| r.text == b"keep the strip");
     assert!(sent);
 }
+
+fn right_click(game: &Game, frame: &str) {
+    let frame: Table = game.lua.globals().get(frame).unwrap();
+    frame
+        .get::<Table>("scripts")
+        .unwrap()
+        .get::<Function>("OnClick")
+        .unwrap()
+        .call::<()>((frame.clone(), "RightButton"))
+        .unwrap();
+}
+
+fn chat_count(game: &Game) -> usize {
+    game.db().get::<Table>("chats").unwrap().raw_len()
+}
+
+#[test]
+fn a_right_click_and_delete_removes_the_chat_and_tells_the_bridge() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+    game.advance(1.0);
+    let chat = game.chat_id();
+    game.publish(&[reply(&chat, first_message_id(&game), Status::Done, "hello")]);
+    game.advance(5.0);
+
+    right_click(&game, "GnomishRelayTile1");
+    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
+    assert!(confirm.get::<bool>("shown").unwrap());
+    game.run("GnomishRelayConfirmDelete:Click()");
+    game.advance(1.0);
+
+    assert_eq!(chat_count(&game), 0);
+    let records = game.last_strip();
+    let delete = records
+        .iter()
+        .find(|r| flags(r).contains(&"d".into()))
+        .expect("a delete record");
+    assert_eq!(delete.chat, chat.as_bytes());
+}
+
+#[test]
+fn cancel_keeps_the_chat() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+
+    right_click(&game, "GnomishRelayTile1");
+    game.run("GnomishRelayConfirmCancel:Click()");
+
+    assert_eq!(chat_count(&game), 1);
+    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
+    assert!(!confirm.get::<bool>("shown").unwrap());
+}
+
+#[test]
+fn a_right_click_on_new_chat_asks_nothing() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+
+    right_click(&game, "GnomishRelayTile1");
+
+    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
+    assert!(!confirm.get::<bool>("shown").unwrap());
+}
+
+#[test]
+fn a_delete_while_the_bridge_is_off_goes_out_again_after_a_reload() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+    let chat = game.chat_id();
+    game.run("local ns = ... ns.Transport.Delete(ns.Store.Chats()[1])");
+    game.advance(1.0);
+    assert_eq!(
+        game.db().get::<Table>("forget").unwrap().raw_len(),
+        1,
+        "no body came, so the bridge can be off"
+    );
+
+    let game = game.reload();
+    game.publish(&[]);
+    game.advance(601.0);
+    let deletes: Vec<Record> = (1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .filter(|r| flags(r).contains(&"d".into()))
+        .collect();
+    assert!(!deletes.is_empty());
+    assert!(deletes.iter().all(|r| r.chat == chat.as_bytes()));
+    assert_eq!(game.db().get::<Table>("forget").unwrap().raw_len(), 0);
+}

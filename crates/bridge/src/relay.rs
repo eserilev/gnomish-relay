@@ -150,6 +150,8 @@ pub struct Relay {
     sessions: Vec<AgentSession>,
     /// Chats whose run in progress got a Stop. The bridge signals each run.
     cancels: Vec<ChatId>,
+    /// Chats that the game deleted. A run of one that ends later leaves no trace.
+    deleted: Vec<ChatId>,
     activity: Activity,
 }
 
@@ -182,6 +184,7 @@ impl Relay {
             addon_version: None,
             sessions: Vec::new(),
             cancels: Vec::new(),
+            deleted: Vec::new(),
             activity: Activity::default(),
         }
     }
@@ -263,6 +266,10 @@ impl Relay {
         }
         if flags.stop {
             self.stop(&chat);
+            return Outcome::Control;
+        }
+        if flags.delete {
+            self.delete(chat);
             return Outcome::Control;
         }
         if let Some(answer) = &flags.perm {
@@ -393,6 +400,21 @@ impl Relay {
         }
     }
 
+    /// The game has no chat to show a reply in, so a reply of the chat could never be
+    /// read and would stay in the body for good (SPEC.md 7.3).
+    fn delete(&mut self, chat: ChatId) {
+        self.stop(&chat);
+        self.records.retain(|e| e.chat != chat);
+        self.sessions.retain(|s| s.chat != chat);
+        self.history.remove(&chat);
+        self.deleted.push(chat);
+        keep_last(&mut self.deleted, MAX_SESSIONS);
+    }
+
+    fn is_deleted(&self, chat: &ChatId) -> bool {
+        self.deleted.contains(chat)
+    }
+
     /// The oldest waiting message of a chat that has no run in progress.
     pub fn next_job(&mut self) -> Option<Job> {
         let chat = self
@@ -422,6 +444,9 @@ impl Relay {
         let Some(id) = id else {
             return;
         };
+        if self.is_deleted(&job.chat) {
+            return;
+        }
         self.sessions.retain(|s| s.chat != job.chat);
         self.sessions.push(AgentSession {
             chat: job.chat.clone(),
@@ -462,6 +487,9 @@ impl Relay {
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
         self.activity.end(&job.chat, job.id);
         self.running.remove(&job.chat);
+        if self.is_deleted(&job.chat) {
+            return;
+        }
         let (status, text) = match result {
             Ok(text) => (Status::Done, text),
             Err(text) => (Status::Error, text),
@@ -1012,6 +1040,42 @@ mod tests {
         relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
         assert!(relay.next_job().is_none());
         assert!(body(&relay).contains(r#"id = 2, status = "error", text = "Stopped.""#));
+    }
+
+    #[test]
+    fn delete_drops_the_replies_the_session_and_the_history_of_the_chat() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a"), record("c2", 2, "", "b")], NOW);
+        let jobs = run_all(&mut relay);
+        relay.keep_session(&jobs[0], Some("s1".into()));
+
+        relay.on_frame(&[record("c1", 0, "d", "")], NOW);
+
+        assert!(
+            !body(&relay).contains("echo: a"),
+            "no reply of c1 is left to block the body"
+        );
+        assert!(body(&relay).contains("echo: b"));
+        assert_eq!(relay.unread(), 1);
+        let state = relay.to_state();
+        assert!(state.sessions.is_empty());
+        assert!(state.history.to_restore().iter().all(|c| c.id != b"c1"));
+    }
+
+    #[test]
+    fn a_run_of_a_deleted_chat_ends_with_no_reply_and_no_session() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a"), record("c1", 2, "", "b")], NOW);
+        let running = relay.next_job().unwrap();
+
+        relay.on_frame(&[record("c1", 0, "d", "")], NOW);
+        assert_eq!(relay.take_cancels(), [ChatId("c1".into())]);
+        relay.keep_session(&running, Some("s1".into()));
+        relay.finish(&running, Err("Stopped.".into()));
+
+        assert_eq!(relay.unread(), 0);
+        assert!(relay.to_state().sessions.is_empty());
+        assert!(relay.next_job().is_none(), "the waiting message never runs");
     }
 
     #[test]

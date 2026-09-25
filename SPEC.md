@@ -344,7 +344,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 |---|---|
 | `n` | Start a new agent session for this chat. |
 | `h` | Hello only. It announces the token and the addon version. It has no prompt. The addon sends one at login and after it applies a restore bundle (7.6). |
-| `d` | The chat is deleted. The bridge drops its transcript and session. The addon keeps the id in `db.forget` and sends it with each hello until the bridge acknowledges it. |
+| `d` | The chat is deleted. The bridge stops its runs, and drops its replies, its session link, and its history. A reply of a deleted chat can never be read, so it must leave the body (7.3). The addon keeps the id in `db.forget`, and sends it with each strip until a strip goes out while the bridge is online. The agent session itself stays, so Resume can bring the chat back. |
 | `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not set up." |
 | `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
@@ -905,7 +905,7 @@ The mockup is the reference for the layout.
 
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
-- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tile is "Start a New Chat".
+- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tile is "Start a New Chat". A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
 - **Center:** a dropdown for the agent and the permission mode, the folder, and the bridge light. Below them, the transcript on a black background in classic lines: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. Code shows in black boxes in a shipped mono font.
 - **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
 - **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details.

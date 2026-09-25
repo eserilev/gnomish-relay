@@ -30,6 +30,8 @@ function Store.Load()
 	db.nextId = db.nextId or (time() - 1700000000)
 	db.chats = db.chats or {}
 	db.outbox = db.outbox or {}
+	-- Deleted chats that the bridge has not heard of yet.
+	db.forget = db.forget or {}
 	db.restored = db.restored or false
 	db.whisperColor = db.whisperColor or "f0a860"
 	Store.db = db
@@ -59,6 +61,25 @@ function Store.NewChat(agent)
 	}
 	table.insert(Store.db.chats, chat)
 	return chat
+end
+
+function Store.DeleteChat(id)
+	local db = Store.db
+	for i, chat in ipairs(db.chats) do
+		if chat.id == id then
+			table.remove(db.chats, i)
+			break
+		end
+	end
+	for i = #db.outbox, 1, -1 do
+		if db.outbox[i].chat == id then
+			table.remove(db.outbox, i)
+		end
+	end
+	if db.selected == id then
+		db.selected = nil
+	end
+	table.insert(db.forget, id)
 end
 
 local function Append(chat, entry)

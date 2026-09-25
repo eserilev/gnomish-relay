@@ -66,6 +66,10 @@ impl History {
         self.add_line(speaker, id, text);
     }
 
+    pub fn remove(&mut self, chat: &ChatId) {
+        self.take(chat);
+    }
+
     fn take(&mut self, chat: &ChatId) -> Option<ChatLog> {
         let at = self.chats.iter().position(|c| &c.chat == chat)?;
         Some(self.chats.remove(at))
