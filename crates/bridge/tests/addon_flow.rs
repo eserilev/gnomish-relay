@@ -7,7 +7,7 @@ mod common;
 
 use std::fmt::Write;
 
-use bridge::agent::{Agent, Echo};
+use bridge::agent::{Agent, Echo, StopSignal};
 use bridge::config::{Permission, Policy};
 use bridge::receive::{StripKey, receive};
 use bridge::relay::{Folders, Relay};
@@ -513,7 +513,7 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
     });
     relay.on_frame(&records, now);
     let job = relay.next_job().expect("the message is queued");
-    relay.finish(&job, Echo.run(&job));
+    relay.finish(&job, Echo.run(&job, &StopSignal::default()).reply);
     game.wow
         .set("body", game.lua.create_string(relay.body(now)).unwrap())
         .unwrap();

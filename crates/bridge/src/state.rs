@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::fs_safe::write_atomic;
 use crate::history::History;
-use crate::relay::{ChatId, Job, MessageId};
+use crate::relay::{AgentSession, ChatId, Job, MessageId};
 
 const FILE: &str = "state.json";
 /// 1000 seen ids and 30 records of 32 KiB fit in far less.
@@ -29,6 +29,7 @@ pub struct State {
     pub retired: Vec<String>,
     pub restore_for: Option<String>,
     pub client_build: Option<String>,
+    pub sessions: Vec<AgentSession>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -97,6 +98,7 @@ mod tests {
                 permission: crate::config::Permission::AutoEdit,
                 cwd: "/home/x".into(),
                 session: Session::Resume,
+                resume: None,
                 text: "next".into(),
             }],
             tokens: vec!["tok".into()],

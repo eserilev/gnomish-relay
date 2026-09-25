@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use bridge::acp::AcpAgent;
-use bridge::agent::Agent;
+use bridge::agent::{Agent, StopSignal};
 use bridge::config::Permission;
 use bridge::relay::{ChatId, Job, MessageId, Session};
 
@@ -20,9 +20,8 @@ fn agent(script: &str) -> AcpAgent {
     }
 }
 
-fn run(agent: &AcpAgent, permission: Permission, text: &str) -> Result<String, String> {
-    let dir = tempfile::tempdir().unwrap();
-    let job = Job {
+fn job(dir: &tempfile::TempDir, permission: Permission, text: &str) -> Job {
+    Job {
         token: "tok".into(),
         chat: ChatId("c1".into()),
         id: MessageId(1),
@@ -30,9 +29,24 @@ fn run(agent: &AcpAgent, permission: Permission, text: &str) -> Result<String, S
         permission,
         cwd: dir.path().to_string_lossy().into_owned(),
         session: Session::New,
+        resume: None,
         text: text.into(),
-    };
-    agent.run(&job)
+    }
+}
+
+fn run(agent: &AcpAgent, permission: Permission, text: &str) -> Result<String, String> {
+    let dir = tempfile::tempdir().unwrap();
+    agent
+        .run(&job(&dir, permission, text), &StopSignal::default())
+        .reply
+}
+
+fn resume(script: &str) -> (Result<String, String>, Option<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut job = job(&dir, Permission::Ask, "again");
+    job.resume = Some("old-7".into());
+    let run = agent(script).run(&job, &StopSignal::default());
+    (run.reply, run.session)
 }
 
 #[test]
@@ -144,4 +158,58 @@ fn check_shows_the_agent_and_its_modes() {
     );
     assert_eq!(report.modes, ["default", "plan"]);
     assert!(!report.load_session);
+}
+
+#[test]
+fn a_new_session_comes_back_so_the_next_message_can_resume_it() {
+    let dir = tempfile::tempdir().unwrap();
+    let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &StopSignal::default());
+    assert_eq!(run.session.as_deref(), Some("s1"));
+}
+
+#[test]
+fn an_agent_with_session_resume_continues_the_old_session() {
+    let (reply, session) = resume("resume");
+    assert_eq!(reply.unwrap(), "in old-7, resumed old-7 by session/resume");
+    assert_eq!(session.as_deref(), Some("old-7"));
+}
+
+#[test]
+fn a_loaded_session_replays_history_that_stays_out_of_the_reply() {
+    let (reply, _) = resume("load");
+    assert_eq!(reply.unwrap(), "in old-7, resumed old-7 by session/load");
+}
+
+#[test]
+fn an_agent_that_cannot_resume_gets_a_new_session_and_the_reply_says_so() {
+    let (reply, session) = resume("noresume");
+    let reply = reply.unwrap();
+    assert!(reply.starts_with("(New session:"), "{reply}");
+    assert!(reply.ends_with("in s1, resumed no"), "{reply}");
+    assert_eq!(session.as_deref(), Some("s1"));
+}
+
+#[test]
+fn stop_cancels_the_turn_and_keeps_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let stop = StopSignal::default();
+    let later = stop.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(Duration::from_millis(300));
+        later.request();
+    });
+    let start = Instant::now();
+    let run = agent("slow").run(&job(&dir, Permission::Ask, "hi"), &stop);
+    assert_eq!(run.reply.unwrap_err(), "Stopped.");
+    assert_eq!(run.session.as_deref(), Some("s1"));
+    assert!(start.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn stop_before_the_session_opens_ends_the_run_at_once() {
+    let dir = tempfile::tempdir().unwrap();
+    let stop = StopSignal::default();
+    stop.request();
+    let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &stop);
+    assert_eq!(run.reply.unwrap_err(), "Stopped.");
 }

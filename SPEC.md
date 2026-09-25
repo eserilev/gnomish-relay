@@ -615,8 +615,10 @@ trait Agent: Send + Sync {
 `Job` carries the chat, the folder after the policy check, the level after the ceiling (S6), and the text.
 Each run of the `acp` backend starts the agent process, opens a session, sets the mode of the level, sends the prompt, and stops the process.
 
+- **Resume.** The bridge keeps the agent session of each chat in `state.json`, with its agent and its folder. The next message of the chat resumes it, unless the message has the `n` flag, or the agent or the folder changed. The client uses `session/resume` if the agent offers it, else `session/load`. The history that `session/load` replays stays out of the reply. If neither works, the run opens a new session, and the reply starts with "(New session: the agent could not resume the old one.)".
+- **Stop.** Stop in the game ends the waiting messages of the chat, and signals the run in progress. The client sends `session/cancel`, answers every open permission request with "cancelled", and waits 10 seconds for the agent to end the turn. Then it kills the process. The reply is "Stopped.", and the session stays for the next message.
+
 Next, the trait grows events for progress and for permission requests from the game (9.3). Those need new fields in the slot body, so they wait for an approved S9 statement.
-Session resume across messages also comes next (`session/load` or `session/resume`, with the session id of each chat in `state.json`).
 
 ### 9.2 Backends
 
@@ -1074,7 +1076,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 6. **Addon port** with the stub harness and the differential tests.
 7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`. Passed in the game on 2026-09-24: a message went out as a strip, and the echo came back through the slots.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Next:** the classifier (6.6.3) needs the tool calls of step 9.
-9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Next:** progress and permissions in the game (needs an S9 change), session resume, and Stop for a running run.
+9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Next:** progress and permissions in the game (needs an S9 change).
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.

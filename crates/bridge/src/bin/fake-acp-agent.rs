@@ -32,7 +32,7 @@ fn ask(method: &str, params: &Value) -> Option<Value> {
     read()
 }
 
-fn prompt_reply(script: &str, params: &Value, mode: &str) -> Option<String> {
+fn prompt_reply(script: &str, params: &Value, mode: &str, resumed: &str) -> Option<String> {
     let session = params.get("sessionId").cloned().unwrap_or(Value::Null);
     let text = params
         .pointer("/prompt/0/text")
@@ -72,6 +72,22 @@ fn prompt_reply(script: &str, params: &Value, mode: &str) -> Option<String> {
                 .unwrap_or("cancelled");
             Some(format!("chose {outcome}"))
         }
+        "resume" | "load" | "noresume" => {
+            let session = params
+                .get("sessionId")
+                .and_then(Value::as_str)
+                .unwrap_or("?");
+            Some(format!("in {session}, resumed {resumed}"))
+        }
+        "slow" => {
+            // Waits for `session/cancel`, then ends the turn as ACP says.
+            while let Some(message) = read() {
+                if message.get("method").and_then(Value::as_str) == Some("session/cancel") {
+                    break;
+                }
+            }
+            None
+        }
         "files" => {
             let answer = ask(
                 "fs/read_text_file",
@@ -99,6 +115,7 @@ fn prompt_reply(script: &str, params: &Value, mode: &str) -> Option<String> {
 fn main() {
     let script = std::env::args().nth(1).unwrap_or_default();
     let mut mode = "none".to_owned();
+    let mut resumed = "no".to_owned();
     while let Some(message) = read() {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let params = message.get("params").cloned().unwrap_or(Value::Null);
@@ -106,8 +123,22 @@ fn main() {
             "initialize" => json!({
                 "protocolVersion": if script == "v2" { 2 } else { 1 },
                 "agentInfo": { "name": "fake", "version": "1.0" },
-                "agentCapabilities": { "loadSession": false },
+                "agentCapabilities": {
+                    "loadSession": script == "load",
+                    "sessionCapabilities": if script == "resume" { json!({ "resume": {} }) } else { json!({}) },
+                },
             }),
+            method @ ("session/resume" | "session/load") => {
+                let id = params
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                if method == "session/load" {
+                    chunk(&params["sessionId"], "OLD HISTORY ");
+                }
+                format!("{id} by {method}").clone_into(&mut resumed);
+                json!({})
+            }
             "session/new" => json!({
                 "sessionId": "s1",
                 "modes": { "currentModeId": "default", "availableModes": [
@@ -124,7 +155,14 @@ fn main() {
                 json!({})
             }
             "session/prompt" => {
-                let Some(reply) = prompt_reply(&script, &params, &mode) else {
+                if script == "slow" {
+                    prompt_reply(&script, &params, &mode, &resumed);
+                    send(
+                        &json!({ "jsonrpc": "2.0", "id": id, "result": { "stopReason": "cancelled" } }),
+                    );
+                    continue;
+                }
+                let Some(reply) = prompt_reply(&script, &params, &mode, &resumed) else {
                     return;
                 };
                 chunk(&params["sessionId"], &reply);

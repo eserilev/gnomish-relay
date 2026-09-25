@@ -1,5 +1,6 @@
 //! The main loop: screenshots in, agent runs, slots out (SPEC.md 8.2).
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
@@ -8,10 +9,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
-use crate::agent::Agents;
+use crate::agent::{Agents, Run, StopSignal};
 use crate::config::Policy;
 use crate::receive::{StripKey, receive};
-use crate::relay::{Job, Outcome, Relay};
+use crate::relay::{ChatId, Job, Outcome, Relay};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots;
@@ -21,7 +22,7 @@ const TICK: Duration = Duration::from_millis(250);
 /// The addon calls the bridge offline after 12 minutes without a new body.
 const HEARTBEAT: Duration = Duration::from_mins(1);
 
-type Finished = (Job, Result<String, String>);
+type Finished = (Job, Run);
 
 pub struct Paths {
     pub addons: PathBuf,
@@ -51,6 +52,8 @@ pub struct Bridge {
     paths: Paths,
     key: StripKey,
     agents: Agents,
+    /// The stop signal of each run in progress, by chat.
+    stops: BTreeMap<ChatId, StopSignal>,
     relay: Relay,
     watcher: Watcher,
     saved: saved::Watcher,
@@ -74,6 +77,7 @@ impl Bridge {
             paths,
             key,
             agents,
+            stops: BTreeMap::new(),
             relay,
             finished,
             results,
@@ -86,6 +90,7 @@ impl Bridge {
     pub fn step(&mut self) {
         self.take_screenshots();
         self.take_saved_variables();
+        self.signal_stops();
         self.finish_runs();
         if self.changed || self.last_publish.elapsed() >= HEARTBEAT {
             self.store();
@@ -178,20 +183,37 @@ impl Bridge {
             let finished = self.finished.clone();
             // The policy refuses an agent that the config does not have, so this is a guard.
             let Some(agent) = self.agents.get(&job.agent).map(Arc::clone) else {
-                let _ = finished.send((job, Err("Agent not set up.".into())));
+                let run = Run {
+                    reply: Err("Agent not set up.".into()),
+                    session: None,
+                };
+                let _ = finished.send((job, run));
                 continue;
             };
+            let stop = StopSignal::default();
+            self.stops.insert(job.chat.clone(), stop.clone());
             thread::spawn(move || {
-                let result = agent.run(&job);
-                let _ = finished.send((job, result));
+                let run = agent.run(&job, &stop);
+                let _ = finished.send((job, run));
             });
         }
     }
 
+    fn signal_stops(&mut self) {
+        for chat in self.relay.take_cancels() {
+            if let Some(stop) = self.stops.get(&chat) {
+                log(&format!("stop {}", chat.0));
+                stop.request();
+            }
+        }
+    }
+
     fn finish_runs(&mut self) {
-        while let Ok((job, result)) = self.results.try_recv() {
+        while let Ok((job, run)) = self.results.try_recv() {
             log(&format!("done {} #{}", job.chat.0, job.id.0));
-            self.relay.finish(&job, result);
+            self.stops.remove(&job.chat);
+            self.relay.keep_session(&job, run.session);
+            self.relay.finish(&job, run.reply);
             self.changed = true;
         }
     }

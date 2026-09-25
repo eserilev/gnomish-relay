@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::agent::Agent;
+use crate::agent::{Agent, Run, StopSignal};
 use crate::config::Permission;
 use crate::relay::Job;
 
@@ -39,6 +39,12 @@ const BASE_ENV: [&str; 11] = [
     "TEMP",
 ];
 const METHOD_NOT_FOUND: i64 = -32601;
+/// How often a wait for the agent checks the stop signal.
+const POLL: Duration = Duration::from_millis(100);
+/// After `session/cancel`, the agent gets this long to end the turn. Then it is killed.
+const CANCEL_GRACE: Duration = Duration::from_secs(10);
+const STOPPED: &str = "Stopped.";
+const NEW_SESSION: &str = "(New session: the agent could not resume the old one.)";
 
 pub struct AcpAgent {
     pub command: Vec<String>,
@@ -49,14 +55,32 @@ pub struct AcpAgent {
 }
 
 impl Agent for AcpAgent {
-    fn run(&self, job: &Job) -> Result<String, String> {
-        let mut agent = Connection::start(self, &job.cwd)?;
-        agent.initialize()?;
-        let session = agent.new_session(&job.cwd)?;
+    fn run(&self, job: &Job, stop: &StopSignal) -> Run {
+        let mut session = None;
+        let reply = self.run_in_session(job, stop, &mut session);
+        Run { reply, session }
+    }
+}
+
+impl AcpAgent {
+    fn run_in_session(
+        &self,
+        job: &Job,
+        stop: &StopSignal,
+        session_id: &mut Option<String>,
+    ) -> Result<String, String> {
+        let mut agent = Connection::start(self, &job.cwd, stop.clone())?;
+        let init = agent.initialize()?;
+        let (session, note) = agent.open_session(&init, &job.cwd, job.resume.as_deref())?;
+        *session_id = Some(session.id.clone());
         if let Some(mode) = self.modes.get(&job.permission) {
             agent.set_mode(&session.id, mode, &session.modes)?;
         }
-        agent.prompt(&session.id, &job.text, job.permission)
+        let reply = agent.prompt(&session.id, &job.text, job.permission)?;
+        Ok(match note {
+            Some(note) => format!("{note}\n\n{reply}"),
+            None => reply,
+        })
     }
 }
 
@@ -71,7 +95,7 @@ pub struct Report {
 impl AcpAgent {
     /// Starts the agent, opens one session in `cwd`, and stops it. No prompt is sent.
     pub fn check(&self, cwd: &str) -> Result<Report, String> {
-        let mut agent = Connection::start(self, cwd)?;
+        let mut agent = Connection::start(self, cwd, StopSignal::default())?;
         let init = agent.initialize()?;
         let session = agent.new_session(cwd)?;
         Ok(Report {
@@ -97,6 +121,19 @@ struct Session {
     modes: Vec<String>,
 }
 
+fn modes_of(result: &Value) -> Vec<String> {
+    result
+        .pointer("/modes/availableModes")
+        .and_then(Value::as_array)
+        .map(|modes| {
+            modes
+                .iter()
+                .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 type Line = Result<Value, String>;
 
 struct Connection {
@@ -109,6 +146,10 @@ struct Connection {
     reply: String,
     refused: Vec<String>,
     permission: Permission,
+    stop: StopSignal,
+    /// The session that `session/cancel` names.
+    session: Option<String>,
+    cancel_sent: bool,
 }
 
 impl Drop for Connection {
@@ -119,7 +160,7 @@ impl Drop for Connection {
 }
 
 impl Connection {
-    fn start(agent: &AcpAgent, cwd: &str) -> Result<Connection, String> {
+    fn start(agent: &AcpAgent, cwd: &str, stop: StopSignal) -> Result<Connection, String> {
         let (program, args) = agent
             .command
             .split_first()
@@ -161,6 +202,9 @@ impl Connection {
             reply: String::new(),
             refused: Vec::new(),
             permission: Permission::Ask,
+            stop,
+            session: None,
+            cancel_sent: false,
         })
     }
 
@@ -189,17 +233,51 @@ impl Connection {
         let id = text_at(&result, "/sessionId")
             .ok_or("The agent opened no session.")?
             .to_owned();
-        let modes = result
-            .pointer("/modes/availableModes")
-            .and_then(Value::as_array)
-            .map(|modes| {
-                modes
-                    .iter()
-                    .filter_map(|m| m.get("id").and_then(Value::as_str).map(str::to_owned))
-                    .collect()
-            })
-            .unwrap_or_default();
-        Ok(Session { id, modes })
+        self.session = Some(id.clone());
+        Ok(Session {
+            id,
+            modes: modes_of(&result),
+        })
+    }
+
+    /// Resumes the session of the chat if the agent can, and says so if it cannot.
+    /// `session/resume` needs no replay. `session/load` replays the chat as updates,
+    /// and `prompt` drops them: they are history, not the reply.
+    fn open_session(
+        &mut self,
+        init: &Value,
+        cwd: &str,
+        resume: Option<&str>,
+    ) -> Result<(Session, Option<&'static str>), String> {
+        let Some(id) = resume else {
+            return Ok((self.new_session(cwd)?, None));
+        };
+        let caps = init.get("agentCapabilities").unwrap_or(&Value::Null);
+        let method = if caps
+            .pointer("/sessionCapabilities/resume")
+            .is_some_and(|r| !r.is_null())
+        {
+            "session/resume"
+        } else if caps.get("loadSession").and_then(Value::as_bool) == Some(true) {
+            "session/load"
+        } else {
+            return Ok((self.new_session(cwd)?, Some(NEW_SESSION)));
+        };
+        match self.request(
+            method,
+            &json!({ "sessionId": id, "cwd": cwd, "mcpServers": [] }),
+        ) {
+            Ok(result) => {
+                self.session = Some(id.to_owned());
+                let session = Session {
+                    id: id.to_owned(),
+                    modes: modes_of(&result),
+                };
+                Ok((session, None))
+            }
+            Err(e) if e == STOPPED => Err(e),
+            Err(_) => Ok((self.new_session(cwd)?, Some(NEW_SESSION))),
+        }
     }
 
     /// A mode that the agent does not offer stops the run: with no mode, the agent
@@ -224,6 +302,8 @@ impl Connection {
         permission: Permission,
     ) -> Result<String, String> {
         self.permission = permission;
+        self.reply.clear();
+        self.refused.clear();
         let result = self.request(
             "session/prompt",
             &json!({ "sessionId": session, "prompt": [{ "type": "text", "text": text }] }),
@@ -231,7 +311,7 @@ impl Connection {
         let reply = std::mem::take(&mut self.reply);
         let reply = match text_at(&result, "/stopReason") {
             Some("end_turn") => reply,
-            Some("cancelled") => return Err("Stopped.".into()),
+            Some("cancelled") => return Err(STOPPED.into()),
             Some("refusal") => return Err("The agent refused.".into()),
             Some(other) => format!("{reply}\n\n(The agent stopped: {other}.)"),
             None => return Err("The agent gave no stop reason.".into()),
@@ -283,12 +363,38 @@ impl Connection {
     }
 
     fn receive(&mut self) -> Result<Value, String> {
-        let left = self.deadline.saturating_duration_since(Instant::now());
-        match self.lines.recv_timeout(left) {
-            Ok(line) => line,
-            Err(RecvTimeoutError::Timeout) => Err("Timed out.".into()),
-            Err(RecvTimeoutError::Disconnected) => Err(self.stopped()),
+        loop {
+            if self.stop.requested() && !self.cancel_sent {
+                self.cancel()?;
+            }
+            let left = self.deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() {
+                return Err(if self.cancel_sent {
+                    STOPPED
+                } else {
+                    "Timed out."
+                }
+                .into());
+            }
+            match self.lines.recv_timeout(left.min(POLL)) {
+                Ok(line) => return line,
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) if self.cancel_sent => {
+                    return Err(STOPPED.into());
+                }
+                Err(RecvTimeoutError::Disconnected) => return Err(self.stopped()),
+            }
         }
+    }
+
+    /// Asks the agent to end the turn. With no session yet, there is nothing to end.
+    fn cancel(&mut self) -> Result<(), String> {
+        self.cancel_sent = true;
+        let Some(session) = self.session.clone() else {
+            return Err(STOPPED.into());
+        };
+        self.deadline = self.deadline.min(Instant::now() + CANCEL_GRACE);
+        self.send(&json!({ "jsonrpc": "2.0", "method": "session/cancel", "params": { "sessionId": session } }))
     }
 
     /// A request or a notification from the agent.
@@ -325,6 +431,10 @@ impl Connection {
     /// The game cannot answer yet (SPEC.md 9.3), so the bridge answers under the
     /// ceiling: `full-auto` allows once, every other level refuses once.
     fn answer(&mut self, params: &Value) -> Value {
+        // ACP says: after `session/cancel`, every open request gets "cancelled".
+        if self.cancel_sent {
+            return json!({ "outcome": "cancelled" });
+        }
         let want = if self.permission == Permission::FullAuto {
             "allow_once"
         } else {

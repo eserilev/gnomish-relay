@@ -11,7 +11,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bridge::acp::AcpAgent;
-use bridge::agent::{Agent, Echo};
+use bridge::agent::{Agent, Echo, Run, StopSignal};
 use bridge::config::{Permission, Policy};
 use bridge::receive::StripKey;
 use bridge::relay::Folders;
@@ -195,9 +195,12 @@ fn an_outbox_frame_with_a_bad_tag_never_runs() {
 struct Counting(AtomicUsize);
 
 impl Agent for Counting {
-    fn run(&self, job: &Job) -> Result<String, String> {
+    fn run(&self, job: &Job, _stop: &StopSignal) -> Run {
         self.0.fetch_add(1, Ordering::SeqCst);
-        Ok(format!("echo: {}", job.text))
+        Run {
+            reply: Ok(format!("echo: {}", job.text)),
+            session: None,
+        }
     }
 }
 

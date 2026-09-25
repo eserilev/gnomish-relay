@@ -24,6 +24,18 @@ const STOPPED: &str = "Stopped.";
 const RESTARTED: &str = "Stopped: the bridge restarted.";
 /// More tokens than this means many wipes. The oldest ones then go.
 const MAX_TOKENS: usize = 16;
+/// The agent sessions of the chats with the latest runs.
+const MAX_SESSIONS: usize = 64;
+
+/// The agent session of a chat. The next message of the chat resumes it, if its
+/// agent and its folder are the same (SPEC.md 9.5).
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct AgentSession {
+    pub chat: ChatId,
+    pub agent: String,
+    pub cwd: String,
+    pub id: String,
+}
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ChatId(pub String);
@@ -55,6 +67,9 @@ pub struct Job {
     pub permission: Permission,
     pub cwd: String,
     pub session: Session,
+    /// The agent session to resume, set when the job starts.
+    #[serde(default)]
+    pub resume: Option<String>,
     pub text: String,
 }
 
@@ -128,9 +143,12 @@ pub struct Relay {
     restore_for: Option<String>,
     /// The last client build whose screenshots and slots both worked (SPEC.md 7.8).
     client_build: Option<String>,
+    sessions: Vec<AgentSession>,
+    /// Chats whose run in progress got a Stop. The bridge signals each run.
+    cancels: Vec<ChatId>,
 }
 
-fn keep_last(list: &mut Vec<String>, max: usize) {
+fn keep_last<T>(list: &mut Vec<T>, max: usize) {
     if list.len() > max {
         list.drain(..list.len() - max);
     }
@@ -156,6 +174,8 @@ impl Relay {
             retired: Vec::new(),
             restore_for: None,
             client_build: None,
+            sessions: Vec::new(),
+            cancels: Vec::new(),
         }
     }
 
@@ -282,6 +302,7 @@ impl Relay {
             } else {
                 Session::Resume
             },
+            resume: None,
             text: text(&r.text),
         })
     }
@@ -341,6 +362,9 @@ impl Relay {
 
     /// The waiting messages of a chat end as errors. A run in progress goes on.
     fn stop(&mut self, chat: &ChatId) {
+        if self.running.contains(chat) {
+            self.cancels.push(chat.clone());
+        }
         let Some(queue) = self.queues.remove(chat) else {
             return;
         };
@@ -360,9 +384,34 @@ impl Relay {
             .0
             .clone();
         let id = self.queues.get_mut(&chat)?.ids.remove(0);
-        let job = self.jobs.remove(&(chat.clone(), MessageId(id)))?;
+        let mut job = self.jobs.remove(&(chat.clone(), MessageId(id)))?;
+        if job.session == Session::Resume {
+            job.resume = self
+                .sessions
+                .iter()
+                .find(|s| s.chat == job.chat && s.agent == job.agent && s.cwd == job.cwd)
+                .map(|s| s.id.clone());
+        }
         self.running.insert(chat);
         Some(job)
+    }
+
+    pub fn take_cancels(&mut self) -> Vec<ChatId> {
+        std::mem::take(&mut self.cancels)
+    }
+
+    pub fn keep_session(&mut self, job: &Job, id: Option<String>) {
+        let Some(id) = id else {
+            return;
+        };
+        self.sessions.retain(|s| s.chat != job.chat);
+        self.sessions.push(AgentSession {
+            chat: job.chat.clone(),
+            agent: job.agent.clone(),
+            cwd: job.cwd.clone(),
+            id,
+        });
+        keep_last(&mut self.sessions, MAX_SESSIONS);
     }
 
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
@@ -421,6 +470,7 @@ impl Relay {
             retired: self.retired.clone(),
             restore_for: self.restore_for.clone(),
             client_build: self.client_build.clone(),
+            sessions: self.sessions.clone(),
         }
     }
 
@@ -453,6 +503,7 @@ impl Relay {
         relay.retired = state.retired;
         relay.restore_for = state.restore_for;
         relay.client_build = state.client_build;
+        relay.sessions = state.sessions;
         for job in state.waiting {
             let queue = relay
                 .queues
@@ -809,6 +860,52 @@ mod tests {
             NOW,
         );
         assert_eq!(restart(&relay).client_build(), Some("70009"));
+    }
+
+    fn first_run(relay: &mut Relay) {
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.keep_session(&job, Some("s9".into()));
+        relay.finish(&job, Ok(String::new()));
+    }
+
+    #[test]
+    fn the_next_message_of_a_chat_resumes_its_agent_session() {
+        let mut relay = relay();
+        first_run(&mut relay);
+        relay.on_frame(&[record("c1", 2, "", "b")], NOW);
+        assert_eq!(relay.next_job().unwrap().resume.as_deref(), Some("s9"));
+    }
+
+    #[test]
+    fn a_new_session_flag_another_agent_or_a_restart_keeps_the_rules() {
+        let mut relay = relay();
+        first_run(&mut relay);
+        relay.on_frame(&[record("c1", 2, "n", "fresh")], NOW);
+        assert_eq!(run_all(&mut relay)[0].resume, None);
+        relay.on_frame(&[record("c1", 3, "agent=codex", "other agent")], NOW);
+        assert_eq!(run_all(&mut relay)[0].resume, None);
+
+        let mut restarted = restart(&relay);
+        restarted.on_frame(&[record("c1", 4, "", "after restart")], NOW);
+        assert_eq!(restarted.next_job().unwrap().resume.as_deref(), Some("s9"));
+    }
+
+    #[test]
+    fn stop_signals_the_run_in_progress_once() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "long task")], NOW);
+        relay.next_job().unwrap();
+        relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
+        assert_eq!(relay.take_cancels(), [ChatId("c1".into())]);
+        assert!(relay.take_cancels().is_empty());
+    }
+
+    #[test]
+    fn stop_with_no_run_in_progress_signals_nothing() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
+        assert!(relay.take_cancels().is_empty());
     }
 
     fn restart(relay: &Relay) -> Relay {

@@ -79,6 +79,7 @@ fuzz_target!(|data: &[u8]| {
                 } else {
                     Err("no".into())
                 };
+                relay.keep_session(&job, Some(format!("s{}", job.id.0)));
                 relay.finish(&job, result);
             }
         } else if step[0] % 7 == 1 {
