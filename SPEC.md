@@ -1214,6 +1214,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 11. **`native-*` and `command` backends.**
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
+14. **A deeper API gate.** Today `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated. It must also check the arguments, the returns, and the secret-value flags (`SecretWhen...`, `SecretArguments`) that the generated API docs of the client list. A new secret flag breaks an addon, even when the name stays the same.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
