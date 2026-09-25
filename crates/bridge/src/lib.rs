@@ -10,6 +10,7 @@ pub mod config;
 pub mod flags;
 pub mod fs_safe;
 pub mod history;
+pub mod install;
 pub mod receive;
 pub mod relay;
 pub mod run;

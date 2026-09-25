@@ -612,6 +612,7 @@ trait Agent: Send + Sync {
 Each run of the `acp` backend starts the agent process, opens a session, sets the mode of the level, sends the prompt, and stops the process.
 
 - **Resume.** The bridge keeps the agent session of each chat in `state.json`, with its agent and its folder. The next message of the chat resumes it, unless the message has the `n` flag, or the agent or the folder changed. The client uses `session/resume` if the agent offers it, else `session/load`. The history that `session/load` replays stays out of the reply. If neither works, the run opens a new session, and the reply starts with "(New session: the agent could not resume the old one.)".
+- **Later: continue a terminal session.** A new chat can take the session of a Claude or other agent session that runs in a terminal. The bridge lists the recent sessions of each agent (`session/list`, where the agent offers it), and the chat resumes the one you pick. The terminal window does not show the game messages live: no agent lets another program type into its open window. `claude --resume` shows them later.
 - **Stop.** Stop in the game ends the waiting messages of the chat, and signals the run in progress. The client sends `session/cancel`, answers every open permission request with "cancelled", and waits 10 seconds for the agent to end the turn. Then it kills the process. The reply is "Stopped.", and the session stays for the next message.
 
 Next, the trait grows events for progress and for permission requests from the game (9.3). Those need new fields in the slot body, so they wait for an approved S9 statement.
@@ -787,6 +788,29 @@ The development machine runs Wayland with XWayland. The home file system is ext4
 - **Exclusive fullscreen** blocks capture. WoW must run windowed or borderless.
 - **HDR** is not tested.
 - **The `claude` command on Windows** is `claude.cmd` in some installs. The bridge finds the path with the `which` crate.
+
+### 11.3 Install
+
+The goal: one download, one command, and no step inside the game.
+
+**`gnomish-relay setup`** does every step, and a second run changes nothing that works:
+
+1. **Find the game.** It looks for a `_classic_beta_` folder with `Interface/AddOns` in the default places: `Program Files (x86)\World of Warcraft` and the Battle.net registry key on Windows, `/Applications/World of Warcraft` on macOS, and each Wine prefix under `~/Games` and `~/.wine` on Linux. With more than one, or none, it asks. `setup <folder>` skips the search.
+2. **Make the strip key**, 32 random bytes from the OS, into `strip.key` with mode 0600, once. `--new-key` makes a new one, and then the addon needs a `/reload`.
+3. **Install the addon.** The addon files are built into the program. Setup writes them into `Interface/AddOns/GnomishRelay`, and writes `Key.lua` from the strip key. A folder that is a link (a developer checkout, 16) stays as it is, and only `Key.lua` changes.
+4. **Write the config**, once, with an `[agents.<name>]` entry for each known ACP agent on `PATH`: `claude-agent-acp`, `codex-acp`, and `gemini`. The default agent is the first one it finds. With none, it is `echo`.
+5. **Make the slot addons.** WoW finds a new addon only at launch, so after a first install the game needs a restart. Setup says so.
+6. **Start the bridge at login**, with `--autostart`: a systemd user service on Linux, a launchd agent on macOS, and a scheduled task on Windows.
+
+**Keeping it working.**
+
+- At each start, the bridge writes `Key.lua` again if it is missing, and the addon files again if their version differs. An addon app such as CurseForge can replace the folder, and a `/reload` then loads the files.
+- With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup."
+
+**Distribution (later).**
+
+- CI builds the program for Windows, macOS, and Linux on each tag, as a GitHub Release. winget, Homebrew, and the AUR point at it.
+- The addon is also listed on CurseForge and Wago Addons, so players can find it. The listing points to the program: the addon alone does nothing, because each computer needs its own key.
 
 ## 12. Config
 

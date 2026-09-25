@@ -960,3 +960,16 @@ fn blocked_screenshots_show_one_line_and_mark_the_window() {
         .unwrap();
     assert_eq!(problem, "blocked");
 }
+
+#[test]
+fn an_addon_with_no_key_asks_for_setup() {
+    let game = Game::start();
+    game.run("local ns = ... ns.key = nil");
+    game.fire("PLAYER_LOGIN", ());
+    assert!(
+        game.printed()
+            .contains(&"Gnomish Relay: run gnomish-relay setup.".into()),
+        "{:?}",
+        game.printed()
+    );
+}

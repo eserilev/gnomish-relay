@@ -15,6 +15,7 @@ anyhow = "1"
 # The strip tag (SPEC.md 6.3). `verify_truncated_left` compares in constant time.
 hmac = "0.12"
 sha2 = "0.10"
+getrandom = "0.4"
 png = "0.18.1"
 protocol = { path = "../protocol" }
 toml = { version = "1", default-features = false, features = ["parse", "serde", "std"] }

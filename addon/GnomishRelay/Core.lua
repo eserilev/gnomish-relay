@@ -120,6 +120,10 @@ events:SetScript("OnEvent", function(_, event, name)
 			print(string.format("Gnomish Relay: this game version has no %s. The relay is off.", missing))
 			return
 		end
+		if not ns.key then
+			print("Gnomish Relay: run gnomish-relay setup.")
+			return
+		end
 		SetCVarValue("screenshotFormat", "png")
 		ns.Transport.OnChange = function()
 			ns.Window.Refresh()

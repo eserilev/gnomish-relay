@@ -7,6 +7,7 @@ use bridge::acp::AcpAgent;
 use bridge::agent;
 use bridge::config::{self, Config, Kind};
 use bridge::fs_safe::write_atomic;
+use bridge::install;
 use bridge::receive::StripKey;
 use bridge::run::{Paths, now, run};
 use bridge::slots::{self, Files};
@@ -14,7 +15,8 @@ use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const USAGE: &str = "\
 usage:
-  gnomish-relay setup <wow folder>   write the first config.toml (the _classic_beta_ folder)
+  gnomish-relay setup [folder] [--new-key]
+                                     install the addon, the key, the config, and the slots
   gnomish-relay install              make the slot addons (game closed)
   gnomish-relay run                  read strips, run the agents, publish the replies
   gnomish-relay check-agent <name>   start an agent of the config and show what it offers
@@ -22,6 +24,7 @@ usage:
                                      publish a reply to message <id> (from `/relay diag`)";
 
 const APP: &str = "gnomish-relay";
+const KEY_FILE: &str = "strip.key";
 
 fn var(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).map(PathBuf::from)
@@ -71,28 +74,92 @@ fn addons_dir(wow: &Path) -> PathBuf {
     wow.join("Interface").join("AddOns")
 }
 
-/// Never replaces a config: it can hold rules that the user wrote.
-fn setup(wow: &str) -> Result<()> {
-    let wow = PathBuf::from(wow);
-    if !addons_dir(&wow).is_dir() {
+/// Mode 0600: the key signs strips, and the config sets the ceiling of every game message.
+fn write_private(dir: &Path, name: &str, text: &str) -> Result<()> {
+    write_atomic(dir, name, text.as_bytes())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(dir.join(name), std::fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
+fn pick_game(given: Option<&str>) -> Result<PathBuf> {
+    if let Some(folder) = given {
+        return Ok(PathBuf::from(folder));
+    }
+    let games = install::find_games(&home_dir()?);
+    match games.as_slice() {
+        [game] => Ok(game.clone()),
+        [] => bail!(
+            "found no WoW Forever folder. Start WoW once, or give the folder: gnomish-relay setup <_classic_beta_ folder>"
+        ),
+        more => bail!(
+            "found more than one WoW Forever folder. Give one: gnomish-relay setup <folder>\n{}",
+            more.iter()
+                .map(|g| g.display().to_string())
+                .collect::<Vec<_>>()
+                .join("\n")
+        ),
+    }
+}
+
+/// The key of this computer, made once. `--new-key` replaces it.
+fn strip_key(dir: &Path, new: bool) -> Result<String> {
+    let path = dir.join(KEY_FILE);
+    if !new && let Ok(hex) = std::fs::read_to_string(&path) {
+        return Ok(hex.trim().to_owned());
+    }
+    let hex = install::new_key()?;
+    write_private(dir, KEY_FILE, &hex)?;
+    println!("made a new strip key");
+    Ok(hex)
+}
+
+/// Every step leaves alone what works, so a second run is safe (SPEC.md 11.3).
+fn setup(args: &[&str]) -> Result<()> {
+    let new_key = args.contains(&"--new-key");
+    let wow = pick_game(args.iter().copied().find(|a| !a.starts_with("--")))?;
+    let addons = addons_dir(&wow);
+    if !addons.is_dir() {
         bail!(
             "{} has no Interface/AddOns folder. Start WoW once, then give the _classic_beta_ folder.",
             wow.display()
         );
     }
+    println!("game: {}", wow.display());
     let dir = config_dir()?;
-    if dir.join(config::FILE).exists() {
-        bail!("{} already exists", dir.join(config::FILE).display());
-    }
     std::fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
-    write_atomic(&dir, config::FILE, config::default_text(&wow).as_bytes())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let owner_only = std::fs::Permissions::from_mode(0o600);
-        std::fs::set_permissions(dir.join(config::FILE), owner_only)?;
+    let key = strip_key(&dir, new_key)?;
+    let restart = match install::install_addon(&addons, &key)? {
+        install::Installed::New => true,
+        install::Installed::Updated => {
+            println!("updated the addon: type /reload in the game");
+            false
+        }
+        install::Installed::Unchanged => false,
+    };
+    if !dir.join(config::FILE).exists() {
+        let agents = install::find_agents(&std::env::var_os("PATH").unwrap_or_default());
+        write_private(&dir, config::FILE, &config::default_text(&wow, &agents))?;
+        let names: Vec<&str> = agents.iter().map(|(name, _)| *name).collect();
+        println!(
+            "wrote {} with agents: {}",
+            dir.join(config::FILE).display(),
+            if names.is_empty() {
+                "none, so echo".into()
+            } else {
+                names.join(", ")
+            }
+        );
     }
-    println!("wrote {}", dir.join(config::FILE).display());
+    let slots_new = !addons.join(slots::slot_name(1)).is_dir();
+    slots::install(&addons, &Files::empty(now()))?;
+    if restart || slots_new {
+        println!("restart WoW: it finds new addons only at launch");
+    }
+    println!("ok");
     Ok(())
 }
 
@@ -144,7 +211,13 @@ fn start() -> Result<()> {
         accounts: config.wow.join("WTF").join("Account"),
         addons: addons_dir(&config.wow),
     };
-    let key = StripKey::load(&config_dir()?.join("strip.key"))?;
+    let key_path = config_dir()?.join(KEY_FILE);
+    let key = StripKey::load(&key_path)?;
+    // An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
+    let hex = std::fs::read_to_string(&key_path)?;
+    if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
+        println!("wrote the addon files again: type /reload in the game");
+    }
     let agents = agent::from_config(&config);
     run(paths, config.policy, key, agents)
 }
@@ -194,7 +267,7 @@ fn check_agent(name: &str) -> Result<()> {
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
-        ["setup", wow] => setup(wow),
+        ["setup", ref rest @ ..] => setup(rest),
         ["install"] => install(),
         ["run"] => start(),
         ["check-agent", name] => check_agent(name),

@@ -1,6 +1,7 @@
 //! `config.toml`: the ceiling for every message from the game (SPEC.md 6.6.2, 12).
 
 use std::collections::BTreeMap;
+use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -333,32 +334,31 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
 }
 
 /// The first config: every agent asks, and agents work only under `Documents/Code`.
-/// The comments show how to add another ACP agent.
-pub fn default_text(wow: &Path) -> String {
-    let wow = wow
-        .to_string_lossy()
-        .replace('\\', "\\\\")
-        .replace('"', "\\\"");
-    format!(
-        "allowed_roots = [\"~/Documents/Code\"]\n\
-         default_agent = \"claude\"\n\
-         \n\
-         [wow]\n\
-         path = \"{wow}\"\n\
-         \n\
-         [agents.claude]\n\
-         kind = \"acp\"\n\
-         command = [\"claude-agent-acp\"]\n\
-         permission = \"ask\"\n\
-         \n\
-         # Any ACP agent is one entry. Run `gnomish-relay check-agent <name>` to test it.\n\
-         # [agents.codex]\n\
-         # kind = \"acp\"\n\
-         # command = [\"codex-acp\"]\n\
-         # permission = \"ask\"\n\
-         # env = [\"OPENAI_API_KEY\"]        # passed to the agent; all others stay out\n\
-         # modes = {{ ask = \"<mode id>\" }}  # check-agent lists the mode ids of the agent\n"
-    )
+/// It names the agents that setup found; with none, the echo agent.
+pub fn default_text(wow: &Path, agents: &[(&str, &[&str])]) -> String {
+    let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
+    let mut text = format!(
+        "allowed_roots = [\"~/Documents/Code\"]\ndefault_agent = {}\n\n[wow]\npath = {}\n",
+        quote(agents.first().map_or("echo", |(name, _)| name)),
+        quote(&wow.to_string_lossy()),
+    );
+    for (name, command) in agents {
+        let command: Vec<String> = command.iter().map(|word| quote(word)).collect();
+        let _ = write!(
+            text,
+            "\n[agents.{name}]\nkind = \"acp\"\ncommand = [{}]\npermission = \"ask\"\n",
+            command.join(", ")
+        );
+    }
+    if agents.is_empty() {
+        text.push_str("\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n");
+    }
+    text.push_str(
+        "\n# Any ACP agent is one entry. Run `gnomish-relay check-agent <name>` to test it.\n\
+         # [agents.gemini]\n# kind = \"acp\"\n# command = [\"gemini\", \"--acp\"]\n\
+         # permission = \"ask\"\n# env = [\"GEMINI_API_KEY\"]\n",
+    );
+    text
 }
 
 #[cfg(test)]
@@ -509,8 +509,14 @@ mod tests {
         } else {
             r#"/games/"wow"\x"#
         };
-        let config = home.parse(&default_text(Path::new(wow))).unwrap();
+        let agents: [(&str, &[&str]); 2] = [
+            ("claude", &["claude-agent-acp"]),
+            ("gemini", &["gemini", "--acp"]),
+        ];
+        let config = home.parse(&default_text(Path::new(wow), &agents)).unwrap();
         assert_eq!(config.policy.agents["claude"], Permission::Ask);
+        assert_eq!(config.policy.default_agent, "claude");
+        assert_eq!(config.agents["gemini"].command, ["gemini", "--acp"]);
         assert_eq!(config.wow, PathBuf::from(wow));
     }
 
@@ -534,6 +540,17 @@ mod tests {
     fn a_windows_root_loses_its_prefix_and_uses_slashes() {
         assert_eq!(portable(r"\\?\C:\Users\x\Code", true), b"C:/Users/x/Code");
         assert_eq!(portable(r"/home/x\y", false), br"/home/x\y");
+    }
+
+    #[test]
+    fn with_no_agent_found_the_default_config_uses_echo() {
+        let home = Home::new();
+        fs::create_dir_all(home.path().join("Documents/Code")).unwrap();
+        let config = home
+            .parse(&default_text(&home.path().join("wow"), &[]))
+            .unwrap();
+        assert_eq!(config.policy.default_agent, "echo");
+        assert_eq!(config.agents["echo"].kind, Kind::Echo);
     }
 
     #[test]
