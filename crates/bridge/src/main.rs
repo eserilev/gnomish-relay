@@ -7,6 +7,7 @@ use bridge::agent;
 use bridge::config::{self, Config};
 use bridge::desktop::{self, Approvals, Notice};
 use bridge::fs_safe::write_atomic;
+use bridge::gate::Gate;
 use bridge::install;
 use bridge::lock::{self, Bridge};
 use bridge::receive::StripKey;
@@ -475,7 +476,9 @@ fn start() -> Result<()> {
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
         println!("wrote the addon files again: type /reload in the game");
     }
-    let agents = agent::from_config(&config);
+    let gate = Gate::new(&config, &config_dir()?, &paths.state, Notice::System);
+    gate.approvals.clear();
+    let agents = agent::from_config(&config, &gate);
     run(paths, config.policy, key, agents)
 }
 
@@ -484,10 +487,13 @@ fn start() -> Result<()> {
 fn agent_line(config: &Config) -> String {
     let name = &config.policy.default_agent;
     let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
+    let Ok(gate) = check_gate(config) else {
+        return "Agent: none. The data folder is missing.".into();
+    };
     let checked = config
         .agents
         .get(name)
-        .and_then(|spec| agent::check(spec, &cwd));
+        .and_then(|spec| agent::check(spec, &cwd, &gate));
     let Some(checked) = checked else {
         return "Agent: none. Replies repeat your message.".into();
     };
@@ -499,6 +505,11 @@ fn agent_line(config: &Config) -> String {
         },
         Err(e) => format!("Agent: {name} does not start: {e}"),
     }
+}
+
+/// A check sends no prompt, so no tool call reaches this gate.
+fn check_gate(config: &Config) -> Result<Gate> {
+    Ok(Gate::new(config, &config_dir()?, &data_dir()?, Notice::Off))
 }
 
 fn approvals() -> Result<Approvals> {
@@ -536,7 +547,7 @@ fn check_agent(name: &str) -> Result<()> {
         .get(name)
         .with_context(|| format!("the config has no [agents.{name}]"))?;
     let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    let report = agent::check(spec, &cwd)
+    let report = agent::check(spec, &cwd, &check_gate(&config)?)
         .with_context(|| format!("[agents.{name}] is the echo agent: it starts nothing"))?
         .map_err(anyhow::Error::msg)?;
     println!("{name}: {} {}", report.name, report.version);

@@ -60,6 +60,27 @@ fn ask(method: &str, params: &Value) -> Option<Value> {
     read()
 }
 
+/// Asks the client about `tool_call`, and returns the option that it chose.
+fn ask_permission(session: &Value, tool_call: &Value) -> Option<String> {
+    let answer = ask(
+        "session/request_permission",
+        &json!({
+            "sessionId": session,
+            "toolCall": tool_call,
+            "options": [
+                { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
+                { "optionId": "always", "name": "Always", "kind": "allow_always" },
+                { "optionId": "no", "name": "Reject", "kind": "reject_once" },
+            ],
+        }),
+    )?;
+    let outcome = answer
+        .pointer("/result/outcome/optionId")
+        .and_then(Value::as_str)
+        .unwrap_or("cancelled");
+    Some(format!("chose {outcome}"))
+}
+
 fn prompt_reply(script: &str, params: &Value, mode: &str, resumed: &str) -> Option<String> {
     let session = params.get("sessionId").cloned().unwrap_or(Value::Null);
     let text = params
@@ -82,25 +103,15 @@ fn prompt_reply(script: &str, params: &Value, mode: &str, resumed: &str) -> Opti
             println!("{}", "x".repeat(9 * 1024 * 1024));
             None
         }
-        "permission" => {
-            let answer = ask(
-                "session/request_permission",
-                &json!({
-                    "sessionId": session,
-                    "toolCall": { "toolCallId": "t1", "title": "clean the build", "rawInput": { "command": "rm -rf build" } },
-                    "options": [
-                        { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
-                        { "optionId": "always", "name": "Always", "kind": "allow_always" },
-                        { "optionId": "no", "name": "Reject", "kind": "reject_once" },
-                    ],
-                }),
-            )?;
-            let outcome = answer
-                .pointer("/result/outcome/optionId")
-                .and_then(Value::as_str)
-                .unwrap_or("cancelled");
-            Some(format!("chose {outcome}"))
-        }
+        "permission" => ask_permission(
+            &session,
+            &json!({ "toolCallId": "t1", "title": "clean the build", "rawInput": { "command": "rm -rf build" } }),
+        ),
+        "readkey" => ask_permission(
+            &session,
+            &json!({ "toolCallId": "t2", "title": "read the key", "kind": "read",
+                     "locations": [{ "path": "config/strip.key" }], "rawInput": {} }),
+        ),
         "steps" => {
             for title in ["edit src/main.rs", "$ cargo test"] {
                 send(

@@ -12,6 +12,8 @@ use std::time::{Duration, Instant};
 use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
 use bridge::claude::ClaudeAgent;
 use bridge::config::Permission;
+use bridge::desktop::{Approvals, Notice};
+use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 
 const OLD: &str = "0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01";
@@ -24,6 +26,18 @@ fn agent(script: &str, projects: &Path) -> ClaudeAgent {
         timeout: Duration::from_secs(20),
         permission_timeout: Duration::from_secs(20),
         projects: projects.to_owned(),
+        gate: gate(),
+    }
+}
+
+/// Every tempdir of the tests is inside the temp folder, so it is the one root.
+fn gate() -> Gate {
+    let tmp = std::env::temp_dir().canonicalize().unwrap();
+    Gate {
+        roots: vec![tmp.clone()],
+        config_dir: tmp.join("gnomish-relay-test-config"),
+        allow: std::sync::Arc::default(),
+        approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Notice::Off),
     }
 }
 
@@ -338,7 +352,7 @@ fn an_unanswered_question_is_denied_after_the_permission_timeout() {
     let (reply, _) = run_with_game(&claude, Permission::AutoEdit, |_| None);
     assert_eq!(
         reply.unwrap(),
-        "deny same=false rules=false No answer from the game."
+        "deny same=false rules=false No answer from the game.\n\nNot allowed from the game: Bash: clean the build"
     );
     assert!(start.elapsed() < Duration::from_secs(5));
 }

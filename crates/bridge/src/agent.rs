@@ -14,6 +14,7 @@ use crate::claude::ClaudeAgent;
 use crate::claude_sessions;
 use crate::codex::CodexAgent;
 use crate::config::{AgentSpec, Config, Kind};
+use crate::gate::Gate;
 use crate::relay::{ChatId, Job, MessageId};
 
 /// The slot body cuts a reply at 32 KiB anyway.
@@ -171,17 +172,18 @@ const CHECK_LIMITS: Limits = Limits {
     permission_timeout: Duration::from_mins(1),
 };
 
-fn acp(spec: &AgentSpec, limits: Limits) -> AcpAgent {
+fn acp(spec: &AgentSpec, limits: Limits, gate: &Gate) -> AcpAgent {
     AcpAgent {
         command: spec.command.clone(),
         env: spec.env.clone(),
         modes: spec.modes.clone(),
         timeout: limits.timeout,
         permission_timeout: limits.permission_timeout,
+        gate: gate.clone(),
     }
 }
 
-fn claude(spec: &AgentSpec, limits: Limits) -> ClaudeAgent {
+fn claude(spec: &AgentSpec, limits: Limits, gate: &Gate) -> ClaudeAgent {
     let home = std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)
@@ -193,19 +195,21 @@ fn claude(spec: &AgentSpec, limits: Limits) -> ClaudeAgent {
         timeout: limits.timeout,
         permission_timeout: limits.permission_timeout,
         projects: claude_sessions::projects_dir(&spec.env, &home),
+        gate: gate.clone(),
     }
 }
 
-fn codex(spec: &AgentSpec, limits: Limits) -> CodexAgent {
+fn codex(spec: &AgentSpec, limits: Limits, gate: &Gate) -> CodexAgent {
     CodexAgent {
         command: spec.command.clone(),
         env: spec.env.clone(),
         timeout: limits.timeout,
         permission_timeout: limits.permission_timeout,
+        gate: gate.clone(),
     }
 }
 
-pub fn from_config(config: &Config) -> Agents {
+pub fn from_config(config: &Config, gate: &Gate) -> Agents {
     let limits = Limits {
         timeout: config.timeout,
         permission_timeout: config.permission_timeout,
@@ -216,9 +220,9 @@ pub fn from_config(config: &Config) -> Agents {
         .map(|(name, spec)| {
             let agent: Arc<dyn Agent> = match spec.kind {
                 Kind::Echo => Arc::new(Echo),
-                Kind::Acp => Arc::new(acp(spec, limits)),
-                Kind::Claude => Arc::new(claude(spec, limits)),
-                Kind::Codex => Arc::new(codex(spec, limits)),
+                Kind::Acp => Arc::new(acp(spec, limits, gate)),
+                Kind::Claude => Arc::new(claude(spec, limits, gate)),
+                Kind::Codex => Arc::new(codex(spec, limits, gate)),
             };
             (name.clone(), agent)
         })
@@ -227,12 +231,12 @@ pub fn from_config(config: &Config) -> Agents {
 
 /// Starts the agent of `spec` in `cwd` with no prompt, so a missing login shows. The
 /// echo agent has nothing to check.
-pub fn check(spec: &AgentSpec, cwd: &str) -> Option<Result<Report, String>> {
+pub fn check(spec: &AgentSpec, cwd: &str, gate: &Gate) -> Option<Result<Report, String>> {
     match spec.kind {
         Kind::Echo => None,
-        Kind::Acp => Some(acp(spec, CHECK_LIMITS).check(cwd)),
-        Kind::Claude => Some(claude(spec, CHECK_LIMITS).check(cwd)),
-        Kind::Codex => Some(codex(spec, CHECK_LIMITS).check(cwd)),
+        Kind::Acp => Some(acp(spec, CHECK_LIMITS, gate).check(cwd)),
+        Kind::Claude => Some(claude(spec, CHECK_LIMITS, gate).check(cwd)),
+        Kind::Codex => Some(codex(spec, CHECK_LIMITS, gate).check(cwd)),
     }
 }
 
@@ -251,15 +255,25 @@ mod tests {
         }
     }
 
+    fn gate() -> Gate {
+        let dir = std::env::temp_dir();
+        Gate {
+            roots: vec![dir.clone()],
+            config_dir: dir.join("gnomish-relay-config"),
+            allow: Arc::default(),
+            approvals: crate::desktop::Approvals::new(&dir, crate::desktop::Notice::Off),
+        }
+    }
+
     #[test]
     fn the_echo_agent_has_nothing_to_check() {
-        assert!(check(&spec(Kind::Echo, ""), ".").is_none());
+        assert!(check(&spec(Kind::Echo, ""), ".", &gate()).is_none());
     }
 
     #[test]
     fn a_check_of_a_missing_program_fails_for_every_backend() {
         for kind in [Kind::Acp, Kind::Claude, Kind::Codex] {
-            let checked = check(&spec(kind, "no-such-agent-gnomish"), ".").unwrap();
+            let checked = check(&spec(kind, "no-such-agent-gnomish"), ".", &gate()).unwrap();
             let error = checked.unwrap_err();
             assert!(
                 error.starts_with("Cannot start no-such-agent-gnomish"),
@@ -294,7 +308,7 @@ mod tests {
             permission = "ask"
         "#;
         let config = crate::config::parse(text, home.path()).unwrap();
-        let agents = from_config(&config);
+        let agents = from_config(&config, &gate());
         let names: Vec<&str> = agents.keys().map(String::as_str).collect();
         assert_eq!(names, ["claude", "codex", "echo", "gemini"]);
         let job = Job {

@@ -2,7 +2,9 @@
 //! short, and a popup text is printable.
 #![no_main]
 
-use bridge::codex::{Event, last_exchange, read_event, read_request, read_threads};
+use bridge::codex::{
+    Event, approval_call, last_exchange, read_event, read_request, read_threads, unwrap_shell,
+};
 use libfuzzer_sys::fuzz_target;
 
 const METHODS: [&str; 4] = [
@@ -25,6 +27,10 @@ fuzz_target!(|data: &[u8]| {
         let request = read_request(method, &message, &["src/a.rs".to_owned()]);
         assert!(request.text.iter().all(|b| *b == b'\n' || (b' '..=b'~').contains(b)), "S15");
         assert!(request.title.len() <= 200);
+        let _ = approval_call(method, &message, &["a.rs".to_owned()], std::path::Path::new("/w"));
+    }
+    if let Some(command) = message.get("command").and_then(|c| c.as_str()) {
+        let _ = unwrap_shell(command);
     }
     let _ = read_threads(&message);
     let _ = last_exchange(&message);

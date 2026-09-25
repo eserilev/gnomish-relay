@@ -4,18 +4,19 @@
 //! The process limits of `process.rs` and `turn.rs` apply to the agent.
 
 use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use protocol::live::OptionKind;
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Choice, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
+    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
     exchange_text,
 };
 use crate::config::Permission;
+use crate::gate::{self, Call, Coverage, Gate, Refusal};
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Work};
 use crate::turn::{STOPPED, Turn};
@@ -31,15 +32,48 @@ pub struct CodexAgent {
     pub timeout: Duration,
     /// How long a question waits for the game. The run timeout stops meanwhile.
     pub permission_timeout: Duration,
+    pub gate: Gate,
 }
 
-/// The sandbox and the approval policy of Codex for each level (SPEC.md 9.3). Full-auto
-/// still asks: the bridge accepts each question, so it sees every escalation.
-pub fn policy(level: Permission) -> (&'static str, &'static str) {
+/// `untrusted` asks before every command and every change, so each one reaches the
+/// gate (SPEC.md 9.3). The sandbox of the level applies after the answer.
+pub const APPROVAL_POLICY: &str = "untrusted";
+
+/// The sandbox of Codex for each level.
+pub fn sandbox(level: Permission) -> &'static str {
     match level {
-        Permission::Ask => ("read-only", "untrusted"),
-        Permission::AutoEdit | Permission::FullAuto => ("workspace-write", "on-request"),
+        Permission::Ask => "read-only",
+        Permission::AutoEdit | Permission::FullAuto => "workspace-write",
     }
+}
+
+/// The settings of a thread. `approvalsReviewer` keeps a reviewer model of the user's
+/// config out of the way, and web search runs with no approval, so it is off.
+pub fn thread_settings(cwd: &str, level: Permission) -> Value {
+    json!({
+        "cwd": cwd,
+        "sandbox": sandbox(level),
+        "approvalPolicy": APPROVAL_POLICY,
+        "approvalsReviewer": "user",
+        "config": { "web_search": "disabled" },
+    })
+}
+
+/// Codex runs each command as `<shell> -lc '<script>'`. The classifier gets the script,
+/// which is what the shell runs. Any other form stays as it is.
+pub fn unwrap_shell(command: &str) -> String {
+    let Some(words) = shlex::split(command) else {
+        return command.to_owned();
+    };
+    let [shell, flag, script] = words.as_slice() else {
+        return command.to_owned();
+    };
+    let name = shell.rsplit(['/', '\\']).next().unwrap_or(shell);
+    let is_shell = matches!(name, "bash" | "zsh" | "sh");
+    if is_shell && matches!(flag.as_str(), "-lc" | "-c") {
+        return script.clone();
+    }
+    command.to_owned()
 }
 
 impl Agent for CodexAgent {
@@ -73,6 +107,7 @@ impl CodexAgent {
     ) -> Result<String, String> {
         let mut codex = Connection::start(self, &job.cwd, control.clone())?;
         codex.permission = job.permission;
+        codex.agent.clone_from(&job.agent);
         codex.initialize()?;
         let (thread, note) = codex.open_thread(&job.cwd, job.resume.as_deref(), job.permission)?;
         *session = Some(thread.clone());
@@ -234,7 +269,10 @@ fn read_started(item: &Value) -> Event {
     match text_at(item, "/type") {
         Some("commandExecution") => Event::Started {
             item: id,
-            step: step(&format!("$ {}", text_at(item, "/command").unwrap_or(""))),
+            step: step(&format!(
+                "$ {}",
+                unwrap_shell(text_at(item, "/command").unwrap_or(""))
+            )),
             paths: Vec::new(),
         },
         Some("fileChange") => {
@@ -284,6 +322,28 @@ fn read_ending(turn: &Value) -> Result<(), String> {
     }
 }
 
+/// The classifier input of an approval request. A request with no command and no path
+/// is unknown, for example a network approval.
+pub fn approval_call(method: &str, params: &Value, paths: &[String], cwd: &Path) -> Call {
+    let request = read_request(method, params, paths);
+    let (text, title) = (request.text, request.title);
+    let cwd = text_at(params, "/cwd").map_or_else(|| cwd.to_owned(), PathBuf::from);
+    if method == "item/commandExecution/requestApproval" {
+        return match text_at(params, "/command") {
+            Some(command) => Call::command(&unwrap_shell(command), &cwd, text, title),
+            None => Call::unknown(text, title),
+        };
+    }
+    let writes: Vec<PathBuf> = match text_at(params, "/grantRoot") {
+        Some(root) => vec![cwd.join(root)],
+        None => paths.iter().map(|p| cwd.join(p)).collect(),
+    };
+    if writes.is_empty() {
+        return Call::unknown(text, title);
+    }
+    Call::files(&[], &writes, text, title)
+}
+
 /// An approval question as the game sees it.
 #[derive(Debug, PartialEq)]
 pub struct Request {
@@ -299,7 +359,7 @@ pub fn read_request(method: &str, params: &Value, paths: &[String]) -> Request {
     let reason = text_at(params, "/reason").unwrap_or("");
     let (raw, default_title) = match method {
         "item/commandExecution/requestApproval" => (
-            text_at(params, "/command").unwrap_or("").to_owned(),
+            unwrap_shell(text_at(params, "/command").unwrap_or("")),
             "run a command",
         ),
         _ => match text_at(params, "/grantRoot") {
@@ -329,24 +389,14 @@ fn text_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
     value.pointer(pointer).and_then(Value::as_str)
 }
 
-fn choices() -> Vec<Choice> {
-    vec![
-        Choice {
-            kind: OptionKind::AllowOnce,
-            label: "Allow".into(),
-        },
-        Choice {
-            kind: OptionKind::RejectOnce,
-            label: "Deny".into(),
-        },
-    ]
-}
-
 struct Connection {
     process: AgentProcess,
     turn: Turn,
     next_id: u64,
     permission: Permission,
+    gate: Gate,
+    agent: String,
+    cwd: String,
     /// The thread and the turn that `turn/interrupt` names.
     running: Option<(String, String)>,
     refused: Vec<String>,
@@ -363,6 +413,9 @@ impl Connection {
             turn: Turn::new(agent.timeout, agent.permission_timeout, control),
             next_id: 1,
             permission: Permission::Ask,
+            gate: agent.gate.clone(),
+            agent: String::new(),
+            cwd: cwd.to_owned(),
             running: None,
             refused: Vec::new(),
             changes: HashMap::new(),
@@ -387,8 +440,7 @@ impl Connection {
         resume: Option<&str>,
         level: Permission,
     ) -> Result<(String, Option<&'static str>), String> {
-        let (sandbox, approval) = policy(level);
-        let settings = json!({ "cwd": cwd, "sandbox": sandbox, "approvalPolicy": approval });
+        let settings = thread_settings(cwd, level);
         if let Some(id) = resume {
             let mut params = settings.clone();
             params["threadId"] = json!(id);
@@ -500,25 +552,68 @@ impl Connection {
         }
     }
 
-    /// The same rules as ACP (SPEC.md 9.3). The bridge never sends `acceptForSession`
-    /// or an amendment: the game adds no "always allow" rule (6.6.5).
+    /// The gate answers (SPEC.md 6.6.3). The bridge never sends `acceptForSession` or an
+    /// amendment: the game adds no "always allow" rule (6.6.5).
     fn decide(&mut self, method: &str, params: &Value) -> &'static str {
         if self.turn.stopping() {
             return "cancel";
         }
-        if self.permission == Permission::FullAuto {
-            return "accept";
-        }
         let item = text_at(params, "/itemId").unwrap_or("");
         let paths = self.changes.get(item).cloned().unwrap_or_default();
-        let request = read_request(method, params, &paths);
-        if !self.turn.listening() {
-            self.refused.push(request.title);
-            return "decline";
+        let call = approval_call(method, params, &paths, Path::new(&self.cwd));
+        let job = gate::Job {
+            agent: &self.agent,
+            cwd: &self.cwd,
+            level: self.permission,
+            coverage: Coverage::Every,
+        };
+        match self.gate.check(&call, &job, &mut self.turn) {
+            Ok(()) => "accept",
+            Err(Refusal::ByUser) => "decline",
+            Err(Refusal::ByRule(_)) => {
+                self.refused.push(call.title);
+                "decline"
+            }
         }
-        match self.turn.ask_game(request.text, choices()) {
-            Some(0) => "accept",
-            _ => "decline",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_shell_wrapper_gives_its_script_and_any_other_command_stays() {
+        assert_eq!(
+            unwrap_shell("/bin/bash -lc 'cargo test -q'"),
+            "cargo test -q"
+        );
+        assert_eq!(unwrap_shell("/usr/bin/zsh -c 'echo \"hi\"'"), "echo \"hi\"");
+        assert_eq!(unwrap_shell("bash -lc 'a' extra"), "bash -lc 'a' extra");
+        assert_eq!(unwrap_shell("python -c 'x'"), "python -c 'x'");
+        assert_eq!(unwrap_shell("bash -lc 'open"), "bash -lc 'open");
+    }
+
+    #[test]
+    fn every_level_asks_before_each_command_and_never_opens_the_sandbox() {
+        for level in [Permission::Ask, Permission::AutoEdit, Permission::FullAuto] {
+            let settings = thread_settings("/w", level);
+            assert_eq!(settings["approvalPolicy"], "untrusted");
+            assert_eq!(settings["approvalsReviewer"], "user");
+            assert_ne!(settings["sandbox"], "danger-full-access");
         }
+        assert_eq!(sandbox(Permission::Ask), "read-only");
+    }
+
+    #[test]
+    fn a_network_approval_with_no_command_is_unknown() {
+        let params = json!({ "networkApprovalContext": { "host": "x", "protocol": "https" } });
+        let call = approval_call(
+            "item/commandExecution/requestApproval",
+            &params,
+            &[],
+            Path::new("/w"),
+        );
+        assert!(matches!(call.tool, protocol::action::ToolCall::Unknown));
     }
 }

@@ -49,8 +49,92 @@ fn ask(tool: &str, input: &Value) -> Option<Value> {
     answer.pointer("/response/response").cloned()
 }
 
-fn reply(script: &str, args: &[String], prompt: &str, session: &str) -> Option<String> {
+/// The `PreToolUse` hook that the bridge registered in `initialize`, with its timeout.
+struct Hook {
+    id: String,
+    timeout: u64,
+}
+
+fn hook_of(init: &Value) -> Option<Hook> {
+    let matcher = init.pointer("/request/hooks/PreToolUse/0")?;
+    Some(Hook {
+        id: matcher.pointer("/hookCallbackIds/0")?.as_str()?.to_owned(),
+        timeout: matcher.get("timeout")?.as_u64()?,
+    })
+}
+
+fn tool_result(id: &str, is_error: bool) {
+    send(
+        &json!({ "type": "user", "message": { "role": "user", "content": [
+            { "type": "tool_result", "tool_use_id": id, "content": "done", "is_error": is_error },
+        ]}}),
+    );
+}
+
+/// Calls a tool as Claude Code does: the tool use, the hook, then the result.
+fn use_tool(hook: Option<&Hook>, tool: &str, input: &Value) -> Option<String> {
+    said(&json!([{ "type": "tool_use", "id": "tu1", "name": tool, "input": input }]));
+    let Some(hook) = hook else {
+        tool_result("tu1", false);
+        return Some("no hook".into());
+    };
+    send(
+        &json!({ "type": "control_request", "request_id": "hk1", "request": {
+            "subtype": "hook_callback", "callback_id": hook.id, "tool_use_id": "tu1",
+            "input": { "hook_event_name": "PreToolUse", "tool_name": tool, "tool_input": input, "tool_use_id": "tu1", "cwd": "." },
+        }}),
+    );
+    let answer = read()?;
+    let output = answer.pointer("/response/response/hookSpecificOutput")?;
+    let decision = output.get("permissionDecision")?.as_str()?;
+    let reason = output.get("permissionDecisionReason")?.as_str()?;
+    tool_result("tu1", decision != "allow");
+    Some(format!("{decision}: {reason}"))
+}
+
+/// The scripts of the gate: a tool call through the hook, and hooks that go wrong.
+fn gate_reply(script: &str, args: &[String], hook: Option<&Hook>) -> Option<String> {
     match script {
+        "tool" => {
+            let tool = args.get(1)?;
+            let input: Value = serde_json::from_str(args.get(2)?).ok()?;
+            use_tool(hook, tool, &input)
+        }
+        "hookinfo" => hook.map(|h| format!("hook={} timeout={}", h.id, h.timeout)),
+        "nohook" => {
+            said(
+                &json!([{ "type": "tool_use", "id": "tu9", "name": "Read", "input": { "file_path": "x" } }]),
+            );
+            tool_result("tu9", false);
+            Some("read with no hook".into())
+        }
+        "badhook" => {
+            send(
+                &json!({ "type": "control_request", "request_id": "hk2", "request": {
+                    "subtype": "hook_callback", "callback_id": "gate", "input": { "hook_event_name": "PreToolUse" },
+                }}),
+            );
+            let answer = read()?;
+            let decision =
+                answer.pointer("/response/response/hookSpecificOutput/permissionDecision");
+            Some(format!(
+                "bad hook: {}",
+                decision.and_then(Value::as_str).unwrap_or("none")
+            ))
+        }
+        _ => None,
+    }
+}
+
+fn reply(
+    script: &str,
+    args: &[String],
+    prompt: &str,
+    session: &str,
+    hook: Option<&Hook>,
+) -> Option<String> {
+    match script {
+        "tool" | "hookinfo" | "nohook" | "badhook" => gate_reply(script, args, hook),
         "hang" => loop {
             std::thread::park();
         },
@@ -95,7 +179,7 @@ fn reply(script: &str, args: &[String], prompt: &str, session: &str) -> Option<S
         }
         "hook" => {
             send(
-                &json!({ "type": "control_request", "request_id": "h1", "request": { "subtype": "hook_callback", "callback_id": "x" } }),
+                &json!({ "type": "control_request", "request_id": "h1", "request": { "subtype": "mcp_message", "server_name": "x" } }),
             );
             let answer = read()?;
             let subtype = answer
@@ -159,6 +243,7 @@ fn main() {
         resume
     };
     let Some(init) = read() else { return };
+    let hook = hook_of(&init);
     if script == "badinit" {
         send(
             &json!({ "type": "control_response", "response": { "subtype": "error", "request_id": init["request_id"], "error": "no hooks here" } }),
@@ -177,7 +262,7 @@ fn main() {
         &json!({ "type": "system", "subtype": "init", "session_id": session, "cwd": ".", "tools": [] }),
     );
     send(&json!({ "type": "rate_limit_event", "rate_limit_info": {} }));
-    let Some(reply) = reply(&script, &args, text, &session) else {
+    let Some(reply) = reply(&script, &args, text, &session, hook.as_ref()) else {
         return;
     };
     if !reply.is_empty() {

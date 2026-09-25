@@ -176,7 +176,8 @@ Every message from the game (a strip or the reload outbox) runs under one ceilin
 | Commands | The allow table of the config. All others ask. |
 | Network | The agent's own API host only (6.6.4). Allowing a network tool does not widen the proxy. |
 
-- The `full-auto` level (6.2 rule 5) skips the questions only. The classifier denials and the sandbox still apply.
+- The `full-auto` level (6.2 rule 5) skips the questions of the game only. `deny` and `desktop` answers of the classifier still apply, and so does the sandbox.
+- The allow table of the config (12) covers commands. A command that it covers runs with no question at `auto-edit` and `full-auto`. It never covers a `deny`, `desktop`, or "never always" command (S17).
 - The game never answers a permission request of a terminal session, and never sends a task to one. Terminal sessions only send pings (section 10). The bridge does not run them, so this spec gives them no rules.
 - The bridge shows a desktop notice for each game message: "New task from WoW: <first line>". The config can turn this off.
 
@@ -193,11 +194,33 @@ There are four answers, in this order from strict to open:
 | `ask` | The user approves in the game popup (6.4). |
 | `allow` | Runs with no question. |
 
-**How tool calls reach it.** The classifier sees only the tool calls that a backend sends to the bridge. So its coverage is a property of each backend. The wiring comes after the backends of 9.2:
+**How tool calls reach it.** The classifier sees only the tool calls that a backend sends to the bridge. So its coverage is a property of each backend. `crates/bridge/src/gate.rs` is the one place that turns a verdict into an action (9.3), for every backend:
 
-- Claude: the bridge registers a `PreToolUse` hook in the `initialize` control request of `claude -p` (9.2). The hook sees every tool call, also the calls that the permission mode lets run with no question. A terminal session of Claude uses the same hook through `gnomish-relay-hook pretool`. This subcommand ignores `GNOMISH_RELAY_JOB`, and it fails closed: if the bridge does not answer, the answer is `deny`.
-- Codex: through the approval requests of `codex app-server` (9.2), in the approval mode of the level (9.3). Codex asks before a command that it does not know as safe, and runs the rest inside its sandbox. `codex exec` sends no tool calls to the bridge, so the bridge never uses it.
-- Other ACP agents: only through `session/request_permission`. The agent decides what it asks, so the classifier sees only part of its tool calls. For these agents the game ceiling is `ask`: no rule from the game gives `allow`.
+- **Claude (`kind = "claude"`): every tool call.** The bridge registers a `PreToolUse` hook in the `initialize` control request of `claude -p` (9.2). Claude Code then sends a `hook_callback` control request before each tool call, also the reads and the calls that the permission mode lets run with no question. The hook answers `allow` or `deny` itself, after the gate. It never answers `ask`, because that hands the call to the permission rules of Claude Code, which the settings of the user can loosen. A `hook_callback` that the bridge cannot read gets `deny`.
+  - Tools: `Read` is a read of `file_path`. `Write`, `Edit`, and `MultiEdit` are writes of `file_path`, and `NotebookEdit` of `notebook_path`. `Glob`, `Grep`, and `LS` read their `path`, else the chat folder; a `Glob` pattern that starts with `/`, `\`, or `~`, or holds `..` or `:`, is unknown. `Bash` is its `command`, in the chat folder. A relative path is relative to the chat folder.
+  - Tools of the session only run with no question: `ToolSearch`, `TodoWrite`, `EnterPlanMode`, `ExitPlanMode`, and `AskUserQuestion`. They change nothing outside the session, and a question for each would make Claude unusable.
+  - Every other tool is unknown: `WebFetch`, `WebSearch`, `Task` and other subagents, MCP tools (`mcp__*`), and any new tool.
+  - Checked live on Claude Code 2.1.282: the hook fires for a `Read` in `acceptEdits` mode. It also fires when `--settings` holds `disableAllHooks: true` and an allow rule for `Read`, so neither the settings of the user nor an allow rule skips it. A `hook_callback` answer that Claude Code cannot read lets the tool run, so the bridge only ever sends a well-formed answer.
+  - A second line: the bridge tracks the id of each tool call that the hook answered. A `tool_result` with no error for any other id means that a tool ran with no check. The run then stops at once with "A tool ran with no check by the bridge, so the run stopped.". That call already ran. A result with an error does not count, because a call with bad input fails before the hook.
+  - `can_use_tool` still works. A call that the hook allowed gets `allow`. Any other call goes through the gate.
+  - The Bash tool of Claude keeps its folder between calls. A relative redirect after a `cd` in an earlier call resolves from that folder, and the classifier resolves it from the chat folder. The sandbox (6.6.4) is the wall for this case.
+- **Codex (`kind = "codex"`): every command and every file change.** The thread runs with `approvalPolicy: "untrusted"` at every level. In codex-cli 0.157.0 that asks before every command that no `allow` rule of Codex covers, and before every patch, in both sandboxes (`core/src/exec_policy.rs`, `core/src/safety.rs`). The bridge classifies the script inside `<shell> -lc '<script>'`. What still runs with no request, and so without the classifier:
+  - A command that an `allow` rule of Codex covers: `/etc/codex/rules`, `$CODEX_HOME/rules` (for example `default.rules` from an "always allow" in a terminal), and the `.codex/rules` of a trusted project. Such a command also runs outside the sandbox.
+  - A request that a `PermissionRequest` hook of Codex answers, and an MCP server with `approval_mode = "approve"`.
+  - The retry outside the sandbox of a command that the bridge allowed.
+  - Input to a running command (`write_stdin`), `view_image`, MCP tools with `readOnlyHint`, the MCP resource tools, and the tools of the session (plan, tool search, sleep). Web search is off (`config.web_search = "disabled"`).
+  - MCP tool approvals come as `mcpServer/elicitation/request`. The bridge declines each one.
+  The sandbox of Codex (6.6.4) bounds all of these. The bridge cannot give Codex an empty `CODEX_HOME`, because the login lives there.
+- **Other ACP agents: only the calls that they ask about.** The bridge classifies each `session/request_permission`: the `kind` of the tool call says what its paths are (`read` and `search` read, `edit`, `delete`, and `move` write), from its `locations` and the `file_path`, `path`, or `notebook_path` of its `rawInput`. `execute` is the `command` of `rawInput`. Any other call is unknown. The agent decides what it asks, and the calls that it does not ask about already ran. So for these agents the answer is at most `ask` at every level, even `full-auto`: no allow table and no rule from the game gives `allow`.
+- A terminal session of Claude uses the same hook through `gnomish-relay-hook pretool`. This subcommand ignores `GNOMISH_RELAY_JOB`, and it fails closed: if the bridge does not answer, the answer is `deny`.
+
+**Desktop approval.** The bridge runs in the background with no window, so an answer on the desktop is a command:
+
+- The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15).
+- `gnomish-relay approve` lists the open requests. `gnomish-relay approve <id>` allows one, and `gnomish-relay deny <id>` refuses one. Each writes an answer file next to the request, with `create_new`, so it never follows a link. A request has at most one answer.
+- The bridge checks for the answer every 100 ms, up to `permission_timeout_minutes`. No answer refuses the call. The bridge then deletes the files. At start it deletes the files of an old bridge.
+- The bridge writes a log line, and shows a notice of the OS with the tools that the user already has: `notify-send` on Linux, `osascript` on macOS, and a PowerShell toast on Windows. The text goes in an argument or an environment variable, never into a script. With no such tool, the log line is the notice.
+- The game popup of the call starts with "Approve on your desktop: gnomish-relay approve" and has only Deny. No addon can answer a desktop request, and a Deny from the game refuses the call.
 
 **Input.** The bridge builds the input in `crates/bridge/src/action_input.rs`:
 
@@ -736,23 +759,23 @@ The agent process is untrusted:
 - The run ends at `timeout_minutes` (default 30). The bridge then kills the process.
 - The bridge declares no `fs` and no `terminal` capability, and answers every other request from the agent with "method not found".
 - If the config names a mode for the level, and the agent does not offer it, the run stops. With no mode, the agent runs at its own default, which can be more open.
-- Until the game can answer (9.3), the bridge answers each permission request under the ceiling: `full-auto` allows once, every other level refuses once. The reply then ends with "Not allowed from the game:" and the refused tool calls.
+- The gate (6.6.3, 9.3) answers each permission request. With nobody in the game, a question refuses the call. The reply then ends with "Not allowed from the game:" and the calls that a rule, the desktop, or no answer refused.
 
 **Claude Code with no adapter (`kind = "claude"`).** Most players have the native `claude` program and no Node. The bridge speaks the stream-json protocol of `claude -p` itself, in `crates/bridge/src/claude.rs`. It was checked on Claude Code 2.1.282.
 
 - The command is `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --permission-mode <mode>` in the chat folder, plus `--resume <id>` for the session of the chat. The `command` of the entry comes first, so it can add flags.
 - The bridge first sends the `initialize` control request, as the Claude Agent SDK does, and waits for its answer. Then it sends the prompt as one `user` message.
 - `system` with subtype `init` gives the session id. Each `tool_use` block of an `assistant` message becomes a progress line (9.3). The `result` message ends the turn, and its `result` text is the reply. A `result` with `is_error` is an error with its text, for example "Invalid API key · Please run /login".
-- A `can_use_tool` control request is a permission question (9.3). The bridge answers every other control request with an error.
+- The `PreToolUse` hook of 6.6.3 gates every tool call. Its timeout is `permission_timeout_minutes` plus 5 minutes, because Claude Code runs the tool when the hook times out. A `can_use_tool` control request goes through the same gate. The bridge answers every other control request with an error.
 - The same limits as ACP apply: the environment allowlist, the line and reply limits, the run timeout, and the last line of stderr in an error. The backends share `process.rs` and `turn.rs` for them.
 - If the session of the chat has no file, the run starts a new session, and the reply starts with the note of 9.1.
 
 **Codex with no adapter (`kind = "codex"`).** The bridge speaks the protocol of `codex app-server` itself, in `crates/bridge/src/codex.rs`. It was checked on codex-cli 0.157.0 with `codex app-server generate-json-schema` and `generate-ts`. The protocol is JSON-RPC 2.0 with no `jsonrpc` field, one message per line. The bridge uses no method that needs the `experimentalApi` capability.
 
 - The command is the `command` of the entry plus `app-server`, in the chat folder. The bridge sends `initialize` and then the `initialized` notification.
-- A new chat gets `thread/start` with `cwd`, `sandbox`, and `approvalPolicy` (9.3). A chat with a thread gets `thread/resume` with the same values and `excludeTurns`. If the resume fails, the run starts a new thread, and the reply starts with the note of 9.1.
+- A new chat gets `thread/start` with `cwd`, `sandbox`, `approvalPolicy`, `approvalsReviewer: "user"`, and `config: { web_search: "disabled" }` (9.3). `approvalsReviewer` keeps a reviewer model from the config of the user out of the way. A chat with a thread gets `thread/resume` with the same values and `excludeTurns`. If the resume fails, the run starts a new thread, and the reply starts with the note of 9.1.
 - `turn/start` sends the prompt as one `text` input. `item/started` of a `commandExecution`, `fileChange`, `mcpToolCall`, or `webSearch` becomes a progress line. The text of the last `agentMessage` of `item/completed` is the reply. `turn/completed` ends the turn: `completed` is a reply, `interrupted` is "Stopped.", and `failed` is an error with the message of Codex.
-- `item/commandExecution/requestApproval` and `item/fileChange/requestApproval` are permission questions (9.3). The bridge answers every other request of the server with "method not found".
+- `item/commandExecution/requestApproval` and `item/fileChange/requestApproval` go through the gate (6.6.3). The bridge answers every other request of the server with "method not found".
 - Codex keeps its login and its threads in `CODEX_HOME`, else `~/.codex`. `HOME` passes, so the default works. A user who sets `CODEX_HOME` or `OPENAI_API_KEY` adds it to the `env` list of the entry.
 - `check-agent` runs `codex --version` and `codex login status`, with no model call. It fails with "Codex needs a login." when the status command fails.
 - The entry has no `modes` table. Config load refuses one.
@@ -780,27 +803,42 @@ Each agent in the config has one permission level:
 
 | Level | Meaning |
 |---|---|
-| `ask` | Every command outside the allowlist needs an answer. |
-| `auto-edit` | File edits inside the chat folder need no answer. |
-| `full-auto` | Nothing needs an answer. |
+| `ask` | Every write and every command needs an answer. A read inside `allowed_roots` needs none. |
+| `auto-edit` | File edits inside the chat folder, and the commands of the allow table (12), need no answer. |
+| `full-auto` | No question in the game. The desktop and `deny` answers of 6.6.3 still apply. |
+
+**The gate.** Each tool call gets one verdict from the classifier (6.6.3). The level of the job then picks the action, in `gate::decide`:
+
+| Verdict | `ask` | `auto-edit` | `full-auto` |
+|---|---|---|---|
+| `deny` | refuse | refuse | refuse |
+| `desktop` | desktop | desktop | desktop |
+| `ask` | game | game | run |
+| `allow`, a read | run | run | run |
+| `allow`, a write or a command | game | run | run |
+
+- At `ask`, only a call that only reads runs with no question. A write inside the chat folder, and a command in the allow table, ask in the game. A tool of the session (6.6.3) counts as a read.
+- For an ACP agent that picks its questions (6.6.3), `ask` and `allow` both ask in the game, at every level.
+- A refusal names its reason to the agent: "It touches the config folder of Gnomish Relay, which the agent never reaches.", "Denied on the desktop.", "No answer on the desktop.", "Denied in the game.", "No answer from the game.", or "Not allowed from the game." when nobody in the game listens.
+- The game gets Allow and Deny for a game question, and only Deny for a desktop question (6.6.3).
 
 Each backend maps the level differently:
 
 - `acp`: the bridge sets the session mode. Mode IDs differ per agent, so the config has a `modes` table per agent.
-- `claude`: `--permission-mode`. `ask` is `plan`, `auto-edit` is `acceptEdits`, and `full-auto` is `acceptEdits` plus an allow of each question by the bridge. The `modes` table of the entry can name another mode: `acceptEdits`, `auto`, `dontAsk`, `manual`, or `plan`. Config load refuses any other name. It also refuses `bypassPermissions`: in that mode Claude Code asks nothing, so no tool call reaches the bridge, and the ceiling of the game has no effect.
-- `codex`: the sandbox and the approval policy of the thread. `ask` is `read-only` with `untrusted`: Codex asks before each command that it does not know as safe. `auto-edit` is `workspace-write` with `on-request`: commands and edits inside the folder run in the sandbox, and Codex asks before anything outside it. `full-auto` is `workspace-write` with `on-request` plus an accept of each question by the bridge. The bridge never uses `danger-full-access` or `never`.
+- `claude`: `--permission-mode`, and the hook of 6.6.3 for every call. `ask` is `plan`, and `auto-edit` and `full-auto` are `acceptEdits`. The hook decides, so the mode matters only for the plan of Claude. The `modes` table of the entry can name another mode: `acceptEdits`, `auto`, `dontAsk`, `manual`, or `plan`. Config load refuses any other name. It also refuses `bypassPermissions`: in that mode Claude Code asks nothing, so no tool call reaches the bridge, and the ceiling of the game has no effect.
+- `codex`: the sandbox of the thread, and `approvalPolicy: "untrusted"` at every level, which sends the most calls to the bridge (6.6.3). `ask` is `read-only`, and `auto-edit` and `full-auto` are `workspace-write`. The sandbox applies after the answer of the gate. The bridge never uses `danger-full-access`, `never`, `on-request`, or `granular`: none of them asks more than `untrusted`.
 - `command`: the level is fixed by the command in the config. The addon shows the level in the chat header. If the level is `full-auto`, the addon shows a warning.
 - For game messages, Codex runs through `codex app-server` or ACP only, so the bridge sees each question of its tool calls (6.6.3).
 
 **Live permission flow (ACP):**
 
-1. The agent sends `session/request_permission`. At `full-auto`, the bridge allows it once. At every other level, the run waits.
+1. The agent sends `session/request_permission`. The gate answers it, and a game question waits for the game.
 2. The bridge writes the popup text with `popup_text` (S15): the command line of the tool call, else its path or address, else its title, and then its title as "the agent says". It adds the request to `permissions` in `Live.lua` (S20), with the options numbered `o1` to `o4`.
 3. The addon shows a popup with the text and the options.
 4. The user picks an option. The addon sends a control record with `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256 of the text that the popup showed, in hex.
 5. The bridge takes the answer only for an open request of the same chat, a real option, and a matching hash. Then it answers the agent. A second answer does nothing.
 
-**Live permission flow (`claude`):** a `can_use_tool` control request goes through the same steps. The popup text is the `command` of the tool input, else its `file_path`, `notebook_path`, `path`, `url`, or `pattern`, else the tool name. "The agent says" is the tool name and the `description` of the request. The game gets two options: Allow (`allow_once`) and Deny (`reject_once`). An allow sends the tool input back unchanged as `updatedInput`. A deny sends a `message` that Claude sees, for example "Denied in the game.". The answer never holds the `permission_suggestions` of the request: they add permanent allow rules, and the game adds no rule (6.6.5).
+**Live permission flow (`claude`):** the hook and a `can_use_tool` control request go through the same steps. The popup text is the `command` of the tool input, else its `file_path`, `notebook_path`, `path`, `url`, or `pattern`, else the tool name. "The agent says" is the tool name and the `description` of the request. The game gets two options: Allow (`allow_once`) and Deny (`reject_once`). The hook answers with `permissionDecision` and a `permissionDecisionReason` that Claude sees. For `can_use_tool`, an allow sends the tool input back unchanged as `updatedInput`. A deny sends a `message` that Claude sees, for example "Denied in the game.". The answer never holds the `permission_suggestions` of the request: they add permanent allow rules, and the game adds no rule (6.6.5).
 
 **Live permission flow (`codex`):** an approval request of the server goes through the same steps. For a command, the popup text is its `command`. For a file change, it is the paths of the change, from the `fileChange` item of `item/started`. If the request has a `grantRoot`, the popup text is "write anything in <root>". "The agent says" is the `reason`, else "run a command" or "change files". The game gets Allow and Deny. Allow sends `accept`, and Deny or no answer sends `decline`. The bridge never sends `acceptForSession`, `acceptWithExecpolicyAmendment`, or `applyNetworkPolicyAmendment`: each adds a rule for later calls (6.6.5).
 
@@ -953,7 +991,7 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
    With more than one, or none, it asks in a terminal. `setup <folder>` skips the search, and takes the `World of Warcraft` folder or `_classic_beta_`. It makes `Interface/AddOns` if WoW has not made it yet, and it finds that folder in any case.
 2. **Make the strip key**, 32 random bytes from the OS, into `strip.key` with mode 0600, once. `--new-key` makes a new one, and then the addon needs a `/reload`.
 3. **Install the addon.** The addon files are built into the program. Setup writes them into `Interface/AddOns/GnomishRelay`, and writes `Key.lua` from the strip key. A folder that is a link (a developer checkout, 16) stays as it is, and only `Key.lua` changes.
-4. **Write the config**, once, with an `[agents.<name>]` entry for each known agent on `PATH`: `claude` (as `kind = "claude"`), `codex` (as `kind = "codex"`), and the ACP agents of 9.2. The default agent is the first one it finds, in the order of `KNOWN_AGENTS` in `install.rs`. With none, it is `echo`.
+4. **Write the config**, once, with an `[agents.<name>]` entry for each known agent on `PATH`: `claude` (as `kind = "claude"`), `codex` (as `kind = "codex"`), and the ACP agents of 9.2. The default agent is the first one it finds, in the order of `KNOWN_AGENTS` in `install.rs`. With none, it is `echo`. The config also gets a commented example of the allow table (12): setup allows no command.
 5. **Make the slot addons.** WoW finds a new addon only at launch, so after a first install the game needs a restart. Setup says so.
 6. **Start the bridge at login**, with `--autostart`: a systemd user service on Linux, a launchd agent on macOS (log in `~/Library/Logs/gnomish-relay.log`), and a `Run` entry of the user on Windows, which needs no admin rights. On Windows, `run --background` starts the bridge with no console window, with its log in the data folder.
 
@@ -999,7 +1037,23 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never replaces a config.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, and `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`, and `[allow]` with `commands` and `[allow.folders]`.
+
+**The allow table** lists the commands that run from the game with no question at `auto-edit` and `full-auto` (9.3):
+
+```toml
+[allow]
+commands = ["cargo test *", "cargo fmt --check"]
+
+[allow.folders]
+"~/Code/lighthouse" = ["npm test *"]
+```
+
+- A pattern is plain words with a space between them. It covers every command that starts with these words, so a last `*` only shows that more words can follow: `cargo test *` and `cargo test` are one rule.
+- A word with shell syntax (`*`, `?`, `[`, `]`, `$`, a backtick, a quote, `\`, `;`, `&`, `|`, `<`, `>`, `(`, `)`, `{`, `}`, `~`, `#`, or `=`) is an error, and so is an empty pattern.
+- `commands` applies to every chat. A folder of `[allow.folders]` must exist, and its patterns apply to each chat inside it.
+- A pattern never allows a `deny`, `desktop`, or "never always" command (6.6.3, S17). A config with no `[allow]` has an empty table.
+- `gnomish-relay approve` and `gnomish-relay deny` answer the desktop requests of 6.6.3. They live in `approvals` in the data folder.
 The other keys below come with their features.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
@@ -1299,8 +1353,8 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 5. **Done: slot writer.** Publish a fixed reply. Make sure that it shows in the game. Passed in the game on 2026-09-24: `install`, then `say`, then `/relay poll` showed the reply. The steps are in `addon/README.md`.
 6. **Addon port** with the stub harness and the differential tests.
 7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`. Passed in the game on 2026-09-24: a message went out as a strip, and the echo came back through the slots.
-8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Done (8b):** the action classifier (6.6.3) in `protocol`, with S16, S17, S27, and S28 proved, and the input of the classifier in the bridge. **Next:** the backends call the classifier (6.6.3, "How tool calls reach it"), and the config gets its allow table.
-9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Next:** a live test with a real agent, then the backends call the classifier (8b).
+8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Done (8b):** the action classifier (6.6.3) in `protocol`, with S16, S17, S27, and S28 proved, and the input of the classifier in the bridge. **Done (8c):** every backend calls the classifier through one gate (6.6.3, 9.3): the hook of Claude for every tool call, the approvals of Codex, and the permission requests of ACP agents. The config has its allow table, and `gnomish-relay approve` answers desktop requests.
+9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Next:** a live test with a real agent in the game.
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.

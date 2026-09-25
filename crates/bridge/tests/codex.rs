@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
 use bridge::codex::CodexAgent;
 use bridge::config::Permission;
+use bridge::desktop::{Approvals, Notice};
+use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 
 fn agent(script: &str) -> CodexAgent {
@@ -17,6 +19,18 @@ fn agent(script: &str) -> CodexAgent {
         env: Vec::new(),
         timeout: Duration::from_secs(20),
         permission_timeout: Duration::from_secs(20),
+        gate: gate(),
+    }
+}
+
+/// Every tempdir of the tests is inside the temp folder, so it is the one root.
+fn gate() -> Gate {
+    let tmp = std::env::temp_dir().canonicalize().unwrap();
+    Gate {
+        roots: vec![tmp.clone()],
+        config_dir: tmp.join("gnomish-relay-test-config"),
+        allow: std::sync::Arc::default(),
+        approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Notice::Off),
     }
 }
 
@@ -55,7 +69,7 @@ fn the_last_agent_message_is_the_reply_and_the_agent_sees_only_allowed_variables
     let reply = run(&agent("reply"), Permission::AutoEdit).unwrap();
     assert_eq!(
         reply,
-        "you said: hello [sandbox=workspace-write approval=on-request secret=hidden job=1]"
+        "you said: hello [sandbox=workspace-write approval=untrusted secret=hidden job=1]"
     );
 }
 
@@ -76,7 +90,7 @@ fn ask_runs_in_the_read_only_sandbox_and_asks_for_every_untrusted_command() {
     );
     let full = run(&agent("reply"), Permission::FullAuto).unwrap();
     assert!(
-        full.contains("sandbox=workspace-write approval=on-request"),
+        full.contains("sandbox=workspace-write approval=untrusted"),
         "{full}"
     );
 }
@@ -104,11 +118,11 @@ fn a_thread_that_cannot_resume_starts_again_and_the_reply_says_so() {
 }
 
 #[test]
-fn below_full_auto_with_no_game_each_approval_is_declined_and_named() {
+fn at_auto_edit_with_no_game_a_command_is_declined_and_a_change_in_the_folder_runs() {
     let reply = run(&agent("approval"), Permission::AutoEdit).unwrap();
     assert_eq!(
         reply,
-        "command decline, change decline\n\nNot allowed from the game: clean the build; change files"
+        "command decline, change accept\n\nNot allowed from the game: clean the build"
     );
 }
 
@@ -226,7 +240,7 @@ fn each_command_and_change_becomes_a_progress_line() {
 
 #[test]
 fn an_approval_goes_to_the_game_with_the_honest_text_and_no_always() {
-    let (reply, events) = run_with_game(&agent("approval"), Permission::AutoEdit, |q| {
+    let (reply, events) = run_with_game(&agent("approval"), Permission::Ask, |q| {
         let labels: Vec<&str> = q.choices.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(labels, ["Allow", "Deny"]);
         Some(Some(usize::from(!q.text.starts_with(b"rm"))))
@@ -253,7 +267,72 @@ fn an_unanswered_approval_is_declined_after_the_permission_timeout() {
     let mut codex = agent("approval");
     codex.permission_timeout = Duration::from_millis(200);
     let (reply, _) = run_with_game(&codex, Permission::AutoEdit, |_| None);
-    assert_eq!(reply.unwrap(), "command decline, change decline");
+    assert_eq!(
+        reply.unwrap(),
+        "command decline, change accept\n\nNot allowed from the game: clean the build"
+    );
+}
+
+/// A gate whose only root is `root`, with `allow` as the allow table.
+fn gate_in(root: &std::path::Path, allow: &str) -> Gate {
+    let file: bridge::allow::AllowFile = toml::from_str(allow).unwrap();
+    Gate {
+        roots: vec![root.to_owned()],
+        config_dir: root.join("config"),
+        allow: std::sync::Arc::new(bridge::allow::parse(&file, root).unwrap()),
+        approvals: Approvals::new(&root.join("data"), Notice::Off),
+    }
+}
+
+/// One approval of `script` with its argument, in a chat folder inside a fresh root.
+fn gated(script: &str, arg: &str, allow: &str, level: Permission) -> Result<String, String> {
+    let root = tempfile::tempdir().unwrap();
+    let root_path = root.path().canonicalize().unwrap();
+    std::fs::create_dir_all(root_path.join("config")).unwrap();
+    std::fs::create_dir_all(root_path.join("app")).unwrap();
+    let mut codex = agent(script);
+    codex
+        .command
+        .push(arg.replace("ROOT", &root_path.to_string_lossy()));
+    codex.gate = gate_in(&root_path, allow);
+    codex.permission_timeout = Duration::from_millis(300);
+    let mut job = job(&root, level, "go");
+    job.cwd = root_path.join("app").to_string_lossy().into_owned();
+    codex.run(&job, &Control::default()).reply
+}
+
+#[test]
+fn a_wrapped_command_in_the_allow_table_runs_with_no_popup_at_auto_edit() {
+    let reply = gated(
+        "command",
+        "/bin/bash -lc 'cargo test -q'",
+        "commands = [\"cargo test\"]",
+        Permission::AutoEdit,
+    );
+    assert_eq!(reply.unwrap(), "command accept");
+    let reply = gated(
+        "command",
+        "/bin/bash -lc 'cargo build'",
+        "commands = [\"cargo test\"]",
+        Permission::AutoEdit,
+    );
+    assert!(reply.unwrap().starts_with("command decline"));
+}
+
+#[test]
+fn a_change_of_the_strip_key_is_declined_at_every_level() {
+    for level in [Permission::Ask, Permission::AutoEdit, Permission::FullAuto] {
+        let reply = gated("change", "ROOT/config/strip.key", "", level).unwrap();
+        assert!(reply.starts_with("change decline"), "{reply}");
+    }
+}
+
+#[test]
+fn a_change_outside_the_chat_folder_waits_for_the_desktop() {
+    let reply = gated("change", "ROOT/other.rs", "", Permission::FullAuto).unwrap();
+    assert!(reply.starts_with("change decline"), "{reply}");
+    let inside = gated("change", "ROOT/app/main.rs", "", Permission::AutoEdit).unwrap();
+    assert_eq!(inside, "change accept");
 }
 
 fn attach(fork: bool) -> (Result<String, String>, Option<String>) {

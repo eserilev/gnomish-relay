@@ -15,6 +15,7 @@ pub mod config;
 pub mod desktop;
 pub mod flags;
 pub mod fs_safe;
+pub mod gate;
 pub mod history;
 pub mod install;
 pub mod lock;

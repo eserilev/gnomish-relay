@@ -3,7 +3,7 @@
 //! of a session never keeps an old id.
 #![no_main]
 
-use bridge::claude::{Message, read_message};
+use bridge::claude::{Message, read_message, tool_call};
 use bridge::claude_sessions::{fork_entries, last_exchange, read_info};
 use libfuzzer_sys::fuzz_target;
 
@@ -17,9 +17,10 @@ fuzz_target!(|data: &[u8]| {
         };
         match read_message(&message) {
             Message::Said { steps, .. } => assert!(steps.iter().all(|s| s.len() <= 200)),
-            Message::Ask { request, .. } => {
+            Message::Ask { request, .. } | Message::Hook { request: Some(request), .. } => {
                 assert!(request.text.iter().all(|b| *b == b'\n' || (b' '..=b'~').contains(b)), "S15");
                 assert!(request.title.len() <= 200);
+                let _ = tool_call(&request, std::path::Path::new("/w"));
             }
             _ => {}
         }

@@ -3,20 +3,18 @@
 //!
 //! The process limits of `process.rs` and `turn.rs` apply to the agent.
 
-use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::collections::{BTreeMap, HashSet};
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Value, json};
 
-use protocol::live::OptionKind;
 use protocol::popup::popup_text;
 
-use crate::agent::{
-    Agent, Choice, Control, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
-};
+use crate::agent::{Agent, Control, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo};
 use crate::claude_sessions;
 use crate::config::Permission;
+use crate::gate::{self, Call, Coverage, Gate, Refusal};
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Work};
 use crate::turn::{STOPPED, Turn};
@@ -27,7 +25,19 @@ pub const MODES: [&str; 5] = ["acceptEdits", "auto", "dontAsk", "manual", "plan"
 pub const REFUSED_MODE: &str = "bypassPermissions";
 const INIT_ID: &str = "init1";
 const STOP_ID: &str = "stop1";
+const HOOK_ID: &str = "gate";
+/// Tools that change nothing outside the session, such as a plan or a tool search.
+const SESSION_TOOLS: [&str; 5] = [
+    "ToolSearch",
+    "TodoWrite",
+    "EnterPlanMode",
+    "ExitPlanMode",
+    "AskUserQuestion",
+];
+const UNCHECKED: &str = "A tool ran with no check by the bridge, so the run stopped.";
 const CHECK_TIME: Duration = Duration::from_secs(30);
+/// Claude Code runs a tool when the hook times out, so the bridge answers first.
+const HOOK_MARGIN: Duration = Duration::from_mins(5);
 
 pub struct ClaudeAgent {
     pub command: Vec<String>,
@@ -39,6 +49,7 @@ pub struct ClaudeAgent {
     pub permission_timeout: Duration,
     /// Where Claude Code keeps its sessions (`claude_sessions::projects_dir`).
     pub projects: PathBuf,
+    pub gate: Gate,
 }
 
 /// Full-auto still runs in `acceptEdits`: the bridge allows each question, so every
@@ -102,6 +113,12 @@ impl ClaudeAgent {
                 process,
                 turn: Turn::new(self.timeout, self.permission_timeout, control.clone()),
                 permission: job.permission,
+                gate: self.gate.clone(),
+                agent: job.agent.clone(),
+                cwd: job.cwd.clone(),
+                hook_timeout: self.permission_timeout + HOOK_MARGIN,
+                checked: HashSet::new(),
+                allowed: HashSet::new(),
                 session: resume.map(str::to_owned),
                 prompted: false,
                 refused: Vec::new(),
@@ -198,11 +215,19 @@ pub enum Message {
         text: String,
         steps: Vec<String>,
     },
-    /// A tool call that needs an answer.
+    /// A tool call that asks for permission (`can_use_tool`).
     Ask {
         id: Value,
         request: Request,
     },
+    /// The `PreToolUse` hook of the bridge, before every tool call. `None` when the
+    /// bridge cannot read the call.
+    Hook {
+        id: Value,
+        request: Option<Request>,
+    },
+    /// The tool calls that ran and did not fail, by id.
+    Ran(Vec<String>),
     /// A control request that the bridge does not serve.
     Unsupported {
         id: Value,
@@ -220,9 +245,11 @@ pub enum Message {
     Other,
 }
 
-/// A permission question as the game sees it.
+/// A tool call as the gate sees it.
 #[derive(Debug, PartialEq)]
 pub struct Request {
+    pub tool: String,
+    pub tool_use_id: Option<String>,
     /// The output of `popup_text` (S15).
     pub text: Vec<u8>,
     /// The tool and its reason, for "Not allowed from the game:".
@@ -240,6 +267,7 @@ pub fn read_message(message: &Value) -> Message {
             }
         }
         Some("assistant") => read_said(message),
+        Some("user") => read_ran(message),
         Some("control_request") => read_control(message),
         Some("control_response") => read_answered(message),
         Some("result") => read_ended(message),
@@ -282,16 +310,50 @@ fn path_of(input: &Value) -> Option<&str> {
         .find_map(|key| input.get(*key).and_then(Value::as_str))
 }
 
+/// A call that failed also ran, but a call that the gate refused fails too, and so does
+/// a call with bad input, which no hook sees. So only calls that did not fail count.
+fn read_ran(message: &Value) -> Message {
+    let blocks = message
+        .pointer("/message/content")
+        .and_then(Value::as_array);
+    let ran = blocks
+        .into_iter()
+        .flatten()
+        .filter(|b| text_at(b, "/type") == Some("tool_result"))
+        .filter(|b| b.get("is_error").and_then(Value::as_bool) != Some(true))
+        .filter_map(|b| text_at(b, "/tool_use_id").map(str::to_owned))
+        .collect();
+    Message::Ran(ran)
+}
+
 fn read_control(message: &Value) -> Message {
     let id = message.get("request_id").cloned().unwrap_or(Value::Null);
     let request = message.get("request").unwrap_or(&Value::Null);
-    if text_at(request, "/subtype") != Some("can_use_tool") {
-        return Message::Unsupported { id };
+    match text_at(request, "/subtype") {
+        Some("can_use_tool") => Message::Ask {
+            id,
+            request: read_request(request),
+        },
+        Some("hook_callback") => Message::Hook {
+            id,
+            request: read_hook(request),
+        },
+        _ => Message::Unsupported { id },
     }
-    Message::Ask {
-        id,
-        request: read_request(request),
+}
+
+/// The input of a `PreToolUse` hook has the tool call as `can_use_tool` has it.
+fn read_hook(request: &Value) -> Option<Request> {
+    let input = request.get("input")?;
+    if text_at(input, "/hook_event_name") != Some("PreToolUse") {
+        return None;
     }
+    let call = json!({
+        "tool_name": text_at(input, "/tool_name")?,
+        "input": input.get("tool_input")?,
+        "tool_use_id": text_at(input, "/tool_use_id").or_else(|| text_at(request, "/tool_use_id")),
+    });
+    Some(read_request(&call))
 }
 
 /// The popup shows the raw command or path first, and the words of the agent below
@@ -311,10 +373,44 @@ pub fn read_request(request: &Value) -> Request {
         .or_else(|| path_of(&input))
         .unwrap_or(tool);
     Request {
+        tool: tool.to_owned(),
+        tool_use_id: text_at(request, "/tool_use_id").map(str::to_owned),
         text: popup_text(raw.as_bytes(), title.as_bytes()),
         title: cut(&title, MAX_STEP).to_owned(),
         input,
     }
+}
+
+/// The classifier input of a tool of Claude Code (SPEC.md 6.6.3). A relative path is
+/// relative to the folder of the chat. A tool that the bridge does not know is unknown.
+pub fn tool_call(request: &Request, cwd: &Path) -> Call {
+    let input = &request.input;
+    let path = |key: &str| text_at(input, key).map(|p| cwd.join(p));
+    let (text, title) = (request.text.clone(), request.title.clone());
+    let files = |reads: Option<PathBuf>, writes: Option<PathBuf>| match (reads, writes) {
+        (Some(read), None) => Call::files(&[read], &[], text.clone(), title.clone()),
+        (None, Some(write)) => Call::files(&[], &[write], text.clone(), title.clone()),
+        _ => Call::unknown(text.clone(), title.clone()),
+    };
+    match request.tool.as_str() {
+        "Read" => files(path("/file_path"), None),
+        "Write" | "Edit" | "MultiEdit" => files(None, path("/file_path")),
+        "NotebookEdit" => files(None, path("/notebook_path")),
+        "Glob" if !is_plain_glob(text_at(input, "/pattern").unwrap_or("")) => files(None, None),
+        "Glob" | "Grep" | "LS" => files(path("/path").or(Some(cwd.to_owned())), None),
+        "Bash" => match text_at(input, "/command") {
+            Some(command) => Call::command(command, cwd, text, title),
+            None => Call::unknown(text, title),
+        },
+        tool if SESSION_TOOLS.contains(&tool) => Call::files(&[], &[], text, title),
+        _ => Call::unknown(text, title),
+    }
+}
+
+/// A glob that stays under its folder: no absolute part, no `~`, and no `..`.
+fn is_plain_glob(pattern: &str) -> bool {
+    let absolute = pattern.starts_with(['/', '\\', '~']) || pattern.contains(':');
+    !absolute && !pattern.contains("..")
 }
 
 fn read_answered(message: &Value) -> Message {
@@ -351,19 +447,6 @@ fn text_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
     value.pointer(pointer).and_then(Value::as_str)
 }
 
-fn choices() -> Vec<Choice> {
-    vec![
-        Choice {
-            kind: OptionKind::AllowOnce,
-            label: "Allow".into(),
-        },
-        Choice {
-            kind: OptionKind::RejectOnce,
-            label: "Deny".into(),
-        },
-    ]
-}
-
 fn allow(input: &Value) -> Value {
     json!({ "behavior": "allow", "updatedInput": input })
 }
@@ -372,11 +455,33 @@ fn deny(why: &str) -> Value {
     json!({ "behavior": "deny", "message": why })
 }
 
+/// The answer of the hook. It is only ever allow or deny: "ask" hands the call to the
+/// permission rules of Claude Code, which the settings of the user can loosen.
+fn hook_output(result: &Result<(), Refusal>) -> Value {
+    let (decision, reason) = match result {
+        Ok(()) => ("allow", "Allowed by Gnomish Relay."),
+        Err(refusal) => ("deny", refusal.reason()),
+    };
+    json!({ "hookSpecificOutput": {
+        "hookEventName": "PreToolUse",
+        "permissionDecision": decision,
+        "permissionDecisionReason": reason,
+    }})
+}
+
 /// One run of `claude -p`: the answers to its control requests and the reply.
 struct Stream {
     process: AgentProcess,
     turn: Turn,
     permission: Permission,
+    gate: Gate,
+    agent: String,
+    cwd: String,
+    hook_timeout: Duration,
+    /// The tool calls that the hook answered.
+    checked: HashSet<String>,
+    /// The tool calls that the hook allowed, so `can_use_tool` does not ask twice.
+    allowed: HashSet<String>,
     session: Option<String>,
     /// Before the prompt, Stop has no turn to interrupt.
     prompted: bool,
@@ -387,7 +492,11 @@ struct Stream {
 
 impl Stream {
     fn talk(&mut self, prompt: &str) -> Result<String, String> {
-        self.send(&json!({ "type": "control_request", "request_id": INIT_ID, "request": { "subtype": "initialize", "hooks": null } }))?;
+        let hooks = json!({ "PreToolUse": [{
+            "hookCallbackIds": [HOOK_ID],
+            "timeout": self.hook_timeout.as_secs(),
+        }]});
+        self.send(&json!({ "type": "control_request", "request_id": INIT_ID, "request": { "subtype": "initialize", "hooks": hooks } }))?;
         self.wait_for_answer(INIT_ID)?;
         self.send(&json!({ "type": "user", "message": { "role": "user", "content": prompt } }))?;
         self.prompted = true;
@@ -441,10 +550,21 @@ impl Stream {
                 }
             }
             Message::Ask { id, request } => {
-                let decision = self.decide(request);
+                let decision = self.decide(&request);
                 self.respond(
                     &json!({ "subtype": "success", "request_id": id, "response": decision }),
                 )?;
+            }
+            Message::Hook { id, request } => {
+                let output = hook_output(&self.hook(request.as_ref()));
+                self.respond(
+                    &json!({ "subtype": "success", "request_id": id, "response": output }),
+                )?;
+            }
+            Message::Ran(ids) => {
+                if ids.iter().any(|id| !self.checked.contains(id)) {
+                    return Err(UNCHECKED.into());
+                }
             }
             Message::Unsupported { id } => {
                 self.respond(
@@ -485,23 +605,55 @@ impl Stream {
         ))
     }
 
-    /// The same rules as ACP (SPEC.md 9.3). No answer ever holds the suggested rules
-    /// of Claude Code: the game adds no "always allow" rule (6.6.5).
-    fn decide(&mut self, request: Request) -> Value {
+    /// The gate for one tool call (SPEC.md 6.6.3).
+    fn check(&mut self, request: &Request) -> Result<(), Refusal> {
         if self.turn.stopping() {
-            return deny("Stopped from the game.");
+            return Err(Refusal::ByRule("Stopped from the game.".into()));
         }
-        if self.permission == Permission::FullAuto {
+        let call = tool_call(request, Path::new(&self.cwd));
+        let job = gate::Job {
+            agent: &self.agent,
+            cwd: &self.cwd,
+            level: self.permission,
+            coverage: Coverage::Every,
+        };
+        let result = self.gate.check(&call, &job, &mut self.turn);
+        if let Err(Refusal::ByRule(_)) = &result {
+            self.refused.push(request.title.clone());
+        }
+        result
+    }
+
+    /// A hook with no readable tool call gets a deny.
+    fn hook(&mut self, request: Option<&Request>) -> Result<(), Refusal> {
+        let Some(request) = request else {
+            return Err(Refusal::ByRule(
+                "The bridge cannot read this tool call.".into(),
+            ));
+        };
+        let result = self.check(request);
+        if let Some(id) = &request.tool_use_id {
+            self.checked.insert(id.clone());
+            if result.is_ok() {
+                self.allowed.insert(id.clone());
+            }
+        }
+        result
+    }
+
+    /// The second line after the hook. No answer ever holds the suggested rules of
+    /// Claude Code: the game adds no "always allow" rule (6.6.5).
+    fn decide(&mut self, request: &Request) -> Value {
+        let passed = request
+            .tool_use_id
+            .as_ref()
+            .is_some_and(|id| self.allowed.contains(id));
+        if passed {
             return allow(&request.input);
         }
-        if !self.turn.listening() {
-            self.refused.push(request.title);
-            return deny("Not allowed from the game.");
-        }
-        match self.turn.ask_game(request.text, choices()) {
-            Some(0) => allow(&request.input),
-            Some(_) => deny("Denied in the game."),
-            None => deny("No answer from the game."),
+        match self.check(request) {
+            Ok(()) => allow(&request.input),
+            Err(refusal) => deny(refusal.reason()),
         }
     }
 }

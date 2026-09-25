@@ -9,6 +9,8 @@ use std::time::{Duration, Instant};
 use bridge::acp::{AcpAgent, unix_time};
 use bridge::agent::{Agent, Control, Event, Events, StopSignal};
 use bridge::config::Permission;
+use bridge::desktop::{Approvals, Notice};
+use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 
 fn agent(script: &str) -> AcpAgent {
@@ -18,6 +20,18 @@ fn agent(script: &str) -> AcpAgent {
         modes: BTreeMap::new(),
         timeout: Duration::from_secs(20),
         permission_timeout: Duration::from_secs(20),
+        gate: gate(),
+    }
+}
+
+/// Every tempdir of the tests is inside the temp folder, so it is the one root.
+fn gate() -> Gate {
+    let tmp = std::env::temp_dir().canonicalize().unwrap();
+    Gate {
+        roots: vec![tmp.clone()],
+        config_dir: tmp.join("gnomish-relay-test-config"),
+        allow: std::sync::Arc::default(),
+        approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Notice::Off),
     }
 }
 
@@ -92,9 +106,9 @@ fn below_full_auto_a_permission_request_is_refused_and_named_in_the_reply() {
 }
 
 #[test]
-fn at_full_auto_a_permission_request_is_allowed_once() {
+fn at_full_auto_an_acp_request_still_needs_the_game() {
     let reply = run(&agent("permission"), Permission::FullAuto, "clean").unwrap();
-    assert_eq!(reply, "chose yes");
+    assert!(reply.starts_with("chose no"), "{reply}");
 }
 
 #[test]
@@ -271,7 +285,7 @@ fn a_permission_request_goes_to_the_game_with_the_honest_text() {
         let labels: Vec<&str> = q.choices.iter().map(|c| c.label.as_str()).collect();
         assert_eq!(
             labels,
-            ["Allow", "Reject"],
+            ["Allow", "Deny"],
             "allow always waits for SPEC 6.6.5"
         );
         Some(Some(0))
@@ -289,14 +303,51 @@ fn the_answer_of_the_game_picks_the_option() {
 }
 
 #[test]
-fn an_unanswered_request_is_cancelled_after_the_permission_timeout() {
+fn an_unanswered_request_is_refused_after_the_permission_timeout() {
     let mut agent = agent("permission");
     agent.permission_timeout = Duration::from_millis(300);
     agent.timeout = Duration::from_secs(1);
     let start = Instant::now();
     let (reply, _) = run_with_game(&agent, Permission::AutoEdit, |_| None);
-    assert_eq!(reply.unwrap(), "chose cancelled");
+    assert!(reply.unwrap().starts_with("chose no"));
     assert!(start.elapsed() < Duration::from_secs(5));
+}
+
+#[test]
+fn an_acp_agent_at_full_auto_still_gets_popups() {
+    let (reply, events) = run_with_game(&agent("permission"), Permission::FullAuto, |_| {
+        Some(Some(0))
+    });
+    assert_eq!(reply.unwrap(), "chose yes");
+    assert!(events.iter().any(|e| matches!(e, Event::Question(_))));
+}
+
+#[test]
+fn an_acp_read_of_the_strip_key_is_refused_with_no_popup() {
+    let dir = tempfile::tempdir().unwrap();
+    let real = dir.path().canonicalize().unwrap();
+    std::fs::create_dir_all(real.join("config")).unwrap();
+    std::fs::write(real.join("config").join("strip.key"), "x").unwrap();
+    let mut agent = agent("readkey");
+    agent.gate.config_dir = real.join("config");
+    let job = job(&dir, Permission::FullAuto, "go");
+    let (to, events) = std::sync::mpsc::channel();
+    let control = Control {
+        stop: StopSignal::default(),
+        events: Events::to_bridge(to, &job),
+    };
+    let reply = agent.run(&job, &control).reply.unwrap();
+    drop(control);
+    assert!(reply.starts_with("chose no"), "{reply}");
+    assert!(
+        reply.ends_with("Not allowed from the game: read the key"),
+        "{reply}"
+    );
+    assert!(
+        !events
+            .try_iter()
+            .any(|(_, _, e)| matches!(e, Event::Question(_)))
+    );
 }
 
 fn attach(script: &str, fork: bool) -> (Result<String, String>, Option<String>) {

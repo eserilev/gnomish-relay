@@ -55,8 +55,29 @@ fn ask(method: &str, params: &Value) -> String {
 }
 
 /// Plays one turn and returns its final text, or `None` when the turn ends another way.
-fn turn(script: &str, text: &str, state: &str) -> Option<String> {
+/// One approval for the gate: `arg` is the command, or the path of a change.
+fn gate_turn(script: &str, arg: &str) -> String {
+    if script == "command" {
+        let decision = ask(
+            "item/commandExecution/requestApproval",
+            &json!({ "threadId": "t1", "turnId": "u1", "itemId": "c1", "command": arg }),
+        );
+        return format!("command {decision}");
+    }
+    notify(
+        "item/started",
+        &json!({ "threadId": "t1", "turnId": "u1", "item": { "type": "fileChange", "id": "f1", "changes": [{ "path": arg }] } }),
+    );
+    let decision = ask(
+        "item/fileChange/requestApproval",
+        &json!({ "threadId": "t1", "turnId": "u1", "itemId": "f1" }),
+    );
+    format!("change {decision}")
+}
+
+fn turn(script: &str, text: &str, state: &str, arg: &str) -> Option<String> {
     match script {
+        "command" | "change" => Some(gate_turn(script, arg)),
         "hang" => loop {
             std::thread::park();
         },
@@ -92,7 +113,7 @@ fn turn(script: &str, text: &str, state: &str) -> Option<String> {
         "approval" => {
             let command = ask(
                 "item/commandExecution/requestApproval",
-                &json!({ "threadId": "t1", "turnId": "u1", "itemId": "c1", "command": "rm -rf build", "reason": "clean the build",
+                &json!({ "threadId": "t1", "turnId": "u1", "itemId": "c1", "command": "/bin/bash -lc 'rm -rf build'", "reason": "clean the build",
                          "proposedExecpolicyAmendment": ["rm"] }),
             );
             notify(
@@ -214,7 +235,8 @@ fn main() {
                 .pointer("/input/0/text")
                 .and_then(Value::as_str)
                 .unwrap_or("");
-            let Some(reply) = turn(&script, text, &state) else {
+            let arg = args.get(1).map_or("", String::as_str);
+            let Some(reply) = turn(&script, text, &state, arg) else {
                 continue;
             };
             said(&reply);

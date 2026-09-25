@@ -4,6 +4,7 @@
 //! The process limits of `process.rs` and `turn.rs` apply to the agent.
 
 use std::collections::BTreeMap;
+use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use serde_json::{Value, json};
@@ -12,10 +13,11 @@ use protocol::live::OptionKind;
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Choice, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
+    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
     exchange_text,
 };
 use crate::config::Permission;
+use crate::gate::{self, Call, Coverage, Gate, Refusal};
 use crate::process::{AgentProcess, cut};
 use crate::relay::{Job, Work};
 use crate::turn::{STOPPED, Turn};
@@ -31,6 +33,7 @@ pub struct AcpAgent {
     pub timeout: Duration,
     /// How long a question waits for the game. The run timeout stops meanwhile.
     pub permission_timeout: Duration,
+    pub gate: Gate,
 }
 
 impl Agent for AcpAgent {
@@ -108,6 +111,7 @@ impl AcpAgent {
         session_id: &mut Option<String>,
     ) -> Result<String, String> {
         let mut agent = Connection::start(self, &job.cwd, control.clone())?;
+        agent.agent.clone_from(&job.agent);
         let init = agent.initialize()?;
         let (session, note) = agent.open_session(&init, &job.cwd, job.resume.as_deref())?;
         *session_id = Some(session.id.clone());
@@ -295,20 +299,60 @@ fn option_kind(option: &Value) -> Option<OptionKind> {
 /// the path or the address, else the title of the tool call.
 fn command_of(params: &Value) -> String {
     let input = params.pointer("/toolCall/rawInput").unwrap_or(&Value::Null);
-    let command = match input.get("command") {
-        Some(Value::String(line)) => Some(line.clone()),
-        Some(Value::Array(words)) => {
-            let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
-            Some(words.join(" "))
-        }
-        _ => None,
-    };
+    let command = command_line(input);
     let path = ["file_path", "path", "url"]
         .iter()
         .find_map(|key| input.get(*key).and_then(Value::as_str).map(str::to_owned));
     command
         .or(path)
         .unwrap_or_else(|| text_at(params, "/toolCall/title").unwrap_or("").to_owned())
+}
+
+/// The command of a tool input. A list of words gets the quotes of `sh`, so the
+/// classifier sees the same words that run.
+fn command_line(input: &Value) -> Option<String> {
+    match input.get("command")? {
+        Value::String(line) => Some(line.clone()),
+        Value::Array(words) => {
+            let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
+            shlex::try_join(words).ok()
+        }
+        _ => None,
+    }
+}
+
+/// The classifier input of a permission request. The `kind` of the tool call says
+/// what its paths are. An agent tells what it wants, so a call with no clear kind is
+/// unknown.
+pub fn request_call(params: &Value, cwd: &Path) -> Call {
+    let request = read_request(params);
+    let tool = params.get("toolCall").unwrap_or(&Value::Null);
+    let input = tool.get("rawInput").unwrap_or(&Value::Null);
+    let title = text_at(tool, "/title").unwrap_or("a tool call");
+    let (text, title) = (request.text, cut(title, MAX_STEP).to_owned());
+    let paths = paths_of(tool, input, cwd);
+    match (text_at(tool, "/kind"), command_line(input)) {
+        (Some("execute") | None, Some(command)) => Call::command(&command, cwd, text, title),
+        (Some("read" | "search"), _) if !paths.is_empty() => Call::files(&paths, &[], text, title),
+        (Some("edit" | "delete" | "move"), _) if !paths.is_empty() => {
+            Call::files(&[], &paths, text, title)
+        }
+        _ => Call::unknown(text, title),
+    }
+}
+
+fn paths_of(tool: &Value, input: &Value, cwd: &Path) -> Vec<PathBuf> {
+    let locations = tool.get("locations").and_then(Value::as_array);
+    let listed = locations
+        .into_iter()
+        .flatten()
+        .filter_map(|l| text_at(l, "/path"));
+    let named = ["file_path", "path", "notebook_path"]
+        .iter()
+        .filter_map(|key| input.get(*key).and_then(Value::as_str));
+    let mut paths: Vec<PathBuf> = listed.chain(named).map(|p| cwd.join(p)).collect();
+    paths.dedup();
+    paths
 }
 
 fn text_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
@@ -340,6 +384,9 @@ struct Connection {
     reply: String,
     refused: Vec<String>,
     permission: Permission,
+    gate: Gate,
+    agent: String,
+    cwd: String,
     /// The session that `session/cancel` names.
     session: Option<String>,
     /// Set while `session/load` replays a session for an attach.
@@ -355,6 +402,9 @@ impl Connection {
             reply: String::new(),
             refused: Vec::new(),
             permission: Permission::Ask,
+            gate: agent.gate.clone(),
+            agent: String::new(),
+            cwd: cwd.to_owned(),
             session: None,
             replay: None,
         })
@@ -557,6 +607,8 @@ impl Connection {
         }
     }
 
+    /// The gate answers (SPEC.md 6.6.3). The agent asks only about some of its calls,
+    /// so even at full-auto every question that the gate lets through goes to the game.
     fn answer(&mut self, params: &Value) -> Value {
         // ACP says: after `session/cancel`, every open request gets "cancelled".
         if self.turn.stopping() {
@@ -567,36 +619,59 @@ impl Connection {
             .and_then(Value::as_array)
             .cloned()
             .unwrap_or_default();
-        if self.permission == Permission::FullAuto {
-            return select(&offered, "allow_once").unwrap_or_else(cancelled);
+        let call = request_call(params, Path::new(&self.cwd));
+        let job = gate::Job {
+            agent: &self.agent,
+            cwd: &self.cwd,
+            level: self.permission,
+            coverage: Coverage::Asked,
+        };
+        match self.gate.check(&call, &job, &mut self.turn) {
+            Ok(()) => select(&offered, "allow_once").unwrap_or_else(cancelled),
+            Err(refusal) => {
+                if let Refusal::ByRule(_) = refusal {
+                    self.refused.push(call.title);
+                }
+                select(&offered, "reject_once").unwrap_or_else(cancelled)
+            }
         }
-        if !self.turn.listening() {
-            let title = text_at(params, "/toolCall/title").unwrap_or("a tool call");
-            self.refused.push(cut(title, MAX_STEP).to_owned());
-            return select(&offered, "reject_once").unwrap_or_else(cancelled);
-        }
-        self.ask_game(params)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use protocol::action::ToolCall;
+
+    fn call(tool: &Value) -> ToolCall {
+        request_call(&json!({ "toolCall": tool }), Path::new("/w")).tool
     }
 
-    /// Shows the request in the game and waits for the answer. The run timeout
-    /// stops while it waits, and `permission_timeout` applies (SPEC.md 9.3).
-    fn ask_game(&mut self, params: &Value) -> Value {
-        let request = read_request(params);
-        let choices = request
-            .options
-            .iter()
-            .map(|(_, kind, label)| Choice {
-                kind: *kind,
-                label: label.clone(),
-            })
-            .collect();
-        self.turn
-            .ask_game(request.text, choices)
-            .and_then(|i| request.options.get(i))
-            .map(|(id, _, _)| id.clone())
-            .map_or_else(
-                cancelled,
-                |id| json!({ "outcome": "selected", "optionId": id }),
-            )
+    #[test]
+    fn the_kind_of_a_tool_call_says_what_its_paths_are() {
+        let read = call(&json!({ "kind": "read", "locations": [{ "path": "a.rs" }] }));
+        assert!(
+            matches!(read, ToolCall::Files { reads, writes } if reads.len() == 1 && writes.is_empty())
+        );
+        let edit = call(&json!({ "kind": "edit", "rawInput": { "file_path": "/w/b.rs" } }));
+        assert!(
+            matches!(edit, ToolCall::Files { reads, writes } if reads.is_empty() && writes.len() == 1)
+        );
+        let run = call(&json!({ "kind": "execute", "rawInput": { "command": ["ls", "a b"] } }));
+        assert!(matches!(run, ToolCall::Command { raw, .. } if raw == b"ls 'a b'"));
+    }
+
+    #[test]
+    fn a_tool_call_with_no_clear_kind_is_unknown() {
+        assert!(matches!(
+            call(&json!({ "kind": "fetch" })),
+            ToolCall::Unknown
+        ));
+        assert!(matches!(
+            call(&json!({ "kind": "edit" })),
+            ToolCall::Unknown
+        ));
+        let no_kind = call(&json!({ "locations": [{ "path": "a.rs" }] }));
+        assert!(matches!(no_kind, ToolCall::Unknown));
     }
 }

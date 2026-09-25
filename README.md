@@ -52,6 +52,25 @@ permission = "ask"
 
 Then run `gnomish-relay check-agent gemini`, and `gnomish-relay restart` to load the change.
 
+## What an agent can do from the game
+
+Every tool call of a message from the game gets one answer: it runs, it asks in the
+game, it asks on your desktop, or it never runs (`SPEC.md` 6.6.3). A read of `~/.ssh`
+or a write outside the chat folder asks on the desktop. Answer it in a terminal:
+
+```sh
+gnomish-relay approve          # list the calls that wait
+gnomish-relay approve <id>     # allow one
+gnomish-relay deny <id>        # refuse one
+```
+
+Commands in the allow table run with no question at `auto-edit` and `full-auto`:
+
+```toml
+[allow]
+commands = ["cargo test *"]
+```
+
 ## Update
 
 `gnomish-relay update` installs the latest release and restarts the bridge.

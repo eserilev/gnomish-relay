@@ -14,6 +14,8 @@ use bridge::acp::AcpAgent;
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy, path_bytes};
+use bridge::desktop::{Approvals, Notice};
+use bridge::gate::Gate;
 use bridge::receive::StripKey;
 use bridge::relay::Folders;
 use bridge::relay::Job;
@@ -248,6 +250,12 @@ fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {
         modes: std::collections::BTreeMap::new(),
         timeout: Duration::from_secs(20),
         permission_timeout: Duration::from_secs(20),
+        gate: Gate {
+            roots: vec![root.path().canonicalize().unwrap()],
+            config_dir: f.state.join("config"),
+            allow: Arc::default(),
+            approvals: Approvals::new(&f.state, Notice::Off),
+        },
     };
     bridge_in(f, policy, Arc::new(fake))
 }
