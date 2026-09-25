@@ -9,13 +9,13 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
-use crate::agent::{Agents, Run, StopSignal};
+use crate::agent::{Agents, Control, Event, Events, Run, StopSignal};
 use crate::config::Policy;
 use crate::receive::{StripKey, receive};
-use crate::relay::{ChatId, Job, Outcome, Relay};
+use crate::relay::{ChatId, Job, MessageId, Outcome, Relay};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
-use crate::slots;
+use crate::slots::{self, Files};
 use crate::state;
 
 const TICK: Duration = Duration::from_millis(250);
@@ -23,6 +23,7 @@ const TICK: Duration = Duration::from_millis(250);
 const HEARTBEAT: Duration = Duration::from_mins(1);
 
 type Finished = (Job, Run);
+type RunEvent = (ChatId, MessageId, Event);
 
 pub struct Paths {
     pub addons: PathBuf,
@@ -54,6 +55,10 @@ pub struct Bridge {
     agents: Agents,
     /// The stop signal of each run in progress, by chat.
     stops: BTreeMap<ChatId, StopSignal>,
+    events: Sender<RunEvent>,
+    run_events: Receiver<RunEvent>,
+    /// Where the answer to each open permission request goes, by request id.
+    answers: BTreeMap<String, Sender<Option<usize>>>,
     relay: Relay,
     watcher: Watcher,
     saved: saved::Watcher,
@@ -71,6 +76,7 @@ impl Bridge {
             None => Relay::new(policy),
         };
         let (finished, results) = channel();
+        let (events, run_events) = channel();
         Ok(Bridge {
             watcher: Watcher::new(&paths.screenshots),
             saved: saved::Watcher::new(&paths.accounts),
@@ -78,6 +84,9 @@ impl Bridge {
             key,
             agents,
             stops: BTreeMap::new(),
+            events,
+            run_events,
+            answers: BTreeMap::new(),
             relay,
             finished,
             results,
@@ -91,6 +100,8 @@ impl Bridge {
         self.take_screenshots();
         self.take_saved_variables();
         self.signal_stops();
+        self.take_events();
+        self.pass_answers();
         self.finish_runs();
         if self.changed || self.last_publish.elapsed() >= HEARTBEAT {
             self.store();
@@ -190,10 +201,13 @@ impl Bridge {
                 let _ = finished.send((job, run));
                 continue;
             };
-            let stop = StopSignal::default();
-            self.stops.insert(job.chat.clone(), stop.clone());
+            let control = Control {
+                stop: StopSignal::default(),
+                events: Events::to_bridge(self.events.clone(), &job),
+            };
+            self.stops.insert(job.chat.clone(), control.stop.clone());
             thread::spawn(move || {
-                let run = agent.run(&job, &stop);
+                let run = agent.run(&job, &control);
                 let _ = finished.send((job, run));
             });
         }
@@ -208,22 +222,53 @@ impl Bridge {
         }
     }
 
+    fn take_events(&mut self) {
+        while let Ok((chat, id, event)) = self.run_events.try_recv() {
+            match event {
+                Event::Progress(line) => self.relay.step(&chat, id, line),
+                Event::Question(question) => {
+                    let request = self
+                        .relay
+                        .ask(&chat, id, question.text, question.choices, now());
+                    log(&format!("ask {} #{} as {request}", chat.0, id.0));
+                    self.answers.insert(request, question.answer);
+                }
+            }
+            self.changed = true;
+        }
+    }
+
+    fn pass_answers(&mut self) {
+        for (request, choice) in self.relay.take_answers() {
+            log(&format!("answer {request}"));
+            if let Some(answer) = self.answers.remove(&request) {
+                let _ = answer.send(choice);
+            }
+            self.changed = true;
+        }
+    }
+
     fn finish_runs(&mut self) {
         while let Ok((job, run)) = self.results.try_recv() {
             log(&format!("done {} #{}", job.chat.0, job.id.0));
             self.stops.remove(&job.chat);
             self.relay.keep_session(&job, run.session);
             self.relay.finish(&job, run.reply);
+            // A request of a run that ended gets no answer: its run stopped waiting.
+            let relay = &self.relay;
+            self.answers.retain(|request, _| relay.is_asked(request));
             self.changed = true;
         }
     }
 
     /// A failed publish waits for the next heartbeat, so it does not log every tick.
     fn publish(&mut self) {
-        let body = self.relay.body(now());
-        let restore = self.relay.restore_file();
-        if let Err(e) = slots::publish(&self.paths.addons, &body, &restore, self.relay.next_slot())
-        {
+        let files = Files {
+            body: self.relay.body(now()),
+            restore: self.relay.restore_file(),
+            live: self.relay.live_file(),
+        };
+        if let Err(e) = slots::publish(&self.paths.addons, &files, self.relay.next_slot()) {
             log(&format!("publish failed: {e:#}"));
         }
         self.changed = false;

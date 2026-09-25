@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use bridge::acp::AcpAgent;
-use bridge::agent::{Agent, StopSignal};
+use bridge::agent::{Agent, Control, Event, Events, StopSignal};
 use bridge::config::Permission;
 use bridge::relay::{ChatId, Job, MessageId, Session};
 
@@ -17,6 +17,7 @@ fn agent(script: &str) -> AcpAgent {
         env: Vec::new(),
         modes: BTreeMap::new(),
         timeout: Duration::from_secs(20),
+        permission_timeout: Duration::from_secs(20),
     }
 }
 
@@ -37,7 +38,7 @@ fn job(dir: &tempfile::TempDir, permission: Permission, text: &str) -> Job {
 fn run(agent: &AcpAgent, permission: Permission, text: &str) -> Result<String, String> {
     let dir = tempfile::tempdir().unwrap();
     agent
-        .run(&job(&dir, permission, text), &StopSignal::default())
+        .run(&job(&dir, permission, text), &Control::default())
         .reply
 }
 
@@ -45,7 +46,7 @@ fn resume(script: &str) -> (Result<String, String>, Option<String>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "again");
     job.resume = Some("old-7".into());
-    let run = agent(script).run(&job, &StopSignal::default());
+    let run = agent(script).run(&job, &Control::default());
     (run.reply, run.session)
 }
 
@@ -84,7 +85,7 @@ fn below_full_auto_a_permission_request_is_refused_and_named_in_the_reply() {
     let reply = run(&agent("permission"), Permission::AutoEdit, "clean").unwrap();
     assert!(reply.starts_with("chose no"), "{reply}");
     assert!(
-        reply.ends_with("Not allowed from the game: rm -rf build"),
+        reply.ends_with("Not allowed from the game: clean the build"),
         "{reply}"
     );
 }
@@ -163,7 +164,7 @@ fn check_shows_the_agent_and_its_modes() {
 #[test]
 fn a_new_session_comes_back_so_the_next_message_can_resume_it() {
     let dir = tempfile::tempdir().unwrap();
-    let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &StopSignal::default());
+    let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &Control::default());
     assert_eq!(run.session.as_deref(), Some("s1"));
 }
 
@@ -199,7 +200,11 @@ fn stop_cancels_the_turn_and_keeps_the_session() {
         later.request();
     });
     let start = Instant::now();
-    let run = agent("slow").run(&job(&dir, Permission::Ask, "hi"), &stop);
+    let control = Control {
+        stop,
+        ..Control::default()
+    };
+    let run = agent("slow").run(&job(&dir, Permission::Ask, "hi"), &control);
     assert_eq!(run.reply.unwrap_err(), "Stopped.");
     assert_eq!(run.session.as_deref(), Some("s1"));
     assert!(start.elapsed() < Duration::from_secs(5));
@@ -208,8 +213,87 @@ fn stop_cancels_the_turn_and_keeps_the_session() {
 #[test]
 fn stop_before_the_session_opens_ends_the_run_at_once() {
     let dir = tempfile::tempdir().unwrap();
-    let stop = StopSignal::default();
-    stop.request();
-    let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &stop);
+    let control = Control::default();
+    control.stop.request();
+    let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &control);
     assert_eq!(run.reply.unwrap_err(), "Stopped.");
+}
+
+/// Runs `script` with a listener, as the bridge does. `answer` answers each question.
+fn run_with_game(
+    agent: &AcpAgent,
+    permission: Permission,
+    answer: impl Fn(&bridge::agent::Question) -> Option<Option<usize>> + Send + 'static,
+) -> (Result<String, String>, Vec<Event>) {
+    let dir = tempfile::tempdir().unwrap();
+    let job = job(&dir, permission, "go");
+    let (to, events) = std::sync::mpsc::channel();
+    let control = Control {
+        stop: StopSignal::default(),
+        events: Events::to_bridge(to, &job),
+    };
+    let seen = std::thread::spawn(move || {
+        let mut seen = Vec::new();
+        while let Ok((_, _, event)) = events.recv() {
+            if let Event::Question(question) = &event
+                && let Some(choice) = answer(question)
+            {
+                question.answer.send(choice).unwrap();
+            }
+            seen.push(event);
+        }
+        seen
+    });
+    let reply = agent.run(&job, &control).reply;
+    drop(control);
+    (reply, seen.join().unwrap())
+}
+
+#[test]
+fn each_tool_call_becomes_a_progress_line() {
+    let (reply, events) = run_with_game(&agent("steps"), Permission::AutoEdit, |_| None);
+    assert_eq!(reply.unwrap(), "done");
+    let lines: Vec<String> = events
+        .into_iter()
+        .filter_map(|e| match e {
+            Event::Progress(line) => Some(line),
+            Event::Question(_) => None,
+        })
+        .collect();
+    assert_eq!(lines, ["edit src/main.rs", "$ cargo test"]);
+}
+
+#[test]
+fn a_permission_request_goes_to_the_game_with_the_honest_text() {
+    let (reply, events) = run_with_game(&agent("permission"), Permission::AutoEdit, |q| {
+        assert_eq!(q.text, b"rm -rf build\nthe agent says: clean the build");
+        let labels: Vec<&str> = q.choices.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Allow", "Reject"],
+            "allow always waits for SPEC 6.6.5"
+        );
+        Some(Some(0))
+    });
+    assert_eq!(reply.unwrap(), "chose yes");
+    assert_eq!(events.len(), 1);
+}
+
+#[test]
+fn the_answer_of_the_game_picks_the_option() {
+    let (reply, _) = run_with_game(&agent("permission"), Permission::AutoEdit, |_| {
+        Some(Some(1))
+    });
+    assert_eq!(reply.unwrap(), "chose no");
+}
+
+#[test]
+fn an_unanswered_request_is_cancelled_after_the_permission_timeout() {
+    let mut agent = agent("permission");
+    agent.permission_timeout = Duration::from_millis(300);
+    agent.timeout = Duration::from_secs(1);
+    let start = Instant::now();
+    let (reply, _) = run_with_game(&agent, Permission::AutoEdit, |_| None);
+    assert_eq!(reply.unwrap(), "chose cancelled");
+    assert!(start.elapsed() < Duration::from_secs(5));
 }

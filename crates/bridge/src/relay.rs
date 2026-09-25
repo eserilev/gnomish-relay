@@ -13,6 +13,8 @@ use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 
 use serde::{Deserialize, Serialize};
 
+use crate::activity::Activity;
+use crate::agent::Choice;
 use crate::config::{Permission, Policy, folder_request, native_folder};
 use crate::flags::{self, Channel, Flags};
 use crate::history::{ChatLog, History, Speaker};
@@ -146,6 +148,7 @@ pub struct Relay {
     sessions: Vec<AgentSession>,
     /// Chats whose run in progress got a Stop. The bridge signals each run.
     cancels: Vec<ChatId>,
+    activity: Activity,
 }
 
 fn keep_last<T>(list: &mut Vec<T>, max: usize) {
@@ -176,6 +179,7 @@ impl Relay {
             client_build: None,
             sessions: Vec::new(),
             cancels: Vec::new(),
+            activity: Activity::default(),
         }
     }
 
@@ -249,6 +253,10 @@ impl Relay {
         }
         if flags.stop {
             self.stop(&chat);
+            return Outcome::Control;
+        }
+        if let Some(answer) = &flags.perm {
+            self.activity.answer(&chat, answer);
             return Outcome::Control;
         }
         if let Err(outcome) = self.admit(r, &chat, now) {
@@ -414,7 +422,35 @@ impl Relay {
         keep_last(&mut self.sessions, MAX_SESSIONS);
     }
 
+    pub fn step(&mut self, chat: &ChatId, id: MessageId, line: String) {
+        self.activity.step(chat, id, line);
+    }
+
+    pub fn ask(
+        &mut self,
+        chat: &ChatId,
+        id: MessageId,
+        text: Vec<u8>,
+        choices: Vec<Choice>,
+        now: u32,
+    ) -> String {
+        self.activity.ask(chat, id, text, choices, now)
+    }
+
+    pub fn take_answers(&mut self) -> Vec<(String, Option<usize>)> {
+        self.activity.take_answers()
+    }
+
+    pub fn is_asked(&self, request: &str) -> bool {
+        self.activity.is_open(request)
+    }
+
+    pub fn live_file(&self) -> Vec<u8> {
+        self.activity.file()
+    }
+
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
+        self.activity.end(&job.chat, job.id);
         self.running.remove(&job.chat);
         let (status, text) = match result {
             Ok(text) => (Status::Done, text),

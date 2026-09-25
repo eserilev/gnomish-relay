@@ -59,9 +59,10 @@ fn prompt_reply(script: &str, params: &Value, mode: &str, resumed: &str) -> Opti
                 "session/request_permission",
                 &json!({
                     "sessionId": session,
-                    "toolCall": { "toolCallId": "t1", "title": "rm -rf build" },
+                    "toolCall": { "toolCallId": "t1", "title": "clean the build", "rawInput": { "command": "rm -rf build" } },
                     "options": [
                         { "optionId": "yes", "name": "Allow", "kind": "allow_once" },
+                        { "optionId": "always", "name": "Always", "kind": "allow_always" },
                         { "optionId": "no", "name": "Reject", "kind": "reject_once" },
                     ],
                 }),
@@ -71,6 +72,17 @@ fn prompt_reply(script: &str, params: &Value, mode: &str, resumed: &str) -> Opti
                 .and_then(Value::as_str)
                 .unwrap_or("cancelled");
             Some(format!("chose {outcome}"))
+        }
+        "steps" => {
+            for title in ["edit src/main.rs", "$ cargo test"] {
+                send(
+                    &json!({ "jsonrpc": "2.0", "method": "session/update", "params": {
+                        "sessionId": session,
+                        "update": { "sessionUpdate": "tool_call", "toolCallId": title, "title": title },
+                    }}),
+                );
+            }
+            Some("done".into())
         }
         "resume" | "load" | "noresume" => {
             let session = params

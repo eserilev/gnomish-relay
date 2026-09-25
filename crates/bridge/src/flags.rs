@@ -17,6 +17,39 @@ pub struct Flags {
     pub build: Option<String>,
     pub out: Option<Channel>,
     pub inbound: Option<Channel>,
+    pub perm: Option<PermAnswer>,
+}
+
+/// `perm=<request>:<option>:<hash>`: the answer to a permission request (SPEC.md 9.3).
+#[derive(Debug, PartialEq, Eq)]
+pub struct PermAnswer {
+    pub request: String,
+    /// 0 for `o1`.
+    pub option: usize,
+    /// The first 8 bytes of SHA-256 of the popup text that the game showed, in hex.
+    pub hash: String,
+}
+
+fn perm_answer(value: &str) -> Option<PermAnswer> {
+    let mut parts = value.split(':');
+    let (request, option, hash) = (parts.next()?, parts.next()?, parts.next()?);
+    if parts.next().is_some() || !protocol::record::is_valid_id(request.as_bytes()) {
+        return None;
+    }
+    let option = option
+        .strip_prefix('o')?
+        .parse::<usize>()
+        .ok()?
+        .checked_sub(1)?;
+    let hex = hash.len() == 16
+        && hash
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    hex.then(|| PermAnswer {
+        request: request.to_owned(),
+        option,
+        hash: hash.to_owned(),
+    })
 }
 
 /// The last result of a channel in the self-test of the addon (SPEC.md 7.8).
@@ -57,6 +90,7 @@ pub fn parse(bytes: &[u8]) -> Flags {
             Some(("build", word)) if is_build(word) => flags.build = Some(word.to_owned()),
             Some(("out", word)) => flags.out = channel(word, "shot", "fail"),
             Some(("in", word)) => flags.inbound = channel(word, "slots", "missing"),
+            Some(("perm", value)) => flags.perm = perm_answer(value),
             Some(("agent", name)) if protocol::record::is_valid_id(name.as_bytes()) => {
                 flags.agent = Some(name.to_owned());
             }
@@ -89,8 +123,31 @@ mod tests {
                 build: Some("70009".into()),
                 out: Some(Channel::Works),
                 inbound: Some(Channel::Fails),
+                perm: None,
             }
         );
+    }
+
+    #[test]
+    fn a_permission_answer_parses_and_a_broken_one_is_ignored() {
+        let f = parse(b"perm=p5f3a1:o2:0123456789abcdef");
+        assert_eq!(
+            f.perm,
+            Some(PermAnswer {
+                request: "p5f3a1".into(),
+                option: 1,
+                hash: "0123456789abcdef".into(),
+            })
+        );
+        for bad in [
+            "perm=p1:o0:0123456789abcdef",
+            "perm=p1:o1:0123456789ABCDEF",
+            "perm=p1:o1:0123",
+            "perm=../x:o1:0123456789abcdef",
+            "perm=p1:o1:0123456789abcdef:extra",
+        ] {
+            assert_eq!(parse(bad.as_bytes()).perm, None, "{bad}");
+        }
     }
 
     #[test]

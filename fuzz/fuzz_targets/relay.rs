@@ -13,13 +13,14 @@ use protocol::record::Record;
 
 const CHATS: [&str; 3] = ["c1", "c2", "relay"];
 const FOLDERS: [&str; 5] = ["", "sub", "../..", "/etc", "a/../../b"];
-const FLAGS: [&str; 9] = [
+const FLAGS: [&str; 10] = [
     "",
     "n",
     "stop",
     "h",
     "h;restored",
     "level=full-auto",
+    "perm=p1:o1:0123456789abcdef",
     "agent=codex",
     "read=1,2,3,4",
     "next=9",

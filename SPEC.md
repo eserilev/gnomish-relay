@@ -385,11 +385,12 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 - At a hello, or when the saved variables file changes (a `/reload`), the bridge starts the window at the reported slot, or at slot 1.
 - A slot outside the window holds an older body. A read of an older body is harmless: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
 
-Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with three files:
+Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with four files:
 
-- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the two Lua file names.
+- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the three Lua file names.
 - `Inbox.lua`: the body.
 - `Restore.lua`: the restore bundle (7.6). With no restore, its token is empty, and no addon takes it.
+- `Live.lua`: the progress lines of each run, and the permission requests for the game (9.3, S20, S21).
 
 The body sets one global table:
 
@@ -694,17 +695,20 @@ Each backend maps the level differently:
 
 **Live permission flow (ACP):**
 
-1. The agent sends `session/request_permission`. The run waits.
-2. The bridge adds the request to `permissions` in the next publish and raises a `note` signal.
-3. The addon shows a popup with the options.
-4. The user picks an option. The addon sends a record with the `perm=<request>:<option>` flag.
-5. The bridge answers the agent.
+1. The agent sends `session/request_permission`. At `full-auto`, the bridge allows it once. At every other level, the run waits.
+2. The bridge writes the popup text with `popup_text` (S15): the command line of the tool call, else its path or address, else its title, and then its title as "the agent says". It adds the request to `permissions` in `Live.lua` (S20), with the options numbered `o1` to `o4`.
+3. The addon shows a popup with the text and the options.
+4. The user picks an option. The addon sends a control record with `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256 of the text that the popup showed, in hex.
+5. The bridge takes the answer only for an open request of the same chat, a real option, and a matching hash. Then it answers the agent. A second answer does nothing.
 
 Rules:
 
-- `allow_always` from the game follows 6.6.5.
+- The request id holds the time of the question, so an old strip cannot answer a new request after a restart of the bridge.
+- `allow_always` waits for the rules of 6.6.5. Until then, the bridge does not offer it in the game.
+- Each tool call of the agent also becomes a progress line in `Live.lua`: the last 5 lines of each run, for the activity panel.
 - The run timeout stops while the run waits for a permission answer. A separate `permission_timeout_minutes` applies (default 10). After it, the bridge answers "cancelled".
 - If the game closes or reloads, open requests stay in the next publish until they time out.
+- Stop ends an open request as "cancelled", and the run as "Stopped.".
 
 ### 9.4 Agent processes
 
@@ -802,7 +806,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never replaces a config.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `[wow] path`, and `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, and `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`.
 The other keys below come with their features.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
@@ -1078,7 +1082,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 6. **Addon port** with the stub harness and the differential tests.
 7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`. Passed in the game on 2026-09-24: a message went out as a strip, and the echo came back through the slots.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Next:** the classifier (6.6.3) needs the tool calls of step 9.
-9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Next:** progress and permissions in the game (needs an S9 change).
+9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c, bridge):** progress and permission requests in `Live.lua`, and the checked `perm=` answer. **Next:** the popup and the activity panel in the addon.
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.

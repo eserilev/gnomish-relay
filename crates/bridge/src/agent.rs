@@ -3,10 +3,13 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::Sender;
+
+use protocol::live::OptionKind;
 
 use crate::acp::AcpAgent;
 use crate::config::{Config, Kind};
-use crate::relay::Job;
+use crate::relay::{ChatId, Job, MessageId};
 
 /// Set by Stop in the game while a run is in progress.
 #[derive(Clone, Default)]
@@ -22,6 +25,63 @@ impl StopSignal {
     }
 }
 
+/// One answer that the game can give to a question.
+pub struct Choice {
+    pub kind: OptionKind,
+    pub label: String,
+}
+
+/// A permission request for the game (SPEC.md 9.3). `text` is the output of
+/// `popup_text` (S15). The answer is an index into `choices`, or `None` for "cancelled".
+pub struct Question {
+    pub text: Vec<u8>,
+    pub choices: Vec<Choice>,
+    pub answer: Sender<Option<usize>>,
+}
+
+pub enum Event {
+    /// One step of the agent, for the activity panel.
+    Progress(String),
+    Question(Question),
+}
+
+/// The channel from the runs to the bridge. Each event names its chat and message.
+pub type EventSender = Sender<(ChatId, MessageId, Event)>;
+
+/// Where a run sends its events. With no bridge, nobody listens, and a backend
+/// answers questions itself.
+#[derive(Clone, Default)]
+pub struct Events {
+    to: Option<(EventSender, ChatId, MessageId)>,
+}
+
+impl Events {
+    pub fn to_bridge(to: EventSender, job: &Job) -> Events {
+        Events {
+            to: Some((to, job.chat.clone(), job.id)),
+        }
+    }
+
+    pub fn listening(&self) -> bool {
+        self.to.is_some()
+    }
+
+    /// Returns false when nobody listens.
+    pub fn send(&self, event: Event) -> bool {
+        let Some((to, chat, id)) = &self.to else {
+            return false;
+        };
+        to.send((chat.clone(), *id, event)).is_ok()
+    }
+}
+
+/// What a run gets from the bridge besides the job.
+#[derive(Clone, Default)]
+pub struct Control {
+    pub stop: StopSignal,
+    pub events: Events,
+}
+
 /// The end of one run.
 pub struct Run {
     /// The final reply, or an error text for the user.
@@ -32,14 +92,14 @@ pub struct Run {
 }
 
 pub trait Agent: Send + Sync {
-    fn run(&self, job: &Job, stop: &StopSignal) -> Run;
+    fn run(&self, job: &Job, control: &Control) -> Run;
 }
 
 /// Answers with the message itself. It proves the whole path through the game.
 pub struct Echo;
 
 impl Agent for Echo {
-    fn run(&self, job: &Job, _stop: &StopSignal) -> Run {
+    fn run(&self, job: &Job, _control: &Control) -> Run {
         Run {
             reply: Ok(format!("echo: {}", job.text)),
             session: None,
@@ -62,6 +122,7 @@ pub fn from_config(config: &Config) -> Agents {
                     env: spec.env.clone(),
                     modes: spec.modes.clone(),
                     timeout: config.timeout,
+                    permission_timeout: config.permission_timeout,
                 }),
             };
             (name.clone(), agent)

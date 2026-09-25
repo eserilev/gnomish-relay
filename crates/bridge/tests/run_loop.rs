@@ -11,13 +11,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use bridge::acp::AcpAgent;
-use bridge::agent::{Agent, Echo, Run, StopSignal};
+use bridge::activity::text_hash;
+use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy, path_bytes};
 use bridge::receive::StripKey;
 use bridge::relay::Folders;
 use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
-use bridge::slots::{self, BODY_FILE, slot_name};
+use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, slot_name};
 use common::{hex, screenshot_png, signed_frame, strip_rows};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
@@ -41,12 +42,7 @@ fn folders() -> Dirs {
     fs::create_dir_all(&state).unwrap();
     fs::create_dir_all(&screenshots).unwrap();
     fs::create_dir_all(&accounts).unwrap();
-    slots::install(
-        &addons,
-        b"GnomishRelay_SlotData = nil\n",
-        b"GnomishRelay_Restore = nil\n",
-    )
-    .unwrap();
+    slots::install(&addons, &Files::empty(0)).unwrap();
     Dirs {
         _root: root,
         addons,
@@ -195,7 +191,7 @@ fn an_outbox_frame_with_a_bad_tag_never_runs() {
 struct Counting(AtomicUsize);
 
 impl Agent for Counting {
-    fn run(&self, job: &Job, _stop: &StopSignal) -> Run {
+    fn run(&self, job: &Job, _control: &Control) -> Run {
         self.0.fetch_add(1, Ordering::SeqCst);
         Run {
             reply: Ok(format!("echo: {}", job.text)),
@@ -236,10 +232,7 @@ fn a_damaged_state_file_stops_the_bridge_at_start() {
     assert!(Bridge::new(paths, folders, key, agents).is_err());
 }
 
-#[test]
-fn a_strip_comes_back_with_the_reply_of_an_acp_agent() {
-    let f = folders();
-    let root = tempfile::tempdir().unwrap();
+fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {
     let base = path_bytes(&root.path().canonicalize().unwrap());
     let policy = Policy {
         folders: Folders {
@@ -250,12 +243,20 @@ fn a_strip_comes_back_with_the_reply_of_an_acp_agent() {
         default_agent: "claude".into(),
     };
     let fake = AcpAgent {
-        command: vec![env!("CARGO_BIN_EXE_fake-acp-agent").into(), "reply".into()],
+        command: vec![env!("CARGO_BIN_EXE_fake-acp-agent").into(), script.into()],
         env: Vec::new(),
         modes: std::collections::BTreeMap::new(),
         timeout: Duration::from_secs(20),
+        permission_timeout: Duration::from_secs(20),
     };
-    let mut bridge = bridge_in(&f, policy, Arc::new(fake));
+    bridge_in(f, policy, Arc::new(fake))
+}
+
+#[test]
+fn a_strip_comes_back_with_the_reply_of_an_acp_agent() {
+    let f = folders();
+    let root = tempfile::tempdir().unwrap();
+    let mut bridge = acp_bridge(&f, &root, "reply");
     fs::write(
         f.screenshots.join("WoWScrnShot_1.png"),
         strip_png(KEY, "fix the build"),
@@ -266,4 +267,47 @@ fn a_strip_comes_back_with_the_reply_of_an_acp_agent() {
         slot_body(&f.addons).contains("you said: fix the build")
     });
     assert!(answered, "{}", slot_body(&f.addons));
+}
+
+/// The first request in `Live.lua`, read the way the addon reads it.
+fn live_request(addons: &Path) -> Option<(String, Vec<u8>)> {
+    let code = fs::read(addons.join(slot_name(1)).join(LIVE_FILE)).ok()?;
+    let lua = mlua::Lua::new();
+    lua.load(&code[..]).exec().ok()?;
+    let live: mlua::Table = lua.globals().get("GnomishRelay_Live").ok()?;
+    let request: mlua::Table = live.get::<mlua::Table>("permissions").ok()?.get(1).ok()?;
+    let id: String = request.get("request").ok()?;
+    let text: mlua::String = request.get("text").ok()?;
+    Some((id, text.as_bytes().to_vec()))
+}
+
+#[test]
+fn a_permission_request_waits_for_the_answer_from_the_game() {
+    let f = folders();
+    let root = tempfile::tempdir().unwrap();
+    let mut bridge = acp_bridge(&f, &root, "permission");
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        strip_png(KEY, "clean up"),
+    )
+    .unwrap();
+    assert!(step_until(&mut bridge, || live_request(&f.addons).is_some()));
+    let (request, text) = live_request(&f.addons).unwrap();
+    assert!(text.starts_with(b"rm -rf build"));
+
+    let flags = format!("perm={request}:o1:{}", text_hash(&text));
+    let payload = format!("tok\x1fc1\x1f0\x1f\x1f{flags}\x1f\x1f");
+    let answer = signed_frame(now(), payload.as_bytes(), KEY);
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        screenshot_png(&strip_rows(&answer)),
+    )
+    .unwrap();
+
+    assert!(
+        step_until(&mut bridge, || slot_body(&f.addons).contains("chose yes")),
+        "{}",
+        slot_body(&f.addons)
+    );
+    assert!(live_request(&f.addons).is_none());
 }

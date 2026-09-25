@@ -9,8 +9,7 @@ use bridge::config::{self, Config, Kind};
 use bridge::fs_safe::write_atomic;
 use bridge::receive::StripKey;
 use bridge::run::{Paths, now, run};
-use bridge::slots;
-use protocol::restore::restore_body;
+use bridge::slots::{self, Files};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const USAGE: &str = "\
@@ -116,7 +115,11 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
         Err(_) => 1,
     };
     let addons = addons_dir(&load_config()?.wow);
-    slots::publish(&addons, &body(&[reply]), &restore_body(b"", &[]), next)?;
+    let files = Files {
+        body: body(&[reply]),
+        ..Files::empty(now())
+    };
+    slots::publish(&addons, &files, next)?;
     println!(
         "published to {} slots from slot {next}",
         protocol::slot::SLOT_WINDOW
@@ -126,7 +129,7 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
 
 fn install() -> Result<()> {
     let dir = addons_dir(&load_config()?.wow);
-    slots::install(&dir, &body(&[]), &restore_body(b"", &[]))?;
+    slots::install(&dir, &Files::empty(now()))?;
     println!("made {} slots in {}", protocol::slot::SLOTS, dir.display());
     Ok(())
 }
@@ -162,6 +165,7 @@ fn check_agent(name: &str) -> Result<()> {
         env: spec.env.clone(),
         modes: spec.modes.clone(),
         timeout: std::time::Duration::from_mins(1),
+        permission_timeout: std::time::Duration::from_mins(1),
     };
     let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
     let report = agent.check(&cwd).map_err(anyhow::Error::msg)?;

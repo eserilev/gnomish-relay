@@ -76,6 +76,7 @@ pub struct Config {
     pub policy: Policy,
     pub agents: BTreeMap<String, AgentSpec>,
     pub timeout: Duration,
+    pub permission_timeout: Duration,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -105,6 +106,7 @@ struct File {
     default_cwd: Option<String>,
     default_agent: String,
     timeout_minutes: Option<u64>,
+    permission_timeout_minutes: Option<u64>,
     wow: Wow,
     agents: BTreeMap<String, Agent>,
 }
@@ -130,6 +132,16 @@ struct Agent {
 
 const DEFAULT_TIMEOUT_MINUTES: u64 = 30;
 const MAX_TIMEOUT_MINUTES: u64 = 240;
+const DEFAULT_PERMISSION_MINUTES: u64 = 10;
+const MAX_PERMISSION_MINUTES: u64 = 60;
+
+fn minutes(value: Option<u64>, default: u64, max: u64, key: &str) -> Result<Duration> {
+    let minutes = value.unwrap_or(default);
+    if !(1..=max).contains(&minutes) {
+        bail!("{key} must be 1 to {max}");
+    }
+    Ok(Duration::from_mins(minutes))
+}
 
 fn is_env_name(name: &str) -> bool {
     !name.is_empty()
@@ -236,10 +248,18 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
     for (name, agent) in &file.agents {
         check_agent(name, agent)?;
     }
-    let minutes = file.timeout_minutes.unwrap_or(DEFAULT_TIMEOUT_MINUTES);
-    if !(1..=MAX_TIMEOUT_MINUTES).contains(&minutes) {
-        bail!("timeout_minutes must be 1 to {MAX_TIMEOUT_MINUTES}");
-    }
+    let timeout = minutes(
+        file.timeout_minutes,
+        DEFAULT_TIMEOUT_MINUTES,
+        MAX_TIMEOUT_MINUTES,
+        "timeout_minutes",
+    )?;
+    let permission_timeout = minutes(
+        file.permission_timeout_minutes,
+        DEFAULT_PERMISSION_MINUTES,
+        MAX_PERMISSION_MINUTES,
+        "permission_timeout_minutes",
+    )?;
     if !file.agents.contains_key(&file.default_agent) {
         bail!(
             "default_agent {:?} has no [agents] entry",
@@ -272,7 +292,8 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
             default_agent: file.default_agent,
         },
         agents,
-        timeout: Duration::from_mins(minutes),
+        timeout,
+        permission_timeout,
     })
 }
 

@@ -14,7 +14,10 @@ use std::time::{Duration, Instant};
 
 use serde_json::{Value, json};
 
-use crate::agent::{Agent, Run, StopSignal};
+use protocol::live::OptionKind;
+use protocol::popup::popup_text;
+
+use crate::agent::{Agent, Choice, Control, Event, Events, Question, Run, StopSignal};
 use crate::config::Permission;
 use crate::relay::Job;
 
@@ -47,6 +50,8 @@ const POLL: Duration = Duration::from_millis(100);
 const CANCEL_GRACE: Duration = Duration::from_secs(10);
 const STOPPED: &str = "Stopped.";
 const NEW_SESSION: &str = "(New session: the agent could not resume the old one.)";
+/// A progress line or a refused tool call is at most this long.
+const MAX_STEP: usize = 200;
 
 pub struct AcpAgent {
     pub command: Vec<String>,
@@ -54,12 +59,14 @@ pub struct AcpAgent {
     /// The session mode of the agent for each level, from the `modes` table of the config.
     pub modes: BTreeMap<Permission, String>,
     pub timeout: Duration,
+    /// How long a question waits for the game. The run timeout stops meanwhile.
+    pub permission_timeout: Duration,
 }
 
 impl Agent for AcpAgent {
-    fn run(&self, job: &Job, stop: &StopSignal) -> Run {
+    fn run(&self, job: &Job, control: &Control) -> Run {
         let mut session = None;
-        let reply = self.run_in_session(job, stop, &mut session);
+        let reply = self.run_in_session(job, control, &mut session);
         Run { reply, session }
     }
 }
@@ -68,10 +75,10 @@ impl AcpAgent {
     fn run_in_session(
         &self,
         job: &Job,
-        stop: &StopSignal,
+        control: &Control,
         session_id: &mut Option<String>,
     ) -> Result<String, String> {
-        let mut agent = Connection::start(self, &job.cwd, stop.clone())?;
+        let mut agent = Connection::start(self, &job.cwd, control.clone())?;
         let init = agent.initialize()?;
         let (session, note) = agent.open_session(&init, &job.cwd, job.resume.as_deref())?;
         *session_id = Some(session.id.clone());
@@ -97,7 +104,7 @@ pub struct Report {
 impl AcpAgent {
     /// Starts the agent, opens one session in `cwd`, and stops it. No prompt is sent.
     pub fn check(&self, cwd: &str) -> Result<Report, String> {
-        let mut agent = Connection::start(self, cwd, StopSignal::default())?;
+        let mut agent = Connection::start(self, cwd, Control::default())?;
         let init = agent.initialize()?;
         let session = agent.new_session(cwd)?;
         Ok(Report {
@@ -112,6 +119,46 @@ impl AcpAgent {
             modes: session.modes,
         })
     }
+}
+
+fn cancelled() -> Value {
+    json!({ "outcome": "cancelled" })
+}
+
+fn select(options: &[Value], kind: &str) -> Option<Value> {
+    let option = options.iter().find(|o| text_at(o, "/kind") == Some(kind))?;
+    let id = option.get("optionId")?.clone();
+    Some(json!({ "outcome": "selected", "optionId": id }))
+}
+
+fn option_kind(option: &Value) -> Option<OptionKind> {
+    match text_at(option, "/kind")? {
+        "allow_once" => Some(OptionKind::AllowOnce),
+        "allow_always" => Some(OptionKind::AllowAlways),
+        "reject_once" => Some(OptionKind::RejectOnce),
+        "reject_always" => Some(OptionKind::RejectAlways),
+        _ => None,
+    }
+}
+
+/// The raw text that the popup shows first (SPEC.md 6.4): the command line, else
+/// the path or the address, else the title of the tool call.
+fn command_of(params: &Value) -> String {
+    let input = params.pointer("/toolCall/rawInput").unwrap_or(&Value::Null);
+    let command = match input.get("command") {
+        Some(Value::String(line)) => Some(line.clone()),
+        Some(Value::Array(words)) => {
+            let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
+            Some(words.join(" "))
+        }
+        _ => None,
+    };
+    let path = ["file_path", "path", "url"]
+        .iter()
+        .find_map(|key| input.get(*key).and_then(Value::as_str).map(str::to_owned));
+    command
+        .or(path)
+        .unwrap_or_else(|| text_at(params, "/toolCall/title").unwrap_or("").to_owned())
 }
 
 fn text_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
@@ -150,6 +197,8 @@ struct Connection {
     refused: Vec<String>,
     permission: Permission,
     stop: StopSignal,
+    events: Events,
+    permission_timeout: Duration,
     /// The session that `session/cancel` names.
     session: Option<String>,
     cancel_sent: bool,
@@ -163,7 +212,7 @@ impl Drop for Connection {
 }
 
 impl Connection {
-    fn start(agent: &AcpAgent, cwd: &str, stop: StopSignal) -> Result<Connection, String> {
+    fn start(agent: &AcpAgent, cwd: &str, control: Control) -> Result<Connection, String> {
         let (program, args) = agent
             .command
             .split_first()
@@ -207,7 +256,9 @@ impl Connection {
             reply: String::new(),
             refused: Vec::new(),
             permission: Permission::Ask,
-            stop,
+            stop: control.stop,
+            events: control.events,
+            permission_timeout: agent.permission_timeout,
             session: None,
             cancel_sent: false,
         })
@@ -313,6 +364,9 @@ impl Connection {
             "session/prompt",
             &json!({ "sessionId": session, "prompt": [{ "type": "text", "text": text }] }),
         )?;
+        if self.cancel_sent {
+            return Err(STOPPED.into());
+        }
         let reply = std::mem::take(&mut self.reply);
         let reply = match text_at(&result, "/stopReason") {
             Some("end_turn") => reply,
@@ -421,44 +475,90 @@ impl Connection {
     }
 
     fn update(&mut self, params: &Value) {
-        let kind = params
-            .pointer("/update/sessionUpdate")
-            .and_then(Value::as_str);
-        if kind != Some("agent_message_chunk") {
-            return;
-        }
-        if let Some(text) = text_at(params, "/update/content/text") {
-            let room = MAX_REPLY.saturating_sub(self.reply.len());
-            self.reply.push_str(cut(text, room));
+        let update = params.get("update").unwrap_or(&Value::Null);
+        match update.get("sessionUpdate").and_then(Value::as_str) {
+            Some("agent_message_chunk") => {
+                if let Some(text) = text_at(update, "/content/text") {
+                    let room = MAX_REPLY.saturating_sub(self.reply.len());
+                    self.reply.push_str(cut(text, room));
+                }
+            }
+            Some("tool_call") => {
+                let title = text_at(update, "/title").unwrap_or("a tool call");
+                self.events
+                    .send(Event::Progress(cut(title, MAX_STEP).to_owned()));
+            }
+            _ => {}
         }
     }
 
-    /// The game cannot answer yet (SPEC.md 9.3), so the bridge answers under the
-    /// ceiling: `full-auto` allows once, every other level refuses once.
     fn answer(&mut self, params: &Value) -> Value {
         // ACP says: after `session/cancel`, every open request gets "cancelled".
         if self.cancel_sent {
-            return json!({ "outcome": "cancelled" });
+            return cancelled();
         }
-        let want = if self.permission == Permission::FullAuto {
-            "allow_once"
-        } else {
-            "reject_once"
-        };
-        let options = params.get("options").and_then(Value::as_array);
-        let chosen = options
-            .into_iter()
-            .flatten()
-            .find(|o| o.get("kind").and_then(Value::as_str) == Some(want))
-            .and_then(|o| o.get("optionId").cloned());
-        if want == "reject_once" {
+        let offered = params
+            .get("options")
+            .and_then(Value::as_array)
+            .cloned()
+            .unwrap_or_default();
+        if self.permission == Permission::FullAuto {
+            return select(&offered, "allow_once").unwrap_or_else(cancelled);
+        }
+        if !self.events.listening() {
             let title = text_at(params, "/toolCall/title").unwrap_or("a tool call");
-            self.refused.push(cut(title, 200).to_owned());
+            self.refused.push(cut(title, MAX_STEP).to_owned());
+            return select(&offered, "reject_once").unwrap_or_else(cancelled);
         }
-        match chosen {
-            Some(option) => json!({ "outcome": "selected", "optionId": option }),
-            None => json!({ "outcome": "cancelled" }),
+        self.ask_game(params, &offered)
+    }
+
+    /// Shows the request in the game and waits for the answer. The run timeout
+    /// stops while it waits, and `permission_timeout` applies (SPEC.md 9.3).
+    fn ask_game(&mut self, params: &Value, offered: &[Value]) -> Value {
+        // "Allow always" waits for the rules of SPEC.md 6.6.5.
+        let options: Vec<(&Value, OptionKind)> = offered
+            .iter()
+            .filter_map(|o| Some((o, option_kind(o)?)))
+            .filter(|(_, kind)| !matches!(kind, OptionKind::AllowAlways))
+            .take(protocol::live::MAX_OPTIONS)
+            .collect();
+        let choices = options
+            .iter()
+            .map(|(o, kind)| Choice {
+                kind: *kind,
+                label: text_at(o, "/name").unwrap_or("?").to_owned(),
+            })
+            .collect();
+        let title = text_at(params, "/toolCall/title").unwrap_or("");
+        let text = popup_text(command_of(params).as_bytes(), title.as_bytes());
+        let (answer, answers) = channel();
+        if !self.events.send(Event::Question(Question {
+            text,
+            choices,
+            answer,
+        })) {
+            return cancelled();
         }
+        let asked = Instant::now();
+        let chosen = loop {
+            if self.stop.requested() || asked.elapsed() >= self.permission_timeout {
+                break None;
+            }
+            match answers.recv_timeout(POLL) {
+                Ok(chosen) => break chosen,
+                Err(RecvTimeoutError::Timeout) => {}
+                Err(RecvTimeoutError::Disconnected) => break None,
+            }
+        };
+        self.deadline += asked.elapsed();
+        chosen
+            .and_then(|i| options.get(i))
+            .and_then(|(o, _)| o.get("optionId").cloned())
+            .map_or_else(
+                cancelled,
+                |id| json!({ "outcome": "selected", "optionId": id }),
+            )
     }
 
     fn stopped(&mut self) -> String {
