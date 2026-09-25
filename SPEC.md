@@ -633,6 +633,7 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 ```
 gnomish-relay/
   addon/GnomishRelay/   Lua addon
+  addon/transport/      the shared Lua transport of every app (9.7). Install copies it into each addon.
   crates/
     protocol/           frames, records, slot body, escapes, dedup, counters. No I/O. Verified with Aeneas.
     capture/            trait Capture + one backend per platform
@@ -1181,17 +1182,21 @@ The mockup is the reference for the layout.
 ### 13.2 Code
 
 The addon is our own code. It uses the design of `wow-claude`, not its files.
-All state is local to the addon files, which share one table. The files load in this order:
+All state is local to the addon files, which share one table. The files load in this order.
+The files marked "shared" are in `addon/transport` (9.7, decision 14). They read the names of the app from `App.lua`.
 
 | File | Job |
 |---|---|
 | `Key.lua` | The strip key. `scripts/dev-link.sh` writes it, and git ignores it. |
-| `Sha256.lua` | SHA-256 and HMAC-SHA256 for the strip tag. |
-| `Codec.lua` | Records, frames, and cells: the Lua side of `crates/protocol`. |
+| `App.lua` | The names of the app: the slot prefix, the three slot globals, the strip frame, and the saved variables. |
+| `Sha256.lua` (shared) | SHA-256 and HMAC-SHA256 for the strip tag. |
+| `Codec.lua` (shared) | Records, frames, and cells: the Lua side of `crates/protocol`. |
+| `Saved.lua` (shared) | The saved variables table of the app. |
 | `Store.lua` | The saved data: token, chats, and the outbox. |
 | `Health.lua` | The login self-test and the health of each channel (7.8). |
-| `Strip.lua` | Draws a frame and takes one screenshot of it. |
-| `Transport.lua` | The strip retries, the poll schedule, the slots, and the flags. It follows `models/transport.qnt`. |
+| `Strip.lua` (shared) | Draws a frame and takes one screenshot of it. |
+| `Slots.lua` (shared) | Loads one slot, and takes the three globals of the app. |
+| `Transport.lua` | The strip retries, the poll schedule, and the flags. It follows `models/transport.qnt`. |
 | `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
 | `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks. |
 | `Window.lua` | The window of 13.1. |
@@ -1426,7 +1431,7 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 ## 16. Development environment
 
 - `dev gnomish-relay` opens tmux with nvim, the agent, and a terminal in this folder.
-- Link `addon/GnomishRelay` into `_classic_beta_/Interface/AddOns`. Then an edit plus `/reload` loads the new code, with no copy step.
+- Link `addon/GnomishRelay` into `_classic_beta_/Interface/AddOns`. Then an edit plus `/reload` loads the new code, with no copy step. `scripts/dev-link.sh` does this, and also links each file of `addon/transport` into `addon/GnomishRelay`. Git ignores these links.
 - Run the bridge in the bottom-right pane.
 - Aeneas and Charon are built in `~/verif`. `proofs/TOOLS` pins their commits, and CI builds the same commits with Nix.
 

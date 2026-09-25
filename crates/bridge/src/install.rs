@@ -14,19 +14,29 @@ use crate::fs_safe::write_atomic_unsynced;
 pub const ADDON: &str = "GnomishRelay";
 const KEY_FILE: &str = "Key.lua";
 
-/// The addon, built into the program, so one download installs everything.
-pub const ADDON_FILES: [(&str, &[u8]); 14] = [
+/// The addon, built into the program, so one download installs everything. The files of
+/// `addon/transport` are shared with other apps (SPEC.md 9.7, decision 14). They go into
+/// this addon here, so the repo never holds a copy of them.
+pub const ADDON_FILES: [(&str, &[u8]); 17] = [
     (
         "GnomishRelay.toc",
         include_bytes!("../../../addon/GnomishRelay/GnomishRelay.toc"),
     ),
     (
+        "App.lua",
+        include_bytes!("../../../addon/GnomishRelay/App.lua"),
+    ),
+    (
         "Sha256.lua",
-        include_bytes!("../../../addon/GnomishRelay/Sha256.lua"),
+        include_bytes!("../../../addon/transport/Sha256.lua"),
     ),
     (
         "Codec.lua",
-        include_bytes!("../../../addon/GnomishRelay/Codec.lua"),
+        include_bytes!("../../../addon/transport/Codec.lua"),
+    ),
+    (
+        "Saved.lua",
+        include_bytes!("../../../addon/transport/Saved.lua"),
     ),
     (
         "Store.lua",
@@ -38,7 +48,11 @@ pub const ADDON_FILES: [(&str, &[u8]); 14] = [
     ),
     (
         "Strip.lua",
-        include_bytes!("../../../addon/GnomishRelay/Strip.lua"),
+        include_bytes!("../../../addon/transport/Strip.lua"),
+    ),
+    (
+        "Slots.lua",
+        include_bytes!("../../../addon/transport/Slots.lua"),
     ),
     (
         "Transport.lua",

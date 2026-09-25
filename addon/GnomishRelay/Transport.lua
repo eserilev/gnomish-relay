@@ -6,7 +6,6 @@ local _, ns = ...
 local Transport = {}
 ns.Transport = Transport
 
-local SLOTS = 1000
 local LOW_SLOTS = 20
 local REPORT_AHEAD = 20
 local SHOWS = 3
@@ -49,22 +48,14 @@ local state = {
 Transport.OnChange = function() end
 Transport.OnReply = function() end
 
-local function SlotName(n)
-	return string.format("GnomishRelay_S%04d", n)
-end
-
 function Transport.Init()
-	local n = 1
-	while n <= SLOTS and C_AddOns.IsAddOnLoaded(SlotName(n)) do
-		n = n + 1
-	end
-	state.nextSlot = n
+	state.nextSlot = ns.Slots.FirstFree()
 	state.helloDue = true
 	state.nextPoll = GetTime() + SCHEDULE[1]
 end
 
 function Transport.SlotsLeft()
-	return SLOTS - state.nextSlot + 1
+	return ns.Slots.COUNT - state.nextSlot + 1
 end
 
 function Transport.Working(chatId)
@@ -561,19 +552,10 @@ function Transport.Answer(request, optionId)
 end
 
 function Transport.Poll()
-	if state.nextSlot > SLOTS then
+	if state.nextSlot > ns.Slots.COUNT then
 		return
 	end
-	local name = SlotName(state.nextSlot)
-	C_AddOns.EnableAddOn(name)
-	GnomishRelay_SlotData = nil
-	GnomishRelay_Restore = nil
-	GnomishRelay_Live = nil
-	local loaded = C_AddOns.LoadAddOn(name)
-	local data, restore, live = GnomishRelay_SlotData, GnomishRelay_Restore, GnomishRelay_Live
-	GnomishRelay_SlotData = nil
-	GnomishRelay_Restore = nil
-	GnomishRelay_Live = nil
+	local loaded, data, restore, live = ns.Slots.Load(state.nextSlot)
 	state.missing = not loaded
 	ns.Health.Slot(loaded)
 	if loaded then

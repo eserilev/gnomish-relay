@@ -14,5 +14,11 @@ fi
 
 ln -sfn "$root/addon/GnomishRelay" "$addons/GnomishRelay"
 echo "linked $addons/GnomishRelay"
+# The shared transport lives in addon/transport. A link to each file puts it in the addon,
+# as install does, so an edit there plus /reload also works. The links are ignored files.
+for file in "$root"/addon/transport/*.lua; do
+  ln -sfn "../transport/$(basename "$file")" "$root/addon/GnomishRelay/$(basename "$file")"
+done
+echo "linked addon/transport into addon/GnomishRelay"
 # The link first: setup then writes only the key into this checkout.
 cargo run -q --bin gnomish-relay -- setup "$wow"

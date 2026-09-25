@@ -13,7 +13,7 @@ fi
 cargo test -q
 cargo deny --log-level error check
 stylua --check addon
-selene --quiet addon/GnomishRelay
+selene --quiet addon/GnomishRelay addon/transport
 # A WoW name that the client does not have, or has only as deprecated, fails here.
 scripts/wow-api.sh > /dev/null
 if ! git diff --quiet -- addon/tests/api.lua; then

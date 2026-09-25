@@ -63,7 +63,7 @@ jobs:
         with:
           tool: stylua,selene
       - run: stylua --check addon
-      - run: selene addon/GnomishRelay
+      - run: selene addon/GnomishRelay addon/transport
       # Every WoW name that the addon uses must be in the pinned client, and not deprecated.
       - run: scripts/wow-api.sh
       - run: git diff --exit-code -- addon/tests/api.lua

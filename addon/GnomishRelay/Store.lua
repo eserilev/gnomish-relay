@@ -21,8 +21,7 @@ local function RandomId(length)
 end
 
 function Store.Load()
-	GnomishRelayDB = GnomishRelayDB or {}
-	local db = GnomishRelayDB
+	local db = ns.Saved()
 	if not ns.Codec.IsValidId(db.token) then
 		db.token = RandomId(16)
 	end

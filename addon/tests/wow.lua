@@ -19,6 +19,11 @@ local wow = {
 	slotsInstalled = true,
 	shotsBlocked = false,
 	shots = {},
+	-- Every screenshot again, by the name of each strip frame in `strips`.
+	strips = { "GnomishRelayStrip" },
+	shotsOf = {},
+	-- The slot files of an app other than the relay, by the slot prefix before `_S`.
+	files = {},
 	reloads = 0,
 	combat = false,
 	textures = {},
@@ -383,11 +388,11 @@ function wow.Save(name)
 	return table.concat(out)
 end
 
--- The cells of the strip on screen, by row, from the colors of the visible textures.
-local function StripCells()
+-- The cells of one strip on screen, by row, from the colors of the visible textures.
+local function StripCells(frameName)
 	local rows = {}
 	for _, t in ipairs(wow.textures) do
-		if t.parent.name == "GnomishRelayStrip" and t:IsVisible() and t.color then
+		if t.parent.name == frameName and t:IsVisible() and t.color then
 			local row, col = -t.y / 4 + 1, t.x / 4 + 1
 			rows[row] = rows[row] or {}
 			rows[row][col] = t.color[1] * 4 + t.color[2] * 2 + t.color[3]
@@ -469,7 +474,11 @@ function Screenshot()
 		end)
 		return
 	end
-	table.insert(wow.shots, StripCells())
+	table.insert(wow.shots, StripCells("GnomishRelayStrip"))
+	for _, frameName in ipairs(wow.strips) do
+		wow.shotsOf[frameName] = wow.shotsOf[frameName] or {}
+		table.insert(wow.shotsOf[frameName], StripCells(frameName))
+	end
 	C_Timer.After(0.4, function()
 		wow.Fire("SCREENSHOT_SUCCEEDED")
 	end)
@@ -499,21 +508,23 @@ end
 
 function C_AddOns.EnableAddOn() end
 
--- A slot runs the body and the restore file that the test put there, one time per UI session.
+-- A slot runs the body, the restore file, and the live file that the test put there,
+-- one time per UI session. A slot of another app runs the files of that app.
 function C_AddOns.LoadAddOn(name)
 	if not wow.slotsInstalled then
 		return false, "MISSING"
 	end
 	if not wow.loaded[name] then
 		wow.loaded[name] = true
-		if wow.body then
-			assert(loadstring(wow.body))()
+		local files = wow.files[name:match("^(.-)_S%d+$")] or wow
+		if files.body then
+			assert(loadstring(files.body))()
 		end
-		if wow.restore then
-			assert(loadstring(wow.restore))()
+		if files.restore then
+			assert(loadstring(files.restore))()
 		end
-		if wow.live then
-			assert(loadstring(wow.live))()
+		if files.live then
+			assert(loadstring(files.live))()
 		end
 	end
 	return true

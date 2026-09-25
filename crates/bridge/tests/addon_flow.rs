@@ -31,11 +31,14 @@ use sha2::Sha256;
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 const FILES: &[&str] = &[
+    "App.lua",
     "Sha256.lua",
     "Codec.lua",
+    "Saved.lua",
     "Store.lua",
     "Health.lua",
     "Strip.lua",
+    "Slots.lua",
     "Transport.lua",
     "Blocks.lua",
     "Transcript.lua",

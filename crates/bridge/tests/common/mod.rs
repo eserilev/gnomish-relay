@@ -45,11 +45,24 @@ pub fn load(lua: &Lua, files: &[&str]) -> Table {
 }
 
 pub fn load_into(lua: &Lua, ns: &Table, files: &[&str]) {
+    load_addon(lua, "GnomishRelay", ns, files);
+}
+
+/// The shared transport lives in `addon/transport`, and each addon gets it at install.
+pub fn addon_file(addon: &str, file: &str) -> String {
+    let shared = format!("addon/transport/{file}");
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    if root.join(&shared).exists() {
+        return repo_file(&shared);
+    }
+    repo_file(&format!("addon/{addon}/{file}"))
+}
+
+pub fn load_addon(lua: &Lua, addon: &str, ns: &Table, files: &[&str]) {
     for file in files {
-        let src = repo_file(&format!("addon/GnomishRelay/{file}"));
-        lua.load(src)
+        lua.load(addon_file(addon, file))
             .set_name(*file)
-            .call::<()>(("GnomishRelay", ns.clone()))
+            .call::<()>((addon, ns.clone()))
             .unwrap();
     }
 }

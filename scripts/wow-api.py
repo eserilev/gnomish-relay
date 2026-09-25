@@ -159,9 +159,15 @@ def template_names(name, all_templates, bases, methods, seen=None):
     return out
 
 
+def addon_files():
+    """The files of the addon, and the shared transport that install puts into it."""
+    shared = addon_root.parent / "transport"
+    return sorted(set(addon_root.glob("*.lua")) | set(shared.glob("*.lua")))
+
+
 def used_templates():
     names = set()
-    for path in addon_root.glob("*.lua"):
+    for path in addon_files():
         text = path.read_text(encoding="utf-8")
         names.update(re.findall(r'"(\w+Template)"', text))
         names.update(re.findall(r'CreateFrame\("(\w+)"', text))
@@ -197,7 +203,7 @@ def lint_globals(path):
 def referenced():
     """Every WoW name that the addon, the lint list, or the fake game uses."""
     names = lint_globals(addon_root.parent.parent / "wow.yml")
-    for path in addon_root.glob("*.lua"):
+    for path in addon_files():
         text = path.read_text(encoding="utf-8")
         names.update(".".join(m) for m in re.findall(r"\b(C_\w+|SOUNDKIT|bit)\.([A-Za-z_]\w*)", text))
     fake = (addon_root.parent / "tests" / "wow.lua").read_text(encoding="utf-8")

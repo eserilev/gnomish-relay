@@ -19,7 +19,7 @@ local shooting = false
 local hideStatusUntil = 0
 
 local function Build()
-	frame = CreateFrame("Frame", "GnomishRelayStrip", UIParent)
+	frame = CreateFrame("Frame", ns.App.strip, UIParent)
 	frame:SetFrameStrata("TOOLTIP")
 	frame:SetFrameLevel(10000)
 	frame:SetIgnoreParentScale(true)

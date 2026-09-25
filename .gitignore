@@ -4,5 +4,11 @@ target/
 proofs/.lake/
 # The strip key. scripts/dev-link.sh writes it.
 addon/GnomishRelay/Key.lua
+# Links to the shared transport. scripts/dev-link.sh makes them.
+addon/GnomishRelay/Sha256.lua
+addon/GnomishRelay/Codec.lua
+addon/GnomishRelay/Saved.lua
+addon/GnomishRelay/Strip.lua
+addon/GnomishRelay/Slots.lua
 # Release archives. scripts/package.sh writes them.
 dist/

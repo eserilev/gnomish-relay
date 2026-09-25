@@ -54,14 +54,6 @@ globals:
     args: [{type: string}]
   unpack:
     args: [{type: table}, {type: number, required: false}, {type: number, required: false}]
-  GnomishRelayDB:
-    property: full-write
-  GnomishRelay_SlotData:
-    property: full-write
-  GnomishRelay_Restore:
-    property: full-write
-  GnomishRelay_Live:
-    property: full-write
   SLASH_GNOMISHRELAY1:
     property: full-write
   SLASH_GNOMISHRELAYASK1:
