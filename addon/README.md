@@ -4,23 +4,18 @@ The addon side of Gnomish Relay. SPEC.md section 13 describes it.
 
 ## Try it
 
-1. Close WoW.
-2. Run `scripts/dev-link.sh`. It links this folder into the game, makes the strip key,
-   and writes `~/.config/gnomish-relay/config.toml` if it does not exist.
+1. Start WoW once, so that it makes the `Interface/AddOns` folder. Then close it.
+2. Run `cargo run -q --bin gnomish-relay -- setup`. It finds the game, makes the strip key,
+   installs this addon, writes `~/.config/gnomish-relay/config.toml` with the agents it
+   finds, and makes the 1000 slot addons. `--autostart` also starts the bridge at each login.
 3. Edit `allowed_roots` in `config.toml`. Agents work only inside these folders.
-4. Run `cargo run -q --bin gnomish-relay -- install`. It makes the 1000 slot addons.
-5. Start WoW, make sure that "Gnomish Relay" is on in the AddOns list, and log in.
-6. Type `/relay` to open the window, or `/ai <message>` to send from the chat line.
+4. Start WoW and log in. Type `/relay` to open the window, or `/ai <message>` to send.
+5. If you did not use `--autostart`, run `cargo run -q --bin gnomish-relay -- run`.
 
-7. In a terminal, run `cargo run -q --bin gnomish-relay -- run`. It reads the strips,
-   answers each message with the echo agent, and publishes the reply.
-8. Type a message in the window. The reply "echo: <your message>" comes back as a
-   whisper at the next poll, 5 to 10 seconds later.
+For development, `scripts/dev-link.sh` links this folder into the game first, so an edit
+plus `/reload` loads the new code. Then it runs `setup`, which writes only `Key.lua` here.
 
 `say <chat> <id> <text>` publishes a reply by hand. `/relay diag` shows the ids.
-
-Older versions made 200 slots named `GnomishRelay_S001` to `S200`. With the game closed, delete them:
-`rm -r <AddOns folder>/GnomishRelay_S[0-9][0-9][0-9]`
 
 ## Tests
 

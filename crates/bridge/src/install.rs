@@ -196,6 +196,43 @@ pub fn find_agents(path: &OsStr) -> Vec<(&'static str, &'static [&'static str])>
         .collect()
 }
 
+/// A systemd user service. It gets the `PATH` of setup, because a service starts with
+/// almost none, and then finds no agent.
+pub fn systemd_unit(exe: &Path, path_var: &str) -> String {
+    let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
+    format!(
+        "[Unit]\nDescription=Gnomish Relay bridge\n\n[Service]\nExecStart={} run\n\
+         Environment={}\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n",
+        quote(&exe.to_string_lossy()),
+        quote(&format!("PATH={path_var}")),
+    )
+}
+
+fn xml(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+}
+
+pub const LAUNCHD_LABEL: &str = "dev.gnomish-relay.bridge";
+
+/// A launchd agent that starts at login and again after a crash.
+pub fn launchd_plist(exe: &Path, path_var: &str) -> String {
+    format!(
+        "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
+         <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
+         <plist version=\"1.0\"><dict>\n\
+         <key>Label</key><string>{LAUNCHD_LABEL}</string>\n\
+         <key>ProgramArguments</key><array><string>{}</string><string>run</string></array>\n\
+         <key>EnvironmentVariables</key><dict><key>PATH</key><string>{}</string></dict>\n\
+         <key>RunAtLoad</key><true/>\n<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n\
+         </dict></plist>\n",
+        xml(&exe.to_string_lossy()),
+        xml(path_var),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -294,5 +331,23 @@ mod tests {
             .map(|(n, _)| *n)
             .collect();
         assert_eq!(found, ["claude", "gemini"]);
+    }
+
+    #[test]
+    fn the_systemd_unit_runs_the_bridge_with_the_path_of_setup() {
+        let unit = systemd_unit(
+            Path::new("/opt/my relay/gnomish-relay"),
+            "/usr/bin:/home/x/.npm/bin",
+        );
+        assert!(unit.contains("ExecStart=\"/opt/my relay/gnomish-relay\" run\n"));
+        assert!(unit.contains("Environment=\"PATH=/usr/bin:/home/x/.npm/bin\"\n"));
+        assert!(unit.contains("WantedBy=default.target"));
+    }
+
+    #[test]
+    fn the_launchd_plist_escapes_the_paths() {
+        let plist = launchd_plist(Path::new("/Apps/R&D/gnomish-relay"), "/bin:<x>");
+        assert!(plist.contains("<string>/Apps/R&amp;D/gnomish-relay</string><string>run</string>"));
+        assert!(plist.contains("<string>/bin:&lt;x&gt;</string>"));
     }
 }

@@ -15,7 +15,7 @@ use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const USAGE: &str = "\
 usage:
-  gnomish-relay setup [folder] [--new-key]
+  gnomish-relay setup [folder] [--new-key] [--autostart]
                                      install the addon, the key, the config, and the slots
   gnomish-relay install              make the slot addons (game closed)
   gnomish-relay run                  read strips, run the agents, publish the replies
@@ -117,6 +117,79 @@ fn strip_key(dir: &Path, new: bool) -> Result<String> {
     Ok(hex)
 }
 
+fn command(program: &str, args: &[&str]) -> Result<()> {
+    let status = std::process::Command::new(program)
+        .args(args)
+        .status()
+        .with_context(|| format!("cannot run {program}"))?;
+    if !status.success() {
+        bail!("{program} {} failed", args.join(" "));
+    }
+    Ok(())
+}
+
+/// Starts the bridge at each login, and now (SPEC.md 11.3).
+fn autostart() -> Result<()> {
+    let exe = std::env::current_exe()?;
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    if cfg!(windows) {
+        let run = format!("\"{}\" run", exe.display());
+        command(
+            "schtasks",
+            &[
+                "/Create",
+                "/F",
+                "/SC",
+                "ONLOGON",
+                "/TN",
+                "Gnomish Relay",
+                "/TR",
+                &run,
+            ],
+        )?;
+        command("schtasks", &["/Run", "/TN", "Gnomish Relay"])?;
+    } else if cfg!(target_os = "macos") {
+        let dir = home_dir()?.join("Library").join("LaunchAgents");
+        std::fs::create_dir_all(&dir)?;
+        let name = format!("{}.plist", install::LAUNCHD_LABEL);
+        write_atomic(
+            &dir,
+            &name,
+            install::launchd_plist(&exe, &path_var).as_bytes(),
+        )?;
+        let uid = String::from_utf8(std::process::Command::new("id").arg("-u").output()?.stdout)?;
+        let plist = dir.join(&name).to_string_lossy().into_owned();
+        let _ = command(
+            "launchctl",
+            &["bootout", &format!("gui/{}", uid.trim()), &plist],
+        );
+        command(
+            "launchctl",
+            &["bootstrap", &format!("gui/{}", uid.trim()), &plist],
+        )?;
+    } else {
+        let dir = config_dir()?
+            .parent()
+            .context("no config folder")?
+            .join("systemd")
+            .join("user");
+        std::fs::create_dir_all(&dir)?;
+        write_atomic(
+            &dir,
+            "gnomish-relay.service",
+            install::systemd_unit(&exe, &path_var).as_bytes(),
+        )?;
+        command("systemctl", &["--user", "daemon-reload"])?;
+        command(
+            "systemctl",
+            &["--user", "enable", "--now", "gnomish-relay.service"],
+        )?;
+        println!("logs: journalctl --user -u gnomish-relay");
+    }
+    println!("the bridge starts at each login");
+    Ok(())
+}
+
 /// Every step leaves alone what works, so a second run is safe (SPEC.md 11.3).
 fn setup(args: &[&str]) -> Result<()> {
     let new_key = args.contains(&"--new-key");
@@ -153,6 +226,9 @@ fn setup(args: &[&str]) -> Result<()> {
                 names.join(", ")
             }
         );
+    }
+    if args.contains(&"--autostart") {
+        autostart()?;
     }
     let slots_new = !addons.join(slots::slot_name(1)).is_dir();
     slots::install(&addons, &Files::empty(now()))?;
