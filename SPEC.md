@@ -128,6 +128,7 @@ Theorem S15 covers these rules.
 - Reply text sits in a global table after a slot loads. Any addon can read it.
 - `GnomishRelayDB` is a global table. Any addon can read the chats in it.
 - The strip is signed, not encrypted. The prompt is in the pixels of each strip screenshot until the bridge deletes it. If the bridge does not run, these files stay. A cloud sync of the Screenshots folder (for example OneDrive on Windows) copies them.
+- An addon that loads before ours, for example one named `!Evil`, can replace global functions such as `string.char`, `tonumber`, or `bit.band` before `Key.lua` and `Sha256.lua` run. It can then read the strip key. Lua in WoW gives an addon no way to stop this. Layers 2 to 4 of 6.6 assume that any game message can come from another addon, so the key is a check against programs outside the game, not against other addons.
 - Code in the sandbox can still send data to the allowed API host, for example with an upload under another account key. A proxy that ends TLS and pins the account closes this. It is not in v1.
 
 ### 6.6 Four layers of defense

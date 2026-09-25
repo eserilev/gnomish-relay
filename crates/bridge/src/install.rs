@@ -223,7 +223,8 @@ pub fn new_key() -> Result<String> {
     }))
 }
 
-/// The key in the private table of the addon. No other addon can read it.
+/// The key in the private table of the addon. An addon that loads first can still
+/// replace the string functions that this code calls, and read the key (SPEC.md 6.5).
 pub fn key_lua(key_hex: &str) -> String {
     format!(
         "local _, ns = ...\nns.key = (\"{key_hex}\"):gsub(\"%x%x\", function(h)\n\
