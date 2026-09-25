@@ -12,6 +12,7 @@ pub mod claude;
 pub mod claude_sessions;
 pub mod codex;
 pub mod config;
+pub mod desktop;
 pub mod flags;
 pub mod fs_safe;
 pub mod history;

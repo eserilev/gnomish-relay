@@ -85,26 +85,61 @@ impl Turn {
     /// no answer: nobody listens, Stop came, or `permission_timeout` passed. The run
     /// timeout stops while the question waits (SPEC.md 9.3).
     pub fn ask_game(&mut self, text: Vec<u8>, choices: Vec<Choice>) -> Option<usize> {
+        match self.ask(text, choices, None) {
+            Answer::Game(chosen) => Some(chosen),
+            Answer::Desktop(_) | Answer::None => None,
+        }
+    }
+
+    /// `ask_game`, and also a wait for `desktop`, which gives `Some` once the desktop
+    /// answers. With a desktop, the wait goes on when nobody in the game listens.
+    pub fn ask(
+        &mut self,
+        text: Vec<u8>,
+        choices: Vec<Choice>,
+        desktop: Option<&dyn Fn() -> Option<bool>>,
+    ) -> Answer {
         let (answer, answers) = channel();
-        if !self.events.send(Event::Question(Question {
+        let shown = self.events.send(Event::Question(Question {
             text,
             choices,
             answer,
-        })) {
-            return None;
+        }));
+        if !shown && desktop.is_none() {
+            return Answer::None;
         }
         let asked = Instant::now();
-        let chosen = loop {
+        let mut game = shown.then_some(answers);
+        let answer = loop {
             if self.stop.requested() || asked.elapsed() >= self.permission_timeout {
-                break None;
+                break Answer::None;
             }
+            if let Some(allowed) = desktop.and_then(|d| d()) {
+                break Answer::Desktop(allowed);
+            }
+            let Some(answers) = &game else {
+                std::thread::sleep(POLL);
+                continue;
+            };
             match answers.recv_timeout(POLL) {
-                Ok(chosen) => break chosen,
+                Ok(Some(chosen)) => break Answer::Game(chosen),
                 Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) => break None,
+                Err(RecvTimeoutError::Disconnected) if desktop.is_some() => game = None,
+                Ok(None) | Err(RecvTimeoutError::Disconnected) => break Answer::None,
             }
         };
         self.deadline += asked.elapsed();
-        chosen
+        answer
     }
+}
+
+/// What answered a question.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Answer {
+    /// The index of the choice in the game.
+    Game(usize),
+    /// True for an approval on the desktop.
+    Desktop(bool),
+    /// Nobody answered in time, Stop came, or the game cancelled.
+    None,
 }

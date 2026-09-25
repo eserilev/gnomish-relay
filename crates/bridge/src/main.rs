@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use bridge::agent;
 use bridge::config::{self, Config};
+use bridge::desktop::{self, Approvals, Notice};
 use bridge::fs_safe::write_atomic;
 use bridge::install;
 use bridge::lock::{self, Bridge};
@@ -23,6 +24,8 @@ usage:
   gnomish-relay restart              stop the bridge and start it again, for example after a config edit
   gnomish-relay update               install the latest release and restart the bridge
   gnomish-relay check-agent <name>   start an agent of the config and show what it offers
+  gnomish-relay approve [id]         list the tool calls that wait for the desktop, or allow one
+  gnomish-relay deny <id>            refuse a tool call that waits for the desktop
   gnomish-relay say <chat> <id> <text>
                                      publish a reply to message <id> (from `/relay diag`)";
 
@@ -498,6 +501,32 @@ fn agent_line(config: &Config) -> String {
     }
 }
 
+fn approvals() -> Result<Approvals> {
+    Ok(Approvals::new(&data_dir()?, Notice::Off))
+}
+
+/// Lists the tool calls that wait for the desktop (SPEC.md 6.6.3).
+fn list_approvals() -> Result<()> {
+    let pending = approvals()?.list();
+    if pending.is_empty() {
+        println!("no tool call waits for the desktop");
+    }
+    for p in pending {
+        let age = now().saturating_sub(p.created);
+        println!("{}  {age}s ago  {} in {}", p.id, p.agent, p.folder);
+        for line in p.text.lines() {
+            println!("    {line}");
+        }
+    }
+    Ok(())
+}
+
+fn answer_approval(id: &str, verdict: desktop::Verdict) -> Result<()> {
+    approvals()?.answer(id, verdict)?;
+    println!("answered {id}");
+    Ok(())
+}
+
 /// Starts one agent of the config and opens a session in the default folder, with
 /// no prompt. It shows that a new `[agents.<name>]` entry works.
 fn check_agent(name: &str) -> Result<()> {
@@ -546,6 +575,9 @@ fn main() -> Result<()> {
         ["restart"] => restart(&std::env::current_exe()?),
         ["update"] => self_update(),
         ["check-agent", name] => check_agent(name),
+        ["approve"] => list_approvals(),
+        ["approve", id] => answer_approval(id, desktop::Verdict::Approve),
+        ["deny", id] => answer_approval(id, desktop::Verdict::Deny),
         ["say", chat, id, text] => say(chat, id, text),
         _ => bail!("{USAGE}"),
     }
