@@ -20,6 +20,7 @@ use crate::config::{
 };
 use crate::flags::{self, Channel, Flags};
 use crate::history::{ChatLog, History, Speaker};
+use crate::reply::render_reply;
 use crate::state::{SavedRecord, SavedStatus, State};
 
 const BAD_FOLDER: &str = "Folder not allowed.";
@@ -597,7 +598,7 @@ impl Relay {
             return;
         }
         let (status, text) = match result {
-            Ok(text) => (Status::Done, text),
+            Ok(text) => (Status::Done, render_reply(&job.work, &text)),
             Err(text) => (Status::Error, text),
         };
         self.set_record(&job.token, &job.chat, job.id, status, text);
@@ -1046,7 +1047,29 @@ mod tests {
         let text = restore_text(&relay);
         assert!(text.contains("token = \"new\""));
         assert!(text.contains("text = \"before the wipe\""));
-        assert!(text.contains("text = \"echo: before the wipe\""));
+        assert!(text.contains("text = \"\\027M1\\010p\\031echo: before the wipe\\010\""));
+    }
+
+    #[test]
+    fn a_done_reply_and_its_history_hold_blocks_but_an_error_stays_plain() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        relay.on_frame(&[record("c2", 2, "", "b")], NOW);
+        let first = relay.next_job().unwrap();
+        let second = relay.next_job().unwrap();
+        relay.finish(&first, Ok("**done**".into()));
+        relay.finish(&second, Err("no **luck**".into()));
+
+        let state = relay.to_state();
+        let texts: Vec<&str> = state.records.iter().map(|r| r.text.as_str()).collect();
+        assert_eq!(texts, ["\x1bM1\np\x1f|cffffd100done|r\n", "no **luck**"]);
+        let replies: Vec<Vec<u8>> = relay
+            .history
+            .to_restore()
+            .into_iter()
+            .map(|c| c.history[1].text.clone())
+            .collect();
+        assert_eq!(replies, [texts[0].as_bytes(), texts[1].as_bytes()]);
     }
 
     #[test]

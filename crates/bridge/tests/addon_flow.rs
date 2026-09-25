@@ -568,7 +568,10 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
         .get("history")
         .unwrap();
     let last: Table = history.get(history.raw_len()).unwrap();
-    assert_eq!(last.get::<String>("text").unwrap(), "echo: ping the relay");
+    assert_eq!(
+        last.get::<String>("text").unwrap(),
+        "\x1bM1\np\x1fecho: ping the relay\n"
+    );
     assert!(
         game.printed()
             .iter()
