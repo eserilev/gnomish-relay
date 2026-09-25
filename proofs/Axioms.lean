@@ -42,3 +42,15 @@ import Statements
 #print axioms Protocol.Statements.check_S23_shape
 #print axioms Protocol.Statements.check_S24_escape
 #print axioms Protocol.Statements.check_S25_bound
+#print axioms Protocol.Statements.check_S16_paths
+#print axioms Protocol.Statements.check_S16_deny
+#print axioms Protocol.Statements.check_S17_ceiling
+#print axioms Protocol.Statements.check_S17_unknown
+#print axioms Protocol.Statements.check_S17_never_always
+#print axioms Protocol.Statements.check_S27_classify
+#print axioms Protocol.Statements.check_S27_ceiling
+#print axioms Protocol.Statements.check_S27_split
+#print axioms Protocol.Statements.check_S28_no_parse
+#print axioms Protocol.Statements.check_S28_substitution
+#print axioms Protocol.Statements.check_S28_desktop
+#print axioms Protocol.Statements.check_S28_capped

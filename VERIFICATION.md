@@ -43,6 +43,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 19 | S18 + S19: restore file | `restore` | `S18_restore_body`, `S18_prepare`, `S19_bound` | proved |
 | 20 | S20 + S21: live file | `live` | `S20_live_body`, `S20_prepare_progress`, `S20_prepare_requests`, `S21_bound` | proved |
 | 21 | S22 to S25: reply blocks | `markdown`, `inline` | `S22_total`, `S23_shape`, `S24_escape`, `S25_bound` | proved |
+| 22 | S16 + S17 + S27 + S28: action classifier | `action`, `shell`, `path_rules`, `command_rules`, `search` | `S16_paths`, `S16_deny`, `S17_ceiling`, `S17_unknown`, `S17_never_always`, `S27_classify`, `S27_ceiling`, `S27_split`, `S28_no_parse`, `S28_substitution`, `S28_desktop`, `S28_capped` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |
@@ -116,3 +117,42 @@ known default agent), and `relay` (the promises of the transport model on the re
 no message runs twice, at most 30 unread records, no job outside the root, no job
 above the level of the config). The hook
 socket and config targets wait for those parts. `scripts/fuzz.sh SECONDS` runs them all.
+
+### Item 22: what the classifier statements make exact
+
+The user approved S16, S17, S27, and S28 in words. The Lean statements make them exact
+in these ways. None of them changes the meaning.
+
+- **The input.** A file call is a list of read paths and a list of write paths. A
+  command is its raw bytes and its working folder. The policy holds the folders, the
+  `deny` folders, the two lists of `desktop` patterns, and the allow table of the
+  config. The bridge fills the policy in `action_input.rs`. So "the config folder" is
+  the `deny` folders of the policy, and "a `desktop` path" is a path that matches a
+  pattern of the policy.
+- **"Inside"** is the prefix of parts of S5 (`insideRoot`). For `allowed_roots` and the
+  chat folder, the path must also be clean (`cleanPath`, the resolved form of S5). The
+  `deny` folders and the patterns compare without ASCII case (`lower`).
+- **S16** holds for every path, with no precondition on its form: a path that is not
+  clean, or longer than 1 MiB, is `desktop`. The deny part holds for every path of any
+  length.
+- **S17.** "`classify(call, config)`" is `ceiling(call)`: the answer when a game rule
+  covers every command. A literal "no rule may raise the answer of the config" would
+  forbid the one-click rule of 6.6.5, so the ceiling is the most that the config lets a
+  rule reach. The second sentence is stronger than approved: a command with a "never
+  always" or `desktop` part is at most `ask` for every rule list, also for the allow
+  table of the config, and an unknown tool is `desktop`. "Never always" has an exact
+  definition in `Spec/Action.lean` (`neverAlways`).
+- **S27** has no precondition. The Rust code refuses a command or a path longer than
+  1 MiB, so every inner length bound holds.
+- **S28.** "Does not parse" means that `shell.split` returns `none`; the grammar is in
+  SPEC 6.6.3. "A command with command substitution" is exact on the raw bytes: `$(` or a
+  backtick anywhere, also inside quotes. "`eval`, `sudo`, a pipe into a shell,
+  `cmd.exe`, PowerShell" are words of a simple command of the parse, by their name
+  (`progName`: no folder, lower case, no `.exe`). "Is `desktop`" is "at most `desktop`"
+  for these words, because a redirect into a `deny` folder in the same command gives
+  `deny`, which is stricter. The lists of names are in `Spec/Action.lean`, and the proof
+  checks that they are the bytes of the Rust constants.
+
+Every precondition has a real input: `ls; eval x` parses and has `eval`, `curl x | sh`
+has a shell after a `|`, and `cat <<EOF` does not parse. The Rust tests of `action.rs`
+and the `action` fuzz target run such inputs.

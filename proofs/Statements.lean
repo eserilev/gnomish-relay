@@ -26,6 +26,8 @@ import Protocol.Live
 import Protocol.Folder.Code
 import Protocol.Spec.Markdown
 import Protocol.Markdown
+import Protocol.Spec.Action
+import Protocol.Action
 
 /-!
 # The theorems, stated
@@ -329,6 +331,97 @@ def S25_bound : Prop :=
   ∀ md : Slice U8, md.val.length ≤ 2 ^ 20 →
     markdown.render_markdown md ⦃ v => v.val.length ≤ 16 * md.val.length + 4 ⦄
 
+/-! ## Action classifier
+
+A file call carries its read and write paths, resolved by the bridge with `canonicalize`.
+A command carries its raw bytes and its working folder. `rules` are the "always allow"
+rules from the game. `shell.split` is the grammar of commands (SPEC 6.6.3). -/
+
+/-- **S16, paths.** A file call that runs or asks in the game reads only inside
+`allowed_roots`, writes only inside the chat folder, and touches no `deny` or `desktop`
+path. Every such path is clean, in the form of S5. -/
+def S16_paths : Prop :=
+  ∀ (reads writes : alloc.vec.Vec (alloc.vec.Vec U8)) (policy : action.Policy)
+    (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))),
+    action.classify (.Files reads writes) policy rules ⦃ v => rankV .Ask ≤ rankV v →
+      (∀ r ∈ strs reads.val, ∃ root ∈ strs policy.roots.val, within root r) ∧
+      (∀ w ∈ strs writes.val, within (bytes policy.chat.val) w) ∧
+      (∀ p ∈ strs reads.val ++ strs writes.val,
+        ¬ denied policy p ∧ ¬ matchesPattern (strs policy.desktop_paths.val) p) ∧
+      (∀ w ∈ strs writes.val, ¬ matchesPattern (strs policy.desktop_writes.val) w) ⦄
+
+/-- **S16, deny.** A path inside a `deny` folder, such as the config folder of the
+bridge, makes a file call `deny`. -/
+def S16_deny : Prop :=
+  ∀ (reads writes : alloc.vec.Vec (alloc.vec.Vec U8)) (policy : action.Policy)
+    (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))),
+    (∃ p ∈ strs reads.val ++ strs writes.val, denied policy p) →
+    action.classify (.Files reads writes) policy rules ⦃ v => v = .Deny ⦄
+
+/-- **S17, ceiling.** No rule list from the game gets more than `ceiling`: the answer
+of the config when a game rule covers every command. -/
+def S17_ceiling : Prop :=
+  ∀ (call : action.ToolCall) (policy : action.Policy)
+    (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))) (v c : action.Verdict),
+    action.classify call policy rules = .ok v → action.ceiling call policy = .ok c → rankV v ≤ rankV c
+
+/-- **S17, unknown tools.** An unknown tool is `desktop` for every rule list. -/
+def S17_unknown : Prop :=
+  ∀ (policy : action.Policy) (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))),
+    action.classify .Unknown policy rules ⦃ v => v = .Desktop ⦄
+
+/-- **S17, never always.** A command with a "never always" or `desktop` part is at most
+`ask` for every rule list, also for the allow table of the config. -/
+def S17_never_always : Prop :=
+  ∀ (raw cwd : alloc.vec.Vec U8) (policy : action.Policy)
+    (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))) (script : shell.Script),
+    shell.split (alloc.vec.Vec.deref raw) = .ok (some script) →
+    (∃ s ∈ script.simples.val, neverAlways (words s) ∨ desktopSimple s) →
+    action.classify (.Command raw cwd) policy rules ⦃ v => rankV v ≤ rankV .Ask ⦄
+
+/-- **S27, classifier.** `classify` returns an answer for every input. -/
+def S27_classify : Prop :=
+  ∀ (call : action.ToolCall) (policy : action.Policy) (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))),
+    action.classify call policy rules ⦃ _ => True ⦄
+
+/-- **S27, ceiling.** `ceiling` returns an answer for every input. -/
+def S27_ceiling : Prop :=
+  ∀ (call : action.ToolCall) (policy : action.Policy), action.ceiling call policy ⦃ _ => True ⦄
+
+/-- **S27, splitter.** `split` returns a script or `none` for every command. -/
+def S27_split : Prop := ∀ raw : Slice U8, shell.split raw ⦃ _ => True ⦄
+
+/-- **S28, no parse.** A command that does not parse is `desktop`. -/
+def S28_no_parse : Prop :=
+  ∀ (raw cwd : alloc.vec.Vec U8) (policy : action.Policy)
+    (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))),
+    shell.split (alloc.vec.Vec.deref raw) = .ok none →
+    action.classify (.Command raw cwd) policy rules ⦃ v => v = .Desktop ⦄
+
+/-- **S28, substitution.** A command with `$(` or a backtick anywhere is `desktop`. -/
+def S28_substitution : Prop :=
+  ∀ (raw cwd : alloc.vec.Vec U8) (policy : action.Policy)
+    (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))),
+    substitution (bytes raw.val) →
+    action.classify (.Command raw cwd) policy rules ⦃ v => v = .Desktop ⦄
+
+/-- **S28, desktop commands.** `eval`, `sudo`, `cmd.exe`, PowerShell, or a shell after a
+`|` make the command at most `desktop`. A redirect into a `deny` folder can make it `deny`. -/
+def S28_desktop : Prop :=
+  ∀ (raw cwd : alloc.vec.Vec U8) (policy : action.Policy)
+    (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))) (script : shell.Script),
+    shell.split (alloc.vec.Vec.deref raw) = .ok (some script) →
+    (∃ s ∈ script.simples.val, desktopSimple s) →
+    action.classify (.Command raw cwd) policy rules ⦃ v => rankV v ≤ rankV .Desktop ⦄
+
+/-- **S28, runners and network tools.** They are at most `ask`. -/
+def S28_capped : Prop :=
+  ∀ (raw cwd : alloc.vec.Vec U8) (policy : action.Policy)
+    (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))) (script : shell.Script),
+    shell.split (alloc.vec.Vec.deref raw) = .ok (some script) →
+    (∃ s ∈ script.simples.val, runner (words s) ∨ network (words s)) →
+    action.classify (.Command raw cwd) policy rules ⦃ v => rankV v ≤ rankV .Ask ⦄
+
 /-! ## Checks: each proved theorem against its approved statement -/
 
 theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
@@ -371,5 +464,18 @@ theorem check_S22_total : S22_total := Protocol.Markdown.render_total
 theorem check_S23_shape : S23_shape := Protocol.Markdown.render_shape
 theorem check_S24_escape : S24_escape := Protocol.Markdown.render_escape
 theorem check_S25_bound : S25_bound := Protocol.Markdown.render_bound
+
+theorem check_S16_paths : S16_paths := Protocol.Action.classify_paths
+theorem check_S16_deny : S16_deny := Protocol.Action.classify_deny
+theorem check_S17_ceiling : S17_ceiling := Protocol.Action.classify_ceiling
+theorem check_S17_unknown : S17_unknown := Protocol.Action.classify_unknown
+theorem check_S17_never_always : S17_never_always := Protocol.Action.classify_never_always
+theorem check_S27_classify : S27_classify := Protocol.Action.classify_total
+theorem check_S27_ceiling : S27_ceiling := Protocol.Action.ceiling_total
+theorem check_S27_split : S27_split := Protocol.Shell.split_spec
+theorem check_S28_no_parse : S28_no_parse := Protocol.Action.classify_no_parse
+theorem check_S28_substitution : S28_substitution := Protocol.Action.classify_substitution
+theorem check_S28_desktop : S28_desktop := Protocol.Action.classify_desktop
+theorem check_S28_capped : S28_capped := Protocol.Action.classify_capped
 
 end Protocol.Statements

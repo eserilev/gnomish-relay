@@ -21,3 +21,8 @@ import Protocol.Folder.Code
 import Protocol.Spec.Markdown
 import Protocol.Inline
 import Protocol.Markdown
+import Protocol.Search
+import Protocol.PathRules
+import Protocol.CommandRules
+import Protocol.Shell
+import Protocol.Action
