@@ -202,7 +202,8 @@ pub fn has_npm(path: &OsStr) -> bool {
     on_path("npm", path)
 }
 
-/// The usual folders of code projects that hold at least one git repository.
+/// The usual folders of code projects that hold at least one git repository. On
+/// Windows and macOS, `code` and `Code` are one folder, so it is named once.
 pub fn suggest_roots(home: &Path) -> Vec<PathBuf> {
     const NAMES: [&str; 9] = [
         "Documents/Code",
@@ -222,7 +223,16 @@ pub fn suggest_roots(home: &Path) -> Vec<PathBuf> {
             fs::read_dir(dir)
                 .is_ok_and(|entries| entries.flatten().any(|e| e.path().join(".git").exists()))
         })
-        .collect()
+        .fold(Vec::new(), |mut found: Vec<PathBuf>, dir| {
+            let real = dir.canonicalize().unwrap_or_else(|_| dir.clone());
+            if !found
+                .iter()
+                .any(|f| f.canonicalize().is_ok_and(|r| r == real))
+            {
+                found.push(dir);
+            }
+            found
+        })
 }
 
 /// The known agents whose program is on `path`, in the order of `KNOWN_AGENTS`.
