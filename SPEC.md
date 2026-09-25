@@ -911,6 +911,63 @@ agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder na
 - The attach reads the newest turn with `thread/turns/list` (`limit` 1, `itemsView` `full`): the last `userMessage` is the prompt, and each `agentMessage` after it is the answer.
 - The fork is `thread/fork`. The chat continues the new thread.
 
+### 9.7 A second app: Timeways
+
+Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It uses this bridge as its desktop program: the same strip, the same slots, and the same proofs, with its own key, its own slots, and its own lane. This section is the approved plan (2026-09-25). A reviewer checked it, and the user approved every decision below.
+
+**Decisions:**
+
+1. **Keys.** The relay key stays `strip.key`. The Timeways key is `timeways.key`, in the same config folder. The bridge refuses to start if the two keys are the same.
+2. **Routing (S29).** The bridge checks the tag of each strip under both keys. One key verifies: the strip goes to that app. No key verifies: `BadTag`. Both verify: `Ambiguous`, and the bridge drops the strip and logs it. S29 proves this choice, not the cryptography. In the bridge, the keys are a `KeySet { relay, timeways }` struct, not a list, so an index cannot swap the apps.
+3. **Outbox frames.** A frame in the saved variables of one app counts only if it verifies under that app's key. Any other frame is refused.
+4. **One lane for each app.** Each lane has its own replay store, state file, rate limit, slot window, saved-variables watch, reload inbox, tokens, and restore. The Timeways lane holds no agents in its type, so a Timeways strip can never start a coding agent. Its state lives in `<data>/timeways/`. The relay state stays where it is.
+5. **Names for each app.** The slot, restore, and live files set a Lua global whose name depends on the app, for example `GnomishRelay_SlotData` and `Timeways_SlotData`. The strip frame, the slot addon names, and the saved-variables name also differ for each app. S9, S18, and S20 are restated over an `App` enum in `protocol` (approved). One app can then never overwrite a value that the other app is about to read.
+6. **Flags.** The flags split into transport flags (`h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, `restored`) and coding flags (`perm=`, `level=`, `agent=`, `attach=`, `list`, `d`, `n`). The Timeways lane parses the transport flags only. A Timeways record with a non-empty `cwd` is refused.
+7. **Restore.** Timeways has no restore bundle. The story state lives on the desktop, so the addon rebuilds from there. A Timeways hello never starts a relay restore and never retires a relay token.
+8. **The story program.** The bridge starts `timeways-story` when the Timeways key exists, from a path in the config (never a `PATH` lookup), with no shell and the environment allowlist of 6.2. It talks JSON lines over stdin and stdout, with a size limit on each line, a version handshake, and a timeout for each request. The bridge checks each message against a fixed shape. The bridge writes all files that the game reads.
+9. **The story sandbox.** The story program reads hostile text: records from any addon, other players' names and messages, and model answers. So it runs in the sandbox of 6.6.4. It writes only `<data>/timeways/`, has no network, and cannot read the `deny` and `desktop` paths. On Windows there is no sandbox yet: Timeways runs, and the bridge shows a one-time warning.
+10. **Model calls.** The story program asks the bridge for a model call over the app protocol. The bridge runs the model with no tools and returns only text.
+    - **Claude:** `claude -p --tools "" --strict-mcp-config`, with the flags that load no user or project settings (checked live), in an empty private temp folder for each call. The `PreToolUse` gate denies every tool on this route, and the check on tool results stays on.
+    - **A local model** (Ollama, LM Studio): through `curl` with `-q` first, `--proto =http`, `--max-redirs 0` and no `-L`, `--noproxy '*'`, `--max-time`, and the prompt through stdin (`--data-binary @-`), never in the arguments. The bridge limits the size of the answer while it reads it. The config accepts only `127.0.0.1` and `[::1]`, not `localhost`. The answer is hostile text, like an agent reply.
+    - **Budget.** The bridge enforces a budget of calls for each app with the proved limiter of S14. A hostile addon cannot spend the model subscription faster than that.
+11. **Prompt injection.** Other players' text reaches the prompt. With no tools, it can reach only three things: the text that the user sees (bounded by S10 and S24), the story world (bounded by the rules of the world), and the budget. This is the accepted boundary. Each part has a named test.
+12. **Protected files.** The data folder joins the config folder in the `deny_folders` of the classifier (6.6.3), with a named test for each file in it. The sandbox of 6.6.4 hides it too.
+13. **The shared strip corner.** Both addons draw the strip in the same corner, so they take turns through a shared "busy until" value. While an addon waits for the corner, its 40 s retry timer stops. Each addon counts only the screenshot events of its own strip. An addon that cannot get the corner shows "Screenshots blocked by another addon" before its frame reaches the 270 s limit. A Quint model (`models/corner.qnt`) checks this with the timers.
+14. **Shared Lua transport.** `Codec.lua`, `Sha256.lua`, `Strip.lua`, and the slot poll move into one source folder with parameters: the app name, the slot prefix, the global names, and the saved variables. The relay repo copies the folder at package time and never commits a copy. The Timeways repo checks its copy with a plain diff against the pinned relay tag.
+15. **Setup.** A player with only Timeways gets no folder question and no coding agents, only a `[story]` section in the config for the model. The bridge makes the Timeways slots only when the Timeways addon folder exists. It writes only `Key.lua` into the Timeways folder, and writes it again at start if it is missing. It never writes other Timeways files.
+16. **Life cycle.** `restart` and `update` also stop and start the story program. The bridge kills its process group when it exits. A story program that crashes starts again after a backoff.
+17. **Versions.** The hello carries the version of each app. A version out of range gets the reply "update the addon".
+18. **What the key split protects.** It stops a bug or a hacked story program from reaching the agents through the bridge. It does not stop a hostile addon that loads first from reading either key (6.5).
+19. **Paths from game input.** Realm and character names map to safe ids, as S13 does for chat ids. They never become file names directly.
+
+**Checks for each part:**
+
+| Part | Lean | Quint | Fuzz | Tests |
+|---|---|---|---|---|
+| Routing by key | S29 | | the `frame` and `relay` targets with two keys | all 4 key results, the `KeySet` swap |
+| Names for each app | S9, S18, S20 restated | | the `lua`, `restore`, and `live` targets for each app | both apps in one fake game |
+| Version range | a small pure function in `protocol` | | the `flags` target | the "update the addon" reply |
+| Budget | S14 | | | a hostile addon at full rate |
+| Lanes | | | the `relay` target with two lanes | no job from a Timeways strip; no shared seen store, body, or restore |
+| App protocol | | | new target `app_protocol` | a fake `timeways-story`: crash, garbage, huge line, hang |
+| Model calls | | | new target `model_http` | a fake model server; the gate denies every tool; live tests |
+| Story sandbox | | | | its environment; a write outside its folder fails; a network connect fails |
+| Corner | | `corner.qnt` | | two addons in one fake game with a fake clock |
+| Shared transport | | | | all addon tests, the golden and differential vectors of 14.3 for both sets of parameters |
+
+The relay tests use a small second test addon built from the shared transport, not the real Timeways addon.
+
+**Order of the build:**
+
+1. The one-lane refactor: the bridge uses one `Lane` type for the relay, with all tests green and no change of behavior.
+2. The shared Lua transport with parameters, and the names for each app (S9, S18, and S20 restated).
+3. The second key, routing (S29), and the Timeways lane, in one step. No commit has a Timeways key without a Timeways lane.
+4. The data folder in `deny_folders`, the flags split, and the outbox rule.
+5. The app protocol, the story program with its sandbox, and its life cycle, with a fake echo story program and a test addon: a loopback proved in the game before the real story work.
+6. Model calls with no tools, and the budget.
+7. The shared corner and its Quint model.
+8. Setup for two apps, and versions.
+
 ## 10. Pings from terminal sessions
 
 The `gnomish-relay-hook` CLI sends one event to the bridge:
@@ -1360,6 +1417,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **A deeper API gate.** Today `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated. It must also check the arguments, the returns, and the secret-value flags (`SecretWhen...`, `SecretArguments`) that the generated API docs of the client list. A new secret flag breaks an addon, even when the name stays the same.
+15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build".
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
