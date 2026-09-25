@@ -19,6 +19,7 @@ use protocol::popup::popup_text;
 
 use crate::agent::{Agent, Choice, Control, Event, Events, Question, Run, StopSignal};
 use crate::config::Permission;
+use crate::program::find_program;
 use crate::relay::Job;
 
 const PROTOCOL_VERSION: u64 = 1;
@@ -269,7 +270,10 @@ impl Connection {
             .command
             .split_first()
             .ok_or("The agent has no command.")?;
-        let mut command = Command::new(program);
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        let found = find_program(program, &path, cfg!(windows))
+            .ok_or_else(|| format!("Cannot start {program}: not found on PATH"))?;
+        let mut command = Command::new(found);
         command
             .args(args)
             .current_dir(cwd)

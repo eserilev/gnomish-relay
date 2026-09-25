@@ -176,15 +176,7 @@ pub const KNOWN_AGENTS: [(&str, &[&str]); 3] = [
 ];
 
 fn on_path(program: &str, path: &OsStr) -> bool {
-    let names: Vec<String> = if cfg!(windows) {
-        ["exe", "cmd", "bat"]
-            .iter()
-            .map(|ext| format!("{program}.{ext}"))
-            .collect()
-    } else {
-        vec![program.to_owned()]
-    };
-    std::env::split_paths(path).any(|dir| names.iter().any(|n| dir.join(n).is_file()))
+    crate::program::find_program(program, path, cfg!(windows)).is_some()
 }
 
 /// The usual folders of code projects that hold at least one git repository. On
