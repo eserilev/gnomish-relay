@@ -187,6 +187,14 @@ mod tests {
         let f = folders();
         let new = f.chat.join("no").join("x");
         assert_eq!(resolve(&new), Some(f.chat.join("no").join("x")));
+    }
+
+    // Windows removes a `..` by its text before it opens a path, so there the path is
+    // `chat/x`, which is also the file that the OS opens.
+    #[cfg(unix)]
+    #[test]
+    fn a_dot_dot_in_the_missing_parts_does_not_resolve() {
+        let f = folders();
         assert_eq!(resolve(&f.chat.join("no").join("..").join("x")), None);
     }
 
