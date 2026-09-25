@@ -18,6 +18,8 @@ pub struct Flags {
     pub out: Option<Channel>,
     pub inbound: Option<Channel>,
     pub perm: Option<PermAnswer>,
+    /// The protocol version of the addon (SPEC.md 7.7).
+    pub version: Option<u32>,
 }
 
 /// `perm=<request>:<option>:<hash>`: the answer to a permission request (SPEC.md 9.3).
@@ -91,6 +93,7 @@ pub fn parse(bytes: &[u8]) -> Flags {
             Some(("out", word)) => flags.out = channel(word, "shot", "fail"),
             Some(("in", word)) => flags.inbound = channel(word, "slots", "missing"),
             Some(("perm", value)) => flags.perm = perm_answer(value),
+            Some(("ver", n)) => flags.version = n.parse().ok(),
             Some(("agent", name)) if protocol::record::is_valid_id(name.as_bytes()) => {
                 flags.agent = Some(name.to_owned());
             }
@@ -107,7 +110,7 @@ mod tests {
     #[test]
     fn every_known_flag_parses() {
         let f = parse(
-            b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop;build=70009;out=shot;in=missing",
+            b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop;build=70009;out=shot;in=missing;ver=1",
         );
         assert_eq!(
             f,
@@ -124,6 +127,7 @@ mod tests {
                 out: Some(Channel::Works),
                 inbound: Some(Channel::Fails),
                 perm: None,
+                version: Some(1),
             }
         );
     }

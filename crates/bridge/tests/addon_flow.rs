@@ -938,7 +938,7 @@ fn a_strip_reports_the_build_and_the_health_of_both_channels() {
     game.advance(1.0);
 
     let f = flags(&game.last_strip()[0]);
-    for flag in ["build=70009", "out=shot", "in=slots"] {
+    for flag in ["build=70009", "out=shot", "in=slots", "ver=1"] {
         assert!(f.contains(&flag.into()), "{f:?}");
     }
 }

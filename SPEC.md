@@ -352,6 +352,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `restored` | The addon has applied the restore bundle for its token (7.6). |
 | `next=<n>` | The next slot that the addon loads (7.3). |
 | `build=<n>` | The client build from `GetBuildInfo`, digits only (7.8). |
+| `ver=<n>` | The protocol version of the addon (7.7). |
 | `out=shot` or `out=fail` | The result of the last screenshot (7.8). |
 | `in=slots` or `in=missing` | The result of the last slot load (7.8). |
 | `listen=start` or `listen=stop` | Push-to-talk for the chat of the record (13.3, later). |
@@ -480,7 +481,7 @@ The bridge keeps this history in `state.json`. The full transcripts come later (
 ### 7.7 Versioning
 
 - The strip has a version byte. The bridge drops frames with an unknown version and logs it.
-- Each slot body carries `proto` and the pool sizes. The hello (`h` flag) carries the addon version.
+- Each slot body carries `proto` and the pool sizes. Each report carries the protocol version of the addon (`ver=<n>`). The bridge logs a version that it does not speak.
 - On a mismatch, the addon shows "bridge and addon versions do not match" and stops sending.
 - Pool sizes live in one place: the `protocol` crate. The setup step writes them into the addon.
 

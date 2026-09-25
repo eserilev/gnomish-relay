@@ -1,6 +1,7 @@
 ## Interface: 16001
 ## Title: Gnomish Relay
 ## Notes: Talk to your coding agents from the game.
+## Version: 0.1.0
 ## SavedVariables: GnomishRelayDB
 
 Key.lua

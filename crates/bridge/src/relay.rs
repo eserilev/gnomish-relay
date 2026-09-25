@@ -145,6 +145,8 @@ pub struct Relay {
     restore_for: Option<String>,
     /// The last client build whose screenshots and slots both worked (SPEC.md 7.8).
     client_build: Option<String>,
+    /// The protocol version that the addon reported last.
+    addon_version: Option<u32>,
     sessions: Vec<AgentSession>,
     /// Chats whose run in progress got a Stop. The bridge signals each run.
     cancels: Vec<ChatId>,
@@ -177,6 +179,7 @@ impl Relay {
             retired: Vec::new(),
             restore_for: None,
             client_build: None,
+            addon_version: None,
             sessions: Vec::new(),
             cancels: Vec::new(),
             activity: Activity::default(),
@@ -185,6 +188,10 @@ impl Relay {
 
     pub fn client_build(&self) -> Option<&str> {
         self.client_build.as_deref()
+    }
+
+    pub fn addon_version(&self) -> Option<u32> {
+        self.addon_version
     }
 
     pub fn next_slot(&self) -> usize {
@@ -218,6 +225,9 @@ impl Relay {
             !read || matches!(e.status, Status::Working)
         });
         self.take_restore_report(token, flags);
+        if flags.version.is_some() {
+            self.addon_version = flags.version;
+        }
         let works = Some(Channel::Works);
         if flags.out == works && flags.inbound == works && flags.build.is_some() {
             self.client_build.clone_from(&flags.build);
@@ -942,6 +952,20 @@ mod tests {
         let mut relay = relay();
         relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
         assert!(relay.take_cancels().is_empty());
+    }
+
+    #[test]
+    fn the_report_gives_the_addon_version() {
+        let mut relay = relay();
+        assert_eq!(relay.addon_version(), None);
+        relay.on_frame(&[record("relay", 0, "h;ver=1", "")], NOW);
+        assert_eq!(relay.addon_version(), Some(1));
+        relay.on_frame(&[record("relay", 0, "h", "")], NOW);
+        assert_eq!(
+            relay.addon_version(),
+            Some(1),
+            "a report with no version keeps the last one"
+        );
     }
 
     fn restart(relay: &Relay) -> Relay {

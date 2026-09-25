@@ -19,6 +19,8 @@ use crate::slots::{self, Files};
 use crate::state;
 
 const TICK: Duration = Duration::from_millis(250);
+/// The protocol versions of the addon that this bridge speaks (SPEC.md 7.7).
+const ADDON_VERSIONS: std::ops::RangeInclusive<u32> = 1..=1;
 /// The addon calls the bridge offline after 12 minutes without a new body.
 const HEARTBEAT: Duration = Duration::from_mins(1);
 
@@ -162,6 +164,7 @@ impl Bridge {
         match receive(bytes, &self.key, now()) {
             Ok(records) => {
                 let build = self.relay.client_build().map(str::to_owned);
+                let version = self.relay.addon_version();
                 let outcomes = self.relay.on_frame(&records, now());
                 if let Some(new) = self
                     .relay
@@ -169,6 +172,15 @@ impl Bridge {
                     .filter(|b| Some(*b) != build.as_deref())
                 {
                     log(&format!("game build {new}: screenshots and slots work"));
+                }
+                if let Some(new) = self.relay.addon_version().filter(|v| Some(*v) != version) {
+                    if ADDON_VERSIONS.contains(&new) {
+                        log(&format!("addon version {new}"));
+                    } else {
+                        log(&format!(
+                            "addon version {new} is not supported: update the addon or the bridge"
+                        ));
+                    }
                 }
                 let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
                 log(&format!(
