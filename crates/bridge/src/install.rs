@@ -224,15 +224,26 @@ pub fn suggest_roots(home: &Path) -> Vec<PathBuf> {
                 .is_ok_and(|entries| entries.flatten().any(|e| e.path().join(".git").exists()))
         })
         .fold(Vec::new(), |mut found: Vec<PathBuf>, dir| {
-            let real = dir.canonicalize().unwrap_or_else(|_| dir.clone());
-            if !found
-                .iter()
-                .any(|f| f.canonicalize().is_ok_and(|r| r == real))
-            {
+            if !found.iter().any(|f| same_folder(f, &dir)) {
                 found.push(dir);
             }
             found
         })
+}
+
+#[cfg(unix)]
+fn same_folder(a: &Path, b: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    match (fs::metadata(a), fs::metadata(b)) {
+        (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+        _ => false,
+    }
+}
+
+/// `canonicalize` on Windows gives the name as the disk stores it.
+#[cfg(not(unix))]
+fn same_folder(a: &Path, b: &Path) -> bool {
+    matches!((a.canonicalize(), b.canonicalize()), (Ok(a), Ok(b)) if a == b)
 }
 
 /// The known agents whose program is on `path`, in the order of `KNOWN_AGENTS`.
