@@ -812,7 +812,7 @@ The goal: one download, one command, and no step inside the game.
 - A version tag (`v*`) starts `.github/workflows/release.yml`. It builds the program for Linux (x86-64), macOS (Arm and x86-64), and Windows (x86-64), and attaches each archive with its SHA-256 sum to a GitHub Release. The release stays a draft until every build is attached.
 - `scripts/install.sh` (Linux and macOS) and `scripts/install.ps1` (Windows) download the archive of the latest release, check its SHA-256 sum, install the program, and run `setup --autostart`. Setup asks its questions on the terminal, also under `curl | sh`.
 - Setup asks which folders the agents can use. It suggests the usual folders of code projects that hold a git repository, or the home folder. `--roots a,b` gives them with no question.
-- With no agent on `PATH` and with npm, setup offers to install one: `@agentclientprotocol/claude-agent-acp`, `@agentclientprotocol/codex-acp`, or `@google/gemini-cli`. It installs nothing without a yes.
+- Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so.
 - Later: winget, Homebrew, and the AUR point at the release.
 - The addon is also listed on CurseForge and Wago Addons, so players can find it. The listing points to the program: the addon alone does nothing, because each computer needs its own key.
 

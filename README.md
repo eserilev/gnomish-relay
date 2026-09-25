@@ -13,7 +13,10 @@ macOS, and Linux. `SPEC.md` has the design, and `VERIFICATION.md` the proofs.
 2. Run the installer:
    - Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh`
    - Windows (PowerShell): `irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex`
-3. Answer the two questions: the folders that the agents can work in, and the agent to install if it finds none.
+3. Answer one question: the folders that the agents can work in.
+
+Setup uses the agents that you already have: `claude-agent-acp`, `codex-acp`, or `gemini`.
+With none, replies repeat your message until you add one (below).
 4. Start WoW and type `/relay`.
 
 The installer downloads the program, checks its SHA-256 sum, and runs `gnomish-relay setup --autostart`.

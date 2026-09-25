@@ -187,21 +187,6 @@ fn on_path(program: &str, path: &OsStr) -> bool {
     std::env::split_paths(path).any(|dir| names.iter().any(|n| dir.join(n).is_file()))
 }
 
-/// The npm package of each known agent, for the offer of setup.
-pub const NPM_PACKAGES: [(&str, &str); 3] = [
-    ("claude", "@agentclientprotocol/claude-agent-acp"),
-    ("codex", "@agentclientprotocol/codex-acp"),
-    ("gemini", "@google/gemini-cli"),
-];
-
-pub fn npm_program() -> &'static str {
-    if cfg!(windows) { "npm.cmd" } else { "npm" }
-}
-
-pub fn has_npm(path: &OsStr) -> bool {
-    on_path("npm", path)
-}
-
 /// The usual folders of code projects that hold at least one git repository. On
 /// Windows and macOS, `code` and `Code` are one folder, so it is named once.
 pub fn suggest_roots(home: &Path) -> Vec<PathBuf> {

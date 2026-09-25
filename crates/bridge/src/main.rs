@@ -245,25 +245,6 @@ fn choose_roots(home: &Path, given: Option<&str>) -> Result<Vec<String>> {
     Ok(roots)
 }
 
-/// With no agent and with npm, setup offers one. It installs nothing without a yes.
-fn offer_agent(path: &std::ffi::OsStr) -> Result<()> {
-    use std::io::IsTerminal;
-    if !install::has_npm(path) || !std::io::stdin().is_terminal() {
-        return Ok(());
-    }
-    let answer = ask(
-        "No agent found. Install one with npm: claude, codex, gemini, or none",
-        "none",
-    )?;
-    let Some((_, package)) = install::NPM_PACKAGES
-        .iter()
-        .find(|(name, _)| *name == answer)
-    else {
-        return Ok(());
-    };
-    command(install::npm_program(), &["install", "-g", package])
-}
-
 fn option<'a>(args: &[&'a str], name: &str) -> Option<&'a str> {
     let at = args.iter().position(|a| *a == name)?;
     args.get(at + 1).copied()
@@ -298,11 +279,7 @@ fn setup(args: &[&str]) -> Result<()> {
         install::Installed::Unchanged => false,
     };
     if !dir.join(config::FILE).exists() {
-        let path = std::env::var_os("PATH").unwrap_or_default();
-        if install::find_agents(&path).is_empty() {
-            offer_agent(&path)?;
-        }
-        let agents = install::find_agents(&path);
+        let agents = install::find_agents(&std::env::var_os("PATH").unwrap_or_default());
         let roots = choose_roots(&home_dir()?, roots_given)?;
         write_private(
             &dir,
