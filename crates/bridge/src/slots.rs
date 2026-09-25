@@ -7,7 +7,7 @@ use std::path::Path;
 use anyhow::{Context, Result};
 use protocol::slot::{SLOT_WINDOW, SLOTS};
 
-use crate::fs_safe::{check_real_dir, write_atomic};
+use crate::fs_safe::{check_real_dir, write_atomic, write_atomic_unsynced};
 
 pub const BODY_FILE: &str = "Inbox.lua";
 pub const RESTORE_FILE: &str = "Restore.lua";
@@ -24,7 +24,8 @@ fn toc(name: &str) -> String {
 }
 
 /// Makes every slot folder. WoW finds an addon only if it exists at launch
-/// (SPEC.md 7.2, rule 1), so run this with the game closed.
+/// (SPEC.md 7.2, rule 1), so run this with the game closed. It writes 3000 files, so it
+/// skips the sync: after a power cut, a second install repairs them.
 pub fn install(addons: &Path, body: &[u8], restore: &[u8]) -> Result<()> {
     check_real_dir(addons)?;
     for n in 1..=SLOTS {
@@ -36,9 +37,9 @@ pub fn install(addons: &Path, body: &[u8], restore: &[u8]) -> Result<()> {
             }
             _ => {}
         }
-        write_atomic(&dir, &format!("{name}.toc"), toc(&name).as_bytes())?;
-        write_atomic(&dir, BODY_FILE, body)?;
-        write_atomic(&dir, RESTORE_FILE, restore)?;
+        write_atomic_unsynced(&dir, &format!("{name}.toc"), toc(&name).as_bytes())?;
+        write_atomic_unsynced(&dir, BODY_FILE, body)?;
+        write_atomic_unsynced(&dir, RESTORE_FILE, restore)?;
     }
     Ok(())
 }

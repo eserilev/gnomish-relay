@@ -22,8 +22,26 @@ pub fn check_real_dir(path: &Path) -> Result<()> {
     Ok(())
 }
 
+#[derive(Clone, Copy)]
+enum Durability {
+    /// The bytes are on the disk before the rename, so a power cut keeps the old or the new file.
+    Synced,
+    /// The rename is still atomic for a reader, but a power cut can leave an empty file.
+    Cached,
+}
+
 /// Replaces `dir/name` in one step. A reader sees the old file or the new one, never half.
 pub fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+    write(dir, name, bytes, Durability::Synced)
+}
+
+/// `write_atomic` with no sync. A sync costs milliseconds on Windows, so this is for
+/// many files that a second run of the same command writes again.
+pub fn write_atomic_unsynced(dir: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+    write(dir, name, bytes, Durability::Cached)
+}
+
+fn write(dir: &Path, name: &str, bytes: &[u8], durability: Durability) -> Result<()> {
     check_real_dir(dir)?;
     let tmp = dir.join(format!(".{name}.tmp"));
     // A crash can leave the temp file behind. Removing a link removes only the link.
@@ -35,7 +53,9 @@ pub fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<()> {
         .open(&tmp)
         .with_context(|| format!("cannot create {}", tmp.display()))?;
     file.write_all(bytes)?;
-    file.sync_all()?;
+    if let Durability::Synced = durability {
+        file.sync_all()?;
+    }
     drop(file);
     let path = dir.join(name);
     fs::rename(&tmp, &path).with_context(|| format!("cannot replace {}", path.display()))
@@ -50,6 +70,15 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         write_atomic(dir.path(), "a.lua", b"old").unwrap();
         write_atomic(dir.path(), "a.lua", b"new").unwrap();
+        assert_eq!(fs::read(dir.path().join("a.lua")).unwrap(), b"new");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    #[test]
+    fn an_unsynced_write_also_replaces_the_file_and_leaves_no_temp_file() {
+        let dir = tempfile::tempdir().unwrap();
+        write_atomic_unsynced(dir.path(), "a.lua", b"old").unwrap();
+        write_atomic_unsynced(dir.path(), "a.lua", b"new").unwrap();
         assert_eq!(fs::read(dir.path().join("a.lua")).unwrap(), b"new");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     }

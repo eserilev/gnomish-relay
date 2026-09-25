@@ -5,11 +5,30 @@ on:
   push:
     branches: [main]
   pull_request:
+  # The weekly run checks every job, also the ones that the path filter skips.
+  schedule:
+    - cron: "41 4 * * 1"
+  workflow_dispatch:
 
 permissions:
   contents: read
 
 jobs:
+  # The proofs and the model take minutes, so they run only when their inputs change.
+  changes:
+    runs-on: ubuntu-latest
+    outputs:
+      proofs: ${{ steps.diff.outputs.proofs }}
+      model: ${{ steps.diff.outputs.model }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+        with:
+          fetch-depth: 0
+      - id: diff
+        env:
+          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: scripts/ci-changes.sh "$BASE" >> "$GITHUB_OUTPUT"
+
   rust:
     strategy:
       fail-fast: false
@@ -63,6 +82,8 @@ jobs:
       - run: scripts/check-coverage.sh
 
   model:
+    needs: changes
+    if: needs.changes.outputs.model == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -72,7 +93,12 @@ jobs:
       - run: npm install -g @informalsystems/quint@0.32.0
       - run: scripts/check-model.sh
 
+  # One job per target, so they run side by side. Nightly runs each for 600 seconds.
   fuzz:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [frame, records, folder, lua, lua_model, chat_text, popup, screenshot, relay, saved, config]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
@@ -81,9 +107,11 @@ jobs:
           toolchain: nightly
       # From source: the prebuilt cargo-fuzz targets musl, and the sanitizer needs glibc.
       - run: cargo install cargo-fuzz --version 0.13.2 --locked
-      - run: scripts/fuzz.sh 30
+      - run: scripts/fuzz.sh 15 ${{ matrix.target }}
 
   proofs:
+    needs: changes
+    if: needs.changes.outputs.proofs == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 120
     steps:
