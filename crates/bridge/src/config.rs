@@ -170,7 +170,7 @@ fn check_agent(name: &str, agent: &Agent) -> Result<()> {
     Ok(())
 }
 
-fn expand(path: &str, home: &Path) -> Result<PathBuf> {
+pub fn expand(path: &str, home: &Path) -> Result<PathBuf> {
     let path = match path.strip_prefix("~/") {
         Some(rest) => home.join(rest),
         None if path == "~" => home.to_owned(),
@@ -333,12 +333,17 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
     parse(&text, home).with_context(|| format!("{} is not valid", path.display()))
 }
 
-/// The first config: every agent asks, and agents work only under `Documents/Code`.
-/// It names the agents that setup found; with none, the echo agent.
-pub fn default_text(wow: &Path, agents: &[(&str, &[&str])]) -> String {
+/// The first config: every agent asks, and agents work only in `roots`. It names the
+/// agents that setup found; with none, the echo agent.
+pub fn default_text(wow: &Path, agents: &[(&str, &[&str])], roots: &[String]) -> String {
     let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
     let mut text = format!(
-        "allowed_roots = [\"~/Documents/Code\"]\ndefault_agent = {}\n\n[wow]\npath = {}\n",
+        "allowed_roots = [{}]\ndefault_agent = {}\n\n[wow]\npath = {}\n",
+        roots
+            .iter()
+            .map(|r| quote(r))
+            .collect::<Vec<_>>()
+            .join(", "),
         quote(agents.first().map_or("echo", |(name, _)| name)),
         quote(&wow.to_string_lossy()),
     );
@@ -513,7 +518,10 @@ mod tests {
             ("claude", &["claude-agent-acp"]),
             ("gemini", &["gemini", "--acp"]),
         ];
-        let config = home.parse(&default_text(Path::new(wow), &agents)).unwrap();
+        let roots = ["~/Documents/Code".to_owned()];
+        let config = home
+            .parse(&default_text(Path::new(wow), &agents, &roots))
+            .unwrap();
         assert_eq!(config.policy.agents["claude"], Permission::Ask);
         assert_eq!(config.policy.default_agent, "claude");
         assert_eq!(config.agents["gemini"].command, ["gemini", "--acp"]);
@@ -546,8 +554,9 @@ mod tests {
     fn with_no_agent_found_the_default_config_uses_echo() {
         let home = Home::new();
         fs::create_dir_all(home.path().join("Documents/Code")).unwrap();
+        let roots = ["~/Documents/Code".to_owned()];
         let config = home
-            .parse(&default_text(&home.path().join("wow"), &[]))
+            .parse(&default_text(&home.path().join("wow"), &[], &roots))
             .unwrap();
         assert_eq!(config.policy.default_agent, "echo");
         assert_eq!(config.agents["echo"].kind, Kind::Echo);

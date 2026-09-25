@@ -187,6 +187,44 @@ fn on_path(program: &str, path: &OsStr) -> bool {
     std::env::split_paths(path).any(|dir| names.iter().any(|n| dir.join(n).is_file()))
 }
 
+/// The npm package of each known agent, for the offer of setup.
+pub const NPM_PACKAGES: [(&str, &str); 3] = [
+    ("claude", "@agentclientprotocol/claude-agent-acp"),
+    ("codex", "@agentclientprotocol/codex-acp"),
+    ("gemini", "@google/gemini-cli"),
+];
+
+pub fn npm_program() -> &'static str {
+    if cfg!(windows) { "npm.cmd" } else { "npm" }
+}
+
+pub fn has_npm(path: &OsStr) -> bool {
+    on_path("npm", path)
+}
+
+/// The usual folders of code projects that hold at least one git repository.
+pub fn suggest_roots(home: &Path) -> Vec<PathBuf> {
+    const NAMES: [&str; 9] = [
+        "Documents/Code",
+        "code",
+        "Code",
+        "src",
+        "dev",
+        "projects",
+        "Projects",
+        "repos",
+        "workspace",
+    ];
+    NAMES
+        .iter()
+        .map(|name| home.join(name))
+        .filter(|dir| {
+            fs::read_dir(dir)
+                .is_ok_and(|entries| entries.flatten().any(|e| e.path().join(".git").exists()))
+        })
+        .collect()
+}
+
 /// The known agents whose program is on `path`, in the order of `KNOWN_AGENTS`.
 pub fn find_agents(path: &OsStr) -> Vec<(&'static str, &'static [&'static str])> {
     KNOWN_AGENTS
@@ -313,6 +351,14 @@ mod tests {
             .map(|e| e.file_name())
             .collect();
         assert_eq!(names, [KEY_FILE]);
+    }
+
+    #[test]
+    fn only_folders_with_a_git_repository_are_suggested() {
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("code/lighthouse/.git")).unwrap();
+        fs::create_dir_all(home.path().join("src/notes")).unwrap();
+        assert_eq!(suggest_roots(home.path()), [home.path().join("code")]);
     }
 
     #[test]

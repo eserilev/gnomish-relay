@@ -15,7 +15,7 @@ use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const USAGE: &str = "\
 usage:
-  gnomish-relay setup [folder] [--new-key] [--autostart]
+  gnomish-relay setup [folder] [--roots a,b] [--new-key] [--autostart]
                                      install the addon, the key, the config, and the slots
   gnomish-relay install              make the slot addons (game closed)
   gnomish-relay run                  read strips, run the agents, publish the replies
@@ -190,10 +190,94 @@ fn autostart() -> Result<()> {
     Ok(())
 }
 
+/// Reads one answer in a terminal. With no terminal, or an empty answer, the default.
+fn ask(question: &str, default: &str) -> Result<String> {
+    use std::io::{BufRead, IsTerminal, Write};
+    if !std::io::stdin().is_terminal() {
+        return Ok(default.to_owned());
+    }
+    print!("{question} [{default}]: ");
+    std::io::stdout().flush()?;
+    let mut answer = String::new();
+    std::io::stdin().lock().read_line(&mut answer)?;
+    let answer = answer.trim();
+    Ok(if answer.is_empty() { default } else { answer }.to_owned())
+}
+
+/// `~/code` reads better in the config than the full path.
+fn with_tilde(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
+}
+
+/// The folders of code projects that setup finds, or the home folder.
+fn choose_roots(home: &Path, given: Option<&str>) -> Result<Vec<String>> {
+    let found: Vec<String> = install::suggest_roots(home)
+        .iter()
+        .map(|p| with_tilde(p, home))
+        .collect();
+    let default = if found.is_empty() {
+        "~".to_owned()
+    } else {
+        found.join(", ")
+    };
+    let answer = match given {
+        Some(list) => list.to_owned(),
+        None => ask(
+            "Folders the agents can work in, divided by commas",
+            &default,
+        )?,
+    };
+    let roots: Vec<String> = answer
+        .split(',')
+        .map(str::trim)
+        .filter(|r| !r.is_empty())
+        .map(str::to_owned)
+        .collect();
+    for root in &roots {
+        if !config::expand(root, home)?.is_dir() {
+            bail!("{root} is not a folder");
+        }
+    }
+    Ok(roots)
+}
+
+/// With no agent and with npm, setup offers one. It installs nothing without a yes.
+fn offer_agent(path: &std::ffi::OsStr) -> Result<()> {
+    use std::io::IsTerminal;
+    if !install::has_npm(path) || !std::io::stdin().is_terminal() {
+        return Ok(());
+    }
+    let answer = ask(
+        "No agent found. Install one with npm: claude, codex, gemini, or none",
+        "none",
+    )?;
+    let Some((_, package)) = install::NPM_PACKAGES
+        .iter()
+        .find(|(name, _)| *name == answer)
+    else {
+        return Ok(());
+    };
+    command(install::npm_program(), &["install", "-g", package])
+}
+
+fn option<'a>(args: &[&'a str], name: &str) -> Option<&'a str> {
+    let at = args.iter().position(|a| *a == name)?;
+    args.get(at + 1).copied()
+}
+
 /// Every step leaves alone what works, so a second run is safe (SPEC.md 11.3).
 fn setup(args: &[&str]) -> Result<()> {
     let new_key = args.contains(&"--new-key");
-    let wow = pick_game(args.iter().copied().find(|a| !a.starts_with("--")))?;
+    let roots_given = option(args, "--roots");
+    let folder = args
+        .iter()
+        .copied()
+        .find(|a| !a.starts_with("--") && Some(*a) != roots_given);
+    let wow = pick_game(folder)?;
     let addons = addons_dir(&wow);
     if !addons.is_dir() {
         bail!(
@@ -214,8 +298,17 @@ fn setup(args: &[&str]) -> Result<()> {
         install::Installed::Unchanged => false,
     };
     if !dir.join(config::FILE).exists() {
-        let agents = install::find_agents(&std::env::var_os("PATH").unwrap_or_default());
-        write_private(&dir, config::FILE, &config::default_text(&wow, &agents))?;
+        let path = std::env::var_os("PATH").unwrap_or_default();
+        if install::find_agents(&path).is_empty() {
+            offer_agent(&path)?;
+        }
+        let agents = install::find_agents(&path);
+        let roots = choose_roots(&home_dir()?, roots_given)?;
+        write_private(
+            &dir,
+            config::FILE,
+            &config::default_text(&wow, &agents, &roots),
+        )?;
         let names: Vec<&str> = agents.iter().map(|(name, _)| *name).collect();
         println!(
             "wrote {} with agents: {}",
