@@ -18,6 +18,7 @@ return {
 		"DEFAULT_CHAT_FRAME",
 		"GameFontNormal",
 		"GameTooltip",
+		"GetBuildInfo",
 		"GetPhysicalScreenSize",
 		"GetTime",
 		"InCombatLockdown",

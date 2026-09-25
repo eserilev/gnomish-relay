@@ -350,6 +350,9 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `read=<id>,<id>` | The final replies in the last body that the addon has shown. The bridge then takes them out of the slot body (7.3). A lost strip loses nothing: the next strip names them again. |
 | `restored` | The addon has applied the restore bundle for its token (7.6). |
 | `next=<n>` | The next slot that the addon loads (7.3). |
+| `build=<n>` | The client build from `GetBuildInfo`, digits only (7.8). |
+| `out=shot` or `out=fail` | The result of the last screenshot (7.8). |
+| `in=slots` or `in=missing` | The result of the last slot load (7.8). |
 
 **Strip lifetime:**
 The strip shows only while its screenshot is taken, about half a second.
@@ -499,15 +502,17 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 
 **Self-test and health report.**
 
-- At login, the addon tests each channel. It takes one screenshot of a test strip, and it loads one slot and checks that the body is fresh.
-- The hello carries the result and the client build from `GetBuildInfo()`: `out=shot`, `in=slots`, and `build=<number>`.
-- If a channel fails, the addon moves to the next one of the table and shows one line: "Screenshots are blocked. Using screen capture."
-- `/relay diag` shows each channel and its last success. `gnomish-relay doctor` does the same on the desktop.
+- At login, the addon makes sure that each client function it needs exists (`Health.Required`). If one is missing, it shows one line, "Gnomish Relay: this game version has no <name>. The relay is off.", and starts nothing.
+- The first hello strip and the first poll test the two channels. `SCREENSHOT_SUCCEEDED` or `SCREENSHOT_FAILED` gives the result of each shot, and `LoadAddOn` gives the result of each slot.
+- Each strip carries the client build and the last result of each channel: `build=<number>`, `out=shot|fail`, and `in=slots|missing`.
+- When a channel starts to fail, the addon shows one line: "Gnomish Relay: screenshots are blocked." or "Gnomish Relay: slots are missing. Run gnomish-relay install with the game closed." The window shows the same state in the bridge light.
+- `/relay diag` shows the build and the last success of each channel. `gnomish-relay doctor` comes later.
+- Today each direction has one channel. A move to the next channel of the table comes with the second channel.
 
 **Builds.**
 
-- The bridge keeps the last client build that passed the self-test.
-- On a new build, the bridge logs it. The window shows "New game version: checking the relay" until the self-test passes.
+- The bridge keeps the last client build whose screenshots and slots both work, in `state.json`, and logs each new one.
+- Later: the window shows "New game version: checking the relay" until the self-test passes.
 - A known break goes into a table in the bridge, so the setup can name the channel that works on each build.
 
 **API compliance.** The addon calls only the API of the real Forever client (1.60.1, the Mainline UI code).

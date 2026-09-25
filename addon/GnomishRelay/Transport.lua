@@ -16,8 +16,9 @@ local IDLE_POLL = 600
 local ONLINE_FOR = 720
 local SCHEDULE = { 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, 300 }
 local PROTO = 1
--- Room for the flags of Report(): `next`, `read` with up to 30 ids, and `restored`.
-local REPORT_ROOM = 400
+-- Room for the flags of Report(): `next`, `read` with up to 30 ids, `restored`, and
+-- the health flags.
+local REPORT_ROOM = 440
 local TOO_LONG = "Too long to send."
 local NOT_SENT = "Not sent. Send it again."
 -- The bridge accepts a frame up to 300 s old (S11). Keep a margin for the screenshot.
@@ -77,6 +78,8 @@ end
 function Transport.Problem()
 	if state.missing then
 		return "missing"
+	elseif ns.Health.Blocked() then
+		return "blocked"
 	elseif state.mismatch then
 		return "mismatch"
 	end
@@ -106,6 +109,9 @@ local function Report()
 	end
 	if ns.Store.db.restored then
 		table.insert(flags, "restored")
+	end
+	for _, flag in ipairs(ns.Health.Flags()) do
+		table.insert(flags, flag)
 	end
 	return flags
 end
@@ -263,6 +269,7 @@ local function ShowFrame(frame, ids, controls, reporting)
 		state.helloDue = false
 	end
 	ns.Strip.Show(frame, function(ok)
+		ns.Health.Shot(ok)
 		if not ok then
 			state.helloDue = state.helloDue or reporting ~= nil
 			return
@@ -392,6 +399,7 @@ function Transport.Poll()
 	GnomishRelay_SlotData = nil
 	GnomishRelay_Restore = nil
 	state.missing = not loaded
+	ns.Health.Slot(loaded)
 	if loaded then
 		state.nextSlot = state.nextSlot + 1
 		if not state.reported or state.nextSlot - state.reported >= REPORT_AHEAD then

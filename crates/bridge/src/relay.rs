@@ -14,7 +14,7 @@ use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Permission, Policy, folder_request, native_folder};
-use crate::flags::{self, Flags};
+use crate::flags::{self, Channel, Flags};
 use crate::history::{ChatLog, History, Speaker};
 use crate::state::{SavedRecord, SavedStatus, State};
 
@@ -126,6 +126,8 @@ pub struct Relay {
     retired: Vec<String>,
     /// The new token after a saved-data wipe, until it reports `restored`.
     restore_for: Option<String>,
+    /// The last client build whose screenshots and slots both worked (SPEC.md 7.8).
+    client_build: Option<String>,
 }
 
 fn keep_last(list: &mut Vec<String>, max: usize) {
@@ -153,7 +155,12 @@ impl Relay {
             tokens: Vec::new(),
             retired: Vec::new(),
             restore_for: None,
+            client_build: None,
         }
+    }
+
+    pub fn client_build(&self) -> Option<&str> {
+        self.client_build.as_deref()
     }
 
     pub fn next_slot(&self) -> usize {
@@ -187,6 +194,10 @@ impl Relay {
             !read || matches!(e.status, Status::Working)
         });
         self.take_restore_report(token, flags);
+        let works = Some(Channel::Works);
+        if flags.out == works && flags.inbound == works && flags.build.is_some() {
+            self.client_build.clone_from(&flags.build);
+        }
     }
 
     /// A hello from a new token after a saved-data wipe starts a restore. The
@@ -409,6 +420,7 @@ impl Relay {
             tokens: self.tokens.clone(),
             retired: self.retired.clone(),
             restore_for: self.restore_for.clone(),
+            client_build: self.client_build.clone(),
         }
     }
 
@@ -440,6 +452,7 @@ impl Relay {
         relay.tokens = state.tokens;
         relay.retired = state.retired;
         relay.restore_for = state.restore_for;
+        relay.client_build = state.client_build;
         for job in state.waiting {
             let queue = relay
                 .queues
@@ -776,6 +789,26 @@ mod tests {
         assert_eq!(outcomes, [Outcome::BadAgent]);
         assert!(run_all(&mut relay).is_empty());
         assert!(body(&relay).contains(BAD_AGENT));
+    }
+
+    #[test]
+    fn the_build_counts_as_good_only_when_both_channels_work() {
+        let mut relay = relay();
+        relay.on_frame(
+            &[record("relay", 0, "h;build=70009;out=shot;in=missing", "")],
+            NOW,
+        );
+        assert_eq!(relay.client_build(), None);
+        relay.on_frame(
+            &[record("relay", 0, "h;build=70009;out=shot;in=slots", "")],
+            NOW,
+        );
+        assert_eq!(relay.client_build(), Some("70009"));
+        relay.on_frame(
+            &[record("relay", 0, "h;build=70100;out=fail;in=slots", "")],
+            NOW,
+        );
+        assert_eq!(restart(&relay).client_build(), Some("70009"));
     }
 
     fn restart(relay: &Relay) -> Relay {

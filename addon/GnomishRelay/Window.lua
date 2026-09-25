@@ -177,6 +177,8 @@ local function RefreshStatus(chat)
 	local problem = ns.Transport.Problem()
 	if problem == "missing" then
 		ui.bridge:SetText("|cffff2020Slots missing|r")
+	elseif problem == "blocked" then
+		ui.bridge:SetText("|cffff2020Screenshots blocked|r")
 	elseif problem == "mismatch" then
 		ui.bridge:SetText("|cffff2020Update the bridge|r")
 	elseif ns.Transport.Online() then

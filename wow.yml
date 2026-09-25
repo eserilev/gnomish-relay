@@ -32,6 +32,8 @@ globals:
     args: [{type: string}, {type: any, required: false}, {type: any, required: false}, {type: any, required: false}]
   GetTime:
     args: []
+  GetBuildInfo:
+    args: []
   time:
     args: []
   GetPhysicalScreenSize:

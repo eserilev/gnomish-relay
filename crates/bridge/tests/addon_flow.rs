@@ -27,6 +27,7 @@ const FILES: &[&str] = &[
     "Sha256.lua",
     "Codec.lua",
     "Store.lua",
+    "Health.lua",
     "Strip.lua",
     "Transport.lua",
     "Window.lua",
@@ -428,7 +429,13 @@ fn a_body_from_another_protocol_version_is_reported() {
 #[test]
 fn missing_slots_are_reported_and_use_no_slot() {
     let game = Game::start_with(|wow| wow.set("slotsInstalled", false).unwrap());
-    game.run("local ns = ... ns.Transport.Poll()");
+    game.run("local ns = ... ns.Transport.Poll() ns.Transport.Poll()");
+    let told = game
+        .printed()
+        .iter()
+        .filter(|l| l.starts_with("Gnomish Relay: slots are missing."))
+        .count();
+    assert_eq!(told, 1, "one line, not one per poll");
     assert_eq!(
         game.run("local ns = ... return ns.Transport.Problem()")
             .as_string_lossy()
@@ -789,4 +796,73 @@ fn the_fake_game_refuses_what_the_client_does_not_have() {
         call("CreateFrame('Frame', nil, UIParent, 'PortraitFrameTemplate'):SetTitle('x')").is_ok()
     );
     assert!(call("CreateFrame('Frame'):SetTitle('x')").is_err());
+}
+
+#[test]
+fn a_client_without_a_required_function_turns_the_relay_off() {
+    let game = Game::start();
+    game.run("Screenshot = nil");
+    game.fire("PLAYER_LOGIN", ());
+    assert!(
+        game.printed().contains(
+            &"Gnomish Relay: this game version has no Screenshot. The relay is off.".into()
+        ),
+        "{:?}",
+        game.printed()
+    );
+}
+
+#[test]
+fn every_required_function_is_in_the_forever_api() {
+    let game = Game::start();
+    let api: Table = game
+        .lua
+        .load(repo_file("addon/tests/api.lua"))
+        .call(())
+        .unwrap();
+    let known: Vec<String> = api.get("globals").unwrap();
+    let required: Vec<String> = game
+        .run("local ns = ... local out = {} for _, r in ipairs(ns.Health.Required()) do table.insert(out, r[1]) end return out")
+        .as_table()
+        .unwrap()
+        .sequence_values()
+        .map(Result::unwrap)
+        .collect();
+    for name in required {
+        assert!(
+            known.contains(&name),
+            "{name} is not in addon/tests/api.lua"
+        );
+    }
+}
+
+#[test]
+fn a_strip_reports_the_build_and_the_health_of_both_channels() {
+    let game = Game::start();
+    game.advance(6.0);
+    game.send("health check");
+    game.advance(1.0);
+
+    let f = flags(&game.last_strip()[0]);
+    for flag in ["build=70009", "out=shot", "in=slots"] {
+        assert!(f.contains(&flag.into()), "{f:?}");
+    }
+}
+
+#[test]
+fn blocked_screenshots_show_one_line_and_mark_the_window() {
+    let game = Game::start_with(|wow| wow.set("shotsBlocked", true).unwrap());
+    game.advance(30.0);
+
+    let blocked = game
+        .printed()
+        .iter()
+        .filter(|l| *l == "Gnomish Relay: screenshots are blocked.")
+        .count();
+    assert_eq!(blocked, 1);
+    let problem: String = game
+        .run("local ns = ... return ns.Transport.Problem()")
+        .to_string()
+        .unwrap();
+    assert_eq!(problem, "blocked");
 }

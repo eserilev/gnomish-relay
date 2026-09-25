@@ -85,6 +85,7 @@ local function Diag()
 			s.online and "online" or "offline"
 		)
 	)
+	print(ns.Health.Line())
 end
 
 local function Command(arg)
@@ -114,6 +115,11 @@ events:SetScript("OnEvent", function(_, event, name)
 	if event == "ADDON_LOADED" and name == addonName then
 		ns.Store.Load()
 	elseif event == "PLAYER_LOGIN" then
+		local missing = ns.Health.Missing()
+		if missing then
+			print(string.format("Gnomish Relay: this game version has no %s. The relay is off.", missing))
+			return
+		end
 		SetCVarValue("screenshotFormat", "png")
 		ns.Transport.OnChange = ns.Window.Refresh
 		ns.Transport.OnReply = function(chat, reply)

@@ -16,6 +16,7 @@ local wow = {
 	body = nil,
 	restore = nil,
 	slotsInstalled = true,
+	shotsBlocked = false,
 	shots = {},
 	reloads = 0,
 	combat = false,
@@ -308,6 +309,10 @@ function strtrim(s)
 	return (s:gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
+function GetBuildInfo()
+	return "1.60.1", "70009", "Sep 24 2026", 16001
+end
+
 function GetPhysicalScreenSize()
 	return 1280, 720
 end
@@ -338,6 +343,12 @@ function hooksecurefunc(name, fn)
 end
 
 function Screenshot()
+	if wow.shotsBlocked then
+		C_Timer.After(0.4, function()
+			wow.Fire("SCREENSHOT_FAILED")
+		end)
+		return
+	end
 	table.insert(wow.shots, StripCells())
 	C_Timer.After(0.4, function()
 		wow.Fire("SCREENSHOT_SUCCEEDED")

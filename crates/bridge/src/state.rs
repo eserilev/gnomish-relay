@@ -28,6 +28,7 @@ pub struct State {
     pub tokens: Vec<String>,
     pub retired: Vec<String>,
     pub restore_for: Option<String>,
+    pub client_build: Option<String>,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]

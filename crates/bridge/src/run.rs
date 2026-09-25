@@ -150,7 +150,15 @@ impl Bridge {
     fn take_frame(&mut self, bytes: &[u8], source: &str) -> bool {
         match receive(bytes, &self.key, now()) {
             Ok(records) => {
+                let build = self.relay.client_build().map(str::to_owned);
                 let outcomes = self.relay.on_frame(&records, now());
+                if let Some(new) = self
+                    .relay
+                    .client_build()
+                    .filter(|b| Some(*b) != build.as_deref())
+                {
+                    log(&format!("game build {new}: screenshots and slots work"));
+                }
                 let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
                 log(&format!(
                     "{source}: {} records, {accepted} new",
