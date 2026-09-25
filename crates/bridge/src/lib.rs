@@ -7,6 +7,7 @@ pub mod acp;
 pub mod action_input;
 pub mod activity;
 pub mod agent;
+pub mod allow;
 pub mod claude;
 pub mod claude_sessions;
 pub mod codex;

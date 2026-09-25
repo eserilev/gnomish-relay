@@ -12,6 +12,7 @@ use protocol::policy::{Level, effective_level};
 use protocol::record::is_valid_id;
 use serde::{Deserialize, Serialize};
 
+use crate::allow::{self, AllowFile, AllowTable};
 use crate::claude;
 use crate::relay::Folders;
 
@@ -79,6 +80,8 @@ pub struct Config {
     pub agents: BTreeMap<String, AgentSpec>,
     pub timeout: Duration,
     pub permission_timeout: Duration,
+    /// Commands that run from the game with no question (SPEC.md 12).
+    pub allow: AllowTable,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -127,6 +130,8 @@ struct File {
     permission_timeout_minutes: Option<u64>,
     wow: Wow,
     agents: BTreeMap<String, Agent>,
+    #[serde(default)]
+    allow: AllowFile,
 }
 
 #[derive(Deserialize)]
@@ -344,6 +349,7 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
             (name, spec)
         })
         .collect();
+    let allow = allow::parse(&file.allow, home)?;
     Ok(Config {
         wow: expand(&file.wow.path, home)?,
         policy: Policy {
@@ -354,6 +360,7 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
         agents,
         timeout,
         permission_timeout,
+        allow,
     })
 }
 
@@ -418,6 +425,13 @@ pub fn default_text(wow: &Path, agents: &[Found], roots: &[String]) -> String {
             command.join(", ")
         );
     }
+    text.push_str(
+        "\n# Commands that run from the game with no question, at auto-edit and full-auto.\n\
+         # A pattern covers more words after it. It never allows a command that the\n\
+         # classifier refuses or sends to the desktop (SPEC.md 6.6.3).\n\
+         # [allow]\n# commands = [\"cargo test *\", \"cargo fmt --check\"]\n\
+         # [allow.folders]\n# \"~/Code/lighthouse\" = [\"npm test *\"]\n",
+    );
     if agents.is_empty() {
         text.push_str("\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n");
     }
@@ -568,6 +582,25 @@ mod tests {
             assert!(error.contains(mode), "{error}");
         }
         assert!(home.parse(&CLAUDE.replace("[\"claude\"]", "[]")).is_err());
+    }
+
+    #[test]
+    fn the_allow_table_gives_rules_and_a_bad_pattern_is_an_error() {
+        let home = Home::new();
+        let text = format!("{GOOD}\n[allow]\ncommands = [\"cargo test *\"]\n");
+        let config = home.parse(&text).unwrap();
+        let chat = home.path().join("Code/lighthouse");
+        let rules = config.allow.rules_for(&chat);
+        assert_eq!(rules, [vec!["cargo".to_owned(), "test".to_owned()]]);
+        let bad = format!("{GOOD}\n[allow]\ncommands = [\"rm -rf ~\"]\n");
+        assert!(home.parse(&bad).is_err());
+    }
+
+    #[test]
+    fn a_config_with_no_allow_table_has_an_empty_one() {
+        let home = Home::new();
+        let config = home.parse(GOOD).unwrap();
+        assert!(config.allow.rules_for(home.path()).is_empty());
     }
 
     #[test]
