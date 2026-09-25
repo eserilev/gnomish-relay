@@ -223,4 +223,40 @@ mod tests {
             text
         );
     }
+
+    #[test]
+    fn a_published_live_file_runs_in_lua_5_1_and_gives_the_request_back() {
+        use protocol::live::{OptionKind, PermOption, Request, prepare_requests};
+        let addons = tempfile::tempdir().unwrap();
+        install(addons.path(), &files(b"")).unwrap();
+        let text = b"rm -rf ~ \"}} GnomishRelay_Live = nil\n\x1b[0m\xff";
+        let request = Request {
+            request: b"p1a".to_vec(),
+            chat: b"c1".to_vec(),
+            id: 4,
+            text: text.to_vec(),
+            options: vec![PermOption {
+                id: b"o1".to_vec(),
+                kind: OptionKind::AllowOnce,
+                label: b"\"}}".to_vec(),
+            }],
+        };
+        let with_live = Files {
+            live: live_body(&[], &prepare_requests(&[request])),
+            ..files(b"")
+        };
+        publish(addons.path(), &with_live, 1).unwrap();
+
+        let code = fs::read(addons.path().join(slot_name(1)).join(LIVE_FILE)).unwrap();
+        let lua = Lua::new();
+        lua.load(&code[..]).exec().unwrap();
+        let live: Table = lua.globals().get("GnomishRelay_Live").unwrap();
+        let request: Table = live.get::<Table>("permissions").unwrap().get(1).unwrap();
+        assert_eq!(
+            &*request.get::<mlua::String>("text").unwrap().as_bytes(),
+            text
+        );
+        let option: Table = request.get::<Table>("options").unwrap().get(1).unwrap();
+        assert_eq!(option.get::<String>("kind").unwrap(), "allow_once");
+    }
 }

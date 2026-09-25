@@ -1,0 +1,1 @@
+{"sessionId":"s","update":{"sessionUpdate":"tool_call","toolCallId":"t","title":"run"},"toolCall":{"toolCallId":"t","title":"rm","rawInput":{"command":["rm","-rf","x"]}},"options":[{"optionId":"a","name":"A","kind":"allow_always"},{"optionId":"b","name":"B","kind":"allow_once"}]}

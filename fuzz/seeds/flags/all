@@ -1,0 +1,1 @@
+agent=claude;level=ask;perm=p1a:o1:0123456789abcdef;build=70009;out=shot;in=slots;next=5;read=1,2

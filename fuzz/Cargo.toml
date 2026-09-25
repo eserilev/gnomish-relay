@@ -9,6 +9,7 @@ cargo-fuzz = true
 
 [dependencies]
 libfuzzer-sys = "0.4"
+serde_json = "1"
 mlua = { version = "0.10", features = ["lua51", "vendored"] }
 protocol = { path = "../crates/protocol" }
 bridge = { path = "../crates/bridge" }
@@ -89,6 +90,34 @@ bench = false
 [[bin]]
 name = "config"
 path = "fuzz_targets/config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "live"
+path = "fuzz_targets/live.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "restore"
+path = "fuzz_targets/restore.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "flags"
+path = "fuzz_targets/flags.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acp"
+path = "fuzz_targets/acp.rs"
 test = false
 doc = false
 bench = false

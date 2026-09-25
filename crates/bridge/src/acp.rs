@@ -121,6 +121,58 @@ impl AcpAgent {
     }
 }
 
+/// One `session/update` from the agent, as the bridge uses it.
+#[derive(Debug, PartialEq, Eq)]
+pub enum Update {
+    /// Text of the reply.
+    Chunk(String),
+    /// A tool call, as one progress line of at most 200 bytes.
+    Step(String),
+    Other,
+}
+
+pub fn read_update(params: &Value) -> Update {
+    let update = params.get("update").unwrap_or(&Value::Null);
+    match update.get("sessionUpdate").and_then(Value::as_str) {
+        Some("agent_message_chunk") => match text_at(update, "/content/text") {
+            Some(text) => Update::Chunk(text.to_owned()),
+            None => Update::Other,
+        },
+        Some("tool_call") => {
+            let title = text_at(update, "/title").unwrap_or("a tool call");
+            Update::Step(cut(title, MAX_STEP).to_owned())
+        }
+        _ => Update::Other,
+    }
+}
+
+/// A permission request as the game sees it.
+pub struct Request {
+    /// The output of `popup_text` (S15).
+    pub text: Vec<u8>,
+    /// The option id of the agent, the kind, and the label of the agent.
+    pub options: Vec<(Value, OptionKind, String)>,
+}
+
+/// Leaves out "allow always", which waits for the rules of SPEC.md 6.6.5, every
+/// option with no id or no known kind, and every option after the fourth.
+pub fn read_request(params: &Value) -> Request {
+    let offered = params.get("options").and_then(Value::as_array);
+    let options = offered
+        .into_iter()
+        .flatten()
+        .filter_map(|o| Some((o.get("optionId")?.clone(), option_kind(o)?, o)))
+        .filter(|(_, kind, _)| !matches!(kind, OptionKind::AllowAlways))
+        .take(protocol::live::MAX_OPTIONS)
+        .map(|(id, kind, o)| (id, kind, text_at(o, "/name").unwrap_or("?").to_owned()))
+        .collect();
+    let title = text_at(params, "/toolCall/title").unwrap_or("");
+    Request {
+        text: popup_text(command_of(params).as_bytes(), title.as_bytes()),
+        options,
+    }
+}
+
 fn cancelled() -> Value {
     json!({ "outcome": "cancelled" })
 }
@@ -475,20 +527,15 @@ impl Connection {
     }
 
     fn update(&mut self, params: &Value) {
-        let update = params.get("update").unwrap_or(&Value::Null);
-        match update.get("sessionUpdate").and_then(Value::as_str) {
-            Some("agent_message_chunk") => {
-                if let Some(text) = text_at(update, "/content/text") {
-                    let room = MAX_REPLY.saturating_sub(self.reply.len());
-                    self.reply.push_str(cut(text, room));
-                }
+        match read_update(params) {
+            Update::Chunk(text) => {
+                let room = MAX_REPLY.saturating_sub(self.reply.len());
+                self.reply.push_str(cut(&text, room));
             }
-            Some("tool_call") => {
-                let title = text_at(update, "/title").unwrap_or("a tool call");
-                self.events
-                    .send(Event::Progress(cut(title, MAX_STEP).to_owned()));
+            Update::Step(line) => {
+                self.events.send(Event::Progress(line));
             }
-            _ => {}
+            Update::Other => {}
         }
     }
 
@@ -510,28 +557,22 @@ impl Connection {
             self.refused.push(cut(title, MAX_STEP).to_owned());
             return select(&offered, "reject_once").unwrap_or_else(cancelled);
         }
-        self.ask_game(params, &offered)
+        self.ask_game(params)
     }
 
     /// Shows the request in the game and waits for the answer. The run timeout
     /// stops while it waits, and `permission_timeout` applies (SPEC.md 9.3).
-    fn ask_game(&mut self, params: &Value, offered: &[Value]) -> Value {
-        // "Allow always" waits for the rules of SPEC.md 6.6.5.
-        let options: Vec<(&Value, OptionKind)> = offered
+    fn ask_game(&mut self, params: &Value) -> Value {
+        let request = read_request(params);
+        let choices = request
+            .options
             .iter()
-            .filter_map(|o| Some((o, option_kind(o)?)))
-            .filter(|(_, kind)| !matches!(kind, OptionKind::AllowAlways))
-            .take(protocol::live::MAX_OPTIONS)
-            .collect();
-        let choices = options
-            .iter()
-            .map(|(o, kind)| Choice {
+            .map(|(_, kind, label)| Choice {
                 kind: *kind,
-                label: text_at(o, "/name").unwrap_or("?").to_owned(),
+                label: label.clone(),
             })
             .collect();
-        let title = text_at(params, "/toolCall/title").unwrap_or("");
-        let text = popup_text(command_of(params).as_bytes(), title.as_bytes());
+        let text = request.text;
         let (answer, answers) = channel();
         if !self.events.send(Event::Question(Question {
             text,
@@ -553,8 +594,8 @@ impl Connection {
         };
         self.deadline += asked.elapsed();
         chosen
-            .and_then(|i| options.get(i))
-            .and_then(|(o, _)| o.get("optionId").cloned())
+            .and_then(|i| request.options.get(i))
+            .map(|(id, _, _)| id.clone())
             .map_or_else(
                 cancelled,
                 |id| json!({ "outcome": "selected", "optionId": id }),

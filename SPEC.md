@@ -1043,6 +1043,9 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | Lua escape, with the output loaded in a real Lua 5.1 VM | Backs up S8 against the real Lua parser. Inputs include NUL bytes, invalid UTF-8, and `]]`. |
 | UI escape and popup text | Backs up S10 and S15. |
 | `config.toml` parser | A broken or hostile config gives an error, never a wider permission. |
+| Restore and live files, loaded in a real Lua 5.1 VM | Back up S18 to S21: every field loads back as the prepared bytes, and each file stays under its bound. |
+| Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape. |
+| Messages from an ACP agent | The agent is untrusted. A progress line stays short, a popup text is printable (S15), and the game never gets "allow always". |
 
 ### 14.5 Security tests
 

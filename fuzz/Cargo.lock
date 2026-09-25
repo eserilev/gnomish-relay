@@ -414,6 +414,7 @@ dependencies = [
  "libfuzzer-sys",
  "mlua",
  "protocol",
+ "serde_json",
 ]
 
 [[package]]
