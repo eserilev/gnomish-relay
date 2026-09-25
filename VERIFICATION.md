@@ -107,7 +107,7 @@ means that the properties pass only because the hard states never happen.
 Each target checks the property of its proof on the compiled code, not only "no crash":
 `frame` (S1, C2), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1),
 `lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), `markdown` (S22 to S25), and
-`popup` (S15), `screenshot` (any file in the Screenshots folder never panics the
+`popup` (S15), `action` (S16, S17, S27, and S28: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor), `screenshot` (any file in the Screenshots folder never panics the
 bridge), `saved` (any saved variables text never panics the frame reader), `restore` and
 `live` (S18 to S21 in a real Lua 5.1: each field loads back, and each file stays under
 its bound), `flags` (each flag value from the game has its shape), `acp` (a message

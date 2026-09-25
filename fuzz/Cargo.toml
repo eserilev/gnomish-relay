@@ -142,3 +142,10 @@ path = "fuzz_targets/codex.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "action"
+path = "fuzz_targets/action.rs"
+test = false
+doc = false
+bench = false

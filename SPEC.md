@@ -1264,6 +1264,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | The Markdown renderer (7.3.1) | Agent text reaches the game window. Each block has its shape, no agent byte starts a WoW code or HTML markup, and the size stays within its bound. |
 | Messages of `codex app-server` | The agent is untrusted. A progress line stays short, and a popup text is printable (S15). |
 | Lines of `claude -p` and Claude Code session files | The agent and its files are untrusted. A progress line stays short, a popup text is printable (S15), and a copy of a session keeps no old id. |
+| The action classifier and the shell splitter (6.6.3) | Backs up S16, S17, S27, and S28 on the compiled code: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor holds. |
 
 ### 14.5 Security tests
 
