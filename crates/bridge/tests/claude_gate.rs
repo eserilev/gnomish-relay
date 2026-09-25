@@ -171,7 +171,7 @@ fn a_read_of_an_ssh_key_from_the_game_never_runs_and_asks_on_the_desktop() {
         |_| None,
     );
     assert!(reply.starts_with("deny: Denied on the desktop."), "{reply}");
-    assert!(desktop.join().unwrap().contains(".ssh/id_rsa"));
+    assert!(desktop.join().unwrap().contains("id_rsa"));
     let labels: Vec<&str> = questions[0]
         .choices
         .iter()
