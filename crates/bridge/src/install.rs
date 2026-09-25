@@ -58,47 +58,160 @@ pub const ADDON_FILES: [(&str, &str); 10] = [
 ];
 
 const GAME: &str = "_classic_beta_";
-const WINE_GAME: [&str; 3] = ["drive_c", "Program Files (x86)", "World of Warcraft"];
+const WOW: &str = "World of Warcraft";
+const PRODUCT_DB: [&str; 4] = ["ProgramData", "Battle.net", "Agent", "product.db"];
 
-fn has_addons(game: &Path) -> bool {
-    game.join("Interface").join("AddOns").is_dir()
+fn join_all(base: &Path, parts: &[&str]) -> PathBuf {
+    parts
+        .iter()
+        .fold(base.to_owned(), |path, part| path.join(part))
 }
 
+/// A child whose name matches in any case. Some Linux guides make `Interface/Addons`.
+fn child_any_case(dir: &Path, name: &str) -> Option<PathBuf> {
+    let exact = dir.join(name);
+    if exact.exists() {
+        return Some(exact);
+    }
+    fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .map(|e| e.path())
+        .find(|p| {
+            p.file_name()
+                .is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(name))
+        })
+}
+
+/// `Interface/AddOns` of a game folder, in the case that the disk has.
+pub fn addons_dir(game: &Path) -> PathBuf {
+    let interface = child_any_case(game, "Interface").unwrap_or_else(|| game.join("Interface"));
+    child_any_case(&interface, "AddOns").unwrap_or_else(|| interface.join("AddOns"))
+}
+
+/// The `_classic_beta_` folder of a folder that the user gives: that folder, or the
+/// one inside it. A dragged path comes with quotes.
+pub fn game_folder(given: &str) -> PathBuf {
+    let path = PathBuf::from(given.trim().trim_matches(|c| c == '"' || c == '\''));
+    if path.file_name().is_some_and(|n| n == GAME) {
+        return path;
+    }
+    let inner = path.join(GAME);
+    if inner.is_dir() { inner } else { path }
+}
+
+/// The WoW install paths in a Battle.net `product.db`. The file is protobuf, and each
+/// path is a string such as `C:/Program Files (x86)/World of Warcraft`.
+pub fn product_paths(db: &[u8]) -> Vec<String> {
+    let mut paths: Vec<String> = Vec::new();
+    for run in db.split(|b| !(b' '..=b'~').contains(b)) {
+        let text = String::from_utf8_lossy(run);
+        let Some(end) = text.rfind(WOW).map(|at| at + WOW.len()) else {
+            continue;
+        };
+        // A length byte of protobuf can be printable, so a path starts at its drive
+        // letter or at its first slash.
+        let start = match text.find(":/").or_else(|| text.find(":\\")) {
+            Some(colon) if colon > 0 && colon < end => colon - 1,
+            _ => match text.find('/') {
+                Some(slash) if slash < end => slash,
+                _ => continue,
+            },
+        };
+        let path = text[start..end].to_owned();
+        if !paths.contains(&path) {
+            paths.push(path);
+        }
+    }
+    paths
+}
+
+/// A Windows path from `product.db` inside a Wine prefix: `C:` is `drive_c`, and any
+/// other drive is a link in `dosdevices`.
+pub fn in_prefix(prefix: &Path, windows_path: &str) -> Option<PathBuf> {
+    let (drive, rest) = windows_path.split_once(':')?;
+    if drive.len() != 1 {
+        return None;
+    }
+    let drive = drive.to_ascii_lowercase();
+    let root = if drive == "c" {
+        prefix.join("drive_c")
+    } else {
+        prefix.join("dosdevices").join(format!("{drive}:"))
+    };
+    let parts = rest.split(['/', '\\']).filter(|p| !p.is_empty());
+    Some(parts.fold(root, |path, part| path.join(part)))
+}
+
+fn read_product_db(path: &Path) -> Vec<String> {
+    fs::read(path)
+        .map(|db| product_paths(&db))
+        .unwrap_or_default()
+}
+
+fn children(dir: &Path) -> Vec<PathBuf> {
+    fs::read_dir(dir)
+        .map(|entries| entries.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default()
+}
+
+/// Wine, Lutris, Bottles (also as a Flatpak), and Steam Proton prefixes.
 fn wine_prefixes(home: &Path) -> Vec<PathBuf> {
     let mut prefixes = vec![home.join(".wine")];
-    for parent in [home.join("Games"), home.join(".local/share/wineprefixes")] {
-        if let Ok(entries) = fs::read_dir(parent) {
-            prefixes.extend(entries.flatten().map(|e| e.path()));
-        }
+    for parent in [
+        "Games",
+        ".local/share/wineprefixes",
+        ".local/share/bottles/bottles",
+        ".var/app/com.usebottles.bottles/data/bottles/bottles",
+    ] {
+        prefixes.extend(children(&home.join(parent)));
+    }
+    for steam in [
+        ".steam/steam/steamapps/compatdata",
+        ".local/share/Steam/steamapps/compatdata",
+    ] {
+        prefixes.extend(
+            children(&home.join(steam))
+                .into_iter()
+                .map(|app| app.join("pfx")),
+        );
     }
     prefixes
 }
 
-/// Every game folder in the default places that WoW has started in once: it then
-/// has `Interface/AddOns`.
+/// Every WoW Forever folder that setup can find: the default install places and
+/// the paths in Battle.net's `product.db`.
 pub fn find_games(home: &Path) -> Vec<PathBuf> {
-    let mut places = Vec::new();
+    let mut installs: Vec<PathBuf> = Vec::new();
     if cfg!(windows) {
         for var in ["ProgramFiles(x86)", "ProgramFiles"] {
             if let Some(dir) = std::env::var_os(var) {
-                places.push(PathBuf::from(dir).join("World of Warcraft").join(GAME));
+                installs.push(PathBuf::from(dir).join(WOW));
             }
         }
+        if let Some(data) = std::env::var_os("ProgramData") {
+            let db = join_all(&PathBuf::from(data), &PRODUCT_DB[1..]);
+            installs.extend(read_product_db(&db).into_iter().map(PathBuf::from));
+        }
     } else if cfg!(target_os = "macos") {
-        places.push(PathBuf::from("/Applications/World of Warcraft").join(GAME));
+        installs.push(PathBuf::from("/Applications").join(WOW));
+        let db = join_all(Path::new("/Users/Shared"), &PRODUCT_DB[1..]);
+        installs.extend(read_product_db(&db).into_iter().map(PathBuf::from));
     } else {
         for prefix in wine_prefixes(home) {
-            places.push(
-                WINE_GAME
-                    .iter()
-                    .fold(prefix, |p, part| p.join(part))
-                    .join(GAME),
-            );
+            installs.push(join_all(&prefix, &["drive_c", "Program Files (x86)", WOW]));
+            let db = join_all(&prefix, &["drive_c"]).join(join_all(Path::new(""), &PRODUCT_DB));
+            let found = read_product_db(&db);
+            installs.extend(found.iter().filter_map(|path| in_prefix(&prefix, path)));
         }
     }
-    places.retain(|p| has_addons(p));
-    places.dedup();
-    places
+    let mut games: Vec<PathBuf> = Vec::new();
+    for game in installs.into_iter().map(|install| install.join(GAME)) {
+        if game.is_dir() && !games.iter().any(|g| same_folder(g, &game)) {
+            games.push(game);
+        }
+    }
+    games
 }
 
 pub fn new_key() -> Result<String> {
@@ -277,21 +390,71 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     fn game_in(prefix: &Path) -> PathBuf {
-        let game = WINE_GAME
-            .iter()
-            .fold(prefix.to_owned(), |p, part| p.join(part))
-            .join(GAME);
+        let game = join_all(prefix, &["drive_c", "Program Files (x86)", WOW]).join(GAME);
         fs::create_dir_all(game.join("Interface/AddOns")).unwrap();
         game
     }
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn the_game_is_found_in_a_lutris_prefix_after_its_first_start() {
+    fn the_game_is_found_in_a_lutris_prefix() {
         let home = tempfile::tempdir().unwrap();
         let game = game_in(&home.path().join("Games/battlenet"));
         fs::create_dir_all(home.path().join("Games/other/drive_c")).unwrap();
         assert_eq!(find_games(home.path()), [game]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn product_db_finds_a_game_on_another_drive_of_a_bottle() {
+        let home = tempfile::tempdir().unwrap();
+        let bottle = home.path().join(".local/share/bottles/bottles/wow");
+        let game = bottle.join("dosdevices/d:/Games/World of Warcraft/_classic_beta_");
+        fs::create_dir_all(&game).unwrap();
+        let db_dir = bottle.join("drive_c/ProgramData/Battle.net/Agent");
+        fs::create_dir_all(&db_dir).unwrap();
+        fs::write(
+            db_dir.join("product.db"),
+            b"\n\x05wow_classic\x12)D:/Games/World of Warcraft\x1a\x02enUS",
+        )
+        .unwrap();
+        assert_eq!(find_games(home.path()), [game]);
+    }
+
+    #[test]
+    fn product_paths_start_at_the_drive_and_end_at_the_game_name() {
+        let db = b"\x0a\x03wow\x12'C:/Program Files (x86)/World of Warcraft2\x04enUS\x12\x1f/Applications/World of Warcraft";
+        assert_eq!(
+            product_paths(db),
+            [
+                "C:/Program Files (x86)/World of Warcraft",
+                "/Applications/World of Warcraft"
+            ]
+        );
+    }
+
+    #[test]
+    fn a_windows_path_maps_into_a_wine_prefix() {
+        let prefix = Path::new("/p");
+        assert_eq!(
+            in_prefix(prefix, "C:/A/B"),
+            Some(PathBuf::from("/p/drive_c/A/B"))
+        );
+        assert_eq!(
+            in_prefix(prefix, "e:\\G"),
+            Some(PathBuf::from("/p/dosdevices/e:/G"))
+        );
+        assert_eq!(in_prefix(prefix, "/Applications/x"), None);
+    }
+
+    #[test]
+    fn the_addons_folder_is_found_in_any_case_and_a_given_folder_can_be_the_parent() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("World of Warcraft").join(GAME);
+        fs::create_dir_all(game.join("interface/Addons")).unwrap();
+        assert_eq!(addons_dir(&game), game.join("interface/Addons"));
+        let given = format!("\"{}\"", root.path().join("World of Warcraft").display());
+        assert_eq!(game_folder(&given), game);
     }
 
     #[test]

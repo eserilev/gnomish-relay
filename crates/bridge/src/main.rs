@@ -71,7 +71,7 @@ fn load_config() -> Result<Config> {
 }
 
 fn addons_dir(wow: &Path) -> PathBuf {
-    wow.join("Interface").join("AddOns")
+    install::addons_dir(wow)
 }
 
 /// Mode 0600: the key signs strips, and the config sets the ceiling of every game message.
@@ -85,24 +85,29 @@ fn write_private(dir: &Path, name: &str, text: &str) -> Result<()> {
     Ok(())
 }
 
+/// The game folder: the one given, the one found, or the answer to a question.
 fn pick_game(given: Option<&str>) -> Result<PathBuf> {
     if let Some(folder) = given {
-        return Ok(PathBuf::from(folder));
+        return Ok(install::game_folder(folder));
     }
     let games = install::find_games(&home_dir()?);
-    match games.as_slice() {
-        [game] => Ok(game.clone()),
-        [] => bail!(
-            "found no WoW Forever folder. Start WoW once, or give the folder: gnomish-relay setup <_classic_beta_ folder>"
-        ),
-        more => bail!(
-            "found more than one WoW Forever folder. Give one: gnomish-relay setup <folder>\n{}",
-            more.iter()
-                .map(|g| g.display().to_string())
-                .collect::<Vec<_>>()
-                .join("\n")
-        ),
+    if let [game] = games.as_slice() {
+        return Ok(game.clone());
     }
+    for (n, game) in games.iter().enumerate() {
+        println!("{}. {}", n + 1, game.display());
+    }
+    let answer = ask("WoW folder", if games.is_empty() { "" } else { "1" })?;
+    if answer.is_empty() {
+        bail!("give the WoW folder: gnomish-relay setup <folder>");
+    }
+    let chosen = answer
+        .parse::<usize>()
+        .ok()
+        .and_then(|n| games.get(n.checked_sub(1)?));
+    Ok(chosen
+        .cloned()
+        .unwrap_or_else(|| install::game_folder(&answer)))
 }
 
 /// The key of this computer, made once. `--new-key` replaces it.
@@ -113,7 +118,6 @@ fn strip_key(dir: &Path, new: bool) -> Result<String> {
     }
     let hex = install::new_key()?;
     write_private(dir, KEY_FILE, &hex)?;
-    println!("made a new strip key");
     Ok(hex)
 }
 
@@ -294,13 +298,13 @@ fn setup(args: &[&str]) -> Result<()> {
         .copied()
         .find(|a| !a.starts_with("--") && Some(*a) != roots_given);
     let wow = pick_game(folder)?;
-    let addons = addons_dir(&wow);
-    if !addons.is_dir() {
-        bail!(
-            "{} has no Interface/AddOns folder. Start WoW once, then give the _classic_beta_ folder.",
-            wow.display()
-        );
+    if !wow.is_dir() {
+        bail!("{} is not a folder", wow.display());
     }
+    // WoW makes Interface/AddOns at its first start. Setup makes it earlier.
+    let addons = addons_dir(&wow);
+    std::fs::create_dir_all(&addons)
+        .with_context(|| format!("cannot make {}", addons.display()))?;
     println!("WoW: {}", wow.display());
     let dir = config_dir()?;
     std::fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;

@@ -33,6 +33,10 @@ tar -xzf "$name"
 mkdir -p "$bin"
 install -m 0755 gnomish-relay "$bin/gnomish-relay"
 echo "installed $bin/gnomish-relay"
+case ":$PATH:" in
+  *":$bin:"*) ;;
+  *) echo "Add to PATH: export PATH=\"$bin:\$PATH\"" ;;
+esac
 
 if [ $# -eq 0 ]; then
   set -- --autostart

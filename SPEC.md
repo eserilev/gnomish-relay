@@ -792,10 +792,15 @@ The development machine runs Wayland with XWayland. The home file system is ext4
 ### 11.3 Install
 
 The goal: one download, one command, and no step inside the game.
+The install scripts put the program on `PATH`, also in the open terminal on Windows, and print the `PATH` line on Linux and macOS when it is missing.
 
 **`gnomish-relay setup`** does every step, and a second run changes nothing that works:
 
-1. **Find the game.** It looks for a `_classic_beta_` folder with `Interface/AddOns` in the default places: `Program Files (x86)\World of Warcraft` and the Battle.net registry key on Windows, `/Applications/World of Warcraft` on macOS, and each Wine prefix under `~/Games` and `~/.wine` on Linux. With more than one, or none, it asks. `setup <folder>` skips the search.
+1. **Find the game.** It looks for a `_classic_beta_` folder in the default places and in the install paths of Battle.net's `product.db`:
+   - Windows: `Program Files (x86)\World of Warcraft`, and `%ProgramData%\Battle.net\Agent\product.db`.
+   - macOS: `/Applications/World of Warcraft`, and `/Users/Shared/Battle.net/Agent/product.db`.
+   - Linux: each Wine prefix (`~/.wine`, `~/Games/*`, Bottles also as a Flatpak, and Steam Proton), with the `product.db` of the prefix. `C:` maps to `drive_c`, and other drives to `dosdevices`.
+   With more than one, or none, it asks in a terminal. `setup <folder>` skips the search, and takes the `World of Warcraft` folder or `_classic_beta_`. It makes `Interface/AddOns` if WoW has not made it yet, and it finds that folder in any case.
 2. **Make the strip key**, 32 random bytes from the OS, into `strip.key` with mode 0600, once. `--new-key` makes a new one, and then the addon needs a `/reload`.
 3. **Install the addon.** The addon files are built into the program. Setup writes them into `Interface/AddOns/GnomishRelay`, and writes `Key.lua` from the strip key. A folder that is a link (a developer checkout, 16) stays as it is, and only `Key.lua` changes.
 4. **Write the config**, once, with an `[agents.<name>]` entry for each known ACP agent on `PATH`: `claude-agent-acp`, `codex-acp`, and `gemini`. The default agent is the first one it finds. With none, it is `echo`.
