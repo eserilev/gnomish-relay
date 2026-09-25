@@ -4,8 +4,9 @@ Talk to your coding agents from inside World of Warcraft: Forever.
 You type in a chat window in the game. An agent such as Claude, Codex, or Gemini
 works in your project folder on the same computer, and its reply comes back as a whisper.
 
-It works with any agent that speaks the Agent Client Protocol (ACP), on Windows,
-macOS, and Linux. `SPEC.md` has the design, and `VERIFICATION.md` the proofs.
+It works with Claude Code, and with any agent that speaks the Agent Client Protocol
+(ACP), on Windows, macOS, and Linux. It needs no Node.
+`SPEC.md` has the design, and `VERIFICATION.md` the proofs.
 
 ## Install
 
@@ -24,6 +25,15 @@ Setup finds the game, installs the addon with a key that only this computer has,
 `config.toml`, and starts the bridge at each login. A second run changes nothing that works.
 
 ## Add an agent
+
+Claude Code needs only the `claude` program:
+
+```toml
+[agents.claude]
+kind = "claude"
+command = ["claude"]
+permission = "ask"
+```
 
 Any ACP agent is one entry in `config.toml`:
 

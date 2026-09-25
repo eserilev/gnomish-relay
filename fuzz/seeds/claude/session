@@ -1,0 +1,9 @@
+{"type":"mode","mode":"default","sessionId":"0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01"}
+{"type":"user","uuid":"u1","parentUuid":null,"cwd":"/w/app","sessionId":"0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01","message":{"role":"user","content":"fix the bugs"}}
+{"type":"progress","uuid":"p1","parentUuid":"u1","sessionId":"0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01"}
+{"type":"assistant","uuid":"a1","parentUuid":"p1","sessionId":"0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01","message":{"id":"m1","content":[{"type":"text","text":"All fixed."}],"stop_reason":"end_turn"}}
+{"type":"user","uuid":"t1","parentUuid":"a1","sessionId":"0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01","message":{"content":[{"type":"tool_result","tool_use_id":"x","content":"ok"}]}}
+{"type":"attachment","uuid":"q1","parentUuid":"t1","sessionId":"0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01","attachment":{"type":"queued_command","source_uuid":"u1"}}
+{"type":"custom-title","customTitle":"Fix","sessionId":"0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01"}
+{"type":"relocated","relocatedCwd":"/w/new","sessionId":"0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01"}
+{"type":"continued-in","continuedInSessionId":"5c1d0f7e-2a3b-4c4d-8e5f-6a7b8c9d0e1f"}

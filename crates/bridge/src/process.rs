@@ -32,6 +32,9 @@ const BASE_ENV: [&str; 11] = [
     "TEMP",
 ];
 
+const OUTPUT_LIMIT: u64 = 64 * 1024;
+const OUTPUT_POLL: Duration = Duration::from_millis(20);
+
 type Line = Result<Value, String>;
 
 /// What a wait for the next line found.
@@ -148,6 +151,53 @@ fn spawn(
     child
         .spawn()
         .map_err(|e| format!("Cannot start {program}: {e}"))
+}
+
+/// The end of a short command, such as `claude --version`.
+pub struct Output {
+    pub success: bool,
+    /// At most 64 KiB.
+    pub stdout: String,
+}
+
+/// Runs a short command to its end, with the rules of `AgentProcess`. After `timeout`,
+/// the command is killed and the result is an error.
+pub fn output(
+    command: &[String],
+    args: &[String],
+    env: &[String],
+    cwd: &str,
+    timeout: Duration,
+) -> Result<Output, String> {
+    let mut child = spawn(command, args, env, cwd, Stdio::null())?;
+    let stdout = child.stdout.take().ok_or("The agent has no stdout.")?;
+    if let Some(stderr) = child.stderr.take() {
+        let (done, _) = channel();
+        keep_tail(stderr, Arc::new(Mutex::new(Vec::new())), done);
+    }
+    let (tx, rx) = channel();
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stdout.take(OUTPUT_LIMIT).read_to_end(&mut bytes);
+        let _ = tx.send(bytes);
+    });
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break status,
+            Ok(None) if started.elapsed() < timeout => thread::sleep(OUTPUT_POLL),
+            Ok(None) | Err(_) => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(crate::turn::TIMED_OUT.into());
+            }
+        }
+    };
+    let bytes = rx.recv_timeout(STDERR_WAIT).unwrap_or_default();
+    Ok(Output {
+        success: status.success(),
+        stdout: String::from_utf8_lossy(&bytes).into_owned(),
+    })
 }
 
 /// The longest start of `text` with at most `max` bytes that ends on a character.

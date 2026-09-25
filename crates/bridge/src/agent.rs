@@ -1,14 +1,18 @@
 //! The agents that answer messages (SPEC.md 9).
 
 use std::collections::BTreeMap;
+use std::path::PathBuf;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::Sender;
+use std::time::Duration;
 
 use protocol::live::OptionKind;
 
 use crate::acp::AcpAgent;
-use crate::config::{Config, Kind};
+use crate::claude::ClaudeAgent;
+use crate::claude_sessions;
+use crate::config::{AgentSpec, Config, Kind};
 use crate::relay::{ChatId, Job, MessageId};
 
 /// The slot body cuts a reply at 32 KiB anyway.
@@ -120,6 +124,15 @@ pub struct SessionInfo {
     pub updated: u32,
 }
 
+/// What `check-agent` prints about an agent entry.
+#[derive(Debug)]
+pub struct Report {
+    pub name: String,
+    pub version: String,
+    pub load_session: bool,
+    pub modes: Vec<String>,
+}
+
 pub trait Agent: Send + Sync {
     fn run(&self, job: &Job, control: &Control) -> Run;
 
@@ -144,22 +157,69 @@ impl Agent for Echo {
 /// Each agent of the config, by name.
 pub type Agents = BTreeMap<String, Arc<dyn Agent>>;
 
+/// The time limits of a run.
+#[derive(Clone, Copy)]
+pub struct Limits {
+    pub timeout: Duration,
+    pub permission_timeout: Duration,
+}
+
+/// `check-agent` and setup wait this long.
+const CHECK_LIMITS: Limits = Limits {
+    timeout: Duration::from_mins(1),
+    permission_timeout: Duration::from_mins(1),
+};
+
+fn acp(spec: &AgentSpec, limits: Limits) -> AcpAgent {
+    AcpAgent {
+        command: spec.command.clone(),
+        env: spec.env.clone(),
+        modes: spec.modes.clone(),
+        timeout: limits.timeout,
+        permission_timeout: limits.permission_timeout,
+    }
+}
+
+fn claude(spec: &AgentSpec, limits: Limits) -> ClaudeAgent {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
+        .unwrap_or_default();
+    ClaudeAgent {
+        command: spec.command.clone(),
+        env: spec.env.clone(),
+        modes: spec.modes.clone(),
+        timeout: limits.timeout,
+        permission_timeout: limits.permission_timeout,
+        projects: claude_sessions::projects_dir(&spec.env, &home),
+    }
+}
+
 pub fn from_config(config: &Config) -> Agents {
+    let limits = Limits {
+        timeout: config.timeout,
+        permission_timeout: config.permission_timeout,
+    };
     config
         .agents
         .iter()
         .map(|(name, spec)| {
             let agent: Arc<dyn Agent> = match spec.kind {
                 Kind::Echo => Arc::new(Echo),
-                Kind::Acp => Arc::new(AcpAgent {
-                    command: spec.command.clone(),
-                    env: spec.env.clone(),
-                    modes: spec.modes.clone(),
-                    timeout: config.timeout,
-                    permission_timeout: config.permission_timeout,
-                }),
+                Kind::Acp => Arc::new(acp(spec, limits)),
+                Kind::Claude => Arc::new(claude(spec, limits)),
             };
             (name.clone(), agent)
         })
         .collect()
+}
+
+/// Starts the agent of `spec` in `cwd` with no prompt, so a missing login shows. The
+/// echo agent has nothing to check.
+pub fn check(spec: &AgentSpec, cwd: &str) -> Option<Result<Report, String>> {
+    match spec.kind {
+        Kind::Echo => None,
+        Kind::Acp => Some(acp(spec, CHECK_LIMITS).check(cwd)),
+        Kind::Claude => Some(claude(spec, CHECK_LIMITS).check(cwd)),
+    }
 }

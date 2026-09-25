@@ -12,6 +12,7 @@ use protocol::policy::{Level, effective_level};
 use protocol::record::is_valid_id;
 use serde::{Deserialize, Serialize};
 
+use crate::claude;
 use crate::relay::Folders;
 
 pub const FILE: &str = "config.toml";
@@ -85,6 +86,8 @@ pub struct Config {
 pub enum Kind {
     /// Any agent that speaks the Agent Client Protocol.
     Acp,
+    /// Claude Code with no adapter, through `claude -p` (SPEC.md 9.2).
+    Claude,
     /// Answers with the message. It tests the path through the game with no agent.
     Echo,
 }
@@ -156,7 +159,7 @@ fn check_agent(name: &str, agent: &Agent) -> Result<()> {
         bail!("agent name {name:?} is not a valid id");
     }
     match agent.kind {
-        Kind::Acp if agent.command.first().is_none_or(String::is_empty) => {
+        Kind::Acp | Kind::Claude if agent.command.first().is_none_or(String::is_empty) => {
             bail!("[agents.{name}] needs a command")
         }
         Kind::Echo if !agent.command.is_empty() => {
@@ -166,6 +169,25 @@ fn check_agent(name: &str, agent: &Agent) -> Result<()> {
     }
     if let Some(bad) = agent.env.iter().find(|n| !is_env_name(n)) {
         bail!("[agents.{name}] env name {bad:?} is not A-Z, 0-9, and _");
+    }
+    if agent.kind == Kind::Claude {
+        check_claude_modes(name, &agent.modes)?;
+    }
+    Ok(())
+}
+
+/// A typo in a mode name fails here, not at the first message from the game.
+fn check_claude_modes(name: &str, modes: &BTreeMap<Permission, String>) -> Result<()> {
+    for mode in modes.values() {
+        if mode == claude::REFUSED_MODE {
+            bail!("[agents.{name}] mode {mode} asks nothing, so the game cannot bound it");
+        }
+        if !claude::MODES.contains(&mode.as_str()) {
+            bail!(
+                "[agents.{name}] has no mode {mode:?}. The modes are {}",
+                claude::MODES.join(", ")
+            );
+        }
     }
     Ok(())
 }
@@ -491,6 +513,45 @@ mod tests {
         for text in bad {
             assert!(home.parse(&text).is_err(), "{text}");
         }
+    }
+
+    const CLAUDE: &str = r#"
+        allowed_roots = ["~/Code"]
+        default_agent = "claude"
+        [wow]
+        path = "~/wow"
+        [agents.claude]
+        kind = "claude"
+        command = ["claude"]
+        permission = "ask"
+    "#;
+
+    #[test]
+    fn a_claude_entry_takes_the_modes_of_claude_code() {
+        let home = Home::new();
+        let text = format!("{CLAUDE}\nmodes = {{ ask = \"manual\", full-auto = \"auto\" }}\n");
+        let config = home.parse(&text).unwrap();
+        assert_eq!(config.agents["claude"].kind, Kind::Claude);
+        assert_eq!(config.agents["claude"].modes[&Permission::Ask], "manual");
+    }
+
+    #[test]
+    fn a_claude_entry_refuses_an_unknown_mode_and_the_mode_that_asks_nothing() {
+        let home = Home::new();
+        for mode in ["default", "bypassPermissions"] {
+            let text = format!("{CLAUDE}\nmodes = {{ ask = \"{mode}\" }}\n");
+            let error = format!("{:#}", home.parse(&text).err().unwrap());
+            assert!(error.contains(mode), "{error}");
+        }
+        assert!(home.parse(&CLAUDE.replace("[\"claude\"]", "[]")).is_err());
+    }
+
+    #[test]
+    fn an_old_entry_with_the_acp_adapter_of_claude_still_works() {
+        let home = Home::new();
+        let config = home.parse(GOOD).unwrap();
+        assert_eq!(config.agents["claude"].kind, Kind::Acp);
+        assert_eq!(config.agents["claude"].command, ["claude-agent-acp"]);
     }
 
     #[test]

@@ -196,7 +196,7 @@ There are four answers, in this order from strict to open:
 **How tool calls reach it:**
 
 - ACP: through `session/request_permission`.
-- Claude: through a `PreToolUse` hook, `gnomish-relay-hook pretool`. This subcommand ignores `GNOMISH_RELAY_JOB`, and it fails closed: if the bridge does not answer, the answer is `deny`.
+- Claude: through the `can_use_tool` control requests of `claude -p --permission-prompt-tool stdio` (9.2). A terminal session of Claude uses a `PreToolUse` hook, `gnomish-relay-hook pretool`. This subcommand ignores `GNOMISH_RELAY_JOB`, and it fails closed: if the bridge does not answer, the answer is `deny`.
 - `native-codex exec` sends no tool calls to the bridge. So a game message runs Codex through ACP (`codex-acp`) only.
 
 **Rules:**
@@ -651,10 +651,11 @@ trait Agent: Send + Sync {
 
 `Job` carries the chat, the folder after the policy check, the level after the ceiling (S6), and the text.
 Each run of the `acp` backend starts the agent process, opens a session, sets the mode of the level, sends the prompt, and stops the process.
+Each run of the `claude` backend starts `claude -p` with the mode of the level, sends the prompt, and stops the process at the end of the turn.
 
 - **Resume.** The bridge keeps the agent session of each chat in `state.json`, with its agent and its folder. The next message of the chat resumes it, unless the message has the `n` flag, or the agent or the folder changed. The client uses `session/resume` if the agent offers it, else `session/load`. The history that `session/load` replays stays out of the reply. If neither works, the run opens a new session, and the reply starts with "(New session: the agent could not resume the old one.)".
 - **Later: continue a terminal session.** A new chat can take the session of a Claude or other agent session that runs in a terminal. The bridge lists the recent sessions of each agent (`session/list`, where the agent offers it), and the chat resumes the one you pick. The terminal window does not show the game messages live: no agent lets another program type into its open window. `claude --resume` shows them later.
-- **Stop.** Stop in the game ends the waiting messages of the chat, and signals the run in progress. The client sends `session/cancel`, answers every open permission request with "cancelled", and waits 10 seconds for the agent to end the turn. Then it kills the process. The reply is "Stopped.", and the session stays for the next message.
+- **Stop.** Stop in the game ends the waiting messages of the chat, and signals the run in progress. The client sends `session/cancel` (the `claude` backend sends an `interrupt` control request), answers every open permission request with "cancelled" (`claude`: a deny), and waits 10 seconds for the agent to end the turn. Then it kills the process. The reply is "Stopped.", and the session stays for the next message. A Stop before the prompt ends the run at once.
 
 Next, the trait grows events for progress and for permission requests from the game (9.3). Those need new fields in the slot body, so they wait for an approved S9 statement.
 
@@ -663,7 +664,7 @@ Next, the trait grows events for progress and for permission requests from the g
 | Backend | How it works | Progress | Live permissions | Allow & retry |
 |---|---|---|---|---|
 | `acp` (main) | Agent Client Protocol: JSON-RPC over stdin and stdout. The bridge is the client. | Yes | Yes | Not necessary |
-| `native-claude` | `claude -p --output-format stream-json --verbose --resume <id>` | Yes | No | Yes, from `permission_denials` |
+| `claude` | `claude -p` with stream-json on stdin and stdout, and `--permission-prompt-tool stdio`. Needs no Node. | Yes | Yes | Not necessary |
 | `native-codex` | `codex exec --json` | Yes | No | No. Fixed level from config. |
 | `command` | A command template. The prompt goes in, plain text comes out. | No | No | No. Fixed level from config. |
 
@@ -671,7 +672,7 @@ Next, the trait grows events for progress and for permission requests from the g
 
 | Level | Connection | What the classifier sees | Examples |
 |---|---|---|---|
-| Full | ACP, or a tool-call hook | Every tool call, before it runs | Gemini CLI, Claude, Codex through `codex-acp`, any ACP agent |
+| Full | ACP, `claude`, or a tool-call hook | Every tool call, before it runs | Gemini CLI, Claude, Codex through `codex-acp`, any ACP agent |
 | Sandbox only | `command` | Nothing | Aider, `llm`, a script |
 | Trusted | `command` with no sandbox | Nothing | The same agents on Windows |
 
@@ -683,7 +684,7 @@ Next, the trait grows events for progress and for permission requests from the g
 ACP agents (checked 2026-09-23):
 
 - Gemini CLI: `gemini --acp`. It supports new sessions, `loadSession`, and `setSessionMode`.
-- Claude Code: the `claude-agent-acp` adapter (formerly `claude-code-acp`).
+- Claude Code: the `claude-agent-acp` adapter (formerly `claude-code-acp`). It needs Node. The `claude` backend below needs only the `claude` program.
 - Codex: the `codex-acp` adapter, now in the `agentclientprotocol` organization.
 
 The bridge speaks ACP protocol version 1 in `crates/bridge/src/acp.rs`, with no crate: JSON-RPC 2.0, one message per line.
@@ -698,6 +699,15 @@ The agent process is untrusted:
 - If the config names a mode for the level, and the agent does not offer it, the run stops. With no mode, the agent runs at its own default, which can be more open.
 - Until the game can answer (9.3), the bridge answers each permission request under the ceiling: `full-auto` allows once, every other level refuses once. The reply then ends with "Not allowed from the game:" and the refused tool calls.
 
+**Claude Code with no adapter (`kind = "claude"`).** Most players have the native `claude` program and no Node. The bridge speaks the stream-json protocol of `claude -p` itself, in `crates/bridge/src/claude.rs`. It was checked on Claude Code 2.1.282.
+
+- The command is `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --permission-mode <mode>` in the chat folder, plus `--resume <id>` for the session of the chat. The `command` of the entry comes first, so it can add flags.
+- The bridge first sends the `initialize` control request, as the Claude Agent SDK does, and waits for its answer. Then it sends the prompt as one `user` message.
+- `system` with subtype `init` gives the session id. Each `tool_use` block of an `assistant` message becomes a progress line (9.3). The `result` message ends the turn, and its `result` text is the reply. A `result` with `is_error` is an error with its text, for example "Invalid API key · Please run /login".
+- A `can_use_tool` control request is a permission question (9.3). The bridge answers every other control request with an error.
+- The same limits as ACP apply: the environment allowlist, the line and reply limits, the run timeout, and the last line of stderr in an error. Both backends use `process.rs` and `turn.rs` for them.
+- If the session of the chat has no file, the run starts a new session, and the reply starts with the note of 9.1.
+
 **Adding an agent.** Any ACP agent is one entry in `config.toml`. Nothing else changes:
 
 ```toml
@@ -710,6 +720,7 @@ modes = { ask = "default" }
 ```
 
 Then run `gnomish-relay check-agent gemini`. It starts the agent, opens one session in `default_cwd`, and shows the name, the version, whether it resumes sessions, and its mode ids. It fails if a mode in `modes` does not exist.
+For `kind = "claude"`, `check-agent` runs `claude --version` and `claude auth status --json`, with no model call. It fails with "Claude Code needs a login." when `loggedIn` is not true.
 The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "Agent not set up.".
 `kind = "echo"` answers with the message, for a test of the path through the game with no agent.
 
@@ -726,7 +737,7 @@ Each agent in the config has one permission level:
 Each backend maps the level differently:
 
 - `acp`: the bridge sets the session mode. Mode IDs differ per agent, so the config has a `modes` table per agent.
-- `native-claude`: `--permission-mode` and `--allowedTools`.
+- `claude`: `--permission-mode`. `ask` is `plan`, `auto-edit` is `acceptEdits`, and `full-auto` is `acceptEdits` plus an allow of each question by the bridge. The `modes` table of the entry can name another mode: `acceptEdits`, `auto`, `dontAsk`, `manual`, or `plan`. Config load refuses any other name. It also refuses `bypassPermissions`: in that mode Claude Code asks nothing, so no tool call reaches the bridge, and the ceiling of the game has no effect.
 - `native-codex` and `command`: the level is fixed by the command in the config. The addon shows the level in the chat header. If the level is `full-auto`, the addon shows a warning.
 - For game messages, Codex runs through ACP only, so the classifier sees its tool calls (6.6.3).
 
@@ -737,6 +748,8 @@ Each backend maps the level differently:
 3. The addon shows a popup with the text and the options.
 4. The user picks an option. The addon sends a control record with `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256 of the text that the popup showed, in hex.
 5. The bridge takes the answer only for an open request of the same chat, a real option, and a matching hash. Then it answers the agent. A second answer does nothing.
+
+**Live permission flow (`claude`):** a `can_use_tool` control request goes through the same steps. The popup text is the `command` of the tool input, else its `file_path`, `notebook_path`, `path`, `url`, or `pattern`, else the tool name. "The agent says" is the tool name and the `description` of the request. The game gets two options: Allow (`allow_once`) and Deny (`reject_once`). An allow sends the tool input back unchanged as `updatedInput`. A deny sends a `message` that Claude sees, for example "Denied in the game.". The answer never holds the `permission_suggestions` of the request: they add permanent allow rules, and the game adds no rule (6.6.5).
 
 Rules:
 
@@ -750,11 +763,12 @@ Rules:
 ### 9.4 Agent processes
 
 - ACP: one agent process per agent kind. It serves many sessions. For game messages: one process per chat folder, inside the sandbox (6.6.4).
-- `native-*` and `command`: one process per run.
+- `claude`, `native-codex`, and `command`: one process per run.
 - `max_parallel_runs` counts active runs, not processes.
 - If an ACP process stops, the bridge starts it again and resumes the open sessions. If a session cannot resume, the bridge reports an error for that chat.
 - `cancel` for `native-*` and `command` stops the whole process tree.
 - The bridge declares ACP client capabilities `fs` and `terminal` as false in v1. The agent uses its own tools.
+- `process.rs` starts every agent process: never through a shell, with the allowlist of 6.2 rule 12, a limit of 8 MiB on each line, and the last 2 KiB of stderr for an error. `turn.rs` holds the run timeout, Stop with its 10-second grace, and the wait for an answer from the game. ACP and `claude` share both.
 - If an agent needs a login, the bridge reports "agent needs login" in the game. The bridge never handles credentials.
 - The bridge removes `CLAUDECODE` from the environment of each child process. It sets `GNOMISH_RELAY_JOB=1` (section 10).
 
@@ -790,6 +804,15 @@ agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder na
 - The bridge replays the session with `session/load`, and answers with the last exchange: the last prompt on the first line, and the last answer below it. The addon shows them as history, with no whisper.
 - The chat then works as any other chat. Its next message resumes the session (9.5). The level ceiling of the config applies (S6).
 - A delete of the chat (7.1.1, `d`) never deletes the session. A later Resume brings it back.
+
+**Claude Code sessions (`kind = "claude"`).** `claude -p` has no list call, so the bridge reads the session files of Claude Code, with the rules of `listSessions`, `getSessionMessages`, and `forkSession` of the Claude Agent SDK. No model call happens. The code is in `claude_sessions.rs`.
+
+- The files are `<config>/projects/<folder>/<session id>.jsonl`. `<config>` is `CLAUDE_CONFIG_DIR` if the `env` list of the entry names it, else `~/.claude`: the agent sees the same folder.
+- Only a file with a UUID name counts. The list reads the 60 newest files by time of change, and 64 KiB from each end of each file.
+- The title is the newest `customTitle`, then the one in `<session id>/custom-title.json`, then `aiTitle`, `lastPrompt`, `summary`, and the first prompt. The folder is the newest `relocatedCwd`, else the first `cwd`. The time is the time of change of the file.
+- A file whose first line is a subagent line, or that has no title or no folder, is left out. So is a session that went on in another file (`continued-in`).
+- The attach reads the last 8 MiB of the file. It takes the chain of the newest leaf by `parentUuid`, the last real prompt on it, and the text of every assistant message after that prompt. Tool results, notes of Claude Code in a tag, and slash commands are not prompts.
+- The fork writes a copy next to the file, in mode 0600, as `forkSession` does: a new session id, a new uuid for each entry, a `forkedFrom` note, no progress or subagent entries, and the title with " (fork)". The file must be at most 64 MiB. A live test resumed such a copy with its history.
 
 ## 10. Pings from terminal sessions
 
@@ -938,10 +961,10 @@ backend = "auto"            # auto | portal | x11 | windows | macos
 process = "WowB.exe"
 
 [agents.claude]
-kind = "acp"
-command = ["claude-agent-acp"]
+kind = "claude"
+command = ["claude"]
 permission = "auto-edit"
-modes = { ask = "default", auto-edit = "acceptEdits", full-auto = "bypassPermissions" }
+modes = { ask = "manual" }   # optional; see 9.3
 
 [agents.codex]
 kind = "acp"
@@ -959,7 +982,7 @@ command = ["aider", "--yes", "--message-file", "{prompt_file}"]
 permission = "full-auto"    # --yes approves everything
 ```
 
-The Claude mode IDs are not checked yet.
+An older config with `kind = "acp"` and `command = ["claude-agent-acp"]` still works. Its mode IDs are not checked yet.
 
 ## 13. The addon
 
@@ -1174,6 +1197,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape. |
 | Messages from an ACP agent | The agent is untrusted. A progress line stays short, a popup text is printable (S15), and the game never gets "allow always". |
 | The Markdown renderer (7.3.1) | Agent text reaches the game window. Each block has its shape, no agent byte starts a WoW code or HTML markup, and the size stays within its bound. |
+| Lines of `claude -p` and Claude Code session files | The agent and its files are untrusted. A progress line stays short, a popup text is printable (S15), and a copy of a session keeps no old id. |
 
 ### 14.5 Security tests
 

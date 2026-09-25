@@ -3,9 +3,8 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use bridge::acp::AcpAgent;
 use bridge::agent;
-use bridge::config::{self, Config, Kind};
+use bridge::config::{self, Config};
 use bridge::fs_safe::write_atomic;
 use bridge::install;
 use bridge::lock::{self, Bridge};
@@ -481,18 +480,15 @@ fn start() -> Result<()> {
 /// not as the first reply in the game.
 fn agent_line(config: &Config) -> String {
     let name = &config.policy.default_agent;
-    let Some(spec) = config.agents.get(name).filter(|s| s.kind == Kind::Acp) else {
+    let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
+    let checked = config
+        .agents
+        .get(name)
+        .and_then(|spec| agent::check(spec, &cwd));
+    let Some(checked) = checked else {
         return "Agent: none. Replies repeat your message.".into();
     };
-    let agent = AcpAgent {
-        command: spec.command.clone(),
-        env: spec.env.clone(),
-        modes: spec.modes.clone(),
-        timeout: std::time::Duration::from_mins(1),
-        permission_timeout: std::time::Duration::from_mins(1),
-    };
-    let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    match agent.check(&cwd) {
+    match checked {
         Ok(_) => format!("Agent: {name}"),
         Err(e) if install::needs_login(&e) => match install::login_command(name) {
             Some(login) => format!("Agent: {name} needs a login. Run: {login}"),
@@ -510,18 +506,10 @@ fn check_agent(name: &str) -> Result<()> {
         .agents
         .get(name)
         .with_context(|| format!("the config has no [agents.{name}]"))?;
-    if spec.kind != Kind::Acp {
-        bail!("[agents.{name}] is not an ACP agent");
-    }
-    let agent = AcpAgent {
-        command: spec.command.clone(),
-        env: spec.env.clone(),
-        modes: spec.modes.clone(),
-        timeout: std::time::Duration::from_mins(1),
-        permission_timeout: std::time::Duration::from_mins(1),
-    };
     let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    let report = agent.check(&cwd).map_err(anyhow::Error::msg)?;
+    let report = agent::check(spec, &cwd)
+        .with_context(|| format!("[agents.{name}] is the echo agent: it starts nothing"))?
+        .map_err(anyhow::Error::msg)?;
     println!("{name}: {} {}", report.name, report.version);
     println!(
         "resumes sessions: {}",

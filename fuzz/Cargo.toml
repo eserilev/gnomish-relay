@@ -128,3 +128,10 @@ path = "fuzz_targets/markdown.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "claude"
+path = "fuzz_targets/claude.rs"
+test = false
+doc = false
+bench = false

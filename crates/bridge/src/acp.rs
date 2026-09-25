@@ -12,7 +12,7 @@ use protocol::live::OptionKind;
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Choice, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Run, SessionInfo,
+    Agent, Choice, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
     exchange_text,
 };
 use crate::config::Permission;
@@ -211,14 +211,6 @@ impl AcpAgent {
             modes: session.modes,
         })
     }
-}
-
-/// What `check-agent` prints about a new agent entry.
-pub struct Report {
-    pub name: String,
-    pub version: String,
-    pub load_session: bool,
-    pub modes: Vec<String>,
 }
 
 /// One `session/update` from the agent, as the bridge uses it.
