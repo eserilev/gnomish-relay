@@ -4,6 +4,7 @@
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
 pub mod acp;
+pub mod action_input;
 pub mod activity;
 pub mod agent;
 pub mod claude;
