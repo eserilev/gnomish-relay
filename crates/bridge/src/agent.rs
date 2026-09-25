@@ -91,8 +91,24 @@ pub struct Run {
     pub session: Option<String>,
 }
 
+/// One session of an agent, from `session/list`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SessionInfo {
+    pub id: String,
+    /// The folder of the session, as the agent gives it.
+    pub cwd: String,
+    pub title: String,
+    /// Unix seconds of the last change.
+    pub updated: u32,
+}
+
 pub trait Agent: Send + Sync {
     fn run(&self, job: &Job, control: &Control) -> Run;
+
+    /// The saved sessions of the agent. An agent that cannot list them has none.
+    fn sessions(&self, _cwd: &str) -> Result<Vec<SessionInfo>, String> {
+        Ok(Vec::new())
+    }
 }
 
 /// Answers with the message itself. It proves the whole path through the game.

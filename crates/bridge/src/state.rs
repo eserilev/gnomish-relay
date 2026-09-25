@@ -100,6 +100,10 @@ mod tests {
                 session: Session::Resume,
                 resume: None,
                 text: "next".into(),
+                work: crate::relay::Work::Attach {
+                    session: "s1".into(),
+                    fork: true,
+                },
             }],
             tokens: vec!["tok".into()],
             restore_for: Some("new".into()),

@@ -26,6 +26,34 @@ fn chunk(session: &Value, text: &str) {
     );
 }
 
+fn user_chunk(session: &Value, text: &str) {
+    send(
+        &json!({ "jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": session,
+            "update": { "sessionUpdate": "user_message_chunk", "content": { "type": "text", "text": text } },
+        }}),
+    );
+}
+
+/// Two exchanges, in chunks, as `session/load` of a saved session replays them.
+fn replay(session: &Value) {
+    user_chunk(session, "first question");
+    chunk(session, "first answer");
+    user_chunk(session, "fix the\n");
+    user_chunk(session, "bugs");
+    chunk(session, "All ");
+    chunk(session, "fixed.");
+}
+
+fn capabilities(script: &str) -> Value {
+    let sessions = match script {
+        "resume" => json!({ "resume": {} }),
+        "sessions" => json!({ "list": {}, "fork": {} }),
+        _ => json!({}),
+    };
+    json!({ "loadSession": script == "load" || script == "sessions", "sessionCapabilities": sessions })
+}
+
 /// Asks the client a question and waits for its answer.
 fn ask(method: &str, params: &Value) -> Option<Value> {
     send(&json!({ "jsonrpc": "2.0", "id": "q1", "method": method, "params": params }));
@@ -135,21 +163,31 @@ fn main() {
             "initialize" => json!({
                 "protocolVersion": if script == "v2" { 2 } else { 1 },
                 "agentInfo": { "name": "fake", "version": "1.0" },
-                "agentCapabilities": {
-                    "loadSession": script == "load",
-                    "sessionCapabilities": if script == "resume" { json!({ "resume": {} }) } else { json!({}) },
-                },
+                "agentCapabilities": capabilities(&script),
             }),
             method @ ("session/resume" | "session/load") => {
                 let id = params
                     .get("sessionId")
                     .and_then(Value::as_str)
                     .unwrap_or("?");
-                if method == "session/load" {
+                if method == "session/load" && script == "sessions" {
+                    replay(&params["sessionId"]);
+                } else if method == "session/load" {
                     chunk(&params["sessionId"], "OLD HISTORY ");
                 }
                 format!("{id} by {method}").clone_into(&mut resumed);
                 json!({})
+            }
+            "session/list" => json!({ "sessions": [
+                { "sessionId": "a1", "cwd": "/w/app", "title": "Fix bugs", "updatedAt": "2026-09-25T06:46:21.432Z" },
+                { "sessionId": "b2", "title": "No folder" },
+            ]}),
+            "session/fork" => {
+                let id = params
+                    .get("sessionId")
+                    .and_then(Value::as_str)
+                    .unwrap_or("?");
+                json!({ "sessionId": format!("fork-of-{id}") })
             }
             "session/new" => json!({
                 "sessionId": "s1",

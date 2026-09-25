@@ -14,8 +14,10 @@ use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 use serde::{Deserialize, Serialize};
 
 use crate::activity::Activity;
-use crate::agent::Choice;
-use crate::config::{Permission, Policy, folder_request, native_folder};
+use crate::agent::{Choice, SessionInfo};
+use crate::config::{
+    Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
+};
 use crate::flags::{self, Channel, Flags};
 use crate::history::{ChatLog, History, Speaker};
 use crate::state::{SavedRecord, SavedStatus, State};
@@ -28,6 +30,12 @@ const RESTARTED: &str = "Stopped: the bridge restarted.";
 const MAX_TOKENS: usize = 16;
 /// The agent sessions of the chats with the latest runs.
 const MAX_SESSIONS: usize = 64;
+/// The sessions in one list for the game, newest first.
+const MAX_LISTED: usize = 30;
+const MAX_TITLE: usize = 100;
+/// A session that changed this recently is probably open in a terminal.
+const ACTIVE_FOR: u32 = 300;
+const NO_SESSION: &str = "Session not found. Open Resume again.";
 
 /// The agent session of a chat. The next message of the chat resumes it, if its
 /// agent and its folder are the same (SPEC.md 9.5).
@@ -49,6 +57,32 @@ pub struct MessageId(pub u32);
 pub enum Session {
     New,
     Resume,
+}
+
+/// What a job does. Only a prompt reaches the model.
+#[derive(Clone, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum Work {
+    #[default]
+    Prompt,
+    /// The saved sessions of every agent, for Resume in the game.
+    ListSessions,
+    /// A new chat continues this session. A session that is open in a terminal gets a
+    /// fork, so the two never write into one session.
+    Attach { session: String, fork: bool },
+}
+
+/// A session of the last list. The game can resume only these, so the folder check
+/// of the list also guards every resume.
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Listed {
+    agent: String,
+    id: String,
+    /// The folder in the form that jobs use.
+    cwd: String,
+    /// The folder relative to the base, as the game sends it back.
+    folder: String,
+    title: String,
+    updated: u32,
 }
 
 /// Where agents can work (SPEC.md 6.2, rule 1). A folder from the game is relative
@@ -73,6 +107,8 @@ pub struct Job {
     #[serde(default)]
     pub resume: Option<String>,
     pub text: String,
+    #[serde(default)]
+    pub work: Work,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -85,6 +121,8 @@ pub enum Outcome {
     BadFolder,
     /// Seen, and answered with an error: the config has no such agent.
     BadAgent,
+    /// Seen, and answered with an error: the last list had no such session.
+    BadSession,
     Control,
 }
 
@@ -152,6 +190,7 @@ pub struct Relay {
     cancels: Vec<ChatId>,
     /// Chats that the game deleted. A run of one that ends later leaves no trace.
     deleted: Vec<ChatId>,
+    listed: Vec<Listed>,
     activity: Activity,
 }
 
@@ -163,6 +202,21 @@ fn keep_last<T>(list: &mut Vec<T>, max: usize) {
 
 fn text(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).into_owned()
+}
+
+/// A tab or a line break inside a field would break the lines of a list.
+fn field(text: &str) -> String {
+    text.chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect()
+}
+
+fn cut_chars(text: &str, max: usize) -> &str {
+    let mut end = text.len().min(max);
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    &text[..end]
 }
 
 impl Relay {
@@ -185,6 +239,7 @@ impl Relay {
             sessions: Vec::new(),
             cancels: Vec::new(),
             deleted: Vec::new(),
+            listed: Vec::new(),
             activity: Activity::default(),
         }
     }
@@ -279,6 +334,12 @@ impl Relay {
         if let Err(outcome) = self.admit(r, &chat, now) {
             return outcome;
         }
+        if flags.list {
+            return self.enqueue_list(r, chat);
+        }
+        if let Some(session) = &flags.attach {
+            return self.attach(r, chat, session, now);
+        }
         let agent = flags
             .agent
             .unwrap_or_else(|| self.policy.default_agent.clone());
@@ -329,6 +390,51 @@ impl Relay {
             },
             resume: None,
             text: text(&r.text),
+            work: Work::Prompt,
+        })
+    }
+
+    fn enqueue_list(&mut self, r: &Record, chat: ChatId) -> Outcome {
+        let base = self.policy.folders.base.clone();
+        self.enqueue_job(Job {
+            token: text(&r.token),
+            chat,
+            id: MessageId(r.id),
+            agent: self.policy.default_agent.clone(),
+            permission: Permission::Ask,
+            cwd: text(&native_folder(base, cfg!(windows))),
+            session: Session::New,
+            resume: None,
+            text: String::new(),
+            work: Work::ListSessions,
+        })
+    }
+
+    fn attach(&mut self, r: &Record, chat: ChatId, session: &str, now: u32) -> Outcome {
+        let Some(listed) = self.listed.iter().find(|l| l.id == session).cloned() else {
+            self.set_record(
+                &text(&r.token),
+                &chat,
+                MessageId(r.id),
+                Status::Error,
+                NO_SESSION.into(),
+            );
+            return Outcome::BadSession;
+        };
+        self.enqueue_job(Job {
+            token: text(&r.token),
+            chat,
+            id: MessageId(r.id),
+            agent: listed.agent,
+            permission: Permission::Ask,
+            cwd: listed.cwd,
+            session: Session::New,
+            resume: None,
+            text: String::new(),
+            work: Work::Attach {
+                session: listed.id,
+                fork: now.saturating_sub(listed.updated) < ACTIVE_FOR,
+            },
         })
     }
 
@@ -495,6 +601,83 @@ impl Relay {
             Err(text) => (Status::Error, text),
         };
         self.set_record(&job.token, &job.chat, job.id, status, text);
+    }
+
+    /// Keeps the sessions whose folder is in a root, and answers the list request with
+    /// one line per session (SPEC.md 9.6).
+    pub fn finish_list(
+        &mut self,
+        job: &Job,
+        found: Result<Vec<(String, SessionInfo)>, String>,
+        now: u32,
+    ) {
+        self.activity.end(&job.chat, job.id);
+        self.running.remove(&job.chat);
+        let found = match found {
+            Ok(found) => found,
+            Err(e) => {
+                self.set_record(&job.token, &job.chat, job.id, Status::Error, e);
+                return;
+            }
+        };
+        let mut listed: Vec<Listed> = found
+            .into_iter()
+            .filter_map(|(agent, info)| self.to_listed(agent, info))
+            .collect();
+        listed.sort_by_key(|l| std::cmp::Reverse(l.updated));
+        listed.truncate(MAX_LISTED);
+        self.listed = listed;
+        let text = self.list_text(now);
+        self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
+    }
+
+    fn to_listed(&self, agent: String, info: SessionInfo) -> Option<Listed> {
+        if !flags::is_session_id(&info.id) {
+            return None;
+        }
+        let folders = &self.policy.folders;
+        let mut target = path_bytes(std::path::Path::new(&info.cwd));
+        // A Windows path starts with its drive. The resolver takes it as absolute only
+        // with a `/` first.
+        if !target.starts_with(b"/") {
+            target.insert(0, b'/');
+        }
+        let resolved = resolve_folder(&folders.roots, &folders.base, &target)?;
+        Some(Listed {
+            agent,
+            id: info.id,
+            folder: text(&relative_folder(&folders.base, &resolved)),
+            cwd: text(&native_folder(resolved, cfg!(windows))),
+            title: info.title,
+            updated: info.updated,
+        })
+    }
+
+    /// Tab-separated: agent, session, age in seconds, 1 if active, the chat that has
+    /// it or nothing, the folder, the name of the folder, and the title.
+    fn list_text(&self, now: u32) -> String {
+        let mut lines = Vec::new();
+        for l in &self.listed {
+            let chat = self.sessions.iter().find(|s| s.id == l.id);
+            let age = now.saturating_sub(l.updated);
+            let name = l
+                .cwd
+                .rsplit(['/', '\\'])
+                .find(|p| !p.is_empty())
+                .unwrap_or("");
+            let fields = [
+                l.agent.clone(),
+                l.id.clone(),
+                age.to_string(),
+                if age < ACTIVE_FOR { "1" } else { "0" }.to_owned(),
+                chat.map_or(String::new(), |s| s.chat.0.clone()),
+                field(&l.folder),
+                field(name),
+                field(cut_chars(&l.title, MAX_TITLE)),
+            ];
+            lines.push(fields.join("\t"));
+        }
+        lines.join("\n")
     }
 
     /// Puts the record of a message at the newest place with its new state.
@@ -1076,6 +1259,157 @@ mod tests {
         assert_eq!(relay.unread(), 0);
         assert!(relay.to_state().sessions.is_empty());
         assert!(relay.next_job().is_none(), "the waiting message never runs");
+    }
+
+    fn info(id: &str, cwd: &str, title: &str, updated: u32) -> SessionInfo {
+        SessionInfo {
+            id: id.into(),
+            cwd: cwd.into(),
+            title: title.into(),
+            updated,
+        }
+    }
+
+    /// Runs a list request of chat `relay` with what the agents found.
+    fn list(relay: &mut Relay, id: u32, found: Vec<(String, SessionInfo)>) -> String {
+        relay.on_frame(&[record("relay", id, "list", "")], NOW);
+        let job = relay.next_job().unwrap();
+        assert_eq!(job.work, Work::ListSessions);
+        relay.finish_list(&job, Ok(found), NOW);
+        body(relay)
+    }
+
+    #[test]
+    fn a_list_shows_the_sessions_in_the_roots_newest_first() {
+        let mut relay = relay();
+        list(
+            &mut relay,
+            1,
+            vec![
+                (
+                    "claude".into(),
+                    info("old", "/home/x/Code/app", "Old work", NOW - 7200),
+                ),
+                (
+                    "claude".into(),
+                    info("new", "/home/x/Code/app", "New work", NOW - 60),
+                ),
+                ("claude".into(), info("ssh", "/home/x/.ssh", "Keys", NOW)),
+                ("codex".into(), info("bad;id", "/home/x/Code", "Bad", NOW)),
+            ],
+        );
+        assert_eq!(
+            relay.list_text(NOW),
+            "claude\tnew\t60\t1\t\tapp\tapp\tNew work\n\
+             claude\told\t7200\t0\t\tapp\tapp\tOld work",
+            "a session outside the roots or with a bad id never shows"
+        );
+    }
+
+    #[test]
+    fn a_title_with_line_breaks_stays_on_one_line_and_is_cut() {
+        let mut relay = relay();
+        let title = format!("a\tb\nc{}", "é".repeat(80));
+        list(
+            &mut relay,
+            1,
+            vec![("claude".into(), info("s1", "/home/x/Code", &title, NOW))],
+        );
+        let text = relay.list_text(NOW);
+        assert_eq!(text.lines().count(), 1);
+        let shown = text.rsplit('\t').next().unwrap();
+        assert!(shown.starts_with("a b c"));
+        assert!(shown.len() <= MAX_TITLE);
+    }
+
+    #[test]
+    fn a_failed_list_publishes_the_error() {
+        let mut relay = relay();
+        relay.on_frame(&[record("relay", 1, "list", "")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.finish_list(&job, Err("agent crashed".into()), NOW);
+        assert!(body(&relay).contains(r#"status = "error", text = "agent crashed""#));
+    }
+
+    #[test]
+    fn an_attach_continues_a_listed_session_and_later_messages_resume_it() {
+        let mut relay = relay();
+        list(
+            &mut relay,
+            1,
+            vec![(
+                "codex".into(),
+                info("s1", "/home/x/Code/app", "Work", NOW - 3600),
+            )],
+        );
+
+        relay.on_frame(&[record("c9", 2, "attach=s1", "")], NOW);
+        let attach = relay.next_job().unwrap();
+        assert_eq!(attach.agent, "codex");
+        assert_eq!(attach.cwd, "/home/x/Code/app");
+        assert_eq!(
+            attach.work,
+            Work::Attach {
+                session: "s1".into(),
+                fork: false
+            }
+        );
+        relay.keep_session(&attach, Some("s1".into()));
+        relay.finish(&attach, Ok("last exchange".into()));
+
+        relay.on_frame(&[record_in("app", "c9", 3, "agent=codex", "go on")], NOW);
+        let next = relay.next_job().unwrap();
+        assert_eq!(next.resume.as_deref(), Some("s1"));
+    }
+
+    #[test]
+    fn an_attach_to_an_active_session_forks_it() {
+        let mut relay = relay();
+        list(
+            &mut relay,
+            1,
+            vec![(
+                "claude".into(),
+                info("s1", "/home/x/Code", "Work", NOW - 10),
+            )],
+        );
+        relay.on_frame(&[record("c9", 2, "attach=s1", "")], NOW);
+        let job = relay.next_job().unwrap();
+        assert_eq!(
+            job.work,
+            Work::Attach {
+                session: "s1".into(),
+                fork: true
+            }
+        );
+    }
+
+    #[test]
+    fn an_attach_to_a_session_that_the_list_did_not_show_gets_an_error() {
+        let mut relay = relay();
+        let outcomes = relay.on_frame(&[record("c9", 2, "attach=s1", "")], NOW);
+        assert_eq!(outcomes, [Outcome::BadSession]);
+        assert!(relay.next_job().is_none());
+        assert!(body(&relay).contains(NO_SESSION));
+    }
+
+    #[test]
+    fn a_listed_session_of_a_chat_names_that_chat() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.keep_session(&job, Some("s1".into()));
+        relay.finish(&job, Ok("done".into()));
+
+        list(
+            &mut relay,
+            2,
+            vec![(
+                "claude".into(),
+                info("s1", "/home/x/Code", "Work", NOW - 3600),
+            )],
+        );
+        assert!(relay.list_text(NOW).contains("\t0\tc1\t"));
     }
 
     #[test]

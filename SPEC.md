@@ -345,6 +345,8 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `n` | Start a new agent session for this chat. |
 | `h` | Hello only. It announces the token and the addon version. It has no prompt. The addon sends one at login and after it applies a restore bundle (7.6). |
 | `d` | The chat is deleted. The bridge stops its runs, and drops its replies, its session link, and its history. A reply of a deleted chat can never be read, so it must leave the body (7.3). The addon keeps the id in `db.forget`, and sends it with each strip until a strip goes out while the bridge is online. The agent session itself stays, so Resume can bring the chat back. |
+| `list` | Asks for the saved sessions of the agents (9.6). The record is a message of the chat `relay`, and the reply is the list. |
+| `attach=<session>` | The first message of a resumed chat. It has no text. The session must be in the last list (9.6). |
 | `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not set up." |
 | `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
@@ -726,6 +728,33 @@ Claude stores sessions per project folder.
 If a chat changes folder, the bridge starts a new session for it.
 The bridge stores the folder of each session in `state.json`.
 
+### 9.6 Resume a session
+
+The player can continue a saved session of an agent in the game, for example a Claude Code session from a terminal.
+The bridge cannot join a session that runs in a terminal: the terminal owns its input. So the game continues the saved session instead.
+
+**The list.** **Resume** in the window sends a `list` record. The bridge asks each agent of the config for `session/list`, when the agent offers it, and answers with one line per session:
+
+```
+agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder name \t title
+```
+
+- Only a session whose folder is inside a root shows (6.2, rule 1). The others stay hidden, with no count.
+- The list holds the 30 newest sessions. A title is at most 100 bytes, and control characters become spaces.
+- `folder` is relative to the base folder. The game sends it back as the folder of the chat, and it resolves to the same folder. On Windows, the game cannot send an absolute path (7.1.1).
+- `chat` names the game chat that already has the session. A click on that row opens the chat, not a second one.
+- A session that changed in the last 5 minutes is active: it is probably open in a terminal.
+- An agent whose list fails is left out. When every agent fails, the reply is an error.
+- The addon keeps the last list in its saved variables, so the picker opens at once. A newer list replaces it.
+
+**The attach.** A click on a session makes a new chat with the title, the agent, and the folder of the session. Its first message has the `attach` flag and no text.
+
+- The bridge accepts only a session of its last list. So the folder check of the list guards the attach too.
+- An active session gets `session/fork`: the chat continues a copy, and the terminal keeps the original. With no fork, the chat continues the session itself.
+- The bridge replays the session with `session/load`, and answers with the last exchange: the last prompt on the first line, and the last answer below it. The addon shows them as history, with no whisper.
+- The chat then works as any other chat. Its next message resumes the session (9.5). The level ceiling of the config applies (S6).
+- A delete of the chat (7.1.1, `d`) never deletes the session. A later Resume brings it back.
+
 ## 10. Pings from terminal sessions
 
 The `gnomish-relay-hook` CLI sends one event to the bridge:
@@ -905,7 +934,7 @@ The mockup is the reference for the layout.
 
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
-- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tile is "Start a New Chat". A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
+- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tiles are "Start a New Chat" and "Resume". Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
 - **Center:** a dropdown for the agent and the permission mode, the folder, and the bridge light. Below them, the transcript on a black background in classic lines: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. Code shows in black boxes in a shipped mono font.
 - **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
 - **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details.

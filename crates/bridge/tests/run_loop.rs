@@ -311,3 +311,52 @@ fn a_permission_request_waits_for_the_answer_from_the_game() {
     );
     assert!(live_request(&f.addons).is_none());
 }
+
+/// An agent with saved sessions, or one whose list fails.
+struct Sessions(Result<Vec<bridge::agent::SessionInfo>, String>);
+
+impl Agent for Sessions {
+    fn run(&self, _job: &Job, _control: &Control) -> Run {
+        Run {
+            reply: Ok(String::new()),
+            session: None,
+        }
+    }
+
+    fn sessions(&self, _cwd: &str) -> Result<Vec<bridge::agent::SessionInfo>, String> {
+        self.0.clone()
+    }
+}
+
+fn list_strip(f: &Dirs) {
+    let payload = b"tok\x1frelay\x1f8\x1f\x1flist\x1f\x1f";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), payload, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_2.png"), png).unwrap();
+}
+
+#[test]
+fn a_list_request_comes_back_with_the_sessions_of_the_agents() {
+    let f = folders();
+    let found = vec![bridge::agent::SessionInfo {
+        id: "a1".into(),
+        cwd: "/home/x/app".into(),
+        title: "Fix bugs".into(),
+        updated: now() - 7200,
+    }];
+    let mut bridge = bridge_with(&f, Arc::new(Sessions(Ok(found))));
+    list_strip(&f);
+    let addons = f.addons.clone();
+    assert!(step_until(&mut bridge, || slot_body(&addons).contains("Fix bugs")));
+    assert!(slot_body(&f.addons).contains(r#"chat = "relay", id = 8, status = "done""#));
+}
+
+#[test]
+fn a_list_that_fails_in_every_agent_is_an_error() {
+    let f = folders();
+    let mut bridge = bridge_with(&f, Arc::new(Sessions(Err("not logged in".into()))));
+    list_strip(&f);
+    let addons = f.addons.clone();
+    assert!(step_until(&mut bridge, || slot_body(&addons)
+        .contains("claude: not logged in")));
+    assert!(slot_body(&f.addons).contains(r#"status = "error""#));
+}

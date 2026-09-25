@@ -1117,3 +1117,176 @@ fn a_delete_while_the_bridge_is_off_goes_out_again_after_a_reload() {
     assert!(deletes.iter().all(|r| r.chat == chat.as_bytes()));
     assert_eq!(game.db().get::<Table>("forget").unwrap().raw_len(), 0);
 }
+
+const LIST: &str = "claude\ta1\t7200\t0\t\tapp\tapp\tFix bugs\n\
+                    claude\tb2\t10\t1\t\tapp\tapp\tLive work\n\
+                    codex\tc3\t90000\t0\t\t../w\tw\tOther\n\
+                    Bad Agent\td4\t1\t0\t\tapp\tapp\tSkipped\n\
+                    claude\te;5\t1\t0\t\tapp\tapp\tSkipped too";
+
+fn text_of(game: &Game, code: &str) -> String {
+    game.run(&format!("return {code}"))
+        .to_string()
+        .unwrap_or_default()
+}
+
+/// Opens the window, clicks Resume, and answers the list request with `list`.
+fn open_sessions(game: &Game, list: &str, status: Status) -> u32 {
+    game.run("local ns = ... ns.Window.Open()");
+    let resume_tile = format!("GnomishRelayTile{}", chat_count(game) + 2);
+    let before = game.shots();
+    game.run(&format!("{resume_tile}:Click()"));
+    game.advance(2.0);
+    let request = (before + 1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .find(|r| flags(r).contains(&"list".into()))
+        .expect("a list request");
+    assert_eq!(request.chat, b"relay");
+    game.publish(&[reply("relay", request.id, status, list)]);
+    game.advance(5.0);
+    request.id
+}
+
+#[test]
+fn resume_lists_the_sessions_by_folder_and_skips_bad_lines() {
+    let game = Game::start();
+    open_sessions(&game, LIST, Status::Done);
+
+    let rows: Vec<String> = (1..=6)
+        .map(|i| {
+            text_of(
+                &game,
+                &format!(
+                    "GnomishRelayPick{i}:IsShown() and GnomishRelayPick{i}.text:GetText() or ''"
+                ),
+            )
+        })
+        .collect();
+    assert_eq!(
+        rows,
+        [
+            "|cffffd100app|r",
+            "   Fix bugs",
+            "   Live work",
+            "|cffffd100w|r",
+            "   Other",
+            ""
+        ]
+    );
+    assert_eq!(
+        text_of(&game, "GnomishRelayPick2.right:GetText()"),
+        "Claude  2 h"
+    );
+    assert!(text_of(&game, "GnomishRelayPick3.right:GetText()").contains("open"));
+    assert_eq!(
+        text_of(&game, "GnomishRelayPick5.right:GetText()"),
+        "Codex  1 d"
+    );
+}
+
+#[test]
+fn the_list_reply_is_reported_as_read() {
+    let game = Game::start();
+    let id = open_sessions(&game, LIST, Status::Done);
+    game.send("hi");
+    game.advance(1.0);
+    let first = &game.last_strip()[0];
+    assert!(
+        flags(first).contains(&format!("read={id}")),
+        "{:?}",
+        flags(first)
+    );
+}
+
+#[test]
+fn a_click_on_a_session_opens_a_chat_that_asks_to_attach_it() {
+    let game = Game::start();
+    open_sessions(&game, LIST, Status::Done);
+
+    game.run("GnomishRelayPick2:Click()");
+    game.advance(1.0);
+
+    let record = game
+        .last_strip()
+        .into_iter()
+        .find(|r| r.chat == game.chat_id().as_bytes())
+        .unwrap();
+    let sent = flags(&record);
+    assert!(sent.contains(&"attach=a1".into()), "{sent:?}");
+    assert!(
+        !sent.contains(&"n".into()),
+        "a resumed chat never starts a new session"
+    );
+    assert_eq!(record.cwd, b"app");
+    assert!(record.text.is_empty());
+    assert_eq!(text_of(&game, "GnomishRelayDB.chats[1].name"), "Fix bugs");
+}
+
+#[test]
+fn the_attach_reply_shows_the_last_exchange_and_later_messages_resume() {
+    let game = Game::start();
+    open_sessions(&game, LIST, Status::Done);
+    game.run("GnomishRelayPick2:Click()");
+    game.advance(1.0);
+    let chat = game.chat_id();
+    game.publish(&[reply(
+        &chat,
+        first_message_id(&game),
+        Status::Done,
+        "fix the bugs\nAll fixed.",
+    )]);
+    game.advance(5.0);
+
+    let transcript: Table = game.lua.globals().get("GnomishRelayTranscript").unwrap();
+    let lines: Vec<String> = transcript.get("lines").unwrap();
+    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert!(lines[0].contains("Resumed \"Fix bugs\""));
+    assert!(lines[1].contains("[You]") && lines[1].contains("fix the bugs"));
+    assert!(lines[2].contains("All fixed."));
+    assert!(
+        game.printed().iter().all(|p| !p.contains("All fixed")),
+        "no whisper for an attach"
+    );
+
+    game.send("go on");
+    game.advance(1.0);
+    let record = game
+        .last_strip()
+        .into_iter()
+        .find(|r| r.text == b"go on")
+        .unwrap();
+    let sent = flags(&record);
+    assert!(
+        sent.iter().all(|f| !f.starts_with("attach=") && f != "n"),
+        "{sent:?}"
+    );
+    assert_eq!(record.cwd, b"app");
+}
+
+#[test]
+fn a_session_that_has_a_chat_opens_that_chat() {
+    let game = Game::start();
+    game.send("hi");
+    let chat = game.chat_id();
+    open_sessions(
+        &game,
+        &format!("claude\ta1\t7200\t0\t{chat}\tapp\tapp\tFix bugs"),
+        Status::Done,
+    );
+
+    game.run("GnomishRelayPick2:Click()");
+
+    assert_eq!(chat_count(&game), 1);
+    assert_eq!(text_of(&game, "GnomishRelayDB.selected"), chat);
+}
+
+#[test]
+fn a_failed_list_shows_its_error() {
+    let game = Game::start();
+    open_sessions(&game, "claude: not logged in", Status::Error);
+    assert_eq!(
+        text_of(&game, "GnomishRelayPick1:IsShown() and 'shown' or 'hidden'"),
+        "hidden"
+    );
+    assert!(text_of(&game, "GnomishRelayPickNote:GetText()").contains("not logged in"));
+}

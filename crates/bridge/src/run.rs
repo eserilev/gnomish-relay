@@ -9,10 +9,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
-use crate::agent::{Agents, Control, Event, Events, Run, StopSignal};
+use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopSignal};
 use crate::config::Policy;
 use crate::receive::{StripKey, receive};
-use crate::relay::{ChatId, Job, MessageId, Outcome, Relay};
+use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots::{self, Files};
@@ -24,7 +24,12 @@ const ADDON_VERSIONS: std::ops::RangeInclusive<u32> = 1..=1;
 /// The addon calls the bridge offline after 12 minutes without a new body.
 const HEARTBEAT: Duration = Duration::from_mins(1);
 
-type Finished = (Job, Run);
+type Found = Result<Vec<(String, SessionInfo)>, String>;
+
+enum Finished {
+    Run(Job, Run),
+    List(Job, Found),
+}
 type RunEvent = (ChatId, MessageId, Event);
 
 pub struct Paths {
@@ -199,6 +204,10 @@ impl Bridge {
 
     fn start_runs(&mut self) {
         while let Some(job) = self.relay.next_job() {
+            if job.work == Work::ListSessions {
+                self.start_list(job);
+                continue;
+            }
             log(&format!(
                 "run {} #{} with {} at {:?}",
                 job.chat.0, job.id.0, job.agent, job.permission
@@ -210,7 +219,7 @@ impl Bridge {
                     reply: Err("Agent not set up.".into()),
                     session: None,
                 };
-                let _ = finished.send((job, run));
+                let _ = finished.send(Finished::Run(job, run));
                 continue;
             };
             let control = Control {
@@ -220,9 +229,19 @@ impl Bridge {
             self.stops.insert(job.chat.clone(), control.stop.clone());
             thread::spawn(move || {
                 let run = agent.run(&job, &control);
-                let _ = finished.send((job, run));
+                let _ = finished.send(Finished::Run(job, run));
             });
         }
+    }
+
+    fn start_list(&self, job: Job) {
+        log(&format!("list sessions #{}", job.id.0));
+        let agents = self.agents.clone();
+        let finished = self.finished.clone();
+        thread::spawn(move || {
+            let found = list_sessions(&agents, &job.cwd);
+            let _ = finished.send(Finished::List(job, found));
+        });
     }
 
     fn signal_stops(&mut self) {
@@ -261,7 +280,15 @@ impl Bridge {
     }
 
     fn finish_runs(&mut self) {
-        while let Ok((job, run)) = self.results.try_recv() {
+        while let Ok(done) = self.results.try_recv() {
+            let (job, run) = match done {
+                Finished::Run(job, run) => (job, run),
+                Finished::List(job, found) => {
+                    self.relay.finish_list(&job, found, now());
+                    self.changed = true;
+                    continue;
+                }
+            };
             log(&format!("done {} #{}", job.chat.0, job.id.0));
             self.stops.remove(&job.chat);
             self.relay.keep_session(&job, run.session);
@@ -285,6 +312,23 @@ impl Bridge {
         }
         self.changed = false;
     }
+}
+
+/// An agent that fails to list is left out. Only when every agent fails is the list
+/// an error.
+fn list_sessions(agents: &Agents, cwd: &str) -> Found {
+    let mut found = Vec::new();
+    let mut errors = Vec::new();
+    for (name, agent) in agents {
+        match agent.sessions(cwd) {
+            Ok(sessions) => found.extend(sessions.into_iter().map(|s| (name.clone(), s))),
+            Err(e) => errors.push(format!("{name}: {e}")),
+        }
+    }
+    if found.is_empty() && !errors.is_empty() {
+        return Err(errors.join("\n"));
+    }
+    Ok(found)
 }
 
 pub fn run(paths: Paths, policy: Policy, key: StripKey, agents: Agents) -> Result<()> {

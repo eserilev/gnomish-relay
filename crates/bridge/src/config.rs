@@ -208,6 +208,23 @@ pub fn native_folder(resolved: Vec<u8>, windows: bool) -> Vec<u8> {
     }
 }
 
+/// The path from `base` to `target`, both resolved. The game sends it back, and it
+/// resolves to `target` again. An absolute path can hold a drive, which the game
+/// cannot send on Windows.
+pub fn relative_folder(base: &[u8], target: &[u8]) -> Vec<u8> {
+    let parts = |path: &'_ [u8]| -> Vec<Vec<u8>> {
+        path.split(|&b| b == b'/')
+            .filter(|p| !p.is_empty())
+            .map(<[u8]>::to_vec)
+            .collect()
+    };
+    let (base, target) = (parts(base), parts(target));
+    let same = base.iter().zip(&target).take_while(|(a, b)| a == b).count();
+    let mut out: Vec<Vec<u8>> = vec![b"..".to_vec(); base.len() - same];
+    out.extend(target[same..].iter().cloned());
+    out.join(&b'/')
+}
+
 pub fn folder_request(raw: &[u8], windows: bool) -> Option<Vec<u8>> {
     if !windows {
         return Some(raw.to_vec());
@@ -369,6 +386,29 @@ pub fn default_text(wow: &Path, agents: &[(&str, &[&str])], roots: &[String]) ->
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_relative_folder_goes_down_from_the_base_or_up_and_over() {
+        let rel = |base: &str, target: &str| {
+            String::from_utf8(relative_folder(base.as_bytes(), target.as_bytes())).unwrap()
+        };
+        assert_eq!(rel("/home/x/Code", "/home/x/Code/app/src"), "app/src");
+        assert_eq!(rel("/home/x/Code", "/home/x/Code"), "");
+        assert_eq!(rel("/home/x/Code/a", "/home/x/Work/b"), "../../Work/b");
+        assert_eq!(rel("/C:/Users/x", "/C:/Users/x/repo"), "repo");
+    }
+
+    #[test]
+    fn a_relative_folder_resolves_back_to_its_target() {
+        let roots = [b"/home/x".to_vec()];
+        let base = b"/home/x/Code/a";
+        let target = b"/home/x/Work/b";
+        let rel = relative_folder(base, target);
+        assert_eq!(
+            protocol::folder::resolve_folder(&roots, base, &rel).as_deref(),
+            Some(target.as_slice())
+        );
+    }
 
     struct Home {
         dir: tempfile::TempDir,

@@ -10,6 +10,10 @@ pub struct Flags {
     pub restored: bool,
     pub stop: bool,
     pub delete: bool,
+    /// The game asks for the sessions that it can resume.
+    pub list: bool,
+    /// The session of an agent that a new chat continues.
+    pub attach: Option<String>,
     pub next: Option<usize>,
     pub read: Vec<u32>,
     pub agent: Option<String>,
@@ -74,6 +78,14 @@ fn is_build(word: &str) -> bool {
     !word.is_empty() && word.len() <= 12 && word.bytes().all(|b| b.is_ascii_digit())
 }
 
+/// The ids of agents are UUIDs. The limit keeps `;` and `=` out of a flag.
+pub fn is_session_id(id: &str) -> bool {
+    (1..=64).contains(&id.len())
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
+}
+
 pub fn parse(bytes: &[u8]) -> Flags {
     let mut flags = Flags::default();
     for flag in String::from_utf8_lossy(bytes).split(';') {
@@ -84,6 +96,7 @@ pub fn parse(bytes: &[u8]) -> Flags {
                 "restored" => flags.restored = true,
                 "stop" => flags.stop = true,
                 "d" => flags.delete = true,
+                "list" => flags.list = true,
                 _ => {}
             },
             Some(("next", n)) => flags.next = n.parse().ok(),
@@ -96,6 +109,7 @@ pub fn parse(bytes: &[u8]) -> Flags {
             Some(("in", word)) => flags.inbound = channel(word, "slots", "missing"),
             Some(("perm", value)) => flags.perm = perm_answer(value),
             Some(("ver", n)) => flags.version = n.parse().ok(),
+            Some(("attach", id)) if is_session_id(id) => flags.attach = Some(id.to_owned()),
             Some(("agent", name)) if protocol::record::is_valid_id(name.as_bytes()) => {
                 flags.agent = Some(name.to_owned());
             }
@@ -112,7 +126,7 @@ mod tests {
     #[test]
     fn every_known_flag_parses() {
         let f = parse(
-            b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop;build=70009;out=shot;in=missing;ver=1;d",
+            b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop;build=70009;out=shot;in=missing;ver=1;d;list;attach=3f2a-9c_1",
         );
         assert_eq!(
             f,
@@ -122,6 +136,8 @@ mod tests {
                 restored: true,
                 stop: true,
                 delete: true,
+                list: true,
+                attach: Some("3f2a-9c_1".into()),
                 next: Some(42),
                 read: vec![7, 9],
                 agent: Some("claude".into()),
@@ -165,5 +181,16 @@ mod tests {
         assert_eq!(f.agent, None);
         assert_eq!(f.build, None);
         assert_eq!(f.out, None);
+    }
+
+    #[test]
+    fn an_attach_with_a_bad_session_id_is_ignored() {
+        assert_eq!(parse(b"attach=../x").attach, None);
+        assert_eq!(parse(b"attach=").attach, None);
+        assert_eq!(
+            parse(&[b"attach=".as_slice(), &[b'a'; 65]].concat()).attach,
+            None
+        );
+        assert_eq!(parse(b"attach=a b").attach, None);
     }
 }

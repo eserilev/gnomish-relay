@@ -163,8 +163,8 @@ function methods:CreateTexture()
 	return t
 end
 
-function methods:CreateFontString()
-	return New("FontString", nil, self)
+function methods:CreateFontString(name)
+	return New("FontString", name, self)
 end
 
 function methods:SetColorTexture(r, g, b)

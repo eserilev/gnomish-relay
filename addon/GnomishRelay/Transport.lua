@@ -23,6 +23,7 @@ local TOO_LONG = "Too long to send."
 local NOT_SENT = "Not sent. Send it again."
 -- The bridge accepts a frame up to 300 s old (S11). Keep a margin for the screenshot.
 local FRESH_FOR = 270
+local LIST_CHAT = "relay"
 
 local state = {
 	nextSlot = 1,
@@ -128,12 +129,16 @@ local function ChatFlags(chat)
 end
 
 local function MessageRecord(chat, message)
+	local flags = ChatFlags(chat)
+	if message.attach then
+		table.insert(flags, "attach=" .. chat.attach)
+	end
 	return {
 		token = ns.Store.db.token,
 		chat = chat.id,
 		id = message.id,
 		cwd = chat.cwd,
-		flags = table.concat(ChatFlags(chat), ";"),
+		flags = table.concat(flags, ";"),
 		name = chat.name,
 		text = message.text,
 	}
@@ -336,12 +341,7 @@ function Transport.Fits(chat, text)
 	return #ns.Codec.Payload({ record }) + REPORT_ROOM <= ns.Codec.MAX_PAYLOAD
 end
 
--- Returns nil for a message that does not fit in one strip.
-function Transport.Send(chat, text)
-	if not Transport.Fits(chat, text) then
-		return nil
-	end
-	local message = ns.Store.AddMessage(chat, text)
+local function Queue(chat, message)
 	local record = MessageRecord(chat, message)
 	state.private[message.id] = record
 	message.frame = ns.Codec.Hex(Sign({ record }, message.id))
@@ -351,6 +351,37 @@ function Transport.Send(chat, text)
 	Transport.ShowNextStrip()
 	Transport.OnChange()
 	return message
+end
+
+-- Returns nil for a message that does not fit in one strip.
+function Transport.Send(chat, text)
+	if not Transport.Fits(chat, text) then
+		return nil
+	end
+	return Queue(chat, ns.Store.AddMessage(chat, text))
+end
+
+-- The first message of a resumed chat has no text. It asks the bridge to attach the
+-- session to the chat.
+function Transport.Attach(chat)
+	local message = ns.Store.AddMessage(chat, "")
+	message.attach = true
+	return Queue(chat, message)
+end
+
+-- The list is the reply to a message of the chat "relay", one session per line.
+function Transport.ListSessions()
+	local db = ns.Store.db
+	state.listing = db.nextId
+	db.nextId = db.nextId + 1
+	table.insert(state.controls, { token = db.token, chat = LIST_CHAT, id = state.listing, flags = "list" })
+	state.lastSend = GetTime()
+	state.nextPoll = state.lastSend + SCHEDULE[1]
+	Transport.ShowNextStrip()
+end
+
+function Transport.Listing()
+	return state.listing ~= nil
 end
 
 function Transport.Delete(chat)
@@ -366,7 +397,61 @@ function Transport.Stop(chat)
 	Transport.ShowNextStrip()
 end
 
+local function Field(text)
+	return text ~= nil and text or ""
+end
+
+-- Agent, session, age, active, chat, folder, folder name, title (SPEC.md 9.6).
+local function ParseSessions(text)
+	local rows = {}
+	for line in (tostring(text) .. "\n"):gmatch("([^\n]*)\n") do
+		local f = {}
+		for part in (line .. "\t"):gmatch("([^\t]*)\t") do
+			table.insert(f, part)
+		end
+		local session, age = f[2], tonumber(f[3])
+		local valid = ns.Codec.IsValidId(f[1]) and age and type(session) == "string"
+		if valid and #session <= 64 and not session:find("[^%w_-]") then
+			table.insert(rows, {
+				agent = f[1],
+				session = session,
+				age = age,
+				active = f[4] == "1",
+				chat = f[5] ~= "" and f[5] or nil,
+				folder = Field(f[6]),
+				repo = Field(f[7]),
+				title = Field(f[8]),
+			})
+		end
+	end
+	return rows
+end
+
+-- An older list that comes after a newer one changes nothing.
+local function ApplyList(r, done)
+	if r.status == "working" then
+		return
+	end
+	done[r.id] = true
+	local db = ns.Store.db
+	if db.sessions and db.sessions.id and db.sessions.id >= r.id then
+		return
+	end
+	if r.id == state.listing then
+		state.listing = nil
+	end
+	if r.status == "error" then
+		db.sessions = { id = r.id, at = time(), rows = db.sessions and db.sessions.rows or {}, error = r.text }
+		return
+	end
+	db.sessions = { id = r.id, at = time(), rows = ParseSessions(r.text) }
+end
+
 local function ApplyReply(r, done)
+	if r.chat == LIST_CHAT then
+		ApplyList(r, done)
+		return
+	end
 	local chat = ns.Store.Chat(r.chat)
 	local message = chat and ns.Store.Message(chat, r.id)
 	if not message then
@@ -390,7 +475,7 @@ local function ApplyReply(r, done)
 	if state.working[chat.id] and state.working[chat.id].id == r.id then
 		state.working[chat.id] = nil
 	end
-	if ns.Store.AddReply(chat, r.id, r.text, r.status) then
+	if ns.Store.AddReply(chat, r.id, r.text, r.status) and not message.attach then
 		Transport.OnReply(chat, r)
 	end
 end
@@ -507,7 +592,11 @@ function Transport.Poll()
 end
 
 local function NextDelay(now)
-	for _, item in ipairs(ns.Store.Open()) do
+	local open = ns.Store.Open()
+	if state.listing then
+		table.insert(open, { message = {} })
+	end
+	for _, item in ipairs(open) do
 		if not item.message.outbox then
 			local elapsed = now - (state.lastSend or -math.huge)
 			for _, at in ipairs(SCHEDULE) do

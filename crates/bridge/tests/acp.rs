@@ -6,10 +6,10 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use bridge::acp::AcpAgent;
+use bridge::acp::{AcpAgent, unix_time};
 use bridge::agent::{Agent, Control, Event, Events, StopSignal};
 use bridge::config::Permission;
-use bridge::relay::{ChatId, Job, MessageId, Session};
+use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 
 fn agent(script: &str) -> AcpAgent {
     AcpAgent {
@@ -32,6 +32,7 @@ fn job(dir: &tempfile::TempDir, permission: Permission, text: &str) -> Job {
         session: Session::New,
         resume: None,
         text: text.into(),
+        work: Work::Prompt,
     }
 }
 
@@ -296,4 +297,98 @@ fn an_unanswered_request_is_cancelled_after_the_permission_timeout() {
     let (reply, _) = run_with_game(&agent, Permission::AutoEdit, |_| None);
     assert_eq!(reply.unwrap(), "chose cancelled");
     assert!(start.elapsed() < Duration::from_secs(5));
+}
+
+fn attach(script: &str, fork: bool) -> (Result<String, String>, Option<String>) {
+    let dir = tempfile::tempdir().unwrap();
+    let mut job = job(&dir, Permission::Ask, "");
+    job.work = Work::Attach {
+        session: "a1".into(),
+        fork,
+    };
+    let run = agent(script).run(&job, &Control::default());
+    (run.reply, run.session)
+}
+
+#[test]
+fn the_list_has_each_session_with_a_folder() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = agent("sessions")
+        .sessions(&dir.path().to_string_lossy())
+        .unwrap();
+    assert_eq!(sessions.len(), 1);
+    assert_eq!(sessions[0].id, "a1");
+    assert_eq!(sessions[0].cwd, "/w/app");
+    assert_eq!(sessions[0].title, "Fix bugs");
+    assert_eq!(sessions[0].updated, 1_790_318_781);
+}
+
+#[test]
+fn an_agent_with_no_list_has_no_sessions() {
+    let dir = tempfile::tempdir().unwrap();
+    let sessions = agent("reply")
+        .sessions(&dir.path().to_string_lossy())
+        .unwrap();
+    assert!(sessions.is_empty());
+}
+
+#[test]
+fn an_attach_returns_the_last_exchange_of_the_session() {
+    let (reply, session) = attach("sessions", false);
+    assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
+    assert_eq!(session.as_deref(), Some("a1"));
+}
+
+#[test]
+fn an_attach_with_fork_continues_a_copy() {
+    let (reply, session) = attach("sessions", true);
+    assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
+    assert_eq!(session.as_deref(), Some("fork-of-a1"));
+}
+
+#[test]
+fn an_attach_to_an_agent_with_no_load_keeps_the_session_and_shows_nothing() {
+    let (reply, session) = attach("reply", true);
+    assert_eq!(reply.unwrap(), "");
+    assert_eq!(
+        session.as_deref(),
+        Some("a1"),
+        "no fork, so the same session"
+    );
+}
+
+#[test]
+fn an_iso_time_becomes_unix_seconds_and_a_bad_one_is_none() {
+    assert_eq!(unix_time("1970-01-01T00:00:00Z"), Some(0));
+    assert_eq!(unix_time("2024-02-29T23:59:59.999Z"), Some(1_709_251_199));
+    assert_eq!(unix_time("2026-13-01T00:00:00Z"), None);
+    assert_eq!(unix_time("yesterday"), None);
+    assert_eq!(unix_time("1969-12-31T23:59:59Z"), None);
+}
+
+/// A live run against `claude-agent-acp` on `PATH`. `GNOMISH_LIVE_SESSION` names a
+/// session to replay: `cargo test --test acp live -- --ignored --nocapture`.
+#[test]
+#[ignore = "needs claude-agent-acp and a Claude login"]
+fn live_claude_lists_and_replays_sessions() {
+    let mut claude = agent("");
+    claude.command = vec!["claude-agent-acp".into()];
+    let home = std::env::var("HOME").unwrap();
+    let sessions = claude.sessions(&home).unwrap();
+    for s in sessions.iter().take(5) {
+        println!("{} {} {} {}", s.id, s.updated, s.cwd, s.title);
+    }
+    assert!(!sessions.is_empty());
+    let Ok(id) = std::env::var("GNOMISH_LIVE_SESSION") else {
+        return;
+    };
+    let session = sessions.iter().find(|s| s.id == id).unwrap();
+    let mut job = job(&tempfile::tempdir().unwrap(), Permission::Ask, "");
+    job.cwd.clone_from(&session.cwd);
+    job.work = Work::Attach {
+        session: id,
+        fork: false,
+    };
+    let run = claude.run(&job, &Control::default());
+    println!("{:?}\n{}", run.session, run.reply.unwrap());
 }

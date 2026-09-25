@@ -9,6 +9,10 @@ local WIDTH, HEIGHT = 900, 560
 local SIDE = 200
 local TILE_HEIGHT = 48
 local STEP_ROWS = 14
+local PICK_ROWS = 20
+local PICK_ROW_HEIGHT = 19
+local GREY = "9d9d9d"
+local GREEN = "1eff00"
 local MAX_INPUT = 3000
 local EMBLEM = "Interface\\Icons\\INV_Misc_Wrench_01"
 local STATUS_BAR = "Interface\\TargetingFrame\\UI-StatusBar"
@@ -34,6 +38,7 @@ local function MarkSelected(chatId)
 end
 
 local function Select(chatId)
+	ui.picking = false
 	MarkSelected(chatId)
 	Window.Refresh()
 end
@@ -73,6 +78,8 @@ local function Tile(index)
 			if self.chatId then
 				Window.AskDelete(self.chatId)
 			end
+		elseif self.resume then
+			Window.ShowSessions()
 		elseif self.chatId then
 			Select(self.chatId)
 		else
@@ -83,8 +90,24 @@ local function Tile(index)
 	return tile
 end
 
+local function ShowResumeTile(index)
+	local tile = Tile(index)
+	tile.chatId = nil
+	tile.resume = true
+	tile.name:SetText("|cff1eff00Resume|r")
+	tile.agent:SetText("")
+	tile.mark:SetText("")
+	if ui.picking then
+		tile.bg:SetColorTexture(0.12, 0.35, 0.12, 0.9)
+	else
+		tile.bg:SetColorTexture(0.1, 0.15, 0.2, 0.9)
+	end
+	tile:Show()
+end
+
 local function ShowTile(index, chat, selected)
 	local tile = Tile(index)
+	tile.resume = nil
 	tile.chatId = chat and chat.id
 	if chat then
 		tile.name:SetText(ns.Relay.Plain(chat.name))
@@ -112,10 +135,11 @@ end
 local function RefreshTiles(current)
 	local chats = ns.Store.Chats()
 	for i, chat in ipairs(chats) do
-		ShowTile(i, chat, current and chat.id == current.id)
+		ShowTile(i, chat, not ui.picking and current and chat.id == current.id)
 	end
 	ShowTile(#chats + 1, nil, false)
-	for i = #chats + 2, #tiles do
+	ShowResumeTile(#chats + 2)
+	for i = #chats + 3, #tiles do
 		tiles[i]:Hide()
 	end
 end
@@ -141,7 +165,9 @@ local function RefreshTranscript(chat)
 		return
 	end
 	for _, entry in ipairs(chat.history) do
-		if entry.role == "user" then
+		if entry.attach then
+			ui.transcript:AddMessage(string.format('|cff%sResumed "%s"|r', GREY, ns.Relay.Plain(chat.name)))
+		elseif entry.role == "user" then
 			AddText("You", YOU, entry.text)
 		elseif entry.role == "error" then
 			AddText(ns.Relay.AgentName(entry.agent or chat.agent), "ff2020", entry.text)
@@ -196,19 +222,113 @@ local function RefreshStatus(chat)
 	ui.bannerText:SetText(outbox and "Reload to send" or "Reload soon")
 end
 
+local function Age(seconds)
+	if seconds < 60 then
+		return "now"
+	elseif seconds < 3600 then
+		return math.floor(seconds / 60) .. " min"
+	elseif seconds < 86400 then
+		return math.floor(seconds / 3600) .. " h"
+	end
+	return math.floor(seconds / 86400) .. " d"
+end
+
+-- The rows of the picker: a heading for each folder, then its sessions, newest first.
+local function PickLines()
+	local sessions = ns.Store.db.sessions
+	local lines, groups, order = {}, {}, {}
+	for _, row in ipairs(sessions and sessions.rows or {}) do
+		if not groups[row.repo] then
+			groups[row.repo] = {}
+			table.insert(order, row.repo)
+		end
+		table.insert(groups[row.repo], row)
+	end
+	for _, repo in ipairs(order) do
+		table.insert(lines, { heading = repo })
+		for _, row in ipairs(groups[repo]) do
+			table.insert(lines, { row = row })
+		end
+	end
+	return lines
+end
+
+local function ShowPickRow(button, line, since)
+	button.row = line and line.row
+	if not line then
+		button:Hide()
+		return
+	end
+	if line.heading then
+		button.text:SetText("|cffffd100" .. ns.Relay.Plain(line.heading) .. "|r")
+		button.right:SetText("")
+	else
+		local row = line.row
+		local age = row.active and ("|cff" .. GREEN .. "open|r") or Age(row.age + since)
+		button.text:SetText("   " .. ns.Relay.Plain(row.title ~= "" and row.title or row.session))
+		button.right:SetText(ns.Relay.AgentName(row.agent) .. "  " .. age)
+	end
+	button:Show()
+end
+
+local function RefreshPicker()
+	local sessions = ns.Store.db.sessions
+	local lines = PickLines()
+	ui.pickOffset = math.max(0, math.min(ui.pickOffset or 0, #lines - PICK_ROWS))
+	local since = sessions and time() - sessions.at or 0
+	for i, button in ipairs(ui.pickRows) do
+		ShowPickRow(button, lines[ui.pickOffset + i], since)
+	end
+	local note = ""
+	if sessions and sessions.error then
+		note = "|cffff2020" .. ns.Relay.Plain(sessions.error) .. "|r"
+	elseif #lines == 0 and ns.Transport.Listing() then
+		note = "Loading..."
+	elseif #lines == 0 then
+		note = "No sessions"
+	end
+	ui.pickNote:SetText(note)
+end
+
 function Window.Refresh()
 	if not frame or not frame:IsShown() then
 		return
 	end
 	local chat = Selected()
 	RefreshTiles(chat)
-	RefreshTranscript(chat)
-	RefreshActivity(chat)
-	RefreshStatus(chat)
+	ui.log:SetShown(not ui.picking)
+	ui.input:SetShown(not ui.picking)
+	ui.picker:SetShown(ui.picking == true)
+	if ui.picking then
+		RefreshPicker()
+	else
+		RefreshTranscript(chat)
+	end
+	RefreshActivity(not ui.picking and chat or nil)
+	RefreshStatus(not ui.picking and chat or nil)
+end
+
+function Window.ShowSessions()
+	ui.picking = true
+	ui.pickOffset = 0
+	ns.Transport.ListSessions()
+	Window.Refresh()
+end
+
+-- A session that already has a chat opens that chat.
+function Window.Resume(row)
+	if row.chat and ns.Store.Chat(row.chat) then
+		Select(row.chat)
+		return
+	end
+	local chat = ns.Store.ResumeChat(row)
+	ns.Transport.Attach(chat)
+	Select(chat.id)
 end
 
 -- Returns false, and shows an error, for a message that does not fit in one strip.
 function Window.Send(text)
+	ui.picking = false
 	local chat = Selected() or ns.Store.NewChat()
 	ns.Store.db.selected = chat.id
 	if not ns.Transport.Send(chat, text) then
@@ -232,6 +352,7 @@ local function BuildCenter()
 	ui.bridge = Label(frame, "GameFontNormalSmall", "TOPRIGHT", -SIDE - 14, -66)
 
 	local log = Inset(frame, left, -84, width, 72)
+	ui.log = log
 	ui.transcript = CreateFrame("ScrollingMessageFrame", "GnomishRelayTranscript", log)
 	ui.transcript:SetPoint("TOPLEFT", log, "TOPLEFT", 8, -6)
 	ui.transcript:SetPoint("BOTTOMRIGHT", log, "BOTTOMRIGHT", -8, 6)
@@ -248,6 +369,35 @@ local function BuildCenter()
 			self:ScrollDown()
 		end
 	end)
+
+	ui.picker = Inset(frame, left, -84, width, 16)
+	ui.pickNote = ui.picker:CreateFontString("GnomishRelayPickNote", "OVERLAY", "GameFontDisable")
+	ui.pickNote:SetPoint("TOPLEFT", ui.picker, "TOPLEFT", 12, -12)
+	ui.pickRows = {}
+	for i = 1, PICK_ROWS do
+		local row = CreateFrame("Button", "GnomishRelayPick" .. i, ui.picker)
+		row:SetPoint("TOPLEFT", ui.picker, "TOPLEFT", 8, -8 - (i - 1) * PICK_ROW_HEIGHT)
+		row:SetSize(width - 16, PICK_ROW_HEIGHT)
+		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+		row.text = Label(row, "GameFontHighlight", "LEFT", 4, 0)
+		row.text:SetWidth(width - 150)
+		row.text:SetWordWrap(false)
+		row.right = Label(row, "GameFontHighlightSmall", "RIGHT", -4, 0)
+		row.right:SetJustifyH("RIGHT")
+		row:SetScript("OnClick", function(self)
+			if self.row then
+				Window.Resume(self.row)
+			end
+		end)
+		row:Hide()
+		ui.pickRows[i] = row
+	end
+	ui.picker:EnableMouseWheel(true)
+	ui.picker:SetScript("OnMouseWheel", function(_, delta)
+		ui.pickOffset = (ui.pickOffset or 0) - delta * 3
+		RefreshPicker()
+	end)
+	ui.picker:Hide()
 
 	ui.banner = CreateFrame("Frame", nil, frame)
 	ui.banner:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left, 44)
@@ -428,6 +578,7 @@ function Window.Open(chatId)
 		Build()
 	end
 	if chatId then
+		ui.picking = false
 		MarkSelected(chatId)
 	end
 	frame:Show()

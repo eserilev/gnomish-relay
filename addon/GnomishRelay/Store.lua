@@ -63,6 +63,22 @@ function Store.NewChat(agent)
 	return chat
 end
 
+-- A chat that continues a saved session of an agent. Its first message asks the
+-- bridge to attach it, and the reply brings the last exchange.
+function Store.ResumeChat(row)
+	local chat = {
+		id = RandomId(10),
+		name = row.title ~= "" and row.title or row.repo,
+		agent = row.agent,
+		mode = DEFAULT_MODE,
+		cwd = row.folder,
+		history = {},
+		attach = row.session,
+	}
+	table.insert(Store.db.chats, chat)
+	return chat
+end
+
 function Store.DeleteChat(id)
 	local db = Store.db
 	for i, chat in ipairs(db.chats) do
@@ -120,6 +136,17 @@ function Store.Open()
 	return open
 end
 
+-- The reply to an attach holds the last prompt on its first line, and the answer below.
+local function AddExchange(chat, id, text)
+	local prompt, answer = tostring(text):match("^([^\n]*)\n?(.*)$")
+	if prompt ~= "" then
+		Append(chat, { role = "user", text = prompt, answered = true })
+	end
+	if answer ~= "" then
+		Append(chat, { role = "agent", id = id, text = answer, agent = chat.agent })
+	end
+end
+
 -- Returns false for a reply that is already in the history.
 function Store.AddReply(chat, id, text, status)
 	local message = Store.Message(chat, id)
@@ -127,6 +154,10 @@ function Store.AddReply(chat, id, text, status)
 		return false
 	end
 	message.answered = true
+	if message.attach and status ~= "error" then
+		AddExchange(chat, id, text)
+		return true
+	end
 	Append(chat, { role = status == "error" and "error" or "agent", id = id, text = text, agent = chat.agent })
 	return true
 end

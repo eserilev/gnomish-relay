@@ -17,10 +17,10 @@ use serde_json::{Value, json};
 use protocol::live::OptionKind;
 use protocol::popup::popup_text;
 
-use crate::agent::{Agent, Choice, Control, Event, Events, Question, Run, StopSignal};
+use crate::agent::{Agent, Choice, Control, Event, Events, Question, Run, SessionInfo, StopSignal};
 use crate::config::Permission;
 use crate::program::find_program;
-use crate::relay::Job;
+use crate::relay::{Job, Work};
 
 const PROTOCOL_VERSION: u64 = 1;
 /// A tool call with a large diff fits in far less.
@@ -53,6 +53,8 @@ const STOPPED: &str = "Stopped.";
 const NEW_SESSION: &str = "(New session: the agent could not resume the old one.)";
 /// A progress line or a refused tool call is at most this long.
 const MAX_STEP: usize = 200;
+/// The prompt of a replayed exchange, on one line.
+const MAX_PROMPT: usize = 300;
 
 pub struct AcpAgent {
     pub command: Vec<String>,
@@ -67,9 +69,68 @@ pub struct AcpAgent {
 impl Agent for AcpAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         let mut session = None;
-        let reply = self.run_in_session(job, control, &mut session);
+        let reply = match &job.work {
+            Work::Attach { session: id, fork } => {
+                self.attach(job, control, id, *fork, &mut session)
+            }
+            Work::Prompt | Work::ListSessions => self.run_in_session(job, control, &mut session),
+        };
         Run { reply, session }
     }
+
+    fn sessions(&self, cwd: &str) -> Result<Vec<SessionInfo>, String> {
+        let mut agent = Connection::start(self, cwd, Control::default())?;
+        let init = agent.initialize()?;
+        if !offers(&init, "/agentCapabilities/sessionCapabilities/list") {
+            return Ok(Vec::new());
+        }
+        let result = agent.request("session/list", &json!({}))?;
+        Ok(read_sessions(&result))
+    }
+}
+
+fn offers(init: &Value, pointer: &str) -> bool {
+    init.pointer(pointer).is_some_and(|v| !v.is_null())
+}
+
+/// The first page of `session/list`. Sessions with no id or no folder are left out.
+pub fn read_sessions(result: &Value) -> Vec<SessionInfo> {
+    let listed = result.get("sessions").and_then(Value::as_array);
+    listed
+        .into_iter()
+        .flatten()
+        .filter_map(|s| {
+            Some(SessionInfo {
+                id: text_at(s, "/sessionId")?.to_owned(),
+                cwd: text_at(s, "/cwd")?.to_owned(),
+                title: text_at(s, "/title").unwrap_or("").to_owned(),
+                updated: text_at(s, "/updatedAt").and_then(unix_time).unwrap_or(0),
+            })
+        })
+        .collect()
+}
+
+/// Seconds since 1970 of an ISO 8601 time in UTC, such as `2026-09-25T06:46:21.432Z`.
+pub fn unix_time(iso: &str) -> Option<u32> {
+    let number = |range: std::ops::Range<usize>| iso.get(range)?.parse::<i64>().ok();
+    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
+    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
+    if !(1..=12).contains(&month)
+        || !(1..=31).contains(&day)
+        || hour > 23
+        || minute > 59
+        || second > 60
+    {
+        return None;
+    }
+    // Days from civil, by Howard Hinnant: March starts the year, so February is last.
+    let y = if month <= 2 { year - 1 } else { year };
+    let era = y.div_euclid(400);
+    let year_of_era = y - era * 400;
+    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    let days = era * 146_097 + day_of_era - 719_468;
+    u32::try_from(days * 86_400 + hour * 3600 + minute * 60 + second).ok()
 }
 
 impl AcpAgent {
@@ -91,6 +152,81 @@ impl AcpAgent {
             Some(note) => format!("{note}\n\n{reply}"),
             None => reply,
         })
+    }
+}
+
+impl AcpAgent {
+    /// Opens a saved session for a new chat, or a fork of it, and returns its last
+    /// exchange: the prompt on the first line, the answer below.
+    fn attach(
+        &self,
+        job: &Job,
+        control: &Control,
+        session: &str,
+        fork: bool,
+        session_id: &mut Option<String>,
+    ) -> Result<String, String> {
+        let mut agent = Connection::start(self, &job.cwd, control.clone())?;
+        let init = agent.initialize()?;
+        let params = |id: &str| json!({ "sessionId": id, "cwd": job.cwd, "mcpServers": [] });
+        let id = if fork && offers(&init, "/agentCapabilities/sessionCapabilities/fork") {
+            let result = agent.request("session/fork", &params(session))?;
+            text_at(&result, "/sessionId")
+                .ok_or("The agent made no copy of the session.")?
+                .to_owned()
+        } else {
+            session.to_owned()
+        };
+        *session_id = Some(id.clone());
+        if init
+            .pointer("/agentCapabilities/loadSession")
+            .and_then(Value::as_bool)
+            != Some(true)
+        {
+            return Ok(String::new());
+        }
+        agent.session = Some(id.clone());
+        agent.replay = Some(Replay::default());
+        agent.request("session/load", &params(&id))?;
+        Ok(agent.replay.take().map(|r| r.text()).unwrap_or_default())
+    }
+}
+
+/// The last exchange of a replayed session.
+#[derive(Default)]
+struct Replay {
+    prompt: String,
+    answer: String,
+    answering: bool,
+}
+
+impl Replay {
+    fn add(&mut self, update: Update) {
+        match update {
+            Update::UserChunk(text) => {
+                if self.answering {
+                    self.prompt.clear();
+                    self.answer.clear();
+                    self.answering = false;
+                }
+                let room = MAX_PROMPT.saturating_sub(self.prompt.len());
+                self.prompt.push_str(cut(&text, room));
+            }
+            Update::Chunk(text) => {
+                self.answering = true;
+                let room = MAX_REPLY.saturating_sub(self.answer.len());
+                self.answer.push_str(cut(&text, room));
+            }
+            Update::Step(_) | Update::Other => {}
+        }
+    }
+
+    fn text(&self) -> String {
+        if self.prompt.is_empty() && self.answer.is_empty() {
+            return String::new();
+        }
+        let prompt: String = self.prompt.split_whitespace().collect::<Vec<_>>().join(" ");
+        format!("{prompt}\n{}", self.answer)
     }
 }
 
@@ -127,6 +263,8 @@ impl AcpAgent {
 pub enum Update {
     /// Text of the reply.
     Chunk(String),
+    /// Text of the user, which comes only in the replay of `session/load`.
+    UserChunk(String),
     /// A tool call, as one progress line of at most 200 bytes.
     Step(String),
     Other,
@@ -137,6 +275,10 @@ pub fn read_update(params: &Value) -> Update {
     match update.get("sessionUpdate").and_then(Value::as_str) {
         Some("agent_message_chunk") => match text_at(update, "/content/text") {
             Some(text) => Update::Chunk(text.to_owned()),
+            None => Update::Other,
+        },
+        Some("user_message_chunk") => match text_at(update, "/content/text") {
+            Some(text) => Update::UserChunk(text.to_owned()),
             None => Update::Other,
         },
         Some("tool_call") => {
@@ -255,6 +397,8 @@ struct Connection {
     /// The session that `session/cancel` names.
     session: Option<String>,
     cancel_sent: bool,
+    /// Set while `session/load` replays a session for an attach.
+    replay: Option<Replay>,
 }
 
 impl Drop for Connection {
@@ -317,6 +461,7 @@ impl Connection {
             permission_timeout: agent.permission_timeout,
             session: None,
             cancel_sent: false,
+            replay: None,
         })
     }
 
@@ -531,6 +676,10 @@ impl Connection {
     }
 
     fn update(&mut self, params: &Value) {
+        if let Some(replay) = &mut self.replay {
+            replay.add(read_update(params));
+            return;
+        }
         match read_update(params) {
             Update::Chunk(text) => {
                 let room = MAX_REPLY.saturating_sub(self.reply.len());
@@ -539,7 +688,7 @@ impl Connection {
             Update::Step(line) => {
                 self.events.send(Event::Progress(line));
             }
-            Update::Other => {}
+            Update::UserChunk(_) | Update::Other => {}
         }
     }
 
