@@ -1098,6 +1098,923 @@ def frame.check_frame
       else ok (core.result.Result.Ok ())
   else ok (core.result.Result.Err frame.Reject.BadTag)
 
+/-- [protocol::inline::{impl core::clone::Clone for protocol::inline::Escape}::clone]:
+    Source: 'crates/protocol/src/inline.rs', lines 10:9-10:14
+    Visibility: public -/
+def inline.Escape.Insts.CoreCloneClone.clone
+  (self : inline.Escape) : Result inline.Escape := do
+  ok self
+
+/-- Trait implementation: [protocol::inline::{impl core::clone::Clone for protocol::inline::Escape}]
+    Source: 'crates/protocol/src/inline.rs', lines 10:9-10:14 -/
+@[reducible]
+def inline.Escape.Insts.CoreCloneClone : core.clone.Clone inline.Escape := {
+  clone := inline.Escape.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::inline::{impl core::marker::Copy for protocol::inline::Escape}]
+    Source: 'crates/protocol/src/inline.rs', lines 10:16-10:20 -/
+@[reducible]
+def inline.Escape.Insts.CoreMarkerCopy : core.marker.Copy inline.Escape := {
+  cloneInst := inline.Escape.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::inline::{impl core::marker::StructuralPartialEq for protocol::inline::Escape}]
+    Source: 'crates/protocol/src/inline.rs', lines 10:22-10:31 -/
+@[reducible]
+def inline.Escape.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq inline.Escape := {
+}
+
+/-- [protocol::inline::{impl core::cmp::PartialEq<protocol::inline::Escape> for protocol::inline::Escape}::eq]:
+    Source: 'crates/protocol/src/inline.rs', lines 10:22-10:31
+    Visibility: public -/
+def inline.Escape.Insts.CoreCmpPartialEqEscape.eq
+  (self : inline.Escape) (other : inline.Escape) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::inline::{impl core::cmp::PartialEq<protocol::inline::Escape> for protocol::inline::Escape}]
+    Source: 'crates/protocol/src/inline.rs', lines 10:22-10:31 -/
+@[reducible]
+def inline.Escape.Insts.CoreCmpPartialEqEscape : core.cmp.PartialEq
+  inline.Escape inline.Escape := {
+  eq := inline.Escape.Insts.CoreCmpPartialEqEscape.eq
+}
+
+/-- [protocol::inline::{impl core::cmp::Eq for protocol::inline::Escape}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/inline.rs', lines 10:33-10:35
+    Visibility: public -/
+def inline.Escape.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : inline.Escape) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::inline::{impl core::cmp::Eq for protocol::inline::Escape}]
+    Source: 'crates/protocol/src/inline.rs', lines 10:33-10:35 -/
+@[reducible]
+def inline.Escape.Insts.CoreCmpEq : core.cmp.Eq inline.Escape := {
+  partialEqInst := inline.Escape.Insts.CoreCmpPartialEqEscape
+  assert_fields_are_eq := inline.Escape.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::inline::{impl core::clone::Clone for protocol::inline::Mark}::clone]:
+    Source: 'crates/protocol/src/inline.rs', lines 16:9-16:14
+    Visibility: public -/
+def inline.Mark.Insts.CoreCloneClone.clone
+  (self : inline.Mark) : Result inline.Mark := do
+  ok self
+
+/-- Trait implementation: [protocol::inline::{impl core::clone::Clone for protocol::inline::Mark}]
+    Source: 'crates/protocol/src/inline.rs', lines 16:9-16:14 -/
+@[reducible]
+def inline.Mark.Insts.CoreCloneClone : core.clone.Clone inline.Mark := {
+  clone := inline.Mark.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::inline::{impl core::marker::Copy for protocol::inline::Mark}]
+    Source: 'crates/protocol/src/inline.rs', lines 16:16-16:20 -/
+@[reducible]
+def inline.Mark.Insts.CoreMarkerCopy : core.marker.Copy inline.Mark := {
+  cloneInst := inline.Mark.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::inline::{impl core::marker::StructuralPartialEq for protocol::inline::Mark}]
+    Source: 'crates/protocol/src/inline.rs', lines 16:22-16:31 -/
+@[reducible]
+def inline.Mark.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq inline.Mark := {
+}
+
+/-- [protocol::inline::{impl core::cmp::PartialEq<protocol::inline::Mark> for protocol::inline::Mark}::eq]:
+    Source: 'crates/protocol/src/inline.rs', lines 16:22-16:31
+    Visibility: public -/
+def inline.Mark.Insts.CoreCmpPartialEqMark.eq
+  (self : inline.Mark) (other : inline.Mark) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::inline::{impl core::cmp::PartialEq<protocol::inline::Mark> for protocol::inline::Mark}]
+    Source: 'crates/protocol/src/inline.rs', lines 16:22-16:31 -/
+@[reducible]
+def inline.Mark.Insts.CoreCmpPartialEqMark : core.cmp.PartialEq inline.Mark
+  inline.Mark := {
+  eq := inline.Mark.Insts.CoreCmpPartialEqMark.eq
+}
+
+/-- [protocol::inline::{impl core::cmp::Eq for protocol::inline::Mark}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/inline.rs', lines 16:33-16:35
+    Visibility: public -/
+def inline.Mark.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : inline.Mark) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::inline::{impl core::cmp::Eq for protocol::inline::Mark}]
+    Source: 'crates/protocol/src/inline.rs', lines 16:33-16:35 -/
+@[reducible]
+def inline.Mark.Insts.CoreCmpEq : core.cmp.Eq inline.Mark := {
+  partialEqInst := inline.Mark.Insts.CoreCmpPartialEqMark
+  assert_fields_are_eq := inline.Mark.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::inline::{impl core::clone::Clone for protocol::inline::Style}::clone]:
+    Source: 'crates/protocol/src/inline.rs', lines 22:9-22:14
+    Visibility: public -/
+def inline.Style.Insts.CoreCloneClone.clone
+  (self : inline.Style) : Result inline.Style := do
+  ok self
+
+/-- Trait implementation: [protocol::inline::{impl core::clone::Clone for protocol::inline::Style}]
+    Source: 'crates/protocol/src/inline.rs', lines 22:9-22:14 -/
+@[reducible]
+def inline.Style.Insts.CoreCloneClone : core.clone.Clone inline.Style := {
+  clone := inline.Style.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::inline::{impl core::marker::Copy for protocol::inline::Style}]
+    Source: 'crates/protocol/src/inline.rs', lines 22:16-22:20 -/
+@[reducible]
+def inline.Style.Insts.CoreMarkerCopy : core.marker.Copy inline.Style := {
+  cloneInst := inline.Style.Insts.CoreCloneClone
+}
+
+/-- [protocol::inline::BOLD]
+    Source: 'crates/protocol/src/inline.rs', lines 29:0-29:42
+    Visibility: public -/
+@[global_simps, irreducible]
+def inline.BOLD : Array Std.U8 10#usize :=
+  Array.make 10#usize [
+    124#u8, 99#u8, 102#u8, 102#u8, 102#u8, 102#u8, 100#u8, 49#u8, 48#u8, 48#u8
+    ]
+
+/-- [protocol::inline::ITALIC]
+    Source: 'crates/protocol/src/inline.rs', lines 30:0-30:44
+    Visibility: public -/
+@[global_simps, irreducible]
+def inline.ITALIC : Array Std.U8 10#usize :=
+  Array.make 10#usize [
+    124#u8, 99#u8, 102#u8, 102#u8, 99#u8, 48#u8, 99#u8, 56#u8, 102#u8, 102#u8
+    ]
+
+/-- [protocol::inline::BOLD_ITALIC]
+    Source: 'crates/protocol/src/inline.rs', lines 31:0-31:49
+    Visibility: public -/
+@[global_simps, irreducible]
+def inline.BOLD_ITALIC : Array Std.U8 10#usize :=
+  Array.make 10#usize [
+    124#u8, 99#u8, 102#u8, 102#u8, 102#u8, 102#u8, 101#u8, 54#u8, 56#u8, 48#u8
+    ]
+
+/-- [protocol::inline::CODE]
+    Source: 'crates/protocol/src/inline.rs', lines 32:0-32:42
+    Visibility: public -/
+@[global_simps, irreducible]
+def inline.CODE : Array Std.U8 10#usize :=
+  Array.make 10#usize [
+    124#u8, 99#u8, 102#u8, 102#u8, 98#u8, 56#u8, 101#u8, 48#u8, 98#u8, 56#u8
+    ]
+
+/-- [protocol::inline::LINK]
+    Source: 'crates/protocol/src/inline.rs', lines 33:0-33:42
+    Visibility: public -/
+@[global_simps, irreducible]
+def inline.LINK : Array Std.U8 10#usize :=
+  Array.make 10#usize [
+    124#u8, 99#u8, 102#u8, 102#u8, 54#u8, 57#u8, 98#u8, 52#u8, 102#u8, 102#u8
+    ]
+
+/-- [protocol::inline::RESET]
+    Source: 'crates/protocol/src/inline.rs', lines 34:0-34:34
+    Visibility: public -/
+@[global_simps, irreducible]
+def inline.RESET : Array Std.U8 2#usize :=
+  Array.make 2#usize [ 124#u8, 114#u8 ]
+
+/-- [protocol::inline::LT]
+    Source: 'crates/protocol/src/inline.rs', lines 35:0-35:29 -/
+@[global_simps, irreducible]
+def inline.LT : Array Std.U8 4#usize :=
+  Array.make 4#usize [ 38#u8, 108#u8, 116#u8, 59#u8 ]
+
+/-- [protocol::inline::GT]
+    Source: 'crates/protocol/src/inline.rs', lines 36:0-36:29 -/
+@[global_simps, irreducible]
+def inline.GT : Array Std.U8 4#usize :=
+  Array.make 4#usize [ 38#u8, 103#u8, 116#u8, 59#u8 ]
+
+/-- [protocol::inline::AMP]
+    Source: 'crates/protocol/src/inline.rs', lines 37:0-37:31 -/
+@[global_simps, irreducible]
+def inline.AMP : Array Std.U8 5#usize :=
+  Array.make 5#usize [ 38#u8, 97#u8, 109#u8, 112#u8, 59#u8 ]
+
+/-- [protocol::inline::TAB]
+    Source: 'crates/protocol/src/inline.rs', lines 38:0-38:30 -/
+@[global_simps, irreducible]
+def inline.TAB : Array Std.U8 4#usize := Array.repeat 4#usize 32#u8
+
+/-- [protocol::inline::PLAIN]
+    Source: 'crates/protocol/src/inline.rs', lines 40:0-43:2 -/
+@[global_simps, irreducible]
+def inline.PLAIN : inline.Style :=
+  { bold := inline.Mark.Off, italic := inline.Mark.Off }
+
+/-- [protocol::inline::is_space]:
+    Source: 'crates/protocol/src/inline.rs', lines 45:0-47:1 -/
+def inline.is_space (b : Std.U8) : Result Bool := do
+  if b = 32#u8
+  then ok true
+  else ok (b = 9#u8)
+
+/-- [protocol::inline::is_alnum]:
+    Source: 'crates/protocol/src/inline.rs', lines 49:0-51:1 -/
+def inline.is_alnum (b : Std.U8) : Result Bool := do
+  if 97#u8 <= b
+  then
+    if b <= 122#u8
+    then ok true
+    else
+      if 65#u8 <= b
+      then
+        if b <= 90#u8
+        then ok true
+        else if 48#u8 <= b
+             then ok (b <= 57#u8)
+             else ok false
+      else if 48#u8 <= b
+           then ok (b <= 57#u8)
+           else ok false
+  else
+    if 65#u8 <= b
+    then
+      if b <= 90#u8
+      then ok true
+      else if 48#u8 <= b
+           then ok (b <= 57#u8)
+           else ok false
+    else if 48#u8 <= b
+         then ok (b <= 57#u8)
+         else ok false
+
+/-- [protocol::inline::is_punct]:
+    Source: 'crates/protocol/src/inline.rs', lines 53:0-55:1 -/
+def inline.is_punct (b : Std.U8) : Result Bool := do
+  if 33#u8 <= b
+  then
+    if b <= 126#u8
+    then let b1 ← inline.is_alnum b
+         ok (¬ b1)
+    else ok false
+  else ok false
+
+/-- [protocol::inline::is_control]:
+    Source: 'crates/protocol/src/inline.rs', lines 57:0-59:1 -/
+def inline.is_control (b : Std.U8) : Result Bool := do
+  if b < 32#u8
+  then ok true
+  else ok (b = 127#u8)
+
+/-- [protocol::inline::push_html]:
+    Source: 'crates/protocol/src/inline.rs', lines 69:0-79:1 -/
+def inline.push_html
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  if b = 60#u8
+  then let s ← lift (Array.to_slice inline.LT)
+       ascii.push_bytes out s
+  else
+    if b = 62#u8
+    then let s ← lift (Array.to_slice inline.GT)
+         ascii.push_bytes out s
+    else
+      if b = 38#u8
+      then let s ← lift (Array.to_slice inline.AMP)
+           ascii.push_bytes out s
+      else alloc.vec.Vec.push out b
+
+/-- [protocol::inline::push_visible]:
+    Source: 'crates/protocol/src/inline.rs', lines 61:0-67:1 -/
+def inline.push_visible
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) (escape : inline.Escape) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let b1 ←
+    inline.Escape.Insts.CoreCmpPartialEqEscape.eq escape inline.Escape.Html
+  if b1
+  then inline.push_html out b
+  else alloc.vec.Vec.push out b
+
+/-- [protocol::inline::push_text_byte]:
+    Source: 'crates/protocol/src/inline.rs', lines 82:0-91:1
+    Visibility: public -/
+def inline.push_text_byte
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) (escape : inline.Escape) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  if b = 124#u8
+  then
+    let out1 ← alloc.vec.Vec.push out 124#u8
+    alloc.vec.Vec.push out1 124#u8
+  else
+    if b = 9#u8
+    then alloc.vec.Vec.push out 32#u8
+    else
+      let b1 ← inline.is_control b
+      if b1
+      then ok out
+      else inline.push_visible out b escape
+
+/-- [protocol::inline::push_code_byte]:
+    Source: 'crates/protocol/src/inline.rs', lines 94:0-100:1
+    Visibility: public -/
+def inline.push_code_byte
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  if b = 9#u8
+  then let s ← lift (Array.to_slice inline.TAB)
+       ascii.push_bytes out s
+  else inline.push_text_byte out b inline.Escape.Wow
+
+/-- [protocol::inline::push_text_range]: loop body 0:
+    Source: 'crates/protocol/src/inline.rs', lines 104:4-107:5 -/
+@[rust_loop_body]
+def inline.push_text_range_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (escape : inline.Escape)
+  (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize md i
+    let out1 ← inline.push_text_byte out i1 escape
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::inline::push_text_range]: loop 0:
+    Source: 'crates/protocol/src/inline.rs', lines 104:4-107:5 -/
+@[rust_loop]
+def inline.push_text_range_loop
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
+  (escape : inline.Escape) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => inline.push_text_range_loop.body md «end» escape out1
+      i1)
+    (out, i)
+
+/-- [protocol::inline::push_text_range]:
+    Source: 'crates/protocol/src/inline.rs', lines 102:0-108:1 -/
+@[reducible]
+def inline.push_text_range
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) (escape : inline.Escape) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  inline.push_text_range_loop out md «end» escape start
+
+/-- [protocol::inline::open_color]:
+    Source: 'crates/protocol/src/inline.rs', lines 110:0-117:1 -/
+def inline.open_color
+  (out : alloc.vec.Vec Std.U8) (style : inline.Style) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  match style.bold with
+  | inline.Mark.Off =>
+    match style.italic with
+    | inline.Mark.Off => ok out
+    | inline.Mark.On =>
+      let s ← lift (Array.to_slice inline.ITALIC)
+      ascii.push_bytes out s
+  | inline.Mark.On =>
+    match style.italic with
+    | inline.Mark.Off =>
+      let s ← lift (Array.to_slice inline.BOLD)
+      ascii.push_bytes out s
+    | inline.Mark.On =>
+      let s ← lift (Array.to_slice inline.BOLD_ITALIC)
+      ascii.push_bytes out s
+
+/-- [protocol::inline::close_color]:
+    Source: 'crates/protocol/src/inline.rs', lines 119:0-123:1 -/
+def inline.close_color
+  (out : alloc.vec.Vec Std.U8) (style : inline.Style) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let b ← inline.Mark.Insts.CoreCmpPartialEqMark.eq style.bold inline.Mark.On
+  if b
+  then let s ← lift (Array.to_slice inline.RESET)
+       ascii.push_bytes out s
+  else
+    let b1 ←
+      inline.Mark.Insts.CoreCmpPartialEqMark.eq style.italic inline.Mark.On
+    if b1
+    then let s ← lift (Array.to_slice inline.RESET)
+         ascii.push_bytes out s
+    else ok out
+
+/-- [protocol::inline::run_len]: loop body 0:
+    Source: 'crates/protocol/src/inline.rs', lines 128:4-130:5 -/
+@[rust_loop_body]
+def inline.run_len_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i = b
+    then let j1 ← j + 1#usize
+         ok (cont j1)
+    else ok (done j)
+  else ok (done j)
+
+/-- [protocol::inline::run_len]: loop 0:
+    Source: 'crates/protocol/src/inline.rs', lines 128:4-130:5 -/
+@[rust_loop]
+def inline.run_len_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun j1 => inline.run_len_loop.body md «end» b j1)
+    j
+
+/-- [protocol::inline::run_len]:
+    Source: 'crates/protocol/src/inline.rs', lines 126:0-132:1 -/
+def inline.run_len
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) (b : Std.U8) :
+  Result Std.Usize
+  := do
+  let j ← inline.run_len_loop md «end» b i
+  j - i
+
+/-- [protocol::inline::find_tick_run]: loop body 0:
+    Source: 'crates/protocol/src/inline.rs', lines 137:4-145:1 -/
+@[rust_loop_body]
+def inline.find_tick_run_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (n : Std.Usize) (j : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if j < «end»
+  then
+    let len ← inline.run_len md j «end» 96#u8
+    if len = n
+    then ok (done j)
+    else
+      let len1 ← if len = 0#usize
+                   then ok 1#usize
+                   else ok len
+      let j1 ← j + len1
+      ok (cont j1)
+  else ok (done «end»)
+
+/-- [protocol::inline::find_tick_run]: loop 0:
+    Source: 'crates/protocol/src/inline.rs', lines 137:4-145:1 -/
+@[rust_loop]
+def inline.find_tick_run_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (n : Std.Usize) (j : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun j1 => inline.find_tick_run_loop.body md «end» n j1)
+    j
+
+/-- [protocol::inline::find_tick_run]:
+    Source: 'crates/protocol/src/inline.rs', lines 135:0-145:1 -/
+@[reducible]
+def inline.find_tick_run
+  (md : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize)
+  (n : Std.Usize) :
+  Result Std.Usize
+  := do
+  inline.find_tick_run_loop md «end» n «from»
+
+/-- [protocol::inline::find_byte]: loop body 0:
+    Source: 'crates/protocol/src/inline.rs', lines 150:4-152:5 -/
+@[rust_loop_body]
+def inline.find_byte_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i != b
+    then let j1 ← j + 1#usize
+         ok (cont j1)
+    else ok (done j)
+  else ok (done j)
+
+/-- [protocol::inline::find_byte]: loop 0:
+    Source: 'crates/protocol/src/inline.rs', lines 150:4-152:5 -/
+@[rust_loop]
+def inline.find_byte_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun j1 => inline.find_byte_loop.body md «end» b j1)
+    j
+
+/-- [protocol::inline::find_byte]:
+    Source: 'crates/protocol/src/inline.rs', lines 148:0-154:1 -/
+@[reducible]
+def inline.find_byte
+  (md : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize) (b : Std.U8)
+  :
+  Result Std.Usize
+  := do
+  inline.find_byte_loop md «end» b «from»
+
+/-- [protocol::inline::flip]:
+    Source: 'crates/protocol/src/inline.rs', lines 156:0-161:1 -/
+def inline.flip (mark : inline.Mark) : Result inline.Mark := do
+  match mark with
+  | inline.Mark.Off => ok inline.Mark.On
+  | inline.Mark.On => ok inline.Mark.Off
+
+/-- [protocol::inline::toggled]:
+    Source: 'crates/protocol/src/inline.rs', lines 164:0-181:1 -/
+def inline.toggled
+  (style : inline.Style) (n : Std.Usize) : Result inline.Style := do
+  if n = 1#usize
+  then let m ← inline.flip style.italic
+       ok { style with italic := m }
+  else
+    if n = 2#usize
+    then let m ← inline.flip style.bold
+         ok { style with bold := m }
+    else
+      let m ← inline.flip style.bold
+      let m1 ← inline.flip style.italic
+      ok { bold := m, italic := m1 }
+
+/-- [protocol::inline::opens]:
+    Source: 'crates/protocol/src/inline.rs', lines 184:0-192:1 -/
+def inline.opens (style : inline.Style) (n : Std.Usize) : Result Bool := do
+  if n = 1#usize
+  then inline.Mark.Insts.CoreCmpPartialEqMark.eq style.italic inline.Mark.Off
+  else
+    if n = 2#usize
+    then inline.Mark.Insts.CoreCmpPartialEqMark.eq style.bold inline.Mark.Off
+    else
+      let b ←
+        inline.Mark.Insts.CoreCmpPartialEqMark.eq style.bold inline.Mark.Off
+      if b
+      then
+        inline.Mark.Insts.CoreCmpPartialEqMark.eq style.italic inline.Mark.Off
+      else ok false
+
+/-- [protocol::inline::closes]:
+    Source: 'crates/protocol/src/inline.rs', lines 195:0-203:1 -/
+def inline.closes (style : inline.Style) (n : Std.Usize) : Result Bool := do
+  if n = 1#usize
+  then inline.Mark.Insts.CoreCmpPartialEqMark.eq style.italic inline.Mark.On
+  else
+    if n = 2#usize
+    then inline.Mark.Insts.CoreCmpPartialEqMark.eq style.bold inline.Mark.On
+    else
+      let b ←
+        inline.Mark.Insts.CoreCmpPartialEqMark.eq style.bold inline.Mark.On
+      if b
+      then
+        inline.Mark.Insts.CoreCmpPartialEqMark.eq style.italic inline.Mark.On
+      else ok false
+
+/-- [protocol::inline::byte_before]:
+    Source: 'crates/protocol/src/inline.rs', lines 205:0-207:1 -/
+def inline.byte_before
+  (md : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) : Result Std.U8 := do
+  if i > start
+  then let i1 ← i - 1#usize
+       Slice.index_usize md i1
+  else ok 32#u8
+
+/-- [protocol::inline::byte_at]:
+    Source: 'crates/protocol/src/inline.rs', lines 209:0-211:1 -/
+def inline.byte_at
+  (md : Slice Std.U8) («end» : Std.Usize) (i : Std.Usize) :
+  Result Std.U8
+  := do
+  if i < «end»
+  then Slice.index_usize md i
+  else ok 32#u8
+
+/-- [protocol::inline::can_open]:
+    Source: 'crates/protocol/src/inline.rs', lines 214:0-218:1 -/
+def inline.can_open
+  (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (i : Std.Usize)
+  (n : Std.Usize) :
+  Result Bool
+  := do
+  let i1 ← i + n
+  let after ← inline.byte_at md «end» i1
+  let i2 ← Slice.index_usize md i
+  let word ←
+    if i2 = 95#u8
+    then do
+         let i3 ← inline.byte_before md start i
+         inline.is_alnum i3
+    else ok false
+  let b ← inline.is_space after
+  if b
+  then ok false
+  else ok (¬ word)
+
+/-- [protocol::inline::can_close]:
+    Source: 'crates/protocol/src/inline.rs', lines 220:0-223:1 -/
+def inline.can_close
+  (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (i : Std.Usize)
+  (n : Std.Usize) :
+  Result Bool
+  := do
+  let i1 ← Slice.index_usize md i
+  let word ←
+    if i1 = 95#u8
+    then
+      do
+      let i2 ← i + n
+      let i3 ← inline.byte_at md «end» i2
+      inline.is_alnum i3
+    else ok false
+  let i2 ← inline.byte_before md start i
+  let b ← inline.is_space i2
+  if b
+  then ok false
+  else ok (¬ word)
+
+/-- [protocol::inline::has_closer]: loop body 0:
+    Source: 'crates/protocol/src/inline.rs', lines 230:4-237:1 -/
+@[rust_loop_body]
+def inline.has_closer_loop.body
+  (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (n : Std.Usize)
+  (d : Std.U8) (j : Std.Usize) :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  if j < «end»
+  then
+    let i ← inline.run_len md j «end» d
+    if i >= n
+    then
+      let b ← inline.can_close md start «end» j n
+      if b
+      then ok (done true)
+      else let j1 ← j + 1#usize
+           ok (cont j1)
+    else let j1 ← j + 1#usize
+         ok (cont j1)
+  else ok (done false)
+
+/-- [protocol::inline::has_closer]: loop 0:
+    Source: 'crates/protocol/src/inline.rs', lines 230:4-237:1 -/
+@[rust_loop]
+def inline.has_closer_loop
+  (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (n : Std.Usize)
+  (d : Std.U8) (j : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun j1 => inline.has_closer_loop.body md start «end» n d j1)
+    j
+
+/-- [protocol::inline::has_closer]:
+    Source: 'crates/protocol/src/inline.rs', lines 227:0-237:1 -/
+def inline.has_closer
+  (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (i : Std.Usize)
+  (n : Std.Usize) :
+  Result Bool
+  := do
+  let d ← Slice.index_usize md i
+  let j ← i + n
+  inline.has_closer_loop md start «end» n d j
+
+/-- [protocol::inline::toggles]:
+    Source: 'crates/protocol/src/inline.rs', lines 239:0-247:1 -/
+def inline.toggles
+  (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (i : Std.Usize)
+  (n : Std.Usize) (style : inline.Style) :
+  Result Bool
+  := do
+  let b ← inline.opens style n
+  if b
+  then
+    let b1 ← inline.can_open md start «end» i n
+    if b1
+    then inline.has_closer md start «end» i n
+    else ok false
+  else
+    let b1 ← inline.closes style n
+    if b1
+    then inline.can_close md start «end» i n
+    else ok false
+
+/-- [protocol::inline::min3]:
+    Source: 'crates/protocol/src/inline.rs', lines 249:0-251:1 -/
+def inline.min3 (n : Std.Usize) : Result Std.Usize := do
+  if n > 3#usize
+  then ok 3#usize
+  else ok n
+
+/-- [protocol::inline::emphasis]:
+    Source: 'crates/protocol/src/inline.rs', lines 254:0-272:1 -/
+def inline.emphasis
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
+  (span : (Std.Usize × Std.Usize)) (i : Std.Usize) (style : inline.Style)
+  (escape : inline.Escape) :
+  Result ((Std.Usize × inline.Style) × (alloc.vec.Vec Std.U8))
+  := do
+  let (start, «end») := span
+  let i1 ← Slice.index_usize md i
+  let i2 ← inline.run_len md i «end» i1
+  let n ← inline.min3 i2
+  let b ← inline.toggles md start «end» i n style
+  if b
+  then
+    let next ← inline.toggled style n
+    let out1 ← inline.close_color out style
+    let out2 ← inline.open_color out1 next
+    let i3 ← i + n
+    ok ((i3, next), out2)
+  else
+    let i3 ← i + n
+    let out1 ← inline.push_text_range out md i i3 escape
+    ok ((i3, style), out1)
+
+/-- [protocol::inline::push_colored]:
+    Source: 'crates/protocol/src/inline.rs', lines 275:0-288:1 -/
+def inline.push_colored
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
+  (range : (Std.Usize × Std.Usize)) (color : Array Std.U8 10#usize)
+  (style : inline.Style) (escape : inline.Escape) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← inline.close_color out style
+  let s ← lift (Array.to_slice color)
+  let out2 ← ascii.push_bytes out1 s
+  let (i, i1) := range
+  let out3 ← inline.push_text_range out2 md i i1 escape
+  let s1 ← lift (Array.to_slice inline.RESET)
+  let out4 ← ascii.push_bytes out3 s1
+  inline.open_color out4 style
+
+/-- [protocol::inline::code_span]:
+    Source: 'crates/protocol/src/inline.rs', lines 291:0-307:1 -/
+def inline.code_span
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
+  (i : Std.Usize) (style : inline.Style) (escape : inline.Escape) :
+  Result (Std.Usize × (alloc.vec.Vec Std.U8))
+  := do
+  let n ← inline.run_len md i «end» 96#u8
+  let i1 ← i + n
+  let close ← inline.find_tick_run md i1 «end» n
+  if close = «end»
+  then let out1 ← inline.push_text_range out md i i1 escape
+       ok (i1, out1)
+  else
+    let out1 ←
+      inline.push_colored out md (i1, close) inline.CODE style escape
+    let i2 ← close + n
+    ok (i2, out1)
+
+/-- [protocol::inline::link]:
+    Source: 'crates/protocol/src/inline.rs', lines 310:0-321:1 -/
+def inline.link
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
+  (i : Std.Usize) (style : inline.Style) (escape : inline.Escape) :
+  Result (Std.Usize × (alloc.vec.Vec Std.U8))
+  := do
+  let i1 ← i + 1#usize
+  let close ← inline.find_byte md i1 «end» 93#u8
+  let target ← close + 1#usize
+  let «open» ←
+    if target < «end»
+    then do
+         let i2 ← Slice.index_usize md target
+         ok (i2 = 40#u8)
+    else ok false
+  let paren ← inline.find_byte md target «end» 41#u8
+  if «open»
+  then
+    if paren = «end»
+    then let out1 ← inline.push_text_byte out 91#u8 escape
+         ok (i1, out1)
+    else
+      let out1 ←
+        inline.push_colored out md (i1, close) inline.LINK style escape
+      let i2 ← paren + 1#usize
+      ok (i2, out1)
+  else let out1 ← inline.push_text_byte out 91#u8 escape
+       ok (i1, out1)
+
+/-- [protocol::inline::escaped]:
+    Source: 'crates/protocol/src/inline.rs', lines 324:0-331:1 -/
+def inline.escaped
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
+  (i : Std.Usize) (escape : inline.Escape) :
+  Result (Std.Usize × (alloc.vec.Vec Std.U8))
+  := do
+  let i1 ← i + 1#usize
+  if i1 < «end»
+  then
+    let i2 ← Slice.index_usize md i1
+    let b ← inline.is_punct i2
+    if b
+    then
+      let i3 ← Slice.index_usize md i1
+      let out1 ← inline.push_text_byte out i3 escape
+      let i4 ← i + 2#usize
+      ok (i4, out1)
+    else let out1 ← inline.push_text_byte out 92#u8 escape
+         ok (i1, out1)
+  else let out1 ← inline.push_text_byte out 92#u8 escape
+       ok (i1, out1)
+
+/-- [protocol::inline::step]:
+    Source: 'crates/protocol/src/inline.rs', lines 333:0-355:1 -/
+def inline.step
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
+  (span : (Std.Usize × Std.Usize)) (i : Std.Usize) (style : inline.Style)
+  (escape : inline.Escape) :
+  Result ((Std.Usize × inline.Style) × (alloc.vec.Vec Std.U8))
+  := do
+  let (_, «end») := span
+  let b ← Slice.index_usize md i
+  if b = 92#u8
+  then
+    let (i1, out1) ← inline.escaped out md «end» i escape
+    ok ((i1, style), out1)
+  else
+    if b = 96#u8
+    then
+      let (i1, out1) ← inline.code_span out md «end» i style escape
+      ok ((i1, style), out1)
+    else
+      if b = 42#u8
+      then inline.emphasis out md span i style escape
+      else
+        if b = 95#u8
+        then inline.emphasis out md span i style escape
+        else
+          if b = 91#u8
+          then
+            let (i1, out1) ← inline.link out md «end» i style escape
+            ok ((i1, style), out1)
+          else
+            let out1 ← inline.push_text_byte out b escape
+            let i1 ← i + 1#usize
+            ok ((i1, style), out1)
+
+/-- [protocol::inline::push_inline]: loop body 0:
+    Source: 'crates/protocol/src/inline.rs', lines 362:4-366:5
+    Visibility: public -/
+@[rust_loop_body]
+def inline.push_inline_loop.body
+  (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize)
+  (escape : inline.Escape) (out : alloc.vec.Vec Std.U8) (style : inline.Style)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × inline.Style × Std.Usize)
+    ((alloc.vec.Vec Std.U8) × inline.Style))
+  := do
+  if i < «end»
+  then
+    let ((next, next_style), out1) ←
+      inline.step out md (start, «end») i style escape
+    ok (cont (out1, next_style, next))
+  else ok (done (out, style))
+
+/-- [protocol::inline::push_inline]: loop 0:
+    Source: 'crates/protocol/src/inline.rs', lines 362:4-366:5
+    Visibility: public -/
+@[rust_loop]
+def inline.push_inline_loop
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) (escape : inline.Escape) (style : inline.Style)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec Std.U8) × inline.Style)
+  := do
+  loop
+    (fun (out1, style1, i1) => inline.push_inline_loop.body md start «end»
+      escape out1 style1 i1)
+    (out, style, i)
+
+/-- [protocol::inline::push_inline]:
+    Source: 'crates/protocol/src/inline.rs', lines 359:0-368:1
+    Visibility: public -/
+def inline.push_inline
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) (escape : inline.Escape) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let (out1, style) ←
+    inline.push_inline_loop out md start «end» escape inline.PLAIN start
+  inline.close_color out1 style
+
 /-- [protocol::live::MAX_PROGRESS]
     Source: 'crates/protocol/src/live.rs', lines 9:0-9:35
     Visibility: public -/
@@ -1904,6 +2821,1270 @@ def live.live_body
   let out3 ← live.push_requests out2 requests
   let s2 ← lift (Array.to_slice live.TAIL)
   ascii.push_bytes out3 s2
+
+/-- [protocol::markdown::MARKER]
+    Source: 'crates/protocol/src/markdown.rs', lines 11:0-11:47
+    Visibility: public -/
+@[global_simps, irreducible]
+def markdown.MARKER : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 27#u8, 77#u8, 49#u8 ]
+
+/-- [protocol::markdown::FIELD]
+    Source: 'crates/protocol/src/markdown.rs', lines 12:0-12:27
+    Visibility: public -/
+@[global_simps, irreducible] def markdown.FIELD : Std.U8 := 31#u8
+
+/-- [protocol::markdown::HEADING]
+    Source: 'crates/protocol/src/markdown.rs', lines 14:0-14:29
+    Visibility: public -/
+@[global_simps, irreducible] def markdown.HEADING : Std.U8 := 104#u8
+
+/-- [protocol::markdown::PARAGRAPH]
+    Source: 'crates/protocol/src/markdown.rs', lines 15:0-15:31
+    Visibility: public -/
+@[global_simps, irreducible] def markdown.PARAGRAPH : Std.U8 := 112#u8
+
+/-- [protocol::markdown::ITEM]
+    Source: 'crates/protocol/src/markdown.rs', lines 16:0-16:26
+    Visibility: public -/
+@[global_simps, irreducible] def markdown.ITEM : Std.U8 := 108#u8
+
+/-- [protocol::markdown::QUOTE]
+    Source: 'crates/protocol/src/markdown.rs', lines 17:0-17:27
+    Visibility: public -/
+@[global_simps, irreducible] def markdown.QUOTE : Std.U8 := 113#u8
+
+/-- [protocol::markdown::CODE]
+    Source: 'crates/protocol/src/markdown.rs', lines 18:0-18:26
+    Visibility: public -/
+@[global_simps, irreducible] def markdown.CODE : Std.U8 := 99#u8
+
+/-- [protocol::markdown::ROW]
+    Source: 'crates/protocol/src/markdown.rs', lines 19:0-19:25
+    Visibility: public -/
+@[global_simps, irreducible] def markdown.ROW : Std.U8 := 116#u8
+
+/-- [protocol::markdown::RULE]
+    Source: 'crates/protocol/src/markdown.rs', lines 20:0-20:26
+    Visibility: public -/
+@[global_simps, irreducible] def markdown.RULE : Std.U8 := 114#u8
+
+/-- [protocol::markdown::MAX_HEADING]
+    Source: 'crates/protocol/src/markdown.rs', lines 22:0-22:29 -/
+@[global_simps, irreducible] def markdown.MAX_HEADING : Std.Usize := 3#usize
+
+/-- [protocol::markdown::MAX_LEVEL]
+    Source: 'crates/protocol/src/markdown.rs', lines 23:0-23:27 -/
+@[global_simps, irreducible] def markdown.MAX_LEVEL : Std.Usize := 4#usize
+
+/-- [protocol::markdown::MAX_DIGITS]
+    Source: 'crates/protocol/src/markdown.rs', lines 25:0-25:28 -/
+@[global_simps, irreducible] def markdown.MAX_DIGITS : Std.Usize := 9#usize
+
+/-- [protocol::markdown::{impl core::clone::Clone for protocol::markdown::Open}::clone]:
+    Source: 'crates/protocol/src/markdown.rs', lines 28:9-28:14
+    Visibility: public -/
+def markdown.Open.Insts.CoreCloneClone.clone
+  (self : markdown.Open) : Result markdown.Open := do
+  ok self
+
+/-- Trait implementation: [protocol::markdown::{impl core::clone::Clone for protocol::markdown::Open}]
+    Source: 'crates/protocol/src/markdown.rs', lines 28:9-28:14 -/
+@[reducible]
+def markdown.Open.Insts.CoreCloneClone : core.clone.Clone markdown.Open := {
+  clone := markdown.Open.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::markdown::{impl core::marker::Copy for protocol::markdown::Open}]
+    Source: 'crates/protocol/src/markdown.rs', lines 28:16-28:20 -/
+@[reducible]
+def markdown.Open.Insts.CoreMarkerCopy : core.marker.Copy markdown.Open := {
+  cloneInst := markdown.Open.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::markdown::{impl core::marker::StructuralPartialEq for protocol::markdown::Open}]
+    Source: 'crates/protocol/src/markdown.rs', lines 28:22-28:31 -/
+@[reducible]
+def markdown.Open.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq markdown.Open := {
+}
+
+/-- [protocol::markdown::{impl core::cmp::PartialEq<protocol::markdown::Open> for protocol::markdown::Open}::eq]:
+    Source: 'crates/protocol/src/markdown.rs', lines 28:22-28:31
+    Visibility: public -/
+def markdown.Open.Insts.CoreCmpPartialEqOpen.eq
+  (self : markdown.Open) (other : markdown.Open) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::markdown::{impl core::cmp::PartialEq<protocol::markdown::Open> for protocol::markdown::Open}]
+    Source: 'crates/protocol/src/markdown.rs', lines 28:22-28:31 -/
+@[reducible]
+def markdown.Open.Insts.CoreCmpPartialEqOpen : core.cmp.PartialEq markdown.Open
+  markdown.Open := {
+  eq := markdown.Open.Insts.CoreCmpPartialEqOpen.eq
+}
+
+/-- [protocol::markdown::{impl core::cmp::Eq for protocol::markdown::Open}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/markdown.rs', lines 28:33-28:35
+    Visibility: public -/
+def markdown.Open.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : markdown.Open) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::markdown::{impl core::cmp::Eq for protocol::markdown::Open}]
+    Source: 'crates/protocol/src/markdown.rs', lines 28:33-28:35 -/
+@[reducible]
+def markdown.Open.Insts.CoreCmpEq : core.cmp.Eq markdown.Open := {
+  partialEqInst := markdown.Open.Insts.CoreCmpPartialEqOpen
+  assert_fields_are_eq := markdown.Open.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::markdown::{impl core::clone::Clone for protocol::markdown::Mode}::clone]:
+    Source: 'crates/protocol/src/markdown.rs', lines 37:9-37:14
+    Visibility: public -/
+def markdown.Mode.Insts.CoreCloneClone.clone
+  (self : markdown.Mode) : Result markdown.Mode := do
+  ok self
+
+/-- Trait implementation: [protocol::markdown::{impl core::clone::Clone for protocol::markdown::Mode}]
+    Source: 'crates/protocol/src/markdown.rs', lines 37:9-37:14 -/
+@[reducible]
+def markdown.Mode.Insts.CoreCloneClone : core.clone.Clone markdown.Mode := {
+  clone := markdown.Mode.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::markdown::{impl core::marker::Copy for protocol::markdown::Mode}]
+    Source: 'crates/protocol/src/markdown.rs', lines 37:16-37:20 -/
+@[reducible]
+def markdown.Mode.Insts.CoreMarkerCopy : core.marker.Copy markdown.Mode := {
+  cloneInst := markdown.Mode.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::markdown::{impl core::marker::StructuralPartialEq for protocol::markdown::Mode}]
+    Source: 'crates/protocol/src/markdown.rs', lines 37:22-37:31 -/
+@[reducible]
+def markdown.Mode.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq markdown.Mode := {
+}
+
+/-- [protocol::markdown::{impl core::cmp::PartialEq<protocol::markdown::Mode> for protocol::markdown::Mode}::eq]:
+    Source: 'crates/protocol/src/markdown.rs', lines 37:22-37:31
+    Visibility: public -/
+def markdown.Mode.Insts.CoreCmpPartialEqMode.eq
+  (self : markdown.Mode) (other : markdown.Mode) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  if self1 = other1
+  then
+    match self with
+    | markdown.Mode.Text => ok true
+    | markdown.Mode.Fence __self_0 =>
+      match other with
+      | markdown.Mode.Text => ok true
+      | markdown.Mode.Fence __arg1_0 =>
+        lift (core.cmp.impls.PartialEqU8.eq __self_0 __arg1_0)
+  else ok false
+
+/-- Trait implementation: [protocol::markdown::{impl core::cmp::PartialEq<protocol::markdown::Mode> for protocol::markdown::Mode}]
+    Source: 'crates/protocol/src/markdown.rs', lines 37:22-37:31 -/
+@[reducible]
+def markdown.Mode.Insts.CoreCmpPartialEqMode : core.cmp.PartialEq markdown.Mode
+  markdown.Mode := {
+  eq := markdown.Mode.Insts.CoreCmpPartialEqMode.eq
+}
+
+/-- [protocol::markdown::{impl core::cmp::Eq for protocol::markdown::Mode}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/markdown.rs', lines 37:33-37:35
+    Visibility: public -/
+def markdown.Mode.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : markdown.Mode) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::markdown::{impl core::cmp::Eq for protocol::markdown::Mode}]
+    Source: 'crates/protocol/src/markdown.rs', lines 37:33-37:35 -/
+@[reducible]
+def markdown.Mode.Insts.CoreCmpEq : core.cmp.Eq markdown.Mode := {
+  partialEqInst := markdown.Mode.Insts.CoreCmpPartialEqMode
+  assert_fields_are_eq := markdown.Mode.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::markdown::{impl core::clone::Clone for protocol::markdown::State}::clone]:
+    Source: 'crates/protocol/src/markdown.rs', lines 43:9-43:14
+    Visibility: public -/
+def markdown.State.Insts.CoreCloneClone.clone
+  (self : markdown.State) : Result markdown.State := do
+  ok self
+
+/-- Trait implementation: [protocol::markdown::{impl core::clone::Clone for protocol::markdown::State}]
+    Source: 'crates/protocol/src/markdown.rs', lines 43:9-43:14 -/
+@[reducible]
+def markdown.State.Insts.CoreCloneClone : core.clone.Clone markdown.State := {
+  clone := markdown.State.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::markdown::{impl core::marker::Copy for protocol::markdown::State}]
+    Source: 'crates/protocol/src/markdown.rs', lines 43:16-43:20 -/
+@[reducible]
+def markdown.State.Insts.CoreMarkerCopy : core.marker.Copy markdown.State := {
+  cloneInst := markdown.State.Insts.CoreCloneClone
+}
+
+/-- [protocol::markdown::line_end]:
+    Source: 'crates/protocol/src/markdown.rs', lines 49:0-51:1 -/
+def markdown.line_end
+  (md : Slice Std.U8) (start : Std.Usize) : Result Std.Usize := do
+  let i := Slice.len md
+  inline.find_byte md start i 10#u8
+
+/-- [protocol::markdown::skip_spaces]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 55:4-57:5 -/
+@[rust_loop_body]
+def markdown.skip_spaces_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize md i
+    if i1 = 32#u8
+    then let i2 ← i + 1#usize
+         ok (cont i2)
+    else if i1 = 9#u8
+         then let i2 ← i + 1#usize
+              ok (cont i2)
+         else ok (done i)
+  else ok (done i)
+
+/-- [protocol::markdown::skip_spaces]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 55:4-57:5 -/
+@[rust_loop]
+def markdown.skip_spaces_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (i : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun i1 => markdown.skip_spaces_loop.body md «end» i1)
+    i
+
+/-- [protocol::markdown::skip_spaces]:
+    Source: 'crates/protocol/src/markdown.rs', lines 53:0-59:1 -/
+@[reducible]
+def markdown.skip_spaces
+  (md : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  markdown.skip_spaces_loop md «end» «from»
+
+/-- [protocol::markdown::trim_end]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 64:4-66:5 -/
+@[rust_loop_body]
+def markdown.trim_end_loop.body
+  (md : Slice Std.U8) (start : Std.Usize) (e : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if e > start
+  then
+    let i ← e - 1#usize
+    let i1 ← Slice.index_usize md i
+    if i1 <= 32#u8
+    then ok (cont i)
+    else ok (done e)
+  else ok (done e)
+
+/-- [protocol::markdown::trim_end]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 64:4-66:5 -/
+@[rust_loop]
+def markdown.trim_end_loop
+  (md : Slice Std.U8) (start : Std.Usize) (e : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun e1 => markdown.trim_end_loop.body md start e1)
+    e
+
+/-- [protocol::markdown::trim_end]:
+    Source: 'crates/protocol/src/markdown.rs', lines 62:0-68:1 -/
+@[reducible]
+def markdown.trim_end
+  (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  markdown.trim_end_loop md start «end»
+
+/-- [protocol::markdown::run_len]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 72:4-74:5 -/
+@[rust_loop_body]
+def markdown.run_len_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i = b
+    then let j1 ← j + 1#usize
+         ok (cont j1)
+    else ok (done j)
+  else ok (done j)
+
+/-- [protocol::markdown::run_len]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 72:4-74:5 -/
+@[rust_loop]
+def markdown.run_len_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun j1 => markdown.run_len_loop.body md «end» b j1)
+    j
+
+/-- [protocol::markdown::run_len]:
+    Source: 'crates/protocol/src/markdown.rs', lines 70:0-76:1 -/
+def markdown.run_len
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) (b : Std.U8) :
+  Result Std.Usize
+  := do
+  let j ← markdown.run_len_loop md «end» b i
+  j - i
+
+/-- [protocol::markdown::is_digit]:
+    Source: 'crates/protocol/src/markdown.rs', lines 78:0-80:1 -/
+def markdown.is_digit (b : Std.U8) : Result Bool := do
+  if 48#u8 <= b
+  then ok (b <= 57#u8)
+  else ok false
+
+/-- [protocol::markdown::start_block]:
+    Source: 'crates/protocol/src/markdown.rs', lines 82:0-85:1 -/
+def markdown.start_block
+  (out : alloc.vec.Vec Std.U8) (kind : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← alloc.vec.Vec.push out 10#u8
+  alloc.vec.Vec.push out1 kind
+
+/-- [protocol::markdown::push_level]:
+    Source: 'crates/protocol/src/markdown.rs', lines 87:0-92:1 -/
+def markdown.push_level
+  (out : alloc.vec.Vec Std.U8) (level : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← alloc.vec.Vec.push out markdown.FIELD
+  let i ← lift (UScalar.cast .U8 level)
+  let i1 ← 48#u8 + i
+  alloc.vec.Vec.push out1 i1
+
+/-- [protocol::markdown::push_text_field]:
+    Source: 'crates/protocol/src/markdown.rs', lines 94:0-97:1 -/
+def markdown.push_text_field
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) (escape : inline.Escape) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← alloc.vec.Vec.push out markdown.FIELD
+  let i ← markdown.trim_end md start «end»
+  inline.push_inline out1 md start i escape
+
+/-- [protocol::markdown::min_usize]:
+    Source: 'crates/protocol/src/markdown.rs', lines 99:0-101:1 -/
+def markdown.min_usize (a : Std.Usize) (b : Std.Usize) : Result Std.Usize := do
+  if a < b
+  then ok a
+  else ok b
+
+/-- [protocol::markdown::is_fence]:
+    Source: 'crates/protocol/src/markdown.rs', lines 105:0-107:1 -/
+def markdown.is_fence
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) : Result Bool := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize md i
+    if i1 = 96#u8
+    then let i2 ← markdown.run_len md i «end» i1
+         ok (i2 >= 3#usize)
+    else
+      if i1 = 126#u8
+      then let i2 ← markdown.run_len md i «end» i1
+           ok (i2 >= 3#usize)
+      else ok false
+  else ok false
+
+/-- [protocol::markdown::closes_fence]:
+    Source: 'crates/protocol/src/markdown.rs', lines 109:0-111:1 -/
+def markdown.closes_fence
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) (fence : Std.U8) :
+  Result Bool
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize md i
+    if i1 = fence
+    then let i2 ← markdown.run_len md i «end» fence
+         ok (i2 >= 3#usize)
+    else ok false
+  else ok false
+
+/-- [protocol::markdown::code_line]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 118:4-121:5 -/
+@[rust_loop_body]
+def markdown.code_line_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize md i
+    let out1 ← inline.push_code_byte out i1
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::markdown::code_line]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 118:4-121:5 -/
+@[rust_loop]
+def markdown.code_line_loop
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => markdown.code_line_loop.body md «end» out1 i1)
+    (out, i)
+
+/-- [protocol::markdown::code_line]:
+    Source: 'crates/protocol/src/markdown.rs', lines 114:0-122:1 -/
+def markdown.code_line
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← markdown.start_block out markdown.CODE
+  let out2 ← alloc.vec.Vec.push out1 markdown.FIELD
+  markdown.code_line_loop out2 md «end» start
+
+/-- [protocol::markdown::fence_line]:
+    Source: 'crates/protocol/src/markdown.rs', lines 124:0-137:1 -/
+def markdown.fence_line
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) (fence : Std.U8) :
+  Result (markdown.State × (alloc.vec.Vec Std.U8))
+  := do
+  let i ← markdown.skip_spaces md start «end»
+  let b ← markdown.closes_fence md i «end» fence
+  if b
+  then
+    ok ({ mode := markdown.Mode.Text, «open» := markdown.Open.Nothing }, out)
+  else
+    let out1 ← markdown.code_line out md start «end»
+    ok
+      ({ mode := (markdown.Mode.Fence fence), «open» := markdown.Open.Nothing
+       }, out1)
+
+/-- [protocol::markdown::heading_level]:
+    Source: 'crates/protocol/src/markdown.rs', lines 142:0-149:1 -/
+def markdown.heading_level
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  let n ← markdown.run_len md i «end» 35#u8
+  let after ← i + n
+  if n = 0#usize
+  then ok 0#usize
+  else
+    if n > 6#usize
+    then ok 0#usize
+    else
+      if after < «end»
+      then
+        let i1 ← Slice.index_usize md after
+        if i1 != 32#u8
+        then ok 0#usize
+        else ok n
+      else ok n
+
+/-- [protocol::markdown::heading]:
+    Source: 'crates/protocol/src/markdown.rs', lines 151:0-155:1 -/
+def markdown.heading
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (i : Std.Usize)
+  («end» : Std.Usize) (n : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← markdown.start_block out markdown.HEADING
+  let i1 ← markdown.min_usize n markdown.MAX_HEADING
+  let out2 ← markdown.push_level out1 i1
+  let i2 ← i + n
+  let i3 ← markdown.skip_spaces md i2 «end»
+  markdown.push_text_field out2 md i3 «end» inline.Escape.Html
+
+/-- [protocol::markdown::is_rule]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 165:4-170:5 -/
+@[rust_loop_body]
+def markdown.is_rule_loop0.body
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (count : Std.I32)
+  (j : Std.Usize) :
+  Result (ControlFlow (Std.I32 × Std.Usize) (Std.I32 × Std.Usize))
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i = b
+    then
+      let count1 ← if i = b
+                     then count + 1#i32
+                     else ok count
+      let j1 ← j + 1#usize
+      ok (cont (count1, j1))
+    else
+      if i = 32#u8
+      then
+        let count1 ← if i = b
+                       then count + 1#i32
+                       else ok count
+        let j1 ← j + 1#usize
+        ok (cont (count1, j1))
+      else ok (done (count, j))
+  else ok (done (count, j))
+
+/-- [protocol::markdown::is_rule]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 165:4-170:5 -/
+@[rust_loop]
+def markdown.is_rule_loop0
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (count : Std.I32)
+  (j : Std.Usize) :
+  Result (Std.I32 × Std.Usize)
+  := do
+  loop
+    (fun (count1, j1) => markdown.is_rule_loop0.body md «end» b count1 j1)
+    (count, j)
+
+/-- [protocol::markdown::is_rule]: loop body 1:
+    Source: 'crates/protocol/src/markdown.rs', lines 165:4-170:5 -/
+@[rust_loop_body]
+def markdown.is_rule_loop1.body
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (count : Std.I32)
+  (j : Std.Usize) :
+  Result (ControlFlow (Std.I32 × Std.Usize) (Std.I32 × Std.Usize))
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i = b
+    then
+      let count1 ← if i = b
+                     then count + 1#i32
+                     else ok count
+      let j1 ← j + 1#usize
+      ok (cont (count1, j1))
+    else
+      if i = 32#u8
+      then
+        let count1 ← if i = b
+                       then count + 1#i32
+                       else ok count
+        let j1 ← j + 1#usize
+        ok (cont (count1, j1))
+      else ok (done (count, j))
+  else ok (done (count, j))
+
+/-- [protocol::markdown::is_rule]: loop 1:
+    Source: 'crates/protocol/src/markdown.rs', lines 165:4-170:5 -/
+@[rust_loop]
+def markdown.is_rule_loop1
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (count : Std.I32)
+  (j : Std.Usize) :
+  Result (Std.I32 × Std.Usize)
+  := do
+  loop
+    (fun (count1, j1) => markdown.is_rule_loop1.body md «end» b count1 j1)
+    (count, j)
+
+/-- [protocol::markdown::is_rule]: loop body 2:
+    Source: 'crates/protocol/src/markdown.rs', lines 165:4-170:5 -/
+@[rust_loop_body]
+def markdown.is_rule_loop2.body
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (count : Std.I32)
+  (j : Std.Usize) :
+  Result (ControlFlow (Std.I32 × Std.Usize) (Std.I32 × Std.Usize))
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i = b
+    then
+      let count1 ← if i = b
+                     then count + 1#i32
+                     else ok count
+      let j1 ← j + 1#usize
+      ok (cont (count1, j1))
+    else
+      if i = 32#u8
+      then
+        let count1 ← if i = b
+                       then count + 1#i32
+                       else ok count
+        let j1 ← j + 1#usize
+        ok (cont (count1, j1))
+      else ok (done (count, j))
+  else ok (done (count, j))
+
+/-- [protocol::markdown::is_rule]: loop 2:
+    Source: 'crates/protocol/src/markdown.rs', lines 165:4-170:5 -/
+@[rust_loop]
+def markdown.is_rule_loop2
+  (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (count : Std.I32)
+  (j : Std.Usize) :
+  Result (Std.I32 × Std.Usize)
+  := do
+  loop
+    (fun (count1, j1) => markdown.is_rule_loop2.body md «end» b count1 j1)
+    (count, j)
+
+/-- [protocol::markdown::is_rule]:
+    Source: 'crates/protocol/src/markdown.rs', lines 158:0-172:1 -/
+def markdown.is_rule
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) : Result Bool := do
+  let b ← Slice.index_usize md i
+  if b != 45#u8
+  then
+    if b != 42#u8
+    then
+      if b != 95#u8
+      then ok false
+      else
+        let (count, j) ← markdown.is_rule_loop0 md «end» b 0#i32 i
+        if j = «end»
+        then ok (count >= 3#i32)
+        else ok false
+    else
+      let (count, j) ← markdown.is_rule_loop1 md «end» b 0#i32 i
+      if j = «end»
+      then ok (count >= 3#i32)
+      else ok false
+  else
+    let (count, j) ← markdown.is_rule_loop2 md «end» b 0#i32 i
+    if j = «end»
+    then ok (count >= 3#i32)
+    else ok false
+
+/-- [protocol::markdown::rule]:
+    Source: 'crates/protocol/src/markdown.rs', lines 174:0-176:1 -/
+def markdown.rule
+  (out : alloc.vec.Vec Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  markdown.start_block out markdown.RULE
+
+/-- [protocol::markdown::run_len_digits]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 210:4-212:5 -/
+@[rust_loop_body]
+def markdown.run_len_digits_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (j : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    let b ← markdown.is_digit i
+    if b
+    then let j1 ← j + 1#usize
+         ok (cont j1)
+    else ok (done j)
+  else ok (done j)
+
+/-- [protocol::markdown::run_len_digits]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 210:4-212:5 -/
+@[rust_loop]
+def markdown.run_len_digits_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (j : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun j1 => markdown.run_len_digits_loop.body md «end» j1)
+    j
+
+/-- [protocol::markdown::run_len_digits]:
+    Source: 'crates/protocol/src/markdown.rs', lines 208:0-214:1 -/
+def markdown.run_len_digits
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  let j ← markdown.run_len_digits_loop md «end» i
+  j - i
+
+/-- [protocol::markdown::number_end]:
+    Source: 'crates/protocol/src/markdown.rs', lines 195:0-206:1 -/
+def markdown.number_end
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  let digits ← markdown.run_len_digits md i «end»
+  let after ← i + digits
+  if digits = 0#usize
+  then ok i
+  else
+    if digits > markdown.MAX_DIGITS
+    then ok i
+    else
+      if after >= «end»
+      then ok i
+      else
+        let i1 ← Slice.index_usize md after
+        if i1 = 46#u8
+        then after + 1#usize
+        else if i1 = 41#u8
+             then after + 1#usize
+             else ok i
+
+/-- [protocol::markdown::item_marker_end]:
+    Source: 'crates/protocol/src/markdown.rs', lines 181:0-192:1 -/
+def markdown.item_marker_end
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  let b ← Slice.index_usize md i
+  let mark_end ←
+    if b = 45#u8
+    then i + 1#usize
+    else
+      if b = 42#u8
+      then i + 1#usize
+      else if b = 43#u8
+           then i + 1#usize
+           else markdown.number_end md i «end»
+  if mark_end = i
+  then ok i
+  else
+    if mark_end < «end»
+    then
+      let i1 ← Slice.index_usize md mark_end
+      if i1 != 32#u8
+      then ok i
+      else ok mark_end
+    else ok mark_end
+
+/-- [protocol::markdown::push_digits]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 230:4-233:5 -/
+@[rust_loop_body]
+def markdown.push_digits_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    let out1 ← alloc.vec.Vec.push out i
+    let j1 ← j + 1#usize
+    ok (cont (out1, j1))
+  else ok (done out)
+
+/-- [protocol::markdown::push_digits]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 230:4-233:5 -/
+@[rust_loop]
+def markdown.push_digits_loop
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
+  (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, j1) => markdown.push_digits_loop.body md «end» out1 j1)
+    (out, j)
+
+/-- [protocol::markdown::push_digits]:
+    Source: 'crates/protocol/src/markdown.rs', lines 228:0-234:1 -/
+@[reducible]
+def markdown.push_digits
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  markdown.push_digits_loop out md «end» start
+
+/-- [protocol::markdown::item]:
+    Source: 'crates/protocol/src/markdown.rs', lines 217:0-226:1 -/
+def markdown.item
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
+  (line : (Std.Usize × Std.Usize)) (indent : Std.Usize) (mark_end : Std.Usize)
+  :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let (i, «end») := line
+  let out1 ← markdown.start_block out markdown.ITEM
+  let i1 ← indent / 2#usize
+  let i2 ← markdown.min_usize i1 markdown.MAX_LEVEL
+  let out2 ← markdown.push_level out1 i2
+  let out3 ← alloc.vec.Vec.push out2 markdown.FIELD
+  let i3 ← Slice.index_usize md i
+  let b ← markdown.is_digit i3
+  let out4 ←
+    if b
+    then do
+         let i4 ← mark_end - 1#usize
+         markdown.push_digits out3 md i i4
+    else ok out3
+  let i4 ← markdown.skip_spaces md mark_end «end»
+  markdown.push_text_field out4 md i4 «end» inline.Escape.Html
+
+/-- [protocol::markdown::skip_quote_marks]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 240:4-242:5 -/
+@[rust_loop_body]
+def markdown.skip_quote_marks_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (j : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i = 62#u8
+    then let j1 ← j + 1#usize
+         ok (cont j1)
+    else if i = 32#u8
+         then let j1 ← j + 1#usize
+              ok (cont j1)
+         else ok (done j)
+  else ok (done j)
+
+/-- [protocol::markdown::skip_quote_marks]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 240:4-242:5 -/
+@[rust_loop]
+def markdown.skip_quote_marks_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (j : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun j1 => markdown.skip_quote_marks_loop.body md «end» j1)
+    j
+
+/-- [protocol::markdown::skip_quote_marks]:
+    Source: 'crates/protocol/src/markdown.rs', lines 238:0-244:1 -/
+@[reducible]
+def markdown.skip_quote_marks
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  markdown.skip_quote_marks_loop md «end» i
+
+/-- [protocol::markdown::continue_text]:
+    Source: 'crates/protocol/src/markdown.rs', lines 310:0-313:1 -/
+def markdown.continue_text
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (i : Std.Usize)
+  («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← alloc.vec.Vec.push out 32#u8
+  let i1 ← markdown.trim_end md i «end»
+  inline.push_inline out1 md i i1 inline.Escape.Html
+
+/-- [protocol::markdown::quote]:
+    Source: 'crates/protocol/src/markdown.rs', lines 246:0-254:1 -/
+def markdown.quote
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (i : Std.Usize)
+  («end» : Std.Usize) («open» : markdown.Open) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let text ← markdown.skip_quote_marks md i «end»
+  let b ←
+    markdown.Open.Insts.CoreCmpPartialEqOpen.eq «open» markdown.Open.Quote
+  if b
+  then markdown.continue_text out md text «end»
+  else
+    let out1 ← markdown.start_block out markdown.QUOTE
+    markdown.push_text_field out1 md text «end» inline.Escape.Html
+
+/-- [protocol::markdown::is_delimiter_row]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 262:4-267:5 -/
+@[rust_loop_body]
+def markdown.is_delimiter_row_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (dashes : Std.I32) (j : Std.Usize)
+  :
+  Result (ControlFlow (Std.I32 × Std.Usize) (Std.I32 × Std.Usize))
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i = 124#u8
+    then
+      let dashes1 ← if i = 45#u8
+                      then dashes + 1#i32
+                      else ok dashes
+      let j1 ← j + 1#usize
+      ok (cont (dashes1, j1))
+    else
+      if i = 45#u8
+      then
+        let dashes1 ← if i = 45#u8
+                        then dashes + 1#i32
+                        else ok dashes
+        let j1 ← j + 1#usize
+        ok (cont (dashes1, j1))
+      else
+        if i = 58#u8
+        then
+          let dashes1 ← if i = 45#u8
+                          then dashes + 1#i32
+                          else ok dashes
+          let j1 ← j + 1#usize
+          ok (cont (dashes1, j1))
+        else
+          if i = 32#u8
+          then
+            let dashes1 ← if i = 45#u8
+                            then dashes + 1#i32
+                            else ok dashes
+            let j1 ← j + 1#usize
+            ok (cont (dashes1, j1))
+          else ok (done (dashes, j))
+  else ok (done (dashes, j))
+
+/-- [protocol::markdown::is_delimiter_row]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 262:4-267:5 -/
+@[rust_loop]
+def markdown.is_delimiter_row_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (dashes : Std.I32) (j : Std.Usize)
+  :
+  Result (Std.I32 × Std.Usize)
+  := do
+  loop
+    (fun (dashes1, j1) => markdown.is_delimiter_row_loop.body md «end»
+      dashes1 j1)
+    (dashes, j)
+
+/-- [protocol::markdown::is_delimiter_row]:
+    Source: 'crates/protocol/src/markdown.rs', lines 259:0-269:1 -/
+def markdown.is_delimiter_row
+  (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) : Result Bool := do
+  let (dashes, j) ← markdown.is_delimiter_row_loop md «end» 0#i32 i
+  let i1 ← markdown.trim_end md i «end»
+  if j = i1
+  then ok (dashes > 0#i32)
+  else ok false
+
+/-- [protocol::markdown::next_is_delimiter]:
+    Source: 'crates/protocol/src/markdown.rs', lines 272:0-279:1 -/
+def markdown.next_is_delimiter
+  (md : Slice Std.U8) (next : Std.Usize) : Result Bool := do
+  let i := Slice.len md
+  if next >= i
+  then ok false
+  else
+    let «end» ← markdown.line_end md next
+    let i1 ← markdown.skip_spaces md next «end»
+    if i1 < «end»
+    then
+      let i2 ← Slice.index_usize md i1
+      if i2 = 124#u8
+      then markdown.is_delimiter_row md i1 «end»
+      else ok false
+    else ok false
+
+/-- [protocol::markdown::cell_end]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 284:4-290:5 -/
+@[rust_loop_body]
+def markdown.cell_end_loop.body
+  (md : Slice Std.U8) («end» : Std.Usize) (j : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if j < «end»
+  then
+    let i ← Slice.index_usize md j
+    if i != 124#u8
+    then
+      let i1 ←
+        if i = 92#u8
+        then
+          do
+          let i2 ← j + 1#usize
+          if i2 < «end»
+          then
+            let i3 ← Slice.index_usize md i2
+            let b ← inline.is_punct i3
+            if b
+            then ok 2#usize
+            else ok 1#usize
+          else ok 1#usize
+        else ok 1#usize
+      let j1 ← j + i1
+      ok (cont j1)
+    else ok (done j)
+  else ok (done j)
+
+/-- [protocol::markdown::cell_end]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 284:4-290:5 -/
+@[rust_loop]
+def markdown.cell_end_loop
+  (md : Slice Std.U8) («end» : Std.Usize) (j : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun j1 => markdown.cell_end_loop.body md «end» j1)
+    j
+
+/-- [protocol::markdown::cell_end]:
+    Source: 'crates/protocol/src/markdown.rs', lines 282:0-292:1 -/
+@[reducible]
+def markdown.cell_end
+  (md : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  markdown.cell_end_loop md «end» «from»
+
+/-- [protocol::markdown::row]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 301:4-305:5 -/
+@[rust_loop_body]
+def markdown.row_loop0.body
+  (md : Slice Std.U8) (e : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (s : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if s < e
+  then
+    let c ← markdown.cell_end md s e
+    let i ← markdown.skip_spaces md s c
+    let out1 ← markdown.push_text_field out md i c inline.Escape.Wow
+    let s1 ← c + 1#usize
+    ok (cont (out1, s1))
+  else ok (done out)
+
+/-- [protocol::markdown::row]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 301:4-305:5 -/
+@[rust_loop]
+def markdown.row_loop0
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (e : Std.Usize)
+  (s : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, s1) => markdown.row_loop0.body md e out1 s1)
+    (out, s)
+
+/-- [protocol::markdown::row]: loop body 1:
+    Source: 'crates/protocol/src/markdown.rs', lines 301:4-305:5 -/
+@[rust_loop_body]
+def markdown.row_loop1.body
+  (md : Slice Std.U8) (e : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (s : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if s < e
+  then
+    let c ← markdown.cell_end md s e
+    let i ← markdown.skip_spaces md s c
+    let out1 ← markdown.push_text_field out md i c inline.Escape.Wow
+    let s1 ← c + 1#usize
+    ok (cont (out1, s1))
+  else ok (done out)
+
+/-- [protocol::markdown::row]: loop 1:
+    Source: 'crates/protocol/src/markdown.rs', lines 301:4-305:5 -/
+@[rust_loop]
+def markdown.row_loop1
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (e : Std.Usize)
+  (s : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, s1) => markdown.row_loop1.body md e out1 s1)
+    (out, s)
+
+/-- [protocol::markdown::row]:
+    Source: 'crates/protocol/src/markdown.rs', lines 295:0-306:1 -/
+def markdown.row
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (i : Std.Usize)
+  («end» : Std.Usize) (header : Bool) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let out1 ← markdown.start_block out markdown.ROW
+  let out2 ← alloc.vec.Vec.push out1 markdown.FIELD
+  if header
+  then
+    let out3 ← alloc.vec.Vec.push out2 49#u8
+    let e ← markdown.trim_end md i «end»
+    let s ← i + 1#usize
+    markdown.row_loop0 out3 md e s
+  else
+    let out3 ← alloc.vec.Vec.push out2 48#u8
+    let e ← markdown.trim_end md i «end»
+    let s ← i + 1#usize
+    markdown.row_loop1 out3 md e s
+
+/-- [protocol::markdown::paragraph]:
+    Source: 'crates/protocol/src/markdown.rs', lines 315:0-323:1 -/
+def markdown.paragraph
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (i : Std.Usize)
+  («end» : Std.Usize) («open» : markdown.Open) :
+  Result (markdown.Open × (alloc.vec.Vec Std.U8))
+  := do
+  let b ←
+    markdown.Open.Insts.CoreCmpPartialEqOpen.eq «open»
+      markdown.Open.Paragraph
+  if b
+  then let out1 ← markdown.continue_text out md i «end»
+       ok («open», out1)
+  else
+    let b1 ←
+      markdown.Open.Insts.CoreCmpPartialEqOpen.eq «open» markdown.Open.Item
+    if b1
+    then
+      let out1 ← markdown.continue_text out md i «end»
+      ok («open», out1)
+    else
+      let out1 ← markdown.start_block out markdown.PARAGRAPH
+      let out2 ←
+        markdown.push_text_field out1 md i «end» inline.Escape.Html
+      ok (markdown.Open.Paragraph, out2)
+
+/-- [protocol::markdown::text_state]:
+    Source: 'crates/protocol/src/markdown.rs', lines 327:0-332:1 -/
+def markdown.text_state
+  («open» : markdown.Open) : Result markdown.State := do
+  ok { mode := markdown.Mode.Text, «open» }
+
+/-- [protocol::markdown::table_line]:
+    Source: 'crates/protocol/src/markdown.rs', lines 335:0-339:1 -/
+def markdown.table_line
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (i : Std.Usize)
+  («end» : Std.Usize) (next : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let b ← markdown.is_delimiter_row md i «end»
+  if b
+  then ok out
+  else
+    let b1 ← markdown.next_is_delimiter md next
+    markdown.row out md i «end» b1
+
+/-- [protocol::markdown::block_line]:
+    Source: 'crates/protocol/src/markdown.rs', lines 368:0-390:1 -/
+def markdown.block_line
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
+  (line : (Std.Usize × Std.Usize × Std.Usize)) (next : Std.Usize)
+  («open» : markdown.Open) :
+  Result (markdown.State × (alloc.vec.Vec Std.U8))
+  := do
+  let (start, i, «end») := line
+  let mark_end ← markdown.item_marker_end md i «end»
+  if mark_end > i
+  then
+    let i1 ← i - start
+    let out1 ← markdown.item out md (i, «end») i1 mark_end
+    let s ← markdown.text_state markdown.Open.Item
+    ok (s, out1)
+  else
+    let i1 ← Slice.index_usize md i
+    if i1 = 62#u8
+    then
+      let out1 ← markdown.quote out md i «end» «open»
+      let s ← markdown.text_state markdown.Open.Quote
+      ok (s, out1)
+    else
+      if i1 = 124#u8
+      then
+        let out1 ← markdown.table_line out md i «end» next
+        let s ← markdown.text_state markdown.Open.Nothing
+        ok (s, out1)
+      else
+        let (o, out1) ← markdown.paragraph out md i «end» «open»
+        let s ← markdown.text_state o
+        ok (s, out1)
+
+/-- [protocol::markdown::text_line]:
+    Source: 'crates/protocol/src/markdown.rs', lines 342:0-364:1 -/
+def markdown.text_line
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
+  (line : (Std.Usize × Std.Usize)) (next : Std.Usize)
+  («open» : markdown.Open) :
+  Result (markdown.State × (alloc.vec.Vec Std.U8))
+  := do
+  let (start, «end») := line
+  let i ← markdown.skip_spaces md start «end»
+  if i = «end»
+  then let s ← markdown.text_state markdown.Open.Nothing
+       ok (s, out)
+  else
+    let b ← markdown.is_fence md i «end»
+    if b
+    then
+      let i1 ← Slice.index_usize md i
+      ok
+        ({ mode := (markdown.Mode.Fence i1), «open» := markdown.Open.Nothing
+         }, out)
+    else
+      let level ← markdown.heading_level md i «end»
+      if level > 0#usize
+      then
+        let out1 ← markdown.heading out md i «end» level
+        let s ← markdown.text_state markdown.Open.Nothing
+        ok (s, out1)
+      else
+        let b1 ← markdown.is_rule md i «end»
+        if b1
+        then
+          let out1 ← markdown.rule out
+          let s ← markdown.text_state markdown.Open.Nothing
+          ok (s, out1)
+        else markdown.block_line out md (start, i, «end») next «open»
+
+/-- [protocol::markdown::render_line]:
+    Source: 'crates/protocol/src/markdown.rs', lines 392:0-397:1 -/
+def markdown.render_line
+  (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) (state : markdown.State) :
+  Result (markdown.State × (alloc.vec.Vec Std.U8))
+  := do
+  match state.mode with
+  | markdown.Mode.Text =>
+    let i ← «end» + 1#usize
+    markdown.text_line out md (start, «end») i state.open
+  | markdown.Mode.Fence fence => markdown.fence_line out md start «end» fence
+
+/-- [protocol::markdown::render_markdown]: loop body 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 407:4-411:5
+    Visibility: public -/
+@[rust_loop_body]
+def markdown.render_markdown_loop.body
+  (md : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (state : markdown.State)
+  (start : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × markdown.State × Std.Usize)
+    (alloc.vec.Vec Std.U8))
+  := do
+  let i := Slice.len md
+  if start < i
+  then
+    let «end» ← markdown.line_end md start
+    let (state1, out1) ← markdown.render_line out md start «end» state
+    let start1 ← «end» + 1#usize
+    ok (cont (out1, state1, start1))
+  else ok (done out)
+
+/-- [protocol::markdown::render_markdown]: loop 0:
+    Source: 'crates/protocol/src/markdown.rs', lines 407:4-411:5
+    Visibility: public -/
+@[rust_loop]
+def markdown.render_markdown_loop
+  (md : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (state : markdown.State)
+  (start : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, state1, start1) => markdown.render_markdown_loop.body md out1
+      state1 start1)
+    (out, state, start)
+
+/-- [protocol::markdown::render_markdown]:
+    Source: 'crates/protocol/src/markdown.rs', lines 402:0-414:1
+    Visibility: public -/
+def markdown.render_markdown
+  (md : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let s ← lift (Array.to_slice markdown.MARKER)
+  let out ← ascii.push_bytes (alloc.vec.Vec.new Std.U8) s
+  let state ← markdown.text_state markdown.Open.Nothing
+  let out1 ← markdown.render_markdown_loop md out state 0#usize
+  alloc.vec.Vec.push out1 10#u8
 
 /-- [protocol::policy::{impl core::clone::Clone for protocol::policy::Level}::clone]:
     Source: 'crates/protocol/src/policy.rs', lines 4:9-4:14

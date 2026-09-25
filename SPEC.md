@@ -418,6 +418,42 @@ Later fields (the session, the denied rules, and `notes` for pings) go into a fi
 - The bridge writes progress at most every 3 seconds. It writes final replies at once.
 - If `LoadAddOn` returns `MISSING` or `DISABLED`, the addon reports "slots not installed".
 
+#### 7.3.1 Reply blocks
+
+Agent replies are Markdown. The game cannot parse Markdown safely, so the bridge renders it with `render_markdown` in `protocol` (`markdown.rs` and `inline.rs`).
+The rendered text goes into the normal `text` field, so S9, S18, and S20 do not change.
+
+- The bridge renders only the text of a `done` reply. Errors, lists, and user messages stay plain.
+- An attach reply (9.6) is `prompt\nanswer`. The bridge renders only the answer.
+- The history of the bridge keeps the rendered text, so a restore shows the same blocks as the live reply.
+
+**Format.** The text starts with the marker `ESC M 1` (`1B 4D 31`). Each block is one line: `\n`, a kind byte, then fields that each start with `US` (`1F`). A last `\n` ends the text.
+
+| Kind | Block | Fields |
+|---|---|---|
+| `h` | Heading | level `1` to `3` (`####` and deeper show as `3`), text |
+| `p` | Paragraph. The lines of one paragraph join with a space. | text |
+| `l` | List item. A line below it continues it. | level `0` to `4` (2 spaces of indent per level), the number or nothing for a bullet, text |
+| `q` | Quote. Its lines join. | text |
+| `c` | One line of a code fence (```` ``` ```` or `~~~`). A tab becomes 4 spaces. | text |
+| `t` | Table row. The delimiter row (`\|---\|`) shows nothing. | `1` for the row above a delimiter row, else `0`, then one field per cell |
+| `r` | Rule (`---`, `***`, `___`) | none |
+
+**Text rules:**
+
+- Every `|` of the agent text is doubled (S10). A `\|` inside a table cell is a `|` of the cell.
+- Control bytes go, and a tab becomes a space. So ESC, US, and `\n` never come from the agent.
+- Texts of `h`, `p`, `l`, and `q` go into SimpleHTML, so `<`, `>`, and `&` become `&lt;`, `&gt;`, and `&amp;`. Texts of `c` and `t` go into font strings, and keep those bytes.
+- Inline marks become WoW color codes: bold `ffd100`, italic `c0c8ff`, both `ffe680`, inline code `b8e0b8`, and link text `69b4ff`. A link shows its text only: WoW cannot open a browser.
+- The renderer writes the only `|c` and `|r` codes. Colors never nest, and each one closes in its own field.
+- A mark with no closing mark is text. So are `*` between spaces and `_` inside a word.
+- The output is at most 10 times the input plus 4 bytes.
+
+**Cuts.** The body cuts a text at 32 KB (S12) and the restore at 500 bytes (S18). A cut text has no last `\n`. The addon then shows the cut last line with its codes and entities taken out, as plain text.
+
+The fuzz target `markdown` checks the shape, the escapes, and the size bound on the compiled code.
+The renderer has no proof yet. Its statements wait for approval.
+
 **Poll schedule after a send:** the addon loads a slot at 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, and 300 seconds.
 Then it loads one every 60 seconds until the reply is done.
 With no message pending, it loads one slot every 10 minutes, for terminal pings and the status light.
@@ -1126,6 +1162,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | Restore and live files, loaded in a real Lua 5.1 VM | Back up S18 to S21: every field loads back as the prepared bytes, and each file stays under its bound. |
 | Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape. |
 | Messages from an ACP agent | The agent is untrusted. A progress line stays short, a popup text is printable (S15), and the game never gets "allow always". |
+| The Markdown renderer (7.3.1) | Agent text reaches the game window. Each block has its shape, no agent byte starts a WoW code or HTML markup, and the size stays within its bound. |
 
 ### 14.5 Security tests
 

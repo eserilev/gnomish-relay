@@ -54,6 +54,27 @@ inductive frame.Reject where
 | Stale : frame.Reject
 | Future : frame.Reject
 
+/-- [protocol::inline::Escape]
+    Source: 'crates/protocol/src/inline.rs', lines 11:0-14:1
+    Visibility: public -/
+@[discriminant isize]
+inductive inline.Escape where
+| Html : inline.Escape
+| Wow : inline.Escape
+
+/-- [protocol::inline::Mark]
+    Source: 'crates/protocol/src/inline.rs', lines 17:0-20:1 -/
+@[discriminant isize]
+inductive inline.Mark where
+| Off : inline.Mark
+| On : inline.Mark
+
+/-- [protocol::inline::Style]
+    Source: 'crates/protocol/src/inline.rs', lines 23:0-26:1 -/
+structure inline.Style where
+  bold : inline.Mark
+  italic : inline.Mark
+
 /-- [protocol::live::Progress]
     Source: 'crates/protocol/src/live.rs', lines 19:0-23:1
     Visibility: public -/
@@ -89,6 +110,28 @@ structure live.Request where
   id : Std.U32
   text : alloc.vec.Vec Std.U8
   options : alloc.vec.Vec live.PermOption
+
+/-- [protocol::markdown::Open]
+    Source: 'crates/protocol/src/markdown.rs', lines 29:0-34:1 -/
+@[discriminant isize]
+inductive markdown.Open where
+| Nothing : markdown.Open
+| Paragraph : markdown.Open
+| Item : markdown.Open
+| Quote : markdown.Open
+
+/-- [protocol::markdown::Mode]
+    Source: 'crates/protocol/src/markdown.rs', lines 38:0-41:1 -/
+@[discriminant isize]
+inductive markdown.Mode where
+| Text : markdown.Mode
+| Fence : Std.U8 → markdown.Mode
+
+/-- [protocol::markdown::State]
+    Source: 'crates/protocol/src/markdown.rs', lines 44:0-47:1 -/
+structure markdown.State where
+  mode : markdown.Mode
+  «open» : markdown.Open
 
 /-- [protocol::policy::Level]
     Source: 'crates/protocol/src/policy.rs', lines 6:0-10:1
