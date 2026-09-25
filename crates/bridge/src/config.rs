@@ -179,7 +179,8 @@ fn portable(path: &str, windows: bool) -> Vec<u8> {
     path.replace('\\', "/").into_bytes()
 }
 
-fn bytes(path: &Path) -> Vec<u8> {
+/// A path in the form that the folder check takes, on every OS.
+pub fn path_bytes(path: &Path) -> Vec<u8> {
     portable(&path.to_string_lossy(), cfg!(windows))
 }
 
@@ -215,7 +216,7 @@ fn real_root(path: &str, home: &Path) -> Result<Vec<u8>> {
     let real = path
         .canonicalize()
         .with_context(|| format!("allowed root {} does not exist", path.display()))?;
-    Ok(bytes(&real))
+    Ok(path_bytes(&real))
 }
 
 pub fn parse(text: &str, home: &Path) -> Result<Config> {
@@ -226,7 +227,7 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
         .map(|root| real_root(root, home))
         .collect::<Result<Vec<_>>>()?;
     let base = match &file.default_cwd {
-        Some(cwd) => bytes(&expand(cwd, home)?),
+        Some(cwd) => path_bytes(&expand(cwd, home)?),
         None => roots.first().context("allowed_roots is empty")?.clone(),
     };
     if resolve_folder(&roots, &base, b"").is_none() {
@@ -379,8 +380,8 @@ mod tests {
         let home = Home::new();
         let config = home.parse(GOOD).unwrap();
         let root = home.path().join("Code").canonicalize().unwrap();
-        assert_eq!(config.policy.folders.roots, [bytes(&root)]);
-        assert_eq!(config.policy.folders.base, bytes(&root));
+        assert_eq!(config.policy.folders.roots, [path_bytes(&root)]);
+        assert_eq!(config.policy.folders.base, path_bytes(&root));
         assert_eq!(config.policy.agents["claude"], Permission::AutoEdit);
         assert_eq!(config.wow, home.path().join("wow"));
     }

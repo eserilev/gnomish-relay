@@ -12,7 +12,7 @@ use std::time::{Duration, Instant};
 
 use bridge::acp::AcpAgent;
 use bridge::agent::{Agent, Echo, Run, StopSignal};
-use bridge::config::{Permission, Policy};
+use bridge::config::{Permission, Policy, path_bytes};
 use bridge::receive::StripKey;
 use bridge::relay::Folders;
 use bridge::relay::Job;
@@ -240,13 +240,7 @@ fn a_damaged_state_file_stops_the_bridge_at_start() {
 fn a_strip_comes_back_with_the_reply_of_an_acp_agent() {
     let f = folders();
     let root = tempfile::tempdir().unwrap();
-    let base = root
-        .path()
-        .canonicalize()
-        .unwrap()
-        .to_string_lossy()
-        .as_bytes()
-        .to_vec();
+    let base = path_bytes(&root.path().canonicalize().unwrap());
     let policy = Policy {
         folders: Folders {
             roots: vec![base.clone()],

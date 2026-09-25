@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
-use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -24,6 +24,8 @@ const MAX_LINE: usize = 8 * 1024 * 1024;
 /// The slot body cuts a reply at 32 KiB anyway.
 const MAX_REPLY: usize = 256 * 1024;
 const STDERR_TAIL: usize = 2048;
+/// After a crash, stdout can close before stderr is read to the end.
+const STDERR_WAIT: Duration = Duration::from_millis(500);
 /// Each agent process gets these, plus the ones in its `env` list (SPEC.md 6.2, rule 12).
 const BASE_ENV: [&str; 11] = [
     "PATH",
@@ -141,6 +143,7 @@ struct Connection {
     stdin: ChildStdin,
     lines: Receiver<Line>,
     stderr: Arc<Mutex<Vec<u8>>>,
+    stderr_done: Receiver<()>,
     next_id: u64,
     deadline: Instant,
     reply: String,
@@ -191,12 +194,14 @@ impl Connection {
         let stdout = child.stdout.take().ok_or("The agent has no stdout.")?;
         let stderr_pipe = child.stderr.take().ok_or("The agent has no stderr.")?;
         let stderr = Arc::new(Mutex::new(Vec::new()));
-        keep_tail(stderr_pipe, Arc::clone(&stderr));
+        let (done, stderr_done) = channel();
+        keep_tail(stderr_pipe, Arc::clone(&stderr), done);
         Ok(Connection {
             child,
             stdin,
             lines: read_lines(stdout),
             stderr,
+            stderr_done,
             next_id: 1,
             deadline: Instant::now() + agent.timeout,
             reply: String::new(),
@@ -457,6 +462,7 @@ impl Connection {
     }
 
     fn stopped(&mut self) -> String {
+        let _ = self.stderr_done.recv_timeout(STDERR_WAIT);
         let tail = self.stderr.lock().map(|t| t.clone()).unwrap_or_default();
         let tail = String::from_utf8_lossy(&tail);
         match tail.lines().rev().find(|l| !l.trim().is_empty()) {
@@ -506,8 +512,10 @@ fn read_lines(stdout: impl Read + Send + 'static) -> Receiver<Line> {
 
 /// Keeps the last bytes of stderr for an error message, and drains the rest, so a
 /// chatty agent never blocks on a full pipe.
-fn keep_tail(stderr: impl Read + Send + 'static, tail: Arc<Mutex<Vec<u8>>>) {
+fn keep_tail(stderr: impl Read + Send + 'static, tail: Arc<Mutex<Vec<u8>>>, done: Sender<()>) {
     thread::spawn(move || {
+        // The sender drops when the thread ends, and that wakes `stopped`.
+        let _done = done;
         let mut stderr = stderr;
         let mut chunk = [0u8; 4096];
         while let Ok(n) = stderr.read(&mut chunk) {
