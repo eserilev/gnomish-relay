@@ -276,7 +276,7 @@ mod tests {
             allowed_roots = ["~/code"]
             default_agent = "echo"
             [wow]
-            path = "/w"
+            path = "~/wow"
             [agents.echo]
             kind = "echo"
             permission = "ask"
