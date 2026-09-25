@@ -450,6 +450,8 @@ mod tests {
         );
     }
 
+    // On Windows, `e:` is a drive and replaces the whole path. Wine runs only on Unix.
+    #[cfg(unix)]
     #[test]
     fn a_windows_path_maps_into_a_wine_prefix() {
         let prefix = Path::new("/p");
@@ -469,7 +471,11 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let game = root.path().join("World of Warcraft").join(GAME);
         fs::create_dir_all(game.join("interface/Addons")).unwrap();
-        assert_eq!(addons_dir(&game), game.join("interface/Addons"));
+        let found = addons_dir(&game);
+        assert!(
+            same_folder(&found, &game.join("interface/Addons")),
+            "{found:?}"
+        );
         let given = format!("\"{}\"", root.path().join("World of Warcraft").display());
         assert_eq!(game_folder(&given), game);
     }
