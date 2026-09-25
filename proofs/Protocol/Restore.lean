@@ -1,5 +1,6 @@
 import Protocol.Cut
 import Protocol.Spec.Restore
+import Protocol.Apps
 
 /-! # The restore bundle (S18, S19) -/
 
@@ -163,27 +164,33 @@ theorem chatLine_length (c : restore.Chat) (h : fitsChat c) : (chatLine c).lengt
   have : 2046 * c.history.val.length ≤ 20460 := by omega
   omega
 
-/-- **S19.** -/
-theorem restore_bound (token : List Spec.Byte) (chats : List restore.Chat) (h : fitsRestore token chats) :
-    (restoreBytes token chats).length ≤ restoreLimit := by
+/-- The bound of S19 holds for the restore file of every app. -/
+theorem restore_of_bound (app : apps.App) (token : List Spec.Byte) (chats : List restore.Chat)
+    (h : fitsRestore token chats) : (restoreOf app token chats).length ≤ restoreLimit := by
+  have hg := Protocol.Apps.restore_global_length app
   obtain ⟨htok, hn, hall⟩ := h
   have ht := Protocol.Slot.literal_length_le token
   have hc := sum_le chatLine 25127 chats (fun c hc => chatLine_length c (hall c hc))
   simp only [maxChats] at hn
-  simp only [restoreBytes, restoreLimit, List.length_append]
-  have : (ascii "GnomishRelay_Restore = {token = ").length = 32 := rfl
+  simp only [restoreOf, restoreLimit, List.length_append]
+  have : (ascii " = {token = ").length = 12 := rfl
   have : (ascii ", chats = {\n").length = 12 := rfl
   have : (ascii "}}\n").length = 3 := rfl
   have : 25127 * chats.length ≤ 402032 := by omega
   omega
 
+/-- **S19.** -/
+theorem restore_bound (token : List Spec.Byte) (chats : List restore.Chat) (h : fitsRestore token chats) :
+    (restoreBytes token chats).length ≤ restoreLimit :=
+  restore_of_bound .Relay token chats h
+
 /-! ## The template (S18) -/
 
-theorem head_bytes : bytes (Array.to_slice restore.HEAD).val = ascii "GnomishRelay_Restore = {token = " := by
+theorem head_bytes : bytes (Array.to_slice restore.HEAD).val = ascii " = {token = " := by
   unfold restore.HEAD; rfl
 
 @[simp, scalar_tac_simps]
-theorem head_length : (Array.to_slice restore.HEAD).val.length = 32 := by unfold restore.HEAD; rfl
+theorem head_length : (Array.to_slice restore.HEAD).val.length = 12 := by unfold restore.HEAD; rfl
 
 theorem chats_bytes : bytes (Array.to_slice restore.CHATS).val = ascii ", chats = {\n" := by
   unfold restore.CHATS; rfl
@@ -406,30 +413,35 @@ theorem restore_body_loop_spec (chats : Slice restore.Chat) (pre : List Spec.Byt
     exact ⟨hout, by omega⟩
 
 /-- **S18.** -/
-theorem restore_body_spec (token : Slice U8) (chats : Slice restore.Chat)
+theorem restore_body_spec (app : apps.App) (token : Slice U8) (chats : Slice restore.Chat)
     (hfits : fitsRestore (bytes token.val) chats.val) :
-    restore.restore_body token chats ⦃ v => bytes v.val = restoreBytes (bytes token.val) chats.val ⦄ := by
+    restore.restore_body app token chats ⦃ v =>
+      bytes v.val = restoreOf app (bytes token.val) chats.val ⦄ := by
+  have hg := Protocol.Apps.restore_global_length app
   have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
   have happ : ∀ a b : List U8, bytes (a ++ b) = bytes a ++ bytes b := by simp [bytes]
   obtain ⟨htok, hn, hall⟩ := hfits
   rw [bytes_length] at htok
   unfold restore.restore_body
   step*
-  all_goals try (subst_vars; simp only [Protocol.Seen.deref_val, head_length, chats_length] at *; scalar_tac)
+  all_goals try (subst_vars; simp only [Protocol.Seen.deref_val, head_length, chats_length,
+    List.length_nil, Nat.zero_add] at *; scalar_tac)
   have hderef : ∀ w : alloc.vec.Vec U8, bytes (alloc.vec.Vec.deref w).val = bytes w.val := fun _ => rfl
   subst s_post s2_post
-  have hpre : bytes out2.val = ascii "GnomishRelay_Restore = {token = " ++ luaLiteral (bytes token.val) ++
-      ascii ", chats = {\n" := by
-    simp only [out2_post1, out1_post1, out_post1, happ, hderef, v_post1, head_bytes, chats_bytes,
-      List.nil_append]
-  have hlen : out2.val.length ≤ 200 := by
+  have hpre : bytes out3.val = ascii (restoreGlobal app) ++ ascii " = {token = " ++
+      luaLiteral (bytes token.val) ++ ascii ", chats = {\n" := by
+    rw [out3_post1, happ, out2_post1, happ, out1_post1, happ, out_post1, hderef, v_post1, head_bytes,
+      chats_bytes]
+    simp [bytes]
+  have hlen : out3.val.length ≤ 200 := by
     simp only [Protocol.Seen.deref_val, head_length, chats_length, List.length_nil] at *
     omega
-  step with restore_body_loop_spec chats (ascii "GnomishRelay_Restore = {token = " ++
-      luaLiteral (bytes token.val) ++ ascii ", chats = {\n") out2 hn hall
-      ⟨by simp, by simp [hpre], by simp [hlen]⟩ as ⟨out3, h3, h3len⟩
+  step with restore_body_loop_spec chats (ascii (restoreGlobal app) ++ ascii " = {token = " ++
+      luaLiteral (bytes token.val) ++ ascii ", chats = {\n") out3 hn hall
+      ⟨by simp, by simp [hpre], by simp [hlen]⟩ as ⟨out4, h4, h4len⟩
   step*
-  subst s3_post
-  simp only [v_post1, happ, h3, tail_bytes, restoreBytes, List.append_assoc]
+  all_goals try (subst s3_post; simp only [tail_length]; scalar_tac)
+  rw [v_post1, happ, h4, s3_post, tail_bytes]
+  simp [restoreOf]
 
 end Protocol.Restore

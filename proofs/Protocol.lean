@@ -12,6 +12,7 @@ import Protocol.Record
 import Protocol.Decimal
 import Protocol.Seen
 import Protocol.Rate
+import Protocol.Apps
 import Protocol.Slot
 import Protocol.Cut
 import Protocol.Restore

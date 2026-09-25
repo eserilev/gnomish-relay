@@ -4,6 +4,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use protocol::apps::App;
 use protocol::folder::resolve_folder;
 use protocol::rate::{ChatQueue, MAX_QUEUE, enqueue};
 use protocol::record::Record;
@@ -163,7 +164,7 @@ impl Relay {
     pub fn new(policy: Policy) -> Relay {
         Relay {
             policy,
-            lane: Lane::new(),
+            lane: Lane::new(App::Relay),
             queues: BTreeMap::new(),
             jobs: BTreeMap::new(),
             running: BTreeSet::new(),
@@ -624,7 +625,7 @@ impl Relay {
     /// it can have changed files already.
     pub fn from_state(policy: Policy, state: State) -> Relay {
         let mut relay = Relay::new(policy);
-        relay.lane = Lane::from_state(state.lane);
+        relay.lane = Lane::from_state(App::Relay, state.lane);
         relay.history = state.history;
         relay.restore_for = state.restore_for;
         relay.sessions = state.sessions;
@@ -651,9 +652,10 @@ impl Relay {
     /// An empty token matches no addon, so the file stays harmless with no restore.
     pub fn restore_file(&self) -> Vec<u8> {
         let Some(token) = &self.restore_for else {
-            return restore_body(b"", &[]);
+            return restore_body(App::Relay, b"", &[]);
         };
         restore_body(
+            App::Relay,
             token.as_bytes(),
             &prepare_restore(&self.history.to_restore()),
         )

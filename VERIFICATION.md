@@ -39,9 +39,9 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 12 | S5: folder policy | `folder` | `S5_folder`, `S5_folder_complete` | proved |
 | 13 | S7: replay protection | `seen` | `S7_seen` | proved |
 | 14 | S14: rate limit and queue | `rate` | `S14_admit`, `S14_window`, `S14_queue` | proved |
-| 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
-| 19 | S18 + S19: restore file | `restore` | `S18_restore_body`, `S18_prepare`, `S19_bound` | proved |
-| 20 | S20 + S21: live file | `live` | `S20_live_body`, `S20_prepare_progress`, `S20_prepare_requests`, `S21_bound` | proved |
+| 15 | S9 + S12: slot body | `slot`, `apps` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
+| 19 | S18 + S19: restore file | `restore`, `apps` | `S18_restore_body`, `S18_prepare`, `S19_bound` | proved |
+| 20 | S20 + S21: live file | `live`, `apps` | `S20_live_body`, `S20_prepare_progress`, `S20_prepare_requests`, `S21_bound` | proved |
 | 21 | S22 to S25: reply blocks | `markdown`, `inline` | `S22_total`, `S23_shape`, `S24_escape`, `S25_bound` | proved |
 | 22 | S16 + S17 + S27 + S28: action classifier | `action`, `shell`, `path_rules`, `command_rules`, `search` | `S16_paths`, `S16_deny`, `S17_ceiling`, `S17_unknown`, `S17_never_always`, `S27_classify`, `S27_ceiling`, `S27_split`, `S28_no_parse`, `S28_substitution`, `S28_desktop`, `S28_capped` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
@@ -102,15 +102,29 @@ means that the properties pass only because the hard states never happen.
 - No Rust change was needed. `step*` stops at `let x ← if c then a else b`, so the helper
   `ite_bind` moves the rest of the block into each branch.
 
+### Items 15, 19, and 20: the global of each app (SPEC 9.7, decision 5)
+
+The user approved one restatement of S9, S18, and S20 (2026-09-25): the same meaning,
+with the global name that belongs to the given app. The writers take an `apps::App`, and
+the specs `slotBodyOf`, `restoreOf`, and `liveOf` start with `slotGlobal`,
+`restoreGlobal`, and `liveGlobal` of that app. Nothing else in the statements changed.
+
+- The bounds S12, S19, and S21 are not restated. They still speak of the relay files
+  (`slotBodyBytes`, `restoreBytes`, and `liveBytes`, now the relay case of each spec).
+- The proofs show the same bounds for every app (`slot_body_of_bound`,
+  `restore_of_bound`, and `live_of_bound`). Each `check_` theorem of a bound uses the
+  relay case of one of them. A restatement of S12, S19, and S21 over the app needs a new
+  approval.
+
 ### Item 17: what the fuzz targets check
 
 Each target checks the property of its proof on the compiled code, not only "no crash":
-`frame` (S1, C2), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1),
+`frame` (S1, C2), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1, and S9 for each app),
 `lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), `markdown` (S22 to S25), and
 `popup` (S15), `action` (S16, S17, S27, and S28: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor), `screenshot` (any file in the Screenshots folder never panics the
 bridge), `saved` (any saved variables text never panics the frame reader), `restore` and
-`live` (S18 to S21 in a real Lua 5.1: each field loads back, and each file stays under
-its bound), `flags` (each flag value from the game has its shape), `acp` (a message
+`live` (S18 to S21 in a real Lua 5.1, for each app: each field loads back in the global
+of that app only, and each file stays under its bound), `flags` (each flag value from the game has its shape), `acp` (a message
 from an agent gives short progress lines, printable popup text, and no "allow always"), `config` (any
 config text gives a config or an error, and a config has only absolute roots and a
 known default agent), and `relay` (the promises of the transport model on the real state machine:

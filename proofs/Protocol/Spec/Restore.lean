@@ -1,4 +1,5 @@
 import Protocol.Spec.Lua
+import Protocol.Spec.Apps
 import Protocol.Code.Funs
 
 /-!
@@ -42,9 +43,14 @@ def chatLine (c : restore.Chat) : List Byte :=
     luaLiteral (bytes c.cwd.val) ++ ascii ", history = {\n" ++ c.history.val.flatMap entryLine ++
     ascii "}},\n"
 
-def restoreBytes (token : List Byte) (chats : List restore.Chat) : List Byte :=
-  ascii "GnomishRelay_Restore = {token = " ++ luaLiteral token ++ ascii ", chats = {\n" ++
+/-- The global name belongs to the app (`restoreGlobal`). -/
+def restoreOf (app : apps.App) (token : List Byte) (chats : List restore.Chat) : List Byte :=
+  ascii (restoreGlobal app) ++ ascii " = {token = " ++ luaLiteral token ++ ascii ", chats = {\n" ++
     chats.flatMap chatLine ++ ascii "}}\n"
+
+/-- The restore file of the relay app, which S19 bounds. -/
+def restoreBytes (token : List Byte) (chats : List restore.Chat) : List Byte :=
+  restoreOf .Relay token chats
 
 def fitsChat (c : restore.Chat) : Prop :=
   c.id.val.length ≤ 32 ∧ c.name.val.length ≤ maxName ∧ c.agent.val.length ≤ 32 ∧

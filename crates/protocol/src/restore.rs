@@ -1,6 +1,7 @@
 //! The restore bundle after a saved-data wipe (SPEC.md 7.6). It has its own file,
 //! `Restore.lua`, so the slot body keeps its own 1 MiB bound.
 
+use crate::apps::{App, push_restore_global};
 use crate::ascii::{push_bytes, push_decimal};
 use crate::lua::lua_string;
 use crate::record::MAX_ID_LEN;
@@ -33,7 +34,7 @@ pub struct Chat {
     pub history: Vec<Entry>,
 }
 
-const HEAD: [u8; 32] = *b"GnomishRelay_Restore = {token = ";
+const HEAD: [u8; 12] = *b" = {token = ";
 const CHATS: [u8; 12] = *b", chats = {\n";
 const TAIL: [u8; 3] = *b"}}\n";
 const ID: [u8; 6] = *b"{id = ";
@@ -134,8 +135,9 @@ fn push_chat(out: &mut Vec<u8>, chat: &Chat) {
 /// Every hole is an escaped string or a number, as in the slot body. Takes the
 /// output of `prepare_restore`. An empty token matches no addon.
 #[must_use]
-pub fn restore_body(token: &[u8], chats: &[Chat]) -> Vec<u8> {
+pub fn restore_body(app: App, token: &[u8], chats: &[Chat]) -> Vec<u8> {
     let mut out = Vec::new();
+    push_restore_global(&mut out, app);
     push_bytes(&mut out, &HEAD);
     push_bytes(&mut out, &lua_string(token));
     push_bytes(&mut out, &CHATS);
@@ -180,7 +182,7 @@ mod tests {
             ],
         )];
         assert_eq!(
-            restore_body(b"tok", &chats),
+            restore_body(App::Relay, b"tok", &chats),
             b"GnomishRelay_Restore = {token = \"tok\", chats = {\n\
               {id = \"c1\", name = \"lighthouse\", agent = \"claude\", cwd = \"Code/x\", history = {\n\
               {role = \"user\", id = 5, text = \"hi \\034there\\034\"},\n\
@@ -192,8 +194,16 @@ mod tests {
     #[test]
     fn an_empty_bundle_has_no_chats() {
         assert_eq!(
-            restore_body(b"", &[]),
+            restore_body(App::Relay, b"", &[]),
             b"GnomishRelay_Restore = {token = \"\", chats = {\n}}\n"
+        );
+    }
+
+    #[test]
+    fn a_timeways_bundle_sets_the_timeways_global() {
+        assert_eq!(
+            restore_body(App::Timeways, b"", &[]),
+            b"Timeways_Restore = {token = \"\", chats = {\n}}\n"
         );
     }
 

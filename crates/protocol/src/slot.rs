@@ -1,5 +1,6 @@
 //! The body of a slot file. See `SPEC.md` 7.3.
 
+use crate::apps::{App, push_slot_global};
 use crate::ascii::{push_bytes, push_decimal, push_range};
 use crate::lua::{is_plain, lua_string};
 use crate::record::MAX_ID_LEN;
@@ -26,7 +27,7 @@ pub struct Reply {
     pub text: Vec<u8>,
 }
 
-const HEAD: [u8; 42] = *b"GnomishRelay_SlotData = {proto = 1, now = ";
+const HEAD: [u8; 21] = *b" = {proto = 1, now = ";
 const REPLIES: [u8; 14] = *b", replies = {\n";
 const TAIL: [u8; 3] = *b"}}\n";
 const CHAT: [u8; 8] = *b"{chat = ";
@@ -140,8 +141,9 @@ fn push_reply(out: &mut Vec<u8>, reply: &Reply) {
 /// Every hole is an escaped string or a number, so a reply cannot change the
 /// shape of the table. Takes the output of `prepare_replies`.
 #[must_use]
-pub fn slot_body(now: u32, replies: &[Reply]) -> Vec<u8> {
+pub fn slot_body(app: App, now: u32, replies: &[Reply]) -> Vec<u8> {
     let mut out = Vec::new();
+    push_slot_global(&mut out, app);
     push_bytes(&mut out, &HEAD);
     push_decimal(&mut out, now);
     push_bytes(&mut out, &REPLIES);
@@ -169,7 +171,11 @@ mod tests {
 
     #[test]
     fn a_body_is_the_fixed_table_with_escaped_strings() {
-        let body = slot_body(1_790_211_079, &[reply(b"c1", 12, b"hi \"there\"")]);
+        let body = slot_body(
+            App::Relay,
+            1_790_211_079,
+            &[reply(b"c1", 12, b"hi \"there\"")],
+        );
         assert_eq!(
             body,
             b"GnomishRelay_SlotData = {proto = 1, now = 1790211079, replies = {\n\
@@ -180,14 +186,22 @@ mod tests {
     #[test]
     fn an_empty_body_has_no_replies() {
         assert_eq!(
-            slot_body(0, &[]),
+            slot_body(App::Relay, 0, &[]),
             b"GnomishRelay_SlotData = {proto = 1, now = 0, replies = {\n}}\n"
         );
     }
 
     #[test]
+    fn a_timeways_body_sets_the_timeways_global() {
+        assert_eq!(
+            slot_body(App::Timeways, 0, &[]),
+            b"Timeways_SlotData = {proto = 1, now = 0, replies = {\n}}\n"
+        );
+    }
+
+    #[test]
     fn a_reply_cannot_end_the_table() {
-        let body = slot_body(0, &[reply(b"c", 1, b"\"}} os.exit() --")]);
+        let body = slot_body(App::Relay, 0, &[reply(b"c", 1, b"\"}} os.exit() --")]);
         assert!(body.ends_with(b"text = \"\\034}} os.exit() --\"},\n}}\n"));
     }
 
@@ -233,7 +247,7 @@ mod tests {
         let replies: Vec<Reply> = (0..40)
             .map(|id| reply(&[0xFF; 50], u32::MAX - id, &vec![0xFF; 40_000]))
             .collect();
-        let body = slot_body(u32::MAX, &prepare_replies(&replies));
+        let body = slot_body(App::Timeways, u32::MAX, &prepare_replies(&replies));
         assert!(body.len() <= SLOT_BODY_LIMIT);
     }
 }

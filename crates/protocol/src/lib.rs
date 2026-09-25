@@ -18,6 +18,7 @@
 )]
 
 pub mod action;
+pub mod apps;
 pub mod ascii;
 pub mod cell;
 pub(crate) mod command_rules;

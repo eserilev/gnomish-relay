@@ -1,4 +1,5 @@
 import Protocol.Spec.Lua
+import Protocol.Spec.Apps
 import Protocol.Code.Funs
 
 /-!
@@ -11,7 +12,8 @@ GnomishRelay_SlotData = {proto = 1, now = 1790211079, replies = {
 ```
 
 Every string in it is a `luaLiteral`, every number is `decimal`, and every other
-byte is fixed. So a reply cannot change the shape of the table.
+byte is fixed. So a reply cannot change the shape of the table. The global name
+belongs to the app (`slotGlobal`). Timeways writes `Timeways_SlotData`.
 -/
 
 open Aeneas Aeneas.Std protocol
@@ -32,9 +34,13 @@ def replyLine (r : slot.Reply) : List Byte :=
     ascii ", status = " ++ luaLiteral (ascii (statusWord r.status)) ++ ascii ", text = " ++
     luaLiteral (bytes r.text.val) ++ ascii "},\n"
 
-def slotBodyBytes (now : Nat) (replies : List slot.Reply) : List Byte :=
-  ascii "GnomishRelay_SlotData = {proto = 1, now = " ++ decimal now ++
+def slotBodyOf (app : apps.App) (now : Nat) (replies : List slot.Reply) : List Byte :=
+  ascii (slotGlobal app) ++ ascii " = {proto = 1, now = " ++ decimal now ++
     ascii ", replies = {\n" ++ replies.flatMap replyLine ++ ascii "}}\n"
+
+/-- The body of the relay app, which S12 bounds. -/
+def slotBodyBytes (now : Nat) (replies : List slot.Reply) : List Byte :=
+  slotBodyOf .Relay now replies
 
 /-- What `prepare_replies` guarantees. -/
 def fitsSlot (replies : List slot.Reply) : Prop :=

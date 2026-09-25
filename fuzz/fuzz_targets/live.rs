@@ -1,9 +1,11 @@
 //! S20 and S21 against the real Lua 5.1: random progress and requests go through
-//! the prepare steps and the writer, and the file loads back as the same fields.
+//! the prepare steps and the writer for each app, and the file loads back as the same
+//! fields in the global of that app only.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 use mlua::{Lua, Table};
+use protocol::apps::App;
 use protocol::live::{OptionKind, PermOption, Progress, Request, live_body, prepare_progress, prepare_requests};
 
 const KINDS: [(OptionKind, &str); 4] = [
@@ -11,6 +13,11 @@ const KINDS: [(OptionKind, &str); 4] = [
     (OptionKind::AllowAlways, "allow_always"),
     (OptionKind::RejectOnce, "reject_once"),
     (OptionKind::RejectAlways, "reject_always"),
+];
+
+const APPS: [(App, &str, &str); 2] = [
+    (App::Relay, "GnomishRelay_Live", "Timeways_Live"),
+    (App::Timeways, "Timeways_Live", "GnomishRelay_Live"),
 ];
 
 fn bytes(value: mlua::String) -> Vec<u8> {
@@ -45,12 +52,19 @@ fuzz_target!(|data: &[u8]| {
         .collect();
     let progress = prepare_progress(&progress);
     let requests = prepare_requests(&requests);
-    let file = live_body(&progress, &requests);
+    for (app, own, other) in APPS {
+        check(app, own, other, &progress, &requests);
+    }
+});
+
+fn check(app: App, own: &str, other: &str, progress: &[Progress], requests: &[Request]) {
+    let file = live_body(app, progress, requests);
     assert!(file.len() <= 256 * 1024, "S21");
 
     let lua = Lua::new();
     lua.load(&file[..]).exec().expect("the live file loads");
-    let live: Table = lua.globals().get("GnomishRelay_Live").expect("one global table");
+    assert!(lua.globals().get::<mlua::Value>(other).unwrap().is_nil());
+    let live: Table = lua.globals().get(own).expect("one global table");
     let got: Table = live.get("progress").unwrap();
     assert_eq!(got.raw_len(), progress.len());
     for (i, p) in progress.iter().enumerate() {
@@ -75,4 +89,4 @@ fuzz_target!(|data: &[u8]| {
             assert!(KINDS.iter().any(|(_, word)| *word == kind));
         }
     }
-});
+}

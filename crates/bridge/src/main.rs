@@ -14,6 +14,7 @@ use bridge::receive::StripKey;
 use bridge::run::{Paths, now, run};
 use bridge::slots::{self, Files};
 use bridge::update::{self, Replaced};
+use protocol::apps::App;
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const USAGE: &str = "\
@@ -421,7 +422,7 @@ fn setup(args: &[&str]) -> Result<()> {
 }
 
 fn body(replies: &[Reply]) -> Vec<u8> {
-    slot_body(now(), &prepare_replies(replies))
+    slot_body(App::Relay, now(), &prepare_replies(replies))
 }
 
 fn say(chat: &str, id: &str, text: &str) -> Result<()> {

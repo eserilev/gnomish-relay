@@ -3186,6 +3186,186 @@ def action.ceiling
       Std.U8)))
   action.verdict call policy s action.Cover.Every
 
+/-- [protocol::apps::{impl core::clone::Clone for protocol::apps::App}::clone]:
+    Source: 'crates/protocol/src/apps.rs', lines 7:9-7:14
+    Visibility: public -/
+def apps.App.Insts.CoreCloneClone.clone
+  (self : apps.App) : Result apps.App := do
+  ok self
+
+/-- Trait implementation: [protocol::apps::{impl core::clone::Clone for protocol::apps::App}]
+    Source: 'crates/protocol/src/apps.rs', lines 7:9-7:14 -/
+@[reducible]
+def apps.App.Insts.CoreCloneClone : core.clone.Clone apps.App := {
+  clone := apps.App.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::apps::{impl core::marker::Copy for protocol::apps::App}]
+    Source: 'crates/protocol/src/apps.rs', lines 7:16-7:20 -/
+@[reducible]
+def apps.App.Insts.CoreMarkerCopy : core.marker.Copy apps.App := {
+  cloneInst := apps.App.Insts.CoreCloneClone
+}
+
+/-- [protocol::apps::{impl core::fmt::Debug for protocol::apps::App}::fmt]:
+    Source: 'crates/protocol/src/apps.rs', lines 7:22-7:27
+    Visibility: public -/
+def apps.App.Insts.CoreFmtDebug.fmt
+  (self : apps.App) (f : core.fmt.Formatter) :
+  Result ((core.result.Result Unit core.fmt.Error) × core.fmt.Formatter)
+  := do
+  match self with
+  | apps.App.Relay => core.fmt.Formatter.write_str f (toStr "Relay")
+  | apps.App.Timeways => core.fmt.Formatter.write_str f (toStr "Timeways")
+
+/-- Trait implementation: [protocol::apps::{impl core::fmt::Debug for protocol::apps::App}]
+    Source: 'crates/protocol/src/apps.rs', lines 7:22-7:27 -/
+@[reducible]
+def apps.App.Insts.CoreFmtDebug : core.fmt.Debug apps.App := {
+  fmt := apps.App.Insts.CoreFmtDebug.fmt
+}
+
+/-- Trait implementation: [protocol::apps::{impl core::marker::StructuralPartialEq for protocol::apps::App}]
+    Source: 'crates/protocol/src/apps.rs', lines 7:29-7:38 -/
+@[reducible]
+def apps.App.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq apps.App := {
+}
+
+/-- [protocol::apps::{impl core::cmp::PartialEq<protocol::apps::App> for protocol::apps::App}::eq]:
+    Source: 'crates/protocol/src/apps.rs', lines 7:29-7:38
+    Visibility: public -/
+def apps.App.Insts.CoreCmpPartialEqApp.eq
+  (self : apps.App) (other : apps.App) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::apps::{impl core::cmp::PartialEq<protocol::apps::App> for protocol::apps::App}]
+    Source: 'crates/protocol/src/apps.rs', lines 7:29-7:38 -/
+@[reducible]
+impl_def apps.App.Insts.CoreCmpPartialEqApp : core.cmp.PartialEq apps.App
+  apps.App := {
+  eq := apps.App.Insts.CoreCmpPartialEqApp.eq
+  ne := core.cmp.PartialEq.ne.trait_default apps.App.Insts.CoreCmpPartialEqApp
+}
+
+/-- [protocol::apps::{impl core::cmp::Eq for protocol::apps::App}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/apps.rs', lines 7:40-7:42
+    Visibility: public -/
+def apps.App.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : apps.App) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::apps::{impl core::cmp::Eq for protocol::apps::App}]
+    Source: 'crates/protocol/src/apps.rs', lines 7:40-7:42 -/
+@[reducible]
+def apps.App.Insts.CoreCmpEq : core.cmp.Eq apps.App := {
+  partialEqInst := apps.App.Insts.CoreCmpPartialEqApp
+  assert_fields_are_eq := apps.App.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::apps::RELAY_SLOT_DATA]
+    Source: 'crates/protocol/src/apps.rs', lines 13:0-13:60 -/
+@[global_simps, irreducible]
+def apps.RELAY_SLOT_DATA : Array Std.U8 21#usize :=
+  Array.make 21#usize [
+    71#u8, 110#u8, 111#u8, 109#u8, 105#u8, 115#u8, 104#u8, 82#u8, 101#u8,
+    108#u8, 97#u8, 121#u8, 95#u8, 83#u8, 108#u8, 111#u8, 116#u8, 68#u8, 97#u8,
+    116#u8, 97#u8
+    ]
+
+/-- [protocol::apps::TIMEWAYS_SLOT_DATA]
+    Source: 'crates/protocol/src/apps.rs', lines 14:0-14:59 -/
+@[global_simps, irreducible]
+def apps.TIMEWAYS_SLOT_DATA : Array Std.U8 17#usize :=
+  Array.make 17#usize [
+    84#u8, 105#u8, 109#u8, 101#u8, 119#u8, 97#u8, 121#u8, 115#u8, 95#u8, 83#u8,
+    108#u8, 111#u8, 116#u8, 68#u8, 97#u8, 116#u8, 97#u8
+    ]
+
+/-- [protocol::apps::RELAY_RESTORE]
+    Source: 'crates/protocol/src/apps.rs', lines 15:0-15:57 -/
+@[global_simps, irreducible]
+def apps.RELAY_RESTORE : Array Std.U8 20#usize :=
+  Array.make 20#usize [
+    71#u8, 110#u8, 111#u8, 109#u8, 105#u8, 115#u8, 104#u8, 82#u8, 101#u8,
+    108#u8, 97#u8, 121#u8, 95#u8, 82#u8, 101#u8, 115#u8, 116#u8, 111#u8,
+    114#u8, 101#u8
+    ]
+
+/-- [protocol::apps::TIMEWAYS_RESTORE]
+    Source: 'crates/protocol/src/apps.rs', lines 16:0-16:56 -/
+@[global_simps, irreducible]
+def apps.TIMEWAYS_RESTORE : Array Std.U8 16#usize :=
+  Array.make 16#usize [
+    84#u8, 105#u8, 109#u8, 101#u8, 119#u8, 97#u8, 121#u8, 115#u8, 95#u8, 82#u8,
+    101#u8, 115#u8, 116#u8, 111#u8, 114#u8, 101#u8
+    ]
+
+/-- [protocol::apps::RELAY_LIVE]
+    Source: 'crates/protocol/src/apps.rs', lines 17:0-17:51 -/
+@[global_simps, irreducible]
+def apps.RELAY_LIVE : Array Std.U8 17#usize :=
+  Array.make 17#usize [
+    71#u8, 110#u8, 111#u8, 109#u8, 105#u8, 115#u8, 104#u8, 82#u8, 101#u8,
+    108#u8, 97#u8, 121#u8, 95#u8, 76#u8, 105#u8, 118#u8, 101#u8
+    ]
+
+/-- [protocol::apps::TIMEWAYS_LIVE]
+    Source: 'crates/protocol/src/apps.rs', lines 18:0-18:50 -/
+@[global_simps, irreducible]
+def apps.TIMEWAYS_LIVE : Array Std.U8 13#usize :=
+  Array.make 13#usize [
+    84#u8, 105#u8, 109#u8, 101#u8, 119#u8, 97#u8, 121#u8, 115#u8, 95#u8, 76#u8,
+    105#u8, 118#u8, 101#u8
+    ]
+
+/-- [protocol::apps::push_slot_global]:
+    Source: 'crates/protocol/src/apps.rs', lines 21:0-26:1
+    Visibility: public -/
+def apps.push_slot_global
+  (out : alloc.vec.Vec Std.U8) (app : apps.App) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  match app with
+  | apps.App.Relay =>
+    let s ← lift (Array.to_slice apps.RELAY_SLOT_DATA)
+    ascii.push_bytes out s
+  | apps.App.Timeways =>
+    let s ← lift (Array.to_slice apps.TIMEWAYS_SLOT_DATA)
+    ascii.push_bytes out s
+
+/-- [protocol::apps::push_restore_global]:
+    Source: 'crates/protocol/src/apps.rs', lines 29:0-34:1
+    Visibility: public -/
+def apps.push_restore_global
+  (out : alloc.vec.Vec Std.U8) (app : apps.App) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  match app with
+  | apps.App.Relay =>
+    let s ← lift (Array.to_slice apps.RELAY_RESTORE)
+    ascii.push_bytes out s
+  | apps.App.Timeways =>
+    let s ← lift (Array.to_slice apps.TIMEWAYS_RESTORE)
+    ascii.push_bytes out s
+
+/-- [protocol::apps::push_live_global]:
+    Source: 'crates/protocol/src/apps.rs', lines 37:0-42:1
+    Visibility: public -/
+def apps.push_live_global
+  (out : alloc.vec.Vec Std.U8) (app : apps.App) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  match app with
+  | apps.App.Relay =>
+    let s ← lift (Array.to_slice apps.RELAY_LIVE)
+    ascii.push_bytes out s
+  | apps.App.Timeways =>
+    let s ← lift (Array.to_slice apps.TIMEWAYS_LIVE)
+    ascii.push_bytes out s
+
 /-- [protocol::ascii::push_decimal]:
     Source: 'crates/protocol/src/ascii.rs', lines 21:0-26:1
     Visibility: public -/
@@ -4766,49 +4946,49 @@ def inline.push_inline
   inline.close_color out1 style
 
 /-- [protocol::live::MAX_PROGRESS]
-    Source: 'crates/protocol/src/live.rs', lines 9:0-9:35
+    Source: 'crates/protocol/src/live.rs', lines 10:0-10:35
     Visibility: public -/
 @[global_simps, irreducible] def live.MAX_PROGRESS : Std.Usize := 30#usize
 
 /-- [protocol::live::MAX_LINES]
-    Source: 'crates/protocol/src/live.rs', lines 10:0-10:31
+    Source: 'crates/protocol/src/live.rs', lines 11:0-11:31
     Visibility: public -/
 @[global_simps, irreducible] def live.MAX_LINES : Std.Usize := 5#usize
 
 /-- [protocol::live::MAX_LINE]
-    Source: 'crates/protocol/src/live.rs', lines 11:0-11:32
+    Source: 'crates/protocol/src/live.rs', lines 12:0-12:32
     Visibility: public -/
 @[global_simps, irreducible] def live.MAX_LINE : Std.Usize := 200#usize
 
 /-- [protocol::live::MAX_REQUESTS]
-    Source: 'crates/protocol/src/live.rs', lines 12:0-12:34
+    Source: 'crates/protocol/src/live.rs', lines 13:0-13:34
     Visibility: public -/
 @[global_simps, irreducible] def live.MAX_REQUESTS : Std.Usize := 4#usize
 
 /-- [protocol::live::MAX_OPTIONS]
-    Source: 'crates/protocol/src/live.rs', lines 13:0-13:33
+    Source: 'crates/protocol/src/live.rs', lines 14:0-14:33
     Visibility: public -/
 @[global_simps, irreducible] def live.MAX_OPTIONS : Std.Usize := 4#usize
 
 /-- [protocol::live::MAX_POPUP]
-    Source: 'crates/protocol/src/live.rs', lines 15:0-15:34
+    Source: 'crates/protocol/src/live.rs', lines 16:0-16:34
     Visibility: public -/
 @[global_simps, irreducible] def live.MAX_POPUP : Std.Usize := 2000#usize
 
 /-- [protocol::live::MAX_LABEL]
-    Source: 'crates/protocol/src/live.rs', lines 16:0-16:32
+    Source: 'crates/protocol/src/live.rs', lines 17:0-17:32
     Visibility: public -/
 @[global_simps, irreducible] def live.MAX_LABEL : Std.Usize := 64#usize
 
 /-- [protocol::live::{impl core::clone::Clone for protocol::live::OptionKind}::clone]:
-    Source: 'crates/protocol/src/live.rs', lines 25:9-25:14
+    Source: 'crates/protocol/src/live.rs', lines 26:9-26:14
     Visibility: public -/
 def live.OptionKind.Insts.CoreCloneClone.clone
   (self : live.OptionKind) : Result live.OptionKind := do
   ok self
 
 /-- Trait implementation: [protocol::live::{impl core::clone::Clone for protocol::live::OptionKind}]
-    Source: 'crates/protocol/src/live.rs', lines 25:9-25:14 -/
+    Source: 'crates/protocol/src/live.rs', lines 26:9-26:14 -/
 @[reducible]
 def live.OptionKind.Insts.CoreCloneClone : core.clone.Clone live.OptionKind
   := {
@@ -4816,7 +4996,7 @@ def live.OptionKind.Insts.CoreCloneClone : core.clone.Clone live.OptionKind
 }
 
 /-- Trait implementation: [protocol::live::{impl core::marker::Copy for protocol::live::OptionKind}]
-    Source: 'crates/protocol/src/live.rs', lines 25:16-25:20 -/
+    Source: 'crates/protocol/src/live.rs', lines 26:16-26:20 -/
 @[reducible]
 def live.OptionKind.Insts.CoreMarkerCopy : core.marker.Copy live.OptionKind
   := {
@@ -4824,18 +5004,16 @@ def live.OptionKind.Insts.CoreMarkerCopy : core.marker.Copy live.OptionKind
 }
 
 /-- [protocol::live::HEAD]
-    Source: 'crates/protocol/src/live.rs', lines 48:0-48:63 -/
+    Source: 'crates/protocol/src/live.rs', lines 49:0-49:46 -/
 @[global_simps, irreducible]
-def live.HEAD : Array Std.U8 34#usize :=
-  Array.make 34#usize [
-    71#u8, 110#u8, 111#u8, 109#u8, 105#u8, 115#u8, 104#u8, 82#u8, 101#u8,
-    108#u8, 97#u8, 121#u8, 95#u8, 76#u8, 105#u8, 118#u8, 101#u8, 32#u8, 61#u8,
-    32#u8, 123#u8, 112#u8, 114#u8, 111#u8, 103#u8, 114#u8, 101#u8, 115#u8,
-    115#u8, 32#u8, 61#u8, 32#u8, 123#u8, 10#u8
+def live.HEAD : Array Std.U8 17#usize :=
+  Array.make 17#usize [
+    32#u8, 61#u8, 32#u8, 123#u8, 112#u8, 114#u8, 111#u8, 103#u8, 114#u8,
+    101#u8, 115#u8, 115#u8, 32#u8, 61#u8, 32#u8, 123#u8, 10#u8
     ]
 
 /-- [protocol::live::PERMISSIONS]
-    Source: 'crates/protocol/src/live.rs', lines 49:0-49:55 -/
+    Source: 'crates/protocol/src/live.rs', lines 50:0-50:55 -/
 @[global_simps, irreducible]
 def live.PERMISSIONS : Array Std.U8 19#usize :=
   Array.make 19#usize [
@@ -4844,13 +5022,13 @@ def live.PERMISSIONS : Array Std.U8 19#usize :=
     ]
 
 /-- [protocol::live::TAIL]
-    Source: 'crates/protocol/src/live.rs', lines 50:0-50:31 -/
+    Source: 'crates/protocol/src/live.rs', lines 51:0-51:31 -/
 @[global_simps, irreducible]
 def live.TAIL : Array Std.U8 3#usize :=
   Array.make 3#usize [ 125#u8, 125#u8, 10#u8 ]
 
 /-- [protocol::live::CHAT]
-    Source: 'crates/protocol/src/live.rs', lines 51:0-51:35 -/
+    Source: 'crates/protocol/src/live.rs', lines 52:0-52:35 -/
 @[global_simps, irreducible]
 def live.CHAT : Array Std.U8 8#usize :=
   Array.make 8#usize [
@@ -4858,13 +5036,13 @@ def live.CHAT : Array Std.U8 8#usize :=
     ]
 
 /-- [protocol::live::ID]
-    Source: 'crates/protocol/src/live.rs', lines 52:0-52:32 -/
+    Source: 'crates/protocol/src/live.rs', lines 53:0-53:32 -/
 @[global_simps, irreducible]
 def live.ID : Array Std.U8 7#usize :=
   Array.make 7#usize [ 44#u8, 32#u8, 105#u8, 100#u8, 32#u8, 61#u8, 32#u8 ]
 
 /-- [protocol::live::LINES]
-    Source: 'crates/protocol/src/live.rs', lines 53:0-53:40 -/
+    Source: 'crates/protocol/src/live.rs', lines 54:0-54:40 -/
 @[global_simps, irreducible]
 def live.LINES : Array Std.U8 11#usize :=
   Array.make 11#usize [
@@ -4873,18 +5051,18 @@ def live.LINES : Array Std.U8 11#usize :=
     ]
 
 /-- [protocol::live::LINE_END]
-    Source: 'crates/protocol/src/live.rs', lines 54:0-54:33 -/
+    Source: 'crates/protocol/src/live.rs', lines 55:0-55:33 -/
 @[global_simps, irreducible]
 def live.LINE_END : Array Std.U8 2#usize := Array.make 2#usize [ 44#u8, 32#u8 ]
 
 /-- [protocol::live::PROGRESS_END]
-    Source: 'crates/protocol/src/live.rs', lines 55:0-55:40 -/
+    Source: 'crates/protocol/src/live.rs', lines 56:0-56:40 -/
 @[global_simps, irreducible]
 def live.PROGRESS_END : Array Std.U8 4#usize :=
   Array.make 4#usize [ 125#u8, 125#u8, 44#u8, 10#u8 ]
 
 /-- [protocol::live::REQUEST]
-    Source: 'crates/protocol/src/live.rs', lines 56:0-56:42 -/
+    Source: 'crates/protocol/src/live.rs', lines 57:0-57:42 -/
 @[global_simps, irreducible]
 def live.REQUEST : Array Std.U8 11#usize :=
   Array.make 11#usize [
@@ -4893,7 +5071,7 @@ def live.REQUEST : Array Std.U8 11#usize :=
     ]
 
 /-- [protocol::live::REQUEST_CHAT]
-    Source: 'crates/protocol/src/live.rs', lines 57:0-57:44 -/
+    Source: 'crates/protocol/src/live.rs', lines 58:0-58:44 -/
 @[global_simps, irreducible]
 def live.REQUEST_CHAT : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -4901,7 +5079,7 @@ def live.REQUEST_CHAT : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::live::TEXT]
-    Source: 'crates/protocol/src/live.rs', lines 58:0-58:36 -/
+    Source: 'crates/protocol/src/live.rs', lines 59:0-59:36 -/
 @[global_simps, irreducible]
 def live.TEXT : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -4909,7 +5087,7 @@ def live.TEXT : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::live::OPTIONS]
-    Source: 'crates/protocol/src/live.rs', lines 59:0-59:46 -/
+    Source: 'crates/protocol/src/live.rs', lines 60:0-60:46 -/
 @[global_simps, irreducible]
 def live.OPTIONS : Array Std.U8 14#usize :=
   Array.make 14#usize [
@@ -4918,19 +5096,19 @@ def live.OPTIONS : Array Std.U8 14#usize :=
     ]
 
 /-- [protocol::live::REQUEST_END]
-    Source: 'crates/protocol/src/live.rs', lines 60:0-60:39 -/
+    Source: 'crates/protocol/src/live.rs', lines 61:0-61:39 -/
 @[global_simps, irreducible]
 def live.REQUEST_END : Array Std.U8 4#usize :=
   Array.make 4#usize [ 125#u8, 125#u8, 44#u8, 10#u8 ]
 
 /-- [protocol::live::OPTION]
-    Source: 'crates/protocol/src/live.rs', lines 61:0-61:35 -/
+    Source: 'crates/protocol/src/live.rs', lines 62:0-62:35 -/
 @[global_simps, irreducible]
 def live.OPTION : Array Std.U8 6#usize :=
   Array.make 6#usize [ 123#u8, 105#u8, 100#u8, 32#u8, 61#u8, 32#u8 ]
 
 /-- [protocol::live::KIND]
-    Source: 'crates/protocol/src/live.rs', lines 62:0-62:36 -/
+    Source: 'crates/protocol/src/live.rs', lines 63:0-63:36 -/
 @[global_simps, irreducible]
 def live.KIND : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -4938,7 +5116,7 @@ def live.KIND : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::live::LABEL]
-    Source: 'crates/protocol/src/live.rs', lines 63:0-63:39 -/
+    Source: 'crates/protocol/src/live.rs', lines 64:0-64:39 -/
 @[global_simps, irreducible]
 def live.LABEL : Array Std.U8 10#usize :=
   Array.make 10#usize [
@@ -4946,13 +5124,13 @@ def live.LABEL : Array Std.U8 10#usize :=
     ]
 
 /-- [protocol::live::OPTION_END]
-    Source: 'crates/protocol/src/live.rs', lines 64:0-64:37 -/
+    Source: 'crates/protocol/src/live.rs', lines 65:0-65:37 -/
 @[global_simps, irreducible]
 def live.OPTION_END : Array Std.U8 3#usize :=
   Array.make 3#usize [ 125#u8, 44#u8, 10#u8 ]
 
 /-- [protocol::live::ALLOW_ONCE]
-    Source: 'crates/protocol/src/live.rs', lines 65:0-65:48 -/
+    Source: 'crates/protocol/src/live.rs', lines 66:0-66:48 -/
 @[global_simps, irreducible]
 def live.ALLOW_ONCE : Array Std.U8 12#usize :=
   Array.make 12#usize [
@@ -4961,7 +5139,7 @@ def live.ALLOW_ONCE : Array Std.U8 12#usize :=
     ]
 
 /-- [protocol::live::ALLOW_ALWAYS]
-    Source: 'crates/protocol/src/live.rs', lines 66:0-66:52 -/
+    Source: 'crates/protocol/src/live.rs', lines 67:0-67:52 -/
 @[global_simps, irreducible]
 def live.ALLOW_ALWAYS : Array Std.U8 14#usize :=
   Array.make 14#usize [
@@ -4970,7 +5148,7 @@ def live.ALLOW_ALWAYS : Array Std.U8 14#usize :=
     ]
 
 /-- [protocol::live::REJECT_ONCE]
-    Source: 'crates/protocol/src/live.rs', lines 67:0-67:50 -/
+    Source: 'crates/protocol/src/live.rs', lines 68:0-68:50 -/
 @[global_simps, irreducible]
 def live.REJECT_ONCE : Array Std.U8 13#usize :=
   Array.make 13#usize [
@@ -4979,7 +5157,7 @@ def live.REJECT_ONCE : Array Std.U8 13#usize :=
     ]
 
 /-- [protocol::live::REJECT_ALWAYS]
-    Source: 'crates/protocol/src/live.rs', lines 68:0-68:54 -/
+    Source: 'crates/protocol/src/live.rs', lines 69:0-69:54 -/
 @[global_simps, irreducible]
 def live.REJECT_ALWAYS : Array Std.U8 15#usize :=
   Array.make 15#usize [
@@ -4988,21 +5166,21 @@ def live.REJECT_ALWAYS : Array Std.U8 15#usize :=
     ]
 
 /-- [protocol::slot::keep_from]:
-    Source: 'crates/protocol/src/slot.rs', lines 76:0-78:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 77:0-79:1 -/
 def slot.keep_from (len : Std.Usize) (max : Std.Usize) : Result Std.Usize := do
   if len > max
   then len - max
   else ok 0#usize
 
 /-- [protocol::slot::min_len]:
-    Source: 'crates/protocol/src/slot.rs', lines 62:0-64:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 63:0-65:1 -/
 def slot.min_len (n : Std.Usize) (max : Std.Usize) : Result Std.Usize := do
   if n > max
   then ok max
   else ok n
 
 /-- [protocol::slot::cut]:
-    Source: 'crates/protocol/src/slot.rs', lines 68:0-72:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 69:0-73:1 -/
 def slot.cut
   (bytes : Slice Std.U8) (max : Std.Usize) :
   Result (alloc.vec.Vec Std.U8)
@@ -5012,7 +5190,7 @@ def slot.cut
   ascii.push_range (alloc.vec.Vec.new Std.U8) bytes 0#usize i1
 
 /-- [protocol::live::prepare_lines]: loop body 0:
-    Source: 'crates/protocol/src/live.rs', lines 73:4-76:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 74:4-77:5 -/
 @[rust_loop_body]
 def live.prepare_lines_loop.body
   (lines : Slice (alloc.vec.Vec Std.U8))
@@ -5032,7 +5210,7 @@ def live.prepare_lines_loop.body
   else ok (done out)
 
 /-- [protocol::live::prepare_lines]: loop 0:
-    Source: 'crates/protocol/src/live.rs', lines 73:4-76:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 74:4-77:5 -/
 @[rust_loop]
 def live.prepare_lines_loop
   (lines : Slice (alloc.vec.Vec Std.U8))
@@ -5044,7 +5222,7 @@ def live.prepare_lines_loop
     (out, i)
 
 /-- [protocol::live::prepare_lines]:
-    Source: 'crates/protocol/src/live.rs', lines 70:0-78:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 71:0-79:1 -/
 def live.prepare_lines
   (lines : Slice (alloc.vec.Vec Std.U8)) :
   Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
@@ -5059,7 +5237,7 @@ def live.prepare_lines
 @[global_simps, irreducible] def record.MAX_ID_LEN : Std.Usize := 32#usize
 
 /-- [protocol::live::prepare_progress_one]:
-    Source: 'crates/protocol/src/live.rs', lines 80:0-86:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 81:0-87:1 -/
 def live.prepare_progress_one
   (progress : live.Progress) : Result live.Progress := do
   let s := alloc.vec.Vec.deref progress.chat
@@ -5069,7 +5247,7 @@ def live.prepare_progress_one
   ok { progress with chat := v, lines := v1 }
 
 /-- [protocol::live::prepare_progress]: loop body 0:
-    Source: 'crates/protocol/src/live.rs', lines 93:4-96:5
+    Source: 'crates/protocol/src/live.rs', lines 94:4-97:5
     Visibility: public -/
 @[rust_loop_body]
 def live.prepare_progress_loop.body
@@ -5089,7 +5267,7 @@ def live.prepare_progress_loop.body
   else ok (done out)
 
 /-- [protocol::live::prepare_progress]: loop 0:
-    Source: 'crates/protocol/src/live.rs', lines 93:4-96:5
+    Source: 'crates/protocol/src/live.rs', lines 94:4-97:5
     Visibility: public -/
 @[rust_loop]
 def live.prepare_progress_loop
@@ -5102,7 +5280,7 @@ def live.prepare_progress_loop
     (out, i)
 
 /-- [protocol::live::prepare_progress]:
-    Source: 'crates/protocol/src/live.rs', lines 90:0-98:1
+    Source: 'crates/protocol/src/live.rs', lines 91:0-99:1
     Visibility: public -/
 def live.prepare_progress
   (progress : Slice live.Progress) : Result (alloc.vec.Vec live.Progress) := do
@@ -5111,7 +5289,7 @@ def live.prepare_progress
   live.prepare_progress_loop progress (alloc.vec.Vec.new live.Progress) i1
 
 /-- [protocol::live::prepare_option]:
-    Source: 'crates/protocol/src/live.rs', lines 100:0-106:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 101:0-107:1 -/
 def live.prepare_option
   (option : live.PermOption) : Result live.PermOption := do
   let s := alloc.vec.Vec.deref option.id
@@ -5121,7 +5299,7 @@ def live.prepare_option
   ok { option with id := v, label := v1 }
 
 /-- [protocol::live::prepare_options]: loop body 0:
-    Source: 'crates/protocol/src/live.rs', lines 112:4-115:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 113:4-116:5 -/
 @[rust_loop_body]
 def live.prepare_options_loop.body
   (options : Slice live.PermOption) (out : alloc.vec.Vec live.PermOption)
@@ -5141,7 +5319,7 @@ def live.prepare_options_loop.body
   else ok (done out)
 
 /-- [protocol::live::prepare_options]: loop 0:
-    Source: 'crates/protocol/src/live.rs', lines 112:4-115:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 113:4-116:5 -/
 @[rust_loop]
 def live.prepare_options_loop
   (options : Slice live.PermOption) (out : alloc.vec.Vec live.PermOption)
@@ -5153,7 +5331,7 @@ def live.prepare_options_loop
     (out, i)
 
 /-- [protocol::live::prepare_options]:
-    Source: 'crates/protocol/src/live.rs', lines 109:0-117:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 110:0-118:1 -/
 @[reducible]
 def live.prepare_options
   (options : Slice live.PermOption) :
@@ -5162,7 +5340,7 @@ def live.prepare_options
   live.prepare_options_loop options (alloc.vec.Vec.new live.PermOption) 0#usize
 
 /-- [protocol::live::prepare_request]:
-    Source: 'crates/protocol/src/live.rs', lines 119:0-127:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 120:0-128:1 -/
 def live.prepare_request (request : live.Request) : Result live.Request := do
   let s := alloc.vec.Vec.deref request.request
   let v ← slot.cut s record.MAX_ID_LEN
@@ -5175,7 +5353,7 @@ def live.prepare_request (request : live.Request) : Result live.Request := do
   ok { request with request := v, chat := v1, text := v2, options := v3 }
 
 /-- [protocol::live::prepare_requests]: loop body 0:
-    Source: 'crates/protocol/src/live.rs', lines 134:4-137:5
+    Source: 'crates/protocol/src/live.rs', lines 135:4-138:5
     Visibility: public -/
 @[rust_loop_body]
 def live.prepare_requests_loop.body
@@ -5196,7 +5374,7 @@ def live.prepare_requests_loop.body
   else ok (done out)
 
 /-- [protocol::live::prepare_requests]: loop 0:
-    Source: 'crates/protocol/src/live.rs', lines 134:4-137:5
+    Source: 'crates/protocol/src/live.rs', lines 135:4-138:5
     Visibility: public -/
 @[rust_loop]
 def live.prepare_requests_loop
@@ -5209,7 +5387,7 @@ def live.prepare_requests_loop
     (out, i)
 
 /-- [protocol::live::prepare_requests]:
-    Source: 'crates/protocol/src/live.rs', lines 131:0-139:1
+    Source: 'crates/protocol/src/live.rs', lines 132:0-140:1
     Visibility: public -/
 @[reducible]
 def live.prepare_requests
@@ -5217,7 +5395,7 @@ def live.prepare_requests
   live.prepare_requests_loop requests (alloc.vec.Vec.new live.Request) 0#usize
 
 /-- [protocol::live::push_kind]:
-    Source: 'crates/protocol/src/live.rs', lines 141:0-148:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 142:0-149:1 -/
 def live.push_kind
   (out : alloc.vec.Vec Std.U8) (kind : live.OptionKind) :
   Result (alloc.vec.Vec Std.U8)
@@ -5316,7 +5494,7 @@ def lua.lua_string (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
   alloc.vec.Vec.push out1 34#u8
 
 /-- [protocol::live::push_lines]: loop body 0:
-    Source: 'crates/protocol/src/live.rs', lines 152:10-153:47 -/
+    Source: 'crates/protocol/src/live.rs', lines 153:10-154:47 -/
 @[rust_loop_body]
 def live.push_lines_loop.body
   (lines : Slice (alloc.vec.Vec Std.U8)) (out : alloc.vec.Vec Std.U8)
@@ -5339,7 +5517,7 @@ def live.push_lines_loop.body
   else ok (done out)
 
 /-- [protocol::live::push_lines]: loop 0:
-    Source: 'crates/protocol/src/live.rs', lines 152:10-153:47 -/
+    Source: 'crates/protocol/src/live.rs', lines 153:10-154:47 -/
 @[rust_loop]
 def live.push_lines_loop
   (out : alloc.vec.Vec Std.U8) (lines : Slice (alloc.vec.Vec Std.U8))
@@ -5351,7 +5529,7 @@ def live.push_lines_loop
     (out, i)
 
 /-- [protocol::live::push_lines]:
-    Source: 'crates/protocol/src/live.rs', lines 150:0-157:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 151:0-158:1 -/
 @[reducible]
 def live.push_lines
   (out : alloc.vec.Vec Std.U8) (lines : Slice (alloc.vec.Vec Std.U8)) :
@@ -5360,7 +5538,7 @@ def live.push_lines
   live.push_lines_loop out lines 0#usize
 
 /-- [protocol::live::push_progress]:
-    Source: 'crates/protocol/src/live.rs', lines 159:0-167:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 160:0-168:1 -/
 def live.push_progress
   (out : alloc.vec.Vec Std.U8) (progress : live.Progress) :
   Result (alloc.vec.Vec Std.U8)
@@ -5382,7 +5560,7 @@ def live.push_progress
   ascii.push_bytes out6 s6
 
 /-- [protocol::live::push_progress_all]: loop body 0:
-    Source: 'crates/protocol/src/live.rs', lines 171:4-174:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 172:4-175:5 -/
 @[rust_loop_body]
 def live.push_progress_all_loop.body
   (progress : Slice live.Progress) (out : alloc.vec.Vec Std.U8) (i : Std.Usize)
@@ -5400,7 +5578,7 @@ def live.push_progress_all_loop.body
   else ok (done out)
 
 /-- [protocol::live::push_progress_all]: loop 0:
-    Source: 'crates/protocol/src/live.rs', lines 171:4-174:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 172:4-175:5 -/
 @[rust_loop]
 def live.push_progress_all_loop
   (out : alloc.vec.Vec Std.U8) (progress : Slice live.Progress) (i : Std.Usize)
@@ -5412,7 +5590,7 @@ def live.push_progress_all_loop
     (out, i)
 
 /-- [protocol::live::push_progress_all]:
-    Source: 'crates/protocol/src/live.rs', lines 169:0-175:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 170:0-176:1 -/
 @[reducible]
 def live.push_progress_all
   (out : alloc.vec.Vec Std.U8) (progress : Slice live.Progress) :
@@ -5421,7 +5599,7 @@ def live.push_progress_all
   live.push_progress_all_loop out progress 0#usize
 
 /-- [protocol::live::push_option]:
-    Source: 'crates/protocol/src/live.rs', lines 177:0-185:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 178:0-186:1 -/
 def live.push_option
   (out : alloc.vec.Vec Std.U8) (option : live.PermOption) :
   Result (alloc.vec.Vec Std.U8)
@@ -5445,7 +5623,7 @@ def live.push_option
   ascii.push_bytes out6 s7
 
 /-- [protocol::live::push_options]: loop body 0:
-    Source: 'crates/protocol/src/live.rs', lines 189:4-192:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 190:4-193:5 -/
 @[rust_loop_body]
 def live.push_options_loop.body
   (options : Slice live.PermOption) (out : alloc.vec.Vec Std.U8)
@@ -5463,7 +5641,7 @@ def live.push_options_loop.body
   else ok (done out)
 
 /-- [protocol::live::push_options]: loop 0:
-    Source: 'crates/protocol/src/live.rs', lines 189:4-192:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 190:4-193:5 -/
 @[rust_loop]
 def live.push_options_loop
   (out : alloc.vec.Vec Std.U8) (options : Slice live.PermOption)
@@ -5475,7 +5653,7 @@ def live.push_options_loop
     (out, i)
 
 /-- [protocol::live::push_options]:
-    Source: 'crates/protocol/src/live.rs', lines 187:0-193:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 188:0-194:1 -/
 @[reducible]
 def live.push_options
   (out : alloc.vec.Vec Std.U8) (options : Slice live.PermOption) :
@@ -5484,7 +5662,7 @@ def live.push_options
   live.push_options_loop out options 0#usize
 
 /-- [protocol::live::push_request]:
-    Source: 'crates/protocol/src/live.rs', lines 195:0-207:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 196:0-208:1 -/
 def live.push_request
   (out : alloc.vec.Vec Std.U8) (request : live.Request) :
   Result (alloc.vec.Vec Std.U8)
@@ -5518,7 +5696,7 @@ def live.push_request
   ascii.push_bytes out10 s12
 
 /-- [protocol::live::push_requests]: loop body 0:
-    Source: 'crates/protocol/src/live.rs', lines 211:4-214:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 212:4-215:5 -/
 @[rust_loop_body]
 def live.push_requests_loop.body
   (requests : Slice live.Request) (out : alloc.vec.Vec Std.U8) (i : Std.Usize)
@@ -5536,7 +5714,7 @@ def live.push_requests_loop.body
   else ok (done out)
 
 /-- [protocol::live::push_requests]: loop 0:
-    Source: 'crates/protocol/src/live.rs', lines 211:4-214:5 -/
+    Source: 'crates/protocol/src/live.rs', lines 212:4-215:5 -/
 @[rust_loop]
 def live.push_requests_loop
   (out : alloc.vec.Vec Std.U8) (requests : Slice live.Request) (i : Std.Usize)
@@ -5548,7 +5726,7 @@ def live.push_requests_loop
     (out, i)
 
 /-- [protocol::live::push_requests]:
-    Source: 'crates/protocol/src/live.rs', lines 209:0-215:1 -/
+    Source: 'crates/protocol/src/live.rs', lines 210:0-216:1 -/
 @[reducible]
 def live.push_requests
   (out : alloc.vec.Vec Std.U8) (requests : Slice live.Request) :
@@ -5557,20 +5735,22 @@ def live.push_requests
   live.push_requests_loop out requests 0#usize
 
 /-- [protocol::live::live_body]:
-    Source: 'crates/protocol/src/live.rs', lines 220:0-228:1
+    Source: 'crates/protocol/src/live.rs', lines 221:0-230:1
     Visibility: public -/
 def live.live_body
-  (progress : Slice live.Progress) (requests : Slice live.Request) :
+  (app : apps.App) (progress : Slice live.Progress)
+  (requests : Slice live.Request) :
   Result (alloc.vec.Vec Std.U8)
   := do
+  let out ← apps.push_live_global (alloc.vec.Vec.new Std.U8) app
   let s ← lift (Array.to_slice live.HEAD)
-  let out ← ascii.push_bytes (alloc.vec.Vec.new Std.U8) s
-  let out1 ← live.push_progress_all out progress
+  let out1 ← ascii.push_bytes out s
+  let out2 ← live.push_progress_all out1 progress
   let s1 ← lift (Array.to_slice live.PERMISSIONS)
-  let out2 ← ascii.push_bytes out1 s1
-  let out3 ← live.push_requests out2 requests
+  let out3 ← ascii.push_bytes out2 s1
+  let out4 ← live.push_requests out3 requests
   let s2 ← lift (Array.to_slice live.TAIL)
-  ascii.push_bytes out3 s2
+  ascii.push_bytes out4 s2
 
 /-- [protocol::markdown::MARKER]
     Source: 'crates/protocol/src/markdown.rs', lines 11:0-11:47
@@ -7613,65 +7793,63 @@ def record.serialize_records
   record.serialize_records_loop records (alloc.vec.Vec.new Std.U8) 0#usize
 
 /-- [protocol::restore::MAX_CHATS]
-    Source: 'crates/protocol/src/restore.rs', lines 9:0-9:32
+    Source: 'crates/protocol/src/restore.rs', lines 10:0-10:32
     Visibility: public -/
 @[global_simps, irreducible] def restore.MAX_CHATS : Std.Usize := 16#usize
 
 /-- [protocol::restore::MAX_HISTORY]
-    Source: 'crates/protocol/src/restore.rs', lines 10:0-10:34
+    Source: 'crates/protocol/src/restore.rs', lines 11:0-11:34
     Visibility: public -/
 @[global_simps, irreducible] def restore.MAX_HISTORY : Std.Usize := 10#usize
 
 /-- [protocol::restore::MAX_NAME]
-    Source: 'crates/protocol/src/restore.rs', lines 11:0-11:31
+    Source: 'crates/protocol/src/restore.rs', lines 12:0-12:31
     Visibility: public -/
 @[global_simps, irreducible] def restore.MAX_NAME : Std.Usize := 64#usize
 
 /-- [protocol::restore::MAX_CWD]
-    Source: 'crates/protocol/src/restore.rs', lines 12:0-12:32
+    Source: 'crates/protocol/src/restore.rs', lines 13:0-13:32
     Visibility: public -/
 @[global_simps, irreducible] def restore.MAX_CWD : Std.Usize := 1024#usize
 
 /-- [protocol::restore::MAX_ENTRY_TEXT]
-    Source: 'crates/protocol/src/restore.rs', lines 13:0-13:38
+    Source: 'crates/protocol/src/restore.rs', lines 14:0-14:38
     Visibility: public -/
 @[global_simps, irreducible]
 def restore.MAX_ENTRY_TEXT : Std.Usize := 500#usize
 
 /-- [protocol::restore::{impl core::clone::Clone for protocol::restore::Role}::clone]:
-    Source: 'crates/protocol/src/restore.rs', lines 15:9-15:14
+    Source: 'crates/protocol/src/restore.rs', lines 16:9-16:14
     Visibility: public -/
 def restore.Role.Insts.CoreCloneClone.clone
   (self : restore.Role) : Result restore.Role := do
   ok self
 
 /-- Trait implementation: [protocol::restore::{impl core::clone::Clone for protocol::restore::Role}]
-    Source: 'crates/protocol/src/restore.rs', lines 15:9-15:14 -/
+    Source: 'crates/protocol/src/restore.rs', lines 16:9-16:14 -/
 @[reducible]
 def restore.Role.Insts.CoreCloneClone : core.clone.Clone restore.Role := {
   clone := restore.Role.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [protocol::restore::{impl core::marker::Copy for protocol::restore::Role}]
-    Source: 'crates/protocol/src/restore.rs', lines 15:16-15:20 -/
+    Source: 'crates/protocol/src/restore.rs', lines 16:16-16:20 -/
 @[reducible]
 def restore.Role.Insts.CoreMarkerCopy : core.marker.Copy restore.Role := {
   cloneInst := restore.Role.Insts.CoreCloneClone
 }
 
 /-- [protocol::restore::HEAD]
-    Source: 'crates/protocol/src/restore.rs', lines 36:0-36:60 -/
+    Source: 'crates/protocol/src/restore.rs', lines 37:0-37:40 -/
 @[global_simps, irreducible]
-def restore.HEAD : Array Std.U8 32#usize :=
-  Array.make 32#usize [
-    71#u8, 110#u8, 111#u8, 109#u8, 105#u8, 115#u8, 104#u8, 82#u8, 101#u8,
-    108#u8, 97#u8, 121#u8, 95#u8, 82#u8, 101#u8, 115#u8, 116#u8, 111#u8,
-    114#u8, 101#u8, 32#u8, 61#u8, 32#u8, 123#u8, 116#u8, 111#u8, 107#u8,
-    101#u8, 110#u8, 32#u8, 61#u8, 32#u8
+def restore.HEAD : Array Std.U8 12#usize :=
+  Array.make 12#usize [
+    32#u8, 61#u8, 32#u8, 123#u8, 116#u8, 111#u8, 107#u8, 101#u8, 110#u8, 32#u8,
+    61#u8, 32#u8
     ]
 
 /-- [protocol::restore::CHATS]
-    Source: 'crates/protocol/src/restore.rs', lines 37:0-37:42 -/
+    Source: 'crates/protocol/src/restore.rs', lines 38:0-38:42 -/
 @[global_simps, irreducible]
 def restore.CHATS : Array Std.U8 12#usize :=
   Array.make 12#usize [
@@ -7680,19 +7858,19 @@ def restore.CHATS : Array Std.U8 12#usize :=
     ]
 
 /-- [protocol::restore::TAIL]
-    Source: 'crates/protocol/src/restore.rs', lines 38:0-38:31 -/
+    Source: 'crates/protocol/src/restore.rs', lines 39:0-39:31 -/
 @[global_simps, irreducible]
 def restore.TAIL : Array Std.U8 3#usize :=
   Array.make 3#usize [ 125#u8, 125#u8, 10#u8 ]
 
 /-- [protocol::restore::ID]
-    Source: 'crates/protocol/src/restore.rs', lines 39:0-39:31 -/
+    Source: 'crates/protocol/src/restore.rs', lines 40:0-40:31 -/
 @[global_simps, irreducible]
 def restore.ID : Array Std.U8 6#usize :=
   Array.make 6#usize [ 123#u8, 105#u8, 100#u8, 32#u8, 61#u8, 32#u8 ]
 
 /-- [protocol::restore::NAME]
-    Source: 'crates/protocol/src/restore.rs', lines 40:0-40:36 -/
+    Source: 'crates/protocol/src/restore.rs', lines 41:0-41:36 -/
 @[global_simps, irreducible]
 def restore.NAME : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -7700,7 +7878,7 @@ def restore.NAME : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::restore::AGENT]
-    Source: 'crates/protocol/src/restore.rs', lines 41:0-41:39 -/
+    Source: 'crates/protocol/src/restore.rs', lines 42:0-42:39 -/
 @[global_simps, irreducible]
 def restore.AGENT : Array Std.U8 10#usize :=
   Array.make 10#usize [
@@ -7708,7 +7886,7 @@ def restore.AGENT : Array Std.U8 10#usize :=
     ]
 
 /-- [protocol::restore::CWD]
-    Source: 'crates/protocol/src/restore.rs', lines 42:0-42:34 -/
+    Source: 'crates/protocol/src/restore.rs', lines 43:0-43:34 -/
 @[global_simps, irreducible]
 def restore.CWD : Array Std.U8 8#usize :=
   Array.make 8#usize [
@@ -7716,7 +7894,7 @@ def restore.CWD : Array Std.U8 8#usize :=
     ]
 
 /-- [protocol::restore::HISTORY]
-    Source: 'crates/protocol/src/restore.rs', lines 43:0-43:46 -/
+    Source: 'crates/protocol/src/restore.rs', lines 44:0-44:46 -/
 @[global_simps, irreducible]
 def restore.HISTORY : Array Std.U8 14#usize :=
   Array.make 14#usize [
@@ -7725,13 +7903,13 @@ def restore.HISTORY : Array Std.U8 14#usize :=
     ]
 
 /-- [protocol::restore::CHAT_END]
-    Source: 'crates/protocol/src/restore.rs', lines 44:0-44:36 -/
+    Source: 'crates/protocol/src/restore.rs', lines 45:0-45:36 -/
 @[global_simps, irreducible]
 def restore.CHAT_END : Array Std.U8 4#usize :=
   Array.make 4#usize [ 125#u8, 125#u8, 44#u8, 10#u8 ]
 
 /-- [protocol::restore::ROLE]
-    Source: 'crates/protocol/src/restore.rs', lines 45:0-45:35 -/
+    Source: 'crates/protocol/src/restore.rs', lines 46:0-46:35 -/
 @[global_simps, irreducible]
 def restore.ROLE : Array Std.U8 8#usize :=
   Array.make 8#usize [
@@ -7739,13 +7917,13 @@ def restore.ROLE : Array Std.U8 8#usize :=
     ]
 
 /-- [protocol::restore::ENTRY_ID]
-    Source: 'crates/protocol/src/restore.rs', lines 46:0-46:38 -/
+    Source: 'crates/protocol/src/restore.rs', lines 47:0-47:38 -/
 @[global_simps, irreducible]
 def restore.ENTRY_ID : Array Std.U8 7#usize :=
   Array.make 7#usize [ 44#u8, 32#u8, 105#u8, 100#u8, 32#u8, 61#u8, 32#u8 ]
 
 /-- [protocol::restore::TEXT]
-    Source: 'crates/protocol/src/restore.rs', lines 47:0-47:36 -/
+    Source: 'crates/protocol/src/restore.rs', lines 48:0-48:36 -/
 @[global_simps, irreducible]
 def restore.TEXT : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -7753,38 +7931,38 @@ def restore.TEXT : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::restore::ENTRY_END]
-    Source: 'crates/protocol/src/restore.rs', lines 48:0-48:36 -/
+    Source: 'crates/protocol/src/restore.rs', lines 49:0-49:36 -/
 @[global_simps, irreducible]
 def restore.ENTRY_END : Array Std.U8 3#usize :=
   Array.make 3#usize [ 125#u8, 44#u8, 10#u8 ]
 
 /-- [protocol::restore::USER]
-    Source: 'crates/protocol/src/restore.rs', lines 49:0-49:35 -/
+    Source: 'crates/protocol/src/restore.rs', lines 50:0-50:35 -/
 @[global_simps, irreducible]
 def restore.USER : Array Std.U8 6#usize :=
   Array.make 6#usize [ 34#u8, 117#u8, 115#u8, 101#u8, 114#u8, 34#u8 ]
 
 /-- [protocol::restore::AGENT_ROLE]
-    Source: 'crates/protocol/src/restore.rs', lines 50:0-50:42 -/
+    Source: 'crates/protocol/src/restore.rs', lines 51:0-51:42 -/
 @[global_simps, irreducible]
 def restore.AGENT_ROLE : Array Std.U8 7#usize :=
   Array.make 7#usize [ 34#u8, 97#u8, 103#u8, 101#u8, 110#u8, 116#u8, 34#u8 ]
 
 /-- [protocol::restore::ERROR]
-    Source: 'crates/protocol/src/restore.rs', lines 51:0-51:37 -/
+    Source: 'crates/protocol/src/restore.rs', lines 52:0-52:37 -/
 @[global_simps, irreducible]
 def restore.ERROR : Array Std.U8 7#usize :=
   Array.make 7#usize [ 34#u8, 101#u8, 114#u8, 114#u8, 111#u8, 114#u8, 34#u8 ]
 
 /-- [protocol::restore::prepare_entry]:
-    Source: 'crates/protocol/src/restore.rs', lines 53:0-59:1 -/
+    Source: 'crates/protocol/src/restore.rs', lines 54:0-60:1 -/
 def restore.prepare_entry (entry : restore.Entry) : Result restore.Entry := do
   let s := alloc.vec.Vec.deref entry.text
   let v ← slot.cut s restore.MAX_ENTRY_TEXT
   ok { entry with text := v }
 
 /-- [protocol::restore::prepare_history]: loop body 0:
-    Source: 'crates/protocol/src/restore.rs', lines 64:4-67:5 -/
+    Source: 'crates/protocol/src/restore.rs', lines 65:4-68:5 -/
 @[rust_loop_body]
 def restore.prepare_history_loop.body
   (history : Slice restore.Entry) (out : alloc.vec.Vec restore.Entry)
@@ -7803,7 +7981,7 @@ def restore.prepare_history_loop.body
   else ok (done out)
 
 /-- [protocol::restore::prepare_history]: loop 0:
-    Source: 'crates/protocol/src/restore.rs', lines 64:4-67:5 -/
+    Source: 'crates/protocol/src/restore.rs', lines 65:4-68:5 -/
 @[rust_loop]
 def restore.prepare_history_loop
   (history : Slice restore.Entry) (out : alloc.vec.Vec restore.Entry)
@@ -7815,7 +7993,7 @@ def restore.prepare_history_loop
     (out, i)
 
 /-- [protocol::restore::prepare_history]:
-    Source: 'crates/protocol/src/restore.rs', lines 61:0-69:1 -/
+    Source: 'crates/protocol/src/restore.rs', lines 62:0-70:1 -/
 def restore.prepare_history
   (history : Slice restore.Entry) : Result (alloc.vec.Vec restore.Entry) := do
   let i := Slice.len history
@@ -7823,7 +8001,7 @@ def restore.prepare_history
   restore.prepare_history_loop history (alloc.vec.Vec.new restore.Entry) i1
 
 /-- [protocol::restore::prepare_chat]:
-    Source: 'crates/protocol/src/restore.rs', lines 71:0-79:1 -/
+    Source: 'crates/protocol/src/restore.rs', lines 72:0-80:1 -/
 def restore.prepare_chat (chat : restore.Chat) : Result restore.Chat := do
   let s := alloc.vec.Vec.deref chat.id
   let v ← slot.cut s record.MAX_ID_LEN
@@ -7838,7 +8016,7 @@ def restore.prepare_chat (chat : restore.Chat) : Result restore.Chat := do
   ok { id := v, «name» := v1, agent := v2, cwd := v3, history := v4 }
 
 /-- [protocol::restore::prepare_restore]: loop body 0:
-    Source: 'crates/protocol/src/restore.rs', lines 87:4-90:5
+    Source: 'crates/protocol/src/restore.rs', lines 88:4-91:5
     Visibility: public -/
 @[rust_loop_body]
 def restore.prepare_restore_loop.body
@@ -7858,7 +8036,7 @@ def restore.prepare_restore_loop.body
   else ok (done out)
 
 /-- [protocol::restore::prepare_restore]: loop 0:
-    Source: 'crates/protocol/src/restore.rs', lines 87:4-90:5
+    Source: 'crates/protocol/src/restore.rs', lines 88:4-91:5
     Visibility: public -/
 @[rust_loop]
 def restore.prepare_restore_loop
@@ -7871,7 +8049,7 @@ def restore.prepare_restore_loop
     (out, i)
 
 /-- [protocol::restore::prepare_restore]:
-    Source: 'crates/protocol/src/restore.rs', lines 84:0-92:1
+    Source: 'crates/protocol/src/restore.rs', lines 85:0-93:1
     Visibility: public -/
 def restore.prepare_restore
   (chats : Slice restore.Chat) : Result (alloc.vec.Vec restore.Chat) := do
@@ -7880,7 +8058,7 @@ def restore.prepare_restore
   restore.prepare_restore_loop chats (alloc.vec.Vec.new restore.Chat) i1
 
 /-- [protocol::restore::push_role]:
-    Source: 'crates/protocol/src/restore.rs', lines 94:0-100:1 -/
+    Source: 'crates/protocol/src/restore.rs', lines 95:0-101:1 -/
 def restore.push_role
   (out : alloc.vec.Vec Std.U8) (role : restore.Role) :
   Result (alloc.vec.Vec Std.U8)
@@ -7897,7 +8075,7 @@ def restore.push_role
     ascii.push_bytes out s
 
 /-- [protocol::restore::push_entry]:
-    Source: 'crates/protocol/src/restore.rs', lines 102:0-110:1 -/
+    Source: 'crates/protocol/src/restore.rs', lines 103:0-111:1 -/
 def restore.push_entry
   (out : alloc.vec.Vec Std.U8) (entry : restore.Entry) :
   Result (alloc.vec.Vec Std.U8)
@@ -7918,7 +8096,7 @@ def restore.push_entry
   ascii.push_bytes out6 s5
 
 /-- [protocol::restore::push_history]: loop body 0:
-    Source: 'crates/protocol/src/restore.rs', lines 114:4-117:5 -/
+    Source: 'crates/protocol/src/restore.rs', lines 115:4-118:5 -/
 @[rust_loop_body]
 def restore.push_history_loop.body
   (history : Slice restore.Entry) (out : alloc.vec.Vec Std.U8) (i : Std.Usize)
@@ -7936,7 +8114,7 @@ def restore.push_history_loop.body
   else ok (done out)
 
 /-- [protocol::restore::push_history]: loop 0:
-    Source: 'crates/protocol/src/restore.rs', lines 114:4-117:5 -/
+    Source: 'crates/protocol/src/restore.rs', lines 115:4-118:5 -/
 @[rust_loop]
 def restore.push_history_loop
   (out : alloc.vec.Vec Std.U8) (history : Slice restore.Entry) (i : Std.Usize)
@@ -7948,7 +8126,7 @@ def restore.push_history_loop
     (out, i)
 
 /-- [protocol::restore::push_history]:
-    Source: 'crates/protocol/src/restore.rs', lines 112:0-118:1 -/
+    Source: 'crates/protocol/src/restore.rs', lines 113:0-119:1 -/
 @[reducible]
 def restore.push_history
   (out : alloc.vec.Vec Std.U8) (history : Slice restore.Entry) :
@@ -7957,7 +8135,7 @@ def restore.push_history
   restore.push_history_loop out history 0#usize
 
 /-- [protocol::restore::push_chat]:
-    Source: 'crates/protocol/src/restore.rs', lines 120:0-132:1 -/
+    Source: 'crates/protocol/src/restore.rs', lines 121:0-133:1 -/
 def restore.push_chat
   (out : alloc.vec.Vec Std.U8) (chat : restore.Chat) :
   Result (alloc.vec.Vec Std.U8)
@@ -7994,7 +8172,7 @@ def restore.push_chat
   ascii.push_bytes out10 s14
 
 /-- [protocol::restore::restore_body]: loop body 0:
-    Source: 'crates/protocol/src/restore.rs', lines 143:4-146:5
+    Source: 'crates/protocol/src/restore.rs', lines 145:4-148:5
     Visibility: public -/
 @[rust_loop_body]
 def restore.restore_body_loop.body
@@ -8012,7 +8190,7 @@ def restore.restore_body_loop.body
   else ok (done out)
 
 /-- [protocol::restore::restore_body]: loop 0:
-    Source: 'crates/protocol/src/restore.rs', lines 143:4-146:5
+    Source: 'crates/protocol/src/restore.rs', lines 145:4-148:5
     Visibility: public -/
 @[rust_loop]
 def restore.restore_body_loop
@@ -8024,22 +8202,23 @@ def restore.restore_body_loop
     (out, i)
 
 /-- [protocol::restore::restore_body]:
-    Source: 'crates/protocol/src/restore.rs', lines 137:0-149:1
+    Source: 'crates/protocol/src/restore.rs', lines 138:0-151:1
     Visibility: public -/
 def restore.restore_body
-  (token : Slice Std.U8) (chats : Slice restore.Chat) :
+  (app : apps.App) (token : Slice Std.U8) (chats : Slice restore.Chat) :
   Result (alloc.vec.Vec Std.U8)
   := do
+  let out ← apps.push_restore_global (alloc.vec.Vec.new Std.U8) app
   let s ← lift (Array.to_slice restore.HEAD)
-  let out ← ascii.push_bytes (alloc.vec.Vec.new Std.U8) s
+  let out1 ← ascii.push_bytes out s
   let v ← lua.lua_string token
   let s1 := alloc.vec.Vec.deref v
-  let out1 ← ascii.push_bytes out s1
+  let out2 ← ascii.push_bytes out1 s1
   let s2 ← lift (Array.to_slice restore.CHATS)
-  let out2 ← ascii.push_bytes out1 s2
-  let out3 ← restore.restore_body_loop chats out2 0#usize
+  let out3 ← ascii.push_bytes out2 s2
+  let out4 ← restore.restore_body_loop chats out3 0#usize
   let s3 ← lift (Array.to_slice restore.TAIL)
-  ascii.push_bytes out3 s3
+  ascii.push_bytes out4 s3
 
 /-- [protocol::seen::SEEN_CAPACITY]
     Source: 'crates/protocol/src/seen.rs', lines 5:0-5:38
@@ -8359,66 +8538,64 @@ def shell.Pending.Insts.CoreCmpEq : core.cmp.Eq shell.Pending := {
 }
 
 /-- [protocol::slot::SLOTS]
-    Source: 'crates/protocol/src/slot.rs', lines 8:0-8:30
+    Source: 'crates/protocol/src/slot.rs', lines 9:0-9:30
     Visibility: public -/
 @[global_simps, irreducible] def slot.SLOTS : Std.Usize := 1000#usize
 
 /-- [protocol::slot::SLOT_WINDOW]
-    Source: 'crates/protocol/src/slot.rs', lines 10:0-10:34
+    Source: 'crates/protocol/src/slot.rs', lines 11:0-11:34
     Visibility: public -/
 @[global_simps, irreducible] def slot.SLOT_WINDOW : Std.Usize := 30#usize
 
 /-- [protocol::slot::MAX_REPLIES]
-    Source: 'crates/protocol/src/slot.rs', lines 11:0-11:34
+    Source: 'crates/protocol/src/slot.rs', lines 12:0-12:34
     Visibility: public -/
 @[global_simps, irreducible] def slot.MAX_REPLIES : Std.Usize := 30#usize
 
 /-- [protocol::slot::MAX_TEXT]
-    Source: 'crates/protocol/src/slot.rs', lines 12:0-12:35
+    Source: 'crates/protocol/src/slot.rs', lines 13:0-13:35
     Visibility: public -/
 @[global_simps, irreducible] def slot.MAX_TEXT : Std.Usize := 32768#usize
 
 /-- [protocol::slot::SLOT_BODY_LIMIT]
-    Source: 'crates/protocol/src/slot.rs', lines 13:0-13:47
+    Source: 'crates/protocol/src/slot.rs', lines 14:0-14:47
     Visibility: public -/
 @[global_simps, irreducible]
 def slot.SLOT_BODY_LIMIT : Result Std.Usize := 1024#usize * 1024#usize
 
 /-- [protocol::slot::{impl core::clone::Clone for protocol::slot::Status}::clone]:
-    Source: 'crates/protocol/src/slot.rs', lines 15:9-15:14
+    Source: 'crates/protocol/src/slot.rs', lines 16:9-16:14
     Visibility: public -/
 def slot.Status.Insts.CoreCloneClone.clone
   (self : slot.Status) : Result slot.Status := do
   ok self
 
 /-- Trait implementation: [protocol::slot::{impl core::clone::Clone for protocol::slot::Status}]
-    Source: 'crates/protocol/src/slot.rs', lines 15:9-15:14 -/
+    Source: 'crates/protocol/src/slot.rs', lines 16:9-16:14 -/
 @[reducible]
 def slot.Status.Insts.CoreCloneClone : core.clone.Clone slot.Status := {
   clone := slot.Status.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [protocol::slot::{impl core::marker::Copy for protocol::slot::Status}]
-    Source: 'crates/protocol/src/slot.rs', lines 15:16-15:20 -/
+    Source: 'crates/protocol/src/slot.rs', lines 16:16-16:20 -/
 @[reducible]
 def slot.Status.Insts.CoreMarkerCopy : core.marker.Copy slot.Status := {
   cloneInst := slot.Status.Insts.CoreCloneClone
 }
 
 /-- [protocol::slot::HEAD]
-    Source: 'crates/protocol/src/slot.rs', lines 29:0-29:70 -/
+    Source: 'crates/protocol/src/slot.rs', lines 30:0-30:49 -/
 @[global_simps, irreducible]
-def slot.HEAD : Array Std.U8 42#usize :=
-  Array.make 42#usize [
-    71#u8, 110#u8, 111#u8, 109#u8, 105#u8, 115#u8, 104#u8, 82#u8, 101#u8,
-    108#u8, 97#u8, 121#u8, 95#u8, 83#u8, 108#u8, 111#u8, 116#u8, 68#u8, 97#u8,
-    116#u8, 97#u8, 32#u8, 61#u8, 32#u8, 123#u8, 112#u8, 114#u8, 111#u8, 116#u8,
-    111#u8, 32#u8, 61#u8, 32#u8, 49#u8, 44#u8, 32#u8, 110#u8, 111#u8, 119#u8,
-    32#u8, 61#u8, 32#u8
+def slot.HEAD : Array Std.U8 21#usize :=
+  Array.make 21#usize [
+    32#u8, 61#u8, 32#u8, 123#u8, 112#u8, 114#u8, 111#u8, 116#u8, 111#u8, 32#u8,
+    61#u8, 32#u8, 49#u8, 44#u8, 32#u8, 110#u8, 111#u8, 119#u8, 32#u8, 61#u8,
+    32#u8
     ]
 
 /-- [protocol::slot::REPLIES]
-    Source: 'crates/protocol/src/slot.rs', lines 30:0-30:46 -/
+    Source: 'crates/protocol/src/slot.rs', lines 31:0-31:46 -/
 @[global_simps, irreducible]
 def slot.REPLIES : Array Std.U8 14#usize :=
   Array.make 14#usize [
@@ -8427,13 +8604,13 @@ def slot.REPLIES : Array Std.U8 14#usize :=
     ]
 
 /-- [protocol::slot::TAIL]
-    Source: 'crates/protocol/src/slot.rs', lines 31:0-31:31 -/
+    Source: 'crates/protocol/src/slot.rs', lines 32:0-32:31 -/
 @[global_simps, irreducible]
 def slot.TAIL : Array Std.U8 3#usize :=
   Array.make 3#usize [ 125#u8, 125#u8, 10#u8 ]
 
 /-- [protocol::slot::CHAT]
-    Source: 'crates/protocol/src/slot.rs', lines 32:0-32:35 -/
+    Source: 'crates/protocol/src/slot.rs', lines 33:0-33:35 -/
 @[global_simps, irreducible]
 def slot.CHAT : Array Std.U8 8#usize :=
   Array.make 8#usize [
@@ -8441,13 +8618,13 @@ def slot.CHAT : Array Std.U8 8#usize :=
     ]
 
 /-- [protocol::slot::ID]
-    Source: 'crates/protocol/src/slot.rs', lines 33:0-33:32 -/
+    Source: 'crates/protocol/src/slot.rs', lines 34:0-34:32 -/
 @[global_simps, irreducible]
 def slot.ID : Array Std.U8 7#usize :=
   Array.make 7#usize [ 44#u8, 32#u8, 105#u8, 100#u8, 32#u8, 61#u8, 32#u8 ]
 
 /-- [protocol::slot::STATUS]
-    Source: 'crates/protocol/src/slot.rs', lines 34:0-34:41 -/
+    Source: 'crates/protocol/src/slot.rs', lines 35:0-35:41 -/
 @[global_simps, irreducible]
 def slot.STATUS : Array Std.U8 11#usize :=
   Array.make 11#usize [
@@ -8456,7 +8633,7 @@ def slot.STATUS : Array Std.U8 11#usize :=
     ]
 
 /-- [protocol::slot::TEXT]
-    Source: 'crates/protocol/src/slot.rs', lines 35:0-35:36 -/
+    Source: 'crates/protocol/src/slot.rs', lines 36:0-36:36 -/
 @[global_simps, irreducible]
 def slot.TEXT : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -8464,13 +8641,13 @@ def slot.TEXT : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::slot::REPLY_END]
-    Source: 'crates/protocol/src/slot.rs', lines 36:0-36:36 -/
+    Source: 'crates/protocol/src/slot.rs', lines 37:0-37:36 -/
 @[global_simps, irreducible]
 def slot.REPLY_END : Array Std.U8 3#usize :=
   Array.make 3#usize [ 125#u8, 44#u8, 10#u8 ]
 
 /-- [protocol::slot::WORKING]
-    Source: 'crates/protocol/src/slot.rs', lines 37:0-37:41 -/
+    Source: 'crates/protocol/src/slot.rs', lines 38:0-38:41 -/
 @[global_simps, irreducible]
 def slot.WORKING : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -8478,19 +8655,19 @@ def slot.WORKING : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::slot::DONE]
-    Source: 'crates/protocol/src/slot.rs', lines 38:0-38:35 -/
+    Source: 'crates/protocol/src/slot.rs', lines 39:0-39:35 -/
 @[global_simps, irreducible]
 def slot.DONE : Array Std.U8 6#usize :=
   Array.make 6#usize [ 34#u8, 100#u8, 111#u8, 110#u8, 101#u8, 34#u8 ]
 
 /-- [protocol::slot::ERROR]
-    Source: 'crates/protocol/src/slot.rs', lines 39:0-39:37 -/
+    Source: 'crates/protocol/src/slot.rs', lines 40:0-40:37 -/
 @[global_simps, irreducible]
 def slot.ERROR : Array Std.U8 7#usize :=
   Array.make 7#usize [ 34#u8, 101#u8, 114#u8, 114#u8, 111#u8, 114#u8, 34#u8 ]
 
 /-- [protocol::slot::escaped_len]:
-    Source: 'crates/protocol/src/slot.rs', lines 42:0-44:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 43:0-45:1 -/
 def slot.escaped_len (b : Std.U8) : Result Std.Usize := do
   let b1 ← lua.is_plain b
   if b1
@@ -8498,7 +8675,7 @@ def slot.escaped_len (b : Std.U8) : Result Std.Usize := do
   else ok 4#usize
 
 /-- [protocol::slot::next_fits]:
-    Source: 'crates/protocol/src/slot.rs', lines 46:0-48:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 47:0-49:1 -/
 def slot.next_fits
   (text : Slice Std.U8) (i : Std.Usize) (size : Std.Usize) : Result Bool := do
   let i1 := Slice.len text
@@ -8511,7 +8688,7 @@ def slot.next_fits
   else ok false
 
 /-- [protocol::slot::fitting_prefix]: loop body 0:
-    Source: 'crates/protocol/src/slot.rs', lines 55:4-58:5 -/
+    Source: 'crates/protocol/src/slot.rs', lines 56:4-59:5 -/
 @[rust_loop_body]
 def slot.fitting_prefix_loop.body
   (text : Slice Std.U8) (size : Std.Usize) (i : Std.Usize) :
@@ -8528,7 +8705,7 @@ def slot.fitting_prefix_loop.body
   else ok (done i)
 
 /-- [protocol::slot::fitting_prefix]: loop 0:
-    Source: 'crates/protocol/src/slot.rs', lines 55:4-58:5 -/
+    Source: 'crates/protocol/src/slot.rs', lines 56:4-59:5 -/
 @[rust_loop]
 def slot.fitting_prefix_loop
   (text : Slice Std.U8) (size : Std.Usize) (i : Std.Usize) :
@@ -8539,20 +8716,20 @@ def slot.fitting_prefix_loop
     (size, i)
 
 /-- [protocol::slot::fitting_prefix]:
-    Source: 'crates/protocol/src/slot.rs', lines 51:0-60:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 52:0-61:1 -/
 @[reducible]
 def slot.fitting_prefix (text : Slice Std.U8) : Result Std.Usize := do
   slot.fitting_prefix_loop text 2#usize 0#usize
 
 /-- [protocol::slot::first_kept]:
-    Source: 'crates/protocol/src/slot.rs', lines 81:0-87:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 82:0-88:1 -/
 def slot.first_kept (len : Std.Usize) : Result Std.Usize := do
   if len > slot.MAX_REPLIES
   then len - slot.MAX_REPLIES
   else ok 0#usize
 
 /-- [protocol::slot::prepare_reply]:
-    Source: 'crates/protocol/src/slot.rs', lines 89:0-105:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 90:0-106:1 -/
 def slot.prepare_reply (reply : slot.Reply) : Result slot.Reply := do
   let s := alloc.vec.Vec.deref reply.chat
   let i := alloc.vec.Vec.len reply.chat
@@ -8565,7 +8742,7 @@ def slot.prepare_reply (reply : slot.Reply) : Result slot.Reply := do
   ok { reply with chat, text }
 
 /-- [protocol::slot::prepare_replies]: loop body 0:
-    Source: 'crates/protocol/src/slot.rs', lines 113:4-116:5
+    Source: 'crates/protocol/src/slot.rs', lines 114:4-117:5
     Visibility: public -/
 @[rust_loop_body]
 def slot.prepare_replies_loop.body
@@ -8585,7 +8762,7 @@ def slot.prepare_replies_loop.body
   else ok (done out)
 
 /-- [protocol::slot::prepare_replies]: loop 0:
-    Source: 'crates/protocol/src/slot.rs', lines 113:4-116:5
+    Source: 'crates/protocol/src/slot.rs', lines 114:4-117:5
     Visibility: public -/
 @[rust_loop]
 def slot.prepare_replies_loop
@@ -8598,7 +8775,7 @@ def slot.prepare_replies_loop
     (out, i)
 
 /-- [protocol::slot::prepare_replies]:
-    Source: 'crates/protocol/src/slot.rs', lines 110:0-118:1
+    Source: 'crates/protocol/src/slot.rs', lines 111:0-119:1
     Visibility: public -/
 def slot.prepare_replies
   (replies : Slice slot.Reply) : Result (alloc.vec.Vec slot.Reply) := do
@@ -8607,7 +8784,7 @@ def slot.prepare_replies
   slot.prepare_replies_loop replies (alloc.vec.Vec.new slot.Reply) i1
 
 /-- [protocol::slot::push_status]:
-    Source: 'crates/protocol/src/slot.rs', lines 120:0-126:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 121:0-127:1 -/
 def slot.push_status
   (out : alloc.vec.Vec Std.U8) (status : slot.Status) :
   Result (alloc.vec.Vec Std.U8)
@@ -8624,7 +8801,7 @@ def slot.push_status
     ascii.push_bytes out s
 
 /-- [protocol::slot::push_reply]:
-    Source: 'crates/protocol/src/slot.rs', lines 128:0-138:1 -/
+    Source: 'crates/protocol/src/slot.rs', lines 129:0-139:1 -/
 def slot.push_reply
   (out : alloc.vec.Vec Std.U8) (reply : slot.Reply) :
   Result (alloc.vec.Vec Std.U8)
@@ -8651,7 +8828,7 @@ def slot.push_reply
   ascii.push_bytes out8 s8
 
 /-- [protocol::slot::slot_body]: loop body 0:
-    Source: 'crates/protocol/src/slot.rs', lines 149:4-152:5
+    Source: 'crates/protocol/src/slot.rs', lines 151:4-154:5
     Visibility: public -/
 @[rust_loop_body]
 def slot.slot_body_loop.body
@@ -8669,7 +8846,7 @@ def slot.slot_body_loop.body
   else ok (done out)
 
 /-- [protocol::slot::slot_body]: loop 0:
-    Source: 'crates/protocol/src/slot.rs', lines 149:4-152:5
+    Source: 'crates/protocol/src/slot.rs', lines 151:4-154:5
     Visibility: public -/
 @[rust_loop]
 def slot.slot_body_loop
@@ -8681,20 +8858,21 @@ def slot.slot_body_loop
     (out, i)
 
 /-- [protocol::slot::slot_body]:
-    Source: 'crates/protocol/src/slot.rs', lines 143:0-155:1
+    Source: 'crates/protocol/src/slot.rs', lines 144:0-157:1
     Visibility: public -/
 def slot.slot_body
-  (now : Std.U32) (replies : Slice slot.Reply) :
+  (app : apps.App) (now : Std.U32) (replies : Slice slot.Reply) :
   Result (alloc.vec.Vec Std.U8)
   := do
+  let out ← apps.push_slot_global (alloc.vec.Vec.new Std.U8) app
   let s ← lift (Array.to_slice slot.HEAD)
-  let out ← ascii.push_bytes (alloc.vec.Vec.new Std.U8) s
-  let out1 ← ascii.push_decimal out now
+  let out1 ← ascii.push_bytes out s
+  let out2 ← ascii.push_decimal out1 now
   let s1 ← lift (Array.to_slice slot.REPLIES)
-  let out2 ← ascii.push_bytes out1 s1
-  let out3 ← slot.slot_body_loop replies out2 0#usize
+  let out3 ← ascii.push_bytes out2 s1
+  let out4 ← slot.slot_body_loop replies out3 0#usize
   let s2 ← lift (Array.to_slice slot.TAIL)
-  ascii.push_bytes out3 s2
+  ascii.push_bytes out4 s2
 
 /-- [protocol::wow_text::push_safe]:
     Source: 'crates/protocol/src/wow_text.rs', lines 4:0-9:1 -/

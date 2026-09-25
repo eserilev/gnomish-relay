@@ -1,4 +1,5 @@
 import Protocol.Spec.Lua
+import Protocol.Spec.Apps
 import Protocol.Code.Funs
 
 /-!
@@ -55,9 +56,15 @@ def requestLine (r : live.Request) : List Byte :=
     luaLiteral (bytes r.text.val) ++ ascii ", options = {\n" ++ r.options.val.flatMap optionLine ++
     ascii "}},\n"
 
-def liveBytes (progress : List live.Progress) (requests : List live.Request) : List Byte :=
-  ascii "GnomishRelay_Live = {progress = {\n" ++ progress.flatMap progressLine ++
+/-- The global name belongs to the app (`liveGlobal`). -/
+def liveOf (app : apps.App) (progress : List live.Progress) (requests : List live.Request) :
+    List Byte :=
+  ascii (liveGlobal app) ++ ascii " = {progress = {\n" ++ progress.flatMap progressLine ++
     ascii "}, permissions = {\n" ++ requests.flatMap requestLine ++ ascii "}}\n"
+
+/-- The live file of the relay app, which S21 bounds. -/
+def liveBytes (progress : List live.Progress) (requests : List live.Request) : List Byte :=
+  liveOf .Relay progress requests
 
 def fitsProgress (p : live.Progress) : Prop :=
   p.chat.val.length ≤ 32 ∧ p.lines.val.length ≤ maxLines ∧ ∀ l ∈ p.lines.val, l.val.length ≤ maxLine

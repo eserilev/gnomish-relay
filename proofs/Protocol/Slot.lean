@@ -1,6 +1,7 @@
 import Protocol.Lua
 import Protocol.Seen
 import Protocol.Spec.Slot
+import Protocol.Apps
 
 /-! # The slot body (S9, S12) -/
 
@@ -212,9 +213,11 @@ theorem replyLine_length (r : slot.Reply) (h : fitsReply r) : (replyLine r).leng
   have : (ascii "},\n").length = 3 := rfl
   omega
 
-/-- **S12, bound.** -/
-theorem slot_body_bound (now : Nat) (replies : List slot.Reply) (hnow : now < 2 ^ 32)
-    (hfits : fitsSlot replies) : (slotBodyBytes now replies).length ≤ slotBodyLimit := by
+/-- The bound of S12 holds for the body of every app. -/
+theorem slot_body_of_bound (app : apps.App) (now : Nat) (replies : List slot.Reply)
+    (hnow : now < 2 ^ 32) (hfits : fitsSlot replies) :
+    (slotBodyOf app now replies).length ≤ slotBodyLimit := by
+  have hg := Protocol.Apps.slot_global_length app
   obtain ⟨hlen, hall⟩ := hfits
   have hd : (decimal now).length ≤ 10 := decimal_length_le now 10 (by omega) (by omega)
   have hlines : (replies.flatMap replyLine).length ≤ 32955 * replies.length := by
@@ -225,21 +228,26 @@ theorem slot_body_bound (now : Nat) (replies : List slot.Reply) (hnow : now < 2 
       exact replyLine_length r (hall r hr)
     have := List.sum_le_card_nsmul _ _ this
     simpa [mul_comm] using this
-  simp only [slotBodyBytes, List.length_append]
-  have : (ascii "GnomishRelay_SlotData = {proto = 1, now = ").length = 42 := rfl
+  simp only [slotBodyOf, List.length_append]
+  have : (ascii " = {proto = 1, now = ").length = 21 := rfl
   have : (ascii ", replies = {\n").length = 14 := rfl
   have : (ascii "}}\n").length = 3 := rfl
   simp only [maxReplies] at hlen
   simp only [slotBodyLimit]
   omega
 
+/-- **S12, bound.** -/
+theorem slot_body_bound (now : Nat) (replies : List slot.Reply) (hnow : now < 2 ^ 32)
+    (hfits : fitsSlot replies) : (slotBodyBytes now replies).length ≤ slotBodyLimit :=
+  slot_body_of_bound .Relay now replies hnow hfits
+
 /-! ## The template (S9) -/
 
-theorem head_bytes : bytes (Array.to_slice slot.HEAD).val = ascii "GnomishRelay_SlotData = {proto = 1, now = " := by
+theorem head_bytes : bytes (Array.to_slice slot.HEAD).val = ascii " = {proto = 1, now = " := by
   unfold slot.HEAD; rfl
 
 @[simp, scalar_tac_simps]
-theorem head_length : (Array.to_slice slot.HEAD).val.length = 42 := by unfold slot.HEAD; rfl
+theorem head_length : (Array.to_slice slot.HEAD).val.length = 21 := by unfold slot.HEAD; rfl
 
 theorem replies_bytes : bytes (Array.to_slice slot.REPLIES).val = ascii ", replies = {\n" := by
   unfold slot.REPLIES; rfl
@@ -402,29 +410,32 @@ theorem slot_body_loop_spec (replies : Slice slot.Reply) (pre : List Spec.Byte)
     exact ⟨hout, by omega⟩
 
 /-- **S9.** -/
-theorem slot_body_spec (now : U32) (replies : Slice slot.Reply) (hfits : fitsSlot replies.val) :
-    slot.slot_body now replies ⦃ v => bytes v.val = slotBodyBytes now.val replies.val ⦄ := by
+theorem slot_body_spec (app : apps.App) (now : U32) (replies : Slice slot.Reply)
+    (hfits : fitsSlot replies.val) :
+    slot.slot_body app now replies ⦃ v => bytes v.val = slotBodyOf app now.val replies.val ⦄ := by
   have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
   have happ : ∀ a b : List U8, bytes (a ++ b) = bytes a ++ bytes b := by simp [bytes]
+  have hg := Protocol.Apps.slot_global_length app
   unfold slot.slot_body
   step*
   subst s_post s1_post
-  have hpre : bytes out2.val = ascii "GnomishRelay_SlotData = {proto = 1, now = " ++ decimal now.val ++
-      ascii ", replies = {\n" := by
-    rw [out2_post1, happ, out1_post1, out_post1, List.nil_append, head_bytes, replies_bytes]
-  have hlen : out2.val.length ≤ 100 := by
+  have hpre : bytes out3.val = ascii (slotGlobal app) ++ ascii " = {proto = 1, now = " ++
+      decimal now.val ++ ascii ", replies = {\n" := by
+    rw [out3_post1, happ, out2_post1, out1_post1, happ, out_post1, head_bytes, replies_bytes]
+    simp [bytes]
+  have hlen : out3.val.length ≤ 100 := by
     have := decimal_u32_length now
     have h := congrArg List.length hpre
     simp only [bytes, List.length_map, List.length_append] at h
-    have : (ascii "GnomishRelay_SlotData = {proto = 1, now = ").length = 42 := rfl
+    have : (ascii " = {proto = 1, now = ").length = 21 := rfl
     have : (ascii ", replies = {\n").length = 14 := rfl
     omega
-  step with slot_body_loop_spec replies (ascii "GnomishRelay_SlotData = {proto = 1, now = " ++
-      decimal now.val ++ ascii ", replies = {\n") out2 hfits ⟨by simp, by simp [hpre], by simp [hlen]⟩
-    as ⟨out3, h3, h3len⟩
+  step with slot_body_loop_spec replies (ascii (slotGlobal app) ++ ascii " = {proto = 1, now = " ++
+      decimal now.val ++ ascii ", replies = {\n") out3 hfits ⟨by simp, by simp [hpre], by simp [hlen]⟩
+    as ⟨out4, h4, h4len⟩
   step*
   subst s2_post
-  rw [v_post1, happ, h3, tail_bytes]
-  simp [slotBodyBytes]
+  rw [v_post1, happ, h4, tail_bytes]
+  simp [slotBodyOf]
 
 end Protocol.Slot

@@ -1,6 +1,7 @@
 //! What the agents do now, and the permission requests for the game (SPEC.md 7.3,
 //! 9.3). It has its own file, `Live.lua`, so the slot body keeps its own 1 MiB bound.
 
+use crate::apps::{App, push_live_global};
 use crate::ascii::{push_bytes, push_decimal};
 use crate::lua::lua_string;
 use crate::record::MAX_ID_LEN;
@@ -45,7 +46,7 @@ pub struct Request {
     pub options: Vec<PermOption>,
 }
 
-const HEAD: [u8; 34] = *b"GnomishRelay_Live = {progress = {\n";
+const HEAD: [u8; 17] = *b" = {progress = {\n";
 const PERMISSIONS: [u8; 19] = *b"}, permissions = {\n";
 const TAIL: [u8; 3] = *b"}}\n";
 const CHAT: [u8; 8] = *b"{chat = ";
@@ -217,8 +218,9 @@ fn push_requests(out: &mut Vec<u8>, requests: &[Request]) {
 /// Every hole is an escaped string or a number, as in the slot body. Takes the
 /// output of `prepare_progress` and `prepare_requests`.
 #[must_use]
-pub fn live_body(progress: &[Progress], requests: &[Request]) -> Vec<u8> {
+pub fn live_body(app: App, progress: &[Progress], requests: &[Request]) -> Vec<u8> {
     let mut out = Vec::new();
+    push_live_global(&mut out, app);
     push_bytes(&mut out, &HEAD);
     push_progress_all(&mut out, progress);
     push_bytes(&mut out, &PERMISSIONS);
@@ -261,7 +263,7 @@ mod tests {
         }];
         let requests = [request(b"p7", b"rm -rf build")];
         assert_eq!(
-            live_body(&progress, &requests),
+            live_body(App::Relay, &progress, &requests),
             b"GnomishRelay_Live = {progress = {\n\
               {chat = \"c1\", id = 12, lines = {\"edit src/main.rs\", \"$ cargo \\034test\\034\", }},\n\
               }, permissions = {\n\
@@ -275,8 +277,16 @@ mod tests {
     #[test]
     fn an_empty_live_file_has_no_progress_and_no_requests() {
         assert_eq!(
-            live_body(&[], &[]),
+            live_body(App::Relay, &[], &[]),
             b"GnomishRelay_Live = {progress = {\n}, permissions = {\n}}\n"
+        );
+    }
+
+    #[test]
+    fn a_timeways_live_file_sets_the_timeways_global() {
+        assert_eq!(
+            live_body(App::Timeways, &[], &[]),
+            b"Timeways_Live = {progress = {\n}, permissions = {\n}}\n"
         );
     }
 

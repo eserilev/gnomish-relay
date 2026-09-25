@@ -144,6 +144,14 @@ structure shell.Lexer where
   pending : shell.Pending
   depth : Std.Usize
 
+/-- [protocol::apps::App]
+    Source: 'crates/protocol/src/apps.rs', lines 8:0-11:1
+    Visibility: public -/
+@[discriminant isize]
+inductive apps.App where
+| Relay : apps.App
+| Timeways : apps.App
+
 /-- [protocol::frame::Frame]
     Source: 'crates/protocol/src/frame.rs', lines 26:0-31:1
     Visibility: public -/
@@ -196,7 +204,7 @@ structure inline.Style where
   italic : inline.Mark
 
 /-- [protocol::live::Progress]
-    Source: 'crates/protocol/src/live.rs', lines 19:0-23:1
+    Source: 'crates/protocol/src/live.rs', lines 20:0-24:1
     Visibility: public -/
 structure live.Progress where
   chat : alloc.vec.Vec Std.U8
@@ -204,7 +212,7 @@ structure live.Progress where
   lines : alloc.vec.Vec (alloc.vec.Vec Std.U8)
 
 /-- [protocol::live::OptionKind]
-    Source: 'crates/protocol/src/live.rs', lines 26:0-31:1
+    Source: 'crates/protocol/src/live.rs', lines 27:0-32:1
     Visibility: public -/
 @[discriminant isize]
 inductive live.OptionKind where
@@ -214,7 +222,7 @@ inductive live.OptionKind where
 | RejectAlways : live.OptionKind
 
 /-- [protocol::live::PermOption]
-    Source: 'crates/protocol/src/live.rs', lines 33:0-37:1
+    Source: 'crates/protocol/src/live.rs', lines 34:0-38:1
     Visibility: public -/
 structure live.PermOption where
   id : alloc.vec.Vec Std.U8
@@ -222,7 +230,7 @@ structure live.PermOption where
   label : alloc.vec.Vec Std.U8
 
 /-- [protocol::live::Request]
-    Source: 'crates/protocol/src/live.rs', lines 40:0-46:1
+    Source: 'crates/protocol/src/live.rs', lines 41:0-47:1
     Visibility: public -/
 structure live.Request where
   request : alloc.vec.Vec Std.U8
@@ -309,7 +317,7 @@ inductive record.RecordError where
 | BadId : record.RecordError
 
 /-- [protocol::restore::Role]
-    Source: 'crates/protocol/src/restore.rs', lines 16:0-20:1
+    Source: 'crates/protocol/src/restore.rs', lines 17:0-21:1
     Visibility: public -/
 @[discriminant isize]
 inductive restore.Role where
@@ -318,7 +326,7 @@ inductive restore.Role where
 | Error : restore.Role
 
 /-- [protocol::restore::Entry]
-    Source: 'crates/protocol/src/restore.rs', lines 22:0-26:1
+    Source: 'crates/protocol/src/restore.rs', lines 23:0-27:1
     Visibility: public -/
 structure restore.Entry where
   role : restore.Role
@@ -326,7 +334,7 @@ structure restore.Entry where
   text : alloc.vec.Vec Std.U8
 
 /-- [protocol::restore::Chat]
-    Source: 'crates/protocol/src/restore.rs', lines 28:0-34:1
+    Source: 'crates/protocol/src/restore.rs', lines 29:0-35:1
     Visibility: public -/
 structure restore.Chat where
   id : alloc.vec.Vec Std.U8
@@ -349,7 +357,7 @@ structure seen.Seen where
   entries : alloc.vec.Vec seen.Entry
 
 /-- [protocol::slot::Status]
-    Source: 'crates/protocol/src/slot.rs', lines 16:0-20:1
+    Source: 'crates/protocol/src/slot.rs', lines 17:0-21:1
     Visibility: public -/
 @[discriminant isize]
 inductive slot.Status where
@@ -358,7 +366,7 @@ inductive slot.Status where
 | Error : slot.Status
 
 /-- [protocol::slot::Reply]
-    Source: 'crates/protocol/src/slot.rs', lines 22:0-27:1
+    Source: 'crates/protocol/src/slot.rs', lines 23:0-28:1
     Visibility: public -/
 structure slot.Reply where
   chat : alloc.vec.Vec Std.U8

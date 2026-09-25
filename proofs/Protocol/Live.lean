@@ -1,5 +1,6 @@
 import Protocol.Cut
 import Protocol.Spec.Live
+import Protocol.Apps
 
 /-! # The live file (S20, S21) -/
 
@@ -286,28 +287,34 @@ theorem requestLine_length (r : live.Request) (h : fitsRequest r) : (requestLine
   have : 431 * r.options.val.length ≤ 1724 := by omega
   omega
 
-/-- **S21.** -/
-theorem live_bound (progress : List live.Progress) (requests : List live.Request)
-    (h : fitsLive progress requests) : (liveBytes progress requests).length ≤ liveLimit := by
+/-- The bound of S21 holds for the live file of every app. -/
+theorem live_of_bound (app : apps.App) (progress : List live.Progress) (requests : List live.Request)
+    (h : fitsLive progress requests) : (liveOf app progress requests).length ≤ liveLimit := by
+  have hg := Protocol.Apps.live_global_length app
   obtain ⟨hp, hpall, hr, hrall⟩ := h
   have hpl := sum_le progressLine 4190 progress (fun p hp => progressLine_length p (hpall p hp))
   have hrl := sum_le requestLine 10050 requests (fun r hr => requestLine_length r (hrall r hr))
   simp only [maxProgress, maxRequests] at hp hr
-  simp only [liveBytes, liveLimit, List.length_append]
-  have : (ascii "GnomishRelay_Live = {progress = {\n").length = 34 := rfl
+  simp only [liveOf, liveLimit, List.length_append]
+  have : (ascii " = {progress = {\n").length = 17 := rfl
   have : (ascii "}, permissions = {\n").length = 19 := rfl
   have : (ascii "}}\n").length = 3 := rfl
   have : 4190 * progress.length ≤ 125700 := by omega
   have : 10050 * requests.length ≤ 40200 := by omega
   omega
 
+/-- **S21.** -/
+theorem live_bound (progress : List live.Progress) (requests : List live.Request)
+    (h : fitsLive progress requests) : (liveBytes progress requests).length ≤ liveLimit :=
+  live_of_bound .Relay progress requests h
+
 /-! ## The template (S20) -/
 
-theorem head_bytes : bytes (Array.to_slice live.HEAD).val = ascii "GnomishRelay_Live = {progress = {\n" := by
+theorem head_bytes : bytes (Array.to_slice live.HEAD).val = ascii " = {progress = {\n" := by
   unfold live.HEAD; rfl
 
 @[simp, scalar_tac_simps]
-theorem head_length : (Array.to_slice live.HEAD).val.length = 34 := by unfold live.HEAD; rfl
+theorem head_length : (Array.to_slice live.HEAD).val.length = 17 := by unfold live.HEAD; rfl
 
 theorem permissions_bytes : bytes (Array.to_slice live.PERMISSIONS).val = ascii "}, permissions = {\n" := by
   unfold live.PERMISSIONS; rfl
@@ -659,16 +666,17 @@ theorem push_requests_spec (out : alloc.vec.Vec U8) (requests : Slice live.Reque
     exact ⟨hout, by omega⟩
 
 /-- **S20.** -/
-theorem live_body_spec (progress : Slice live.Progress) (requests : Slice live.Request)
-    (hfits : fitsLive progress.val requests.val) :
-    live.live_body progress requests ⦃ v => bytes v.val = liveBytes progress.val requests.val ⦄ := by
+theorem live_body_spec (app : apps.App) (progress : Slice live.Progress)
+    (requests : Slice live.Request) (hfits : fitsLive progress.val requests.val) :
+    live.live_body app progress requests ⦃ v => bytes v.val = liveOf app progress.val requests.val ⦄ := by
+  have hg := Protocol.Apps.live_global_length app
   have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
   obtain ⟨hp, hpall, hr, hrall⟩ := hfits
   unfold live.live_body
   step*
   subst s_post s1_post s2_post
-  rw [v_post1, happ, out3_post1, out2_post1, happ, out1_post1, out_post1, List.nil_append, head_bytes,
+  rw [v_post1, happ, out4_post1, out3_post1, happ, out2_post1, out1_post1, happ, out_post1, head_bytes,
     permissions_bytes, tail_bytes]
-  simp [liveBytes]
+  simp [liveOf, bytes]
 
 end Protocol.Live

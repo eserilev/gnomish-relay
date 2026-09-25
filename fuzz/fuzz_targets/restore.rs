@@ -1,10 +1,17 @@
 //! S18 and S19 against the real Lua 5.1: random chats go through `prepare_restore`
-//! and the writer, and the file loads back as the same fields.
+//! and the writer for each app, and the file loads back as the same fields in the
+//! global of that app only.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
 use mlua::{Lua, Table};
+use protocol::apps::App;
 use protocol::restore::{Chat, Entry, Role, prepare_restore, restore_body};
+
+const APPS: [(App, &str, &str); 2] = [
+    (App::Relay, "GnomishRelay_Restore", "Timeways_Restore"),
+    (App::Timeways, "Timeways_Restore", "GnomishRelay_Restore"),
+];
 
 fn bytes(value: mlua::String) -> Vec<u8> {
     value.as_bytes().to_vec()
@@ -32,12 +39,19 @@ fuzz_target!(|data: &[u8]| {
     let token = part(0);
     let token = &token[..token.len().min(32)];
     let chats = prepare_restore(&chats);
-    let file = restore_body(token, &chats);
+    for (app, own, other) in APPS {
+        check(app, own, other, token, &chats);
+    }
+});
+
+fn check(app: App, own: &str, other: &str, token: &[u8], chats: &[Chat]) {
+    let file = restore_body(app, token, chats);
     assert!(file.len() <= 512 * 1024, "S19");
 
     let lua = Lua::new();
     lua.load(&file[..]).exec().expect("the restore file loads");
-    let restore: Table = lua.globals().get("GnomishRelay_Restore").expect("one global table");
+    assert!(lua.globals().get::<mlua::Value>(other).unwrap().is_nil());
+    let restore: Table = lua.globals().get(own).expect("one global table");
     assert_eq!(bytes(restore.get("token").unwrap()), token);
     let got: Table = restore.get("chats").unwrap();
     assert_eq!(got.raw_len(), chats.len());
@@ -54,4 +68,4 @@ fuzz_target!(|data: &[u8]| {
             assert_eq!(entry.get::<u32>("id").unwrap(), e.id);
         }
     }
-});
+}

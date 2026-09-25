@@ -1,6 +1,7 @@
 //! What the agents do now: the last steps of each run, and the permission requests
 //! that wait for the game (SPEC.md 9.3). It fills `Live.lua`. No I/O here.
 
+use protocol::apps::App;
 use protocol::live::{
     MAX_LINES, PermOption, Progress, Request, live_body, prepare_progress, prepare_requests,
 };
@@ -129,7 +130,11 @@ impl Activity {
             })
             .collect();
         let requests: Vec<Request> = self.asked.iter().map(Asked::to_request).collect();
-        live_body(&prepare_progress(&progress), &prepare_requests(&requests))
+        live_body(
+            App::Relay,
+            &prepare_progress(&progress),
+            &prepare_requests(&requests),
+        )
     }
 }
 

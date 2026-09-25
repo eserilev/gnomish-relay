@@ -192,10 +192,10 @@ exactly where it should. Whatever follows is left alone. -/
 def S8_reads_back : Prop :=
   ∀ s rest : List Spec.Byte, luaReadString (luaLiteral s ++ rest) = some (s, rest)
 
-/-- **S9.** The slot body is exactly the fixed template with escaped holes. -/
+/-- **S9.** The slot body is exactly the fixed template of its app with escaped holes. -/
 def S9_slot_body : Prop :=
-  ∀ (now : U32) (replies : Slice slot.Reply), fitsSlot replies.val →
-    slot.slot_body now replies ⦃ v => bytes v.val = slotBodyBytes now.val replies.val ⦄
+  ∀ (app : apps.App) (now : U32) (replies : Slice slot.Reply), fitsSlot replies.val →
+    slot.slot_body app now replies ⦃ v => bytes v.val = slotBodyOf app now.val replies.val ⦄
 
 /-- **S12.** `prepare_replies` keeps the last 30 replies, cuts only the ends of texts,
 and makes them fit. -/
@@ -212,10 +212,12 @@ def S12_bound : Prop :=
 
 /-! ## Restore bundle -/
 
-/-- **S18.** The restore file is exactly the fixed template with escaped holes. -/
+/-- **S18.** The restore file is exactly the fixed template of its app with escaped holes. -/
 def S18_restore_body : Prop :=
-  ∀ (token : Slice U8) (chats : Slice restore.Chat), fitsRestore (bytes token.val) chats.val →
-    restore.restore_body token chats ⦃ v => bytes v.val = restoreBytes (bytes token.val) chats.val ⦄
+  ∀ (app : apps.App) (token : Slice U8) (chats : Slice restore.Chat),
+    fitsRestore (bytes token.val) chats.val →
+    restore.restore_body app token chats ⦃ v =>
+      bytes v.val = restoreOf app (bytes token.val) chats.val ⦄
 
 /-- **S18.** `prepare_restore` keeps the last 16 chats and the last 10 messages of each,
 cuts only the ends of strings, and makes them fit. -/
@@ -232,11 +234,11 @@ def S19_bound : Prop :=
 
 /-! ## Live file: progress and permission requests -/
 
-/-- **S20.** The live file is exactly the fixed template with escaped holes. -/
+/-- **S20.** The live file is exactly the fixed template of its app with escaped holes. -/
 def S20_live_body : Prop :=
-  ∀ (progress : Slice live.Progress) (requests : Slice live.Request),
+  ∀ (app : apps.App) (progress : Slice live.Progress) (requests : Slice live.Request),
     fitsLive progress.val requests.val →
-    live.live_body progress requests ⦃ v => bytes v.val = liveBytes progress.val requests.val ⦄
+    live.live_body app progress requests ⦃ v => bytes v.val = liveOf app progress.val requests.val ⦄
 
 /-- **S20.** `prepare_progress` keeps the last 30 entries and the last 5 lines of each,
 cuts only the ends of strings, and makes them fit. -/

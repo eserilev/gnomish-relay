@@ -2,6 +2,7 @@
 //! replay store, the rate limit, the slot body, the slot window, and the tokens. It
 //! knows nothing of agents, so an app with no agents can use it. No I/O here.
 
+use protocol::apps::App;
 use protocol::rate::{RateLimiter, admit_message};
 use protocol::seen::{self, Seen, admit, new_seen};
 use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
@@ -95,6 +96,7 @@ impl Entry {
 }
 
 pub struct Lane {
+    app: App,
     seen: Seen,
     limiter: RateLimiter,
     /// Every record the addon has not read, newest last.
@@ -116,15 +118,10 @@ pub(crate) fn keep_last<T>(list: &mut Vec<T>, max: usize) {
     }
 }
 
-impl Default for Lane {
-    fn default() -> Lane {
-        Lane::new()
-    }
-}
-
 impl Lane {
-    pub fn new() -> Lane {
+    pub fn new(app: App) -> Lane {
         Lane {
+            app,
             seen: new_seen(),
             limiter: RateLimiter { times: Vec::new() },
             records: Vec::new(),
@@ -257,7 +254,7 @@ impl Lane {
                 text: e.text.as_bytes().to_vec(),
             })
             .collect();
-        slot_body(now, &prepare_replies(&replies))
+        slot_body(self.app, now, &prepare_replies(&replies))
     }
 
     /// The rate limiter is not in the state: a restart gives a fresh minute.
@@ -277,8 +274,8 @@ impl Lane {
         }
     }
 
-    pub fn from_state(state: LaneState) -> Lane {
-        let mut lane = Lane::new();
+    pub fn from_state(app: App, state: LaneState) -> Lane {
+        let mut lane = Lane::new(app);
         lane.next_slot = state.next_slot.max(1);
         lane.seen.entries = state
             .seen
@@ -327,7 +324,7 @@ mod tests {
 
     #[test]
     fn a_lane_admits_a_message_once() {
-        let mut lane = Lane::new();
+        let mut lane = Lane::new(App::Relay);
         assert_eq!(lane.admit(b"tok", 1, NOW), Ok(()));
         assert_eq!(lane.admit(b"tok", 1, NOW), Err(NotAdmitted::Duplicate));
         assert_eq!(lane.admit(b"other", 1, NOW), Ok(()));
@@ -335,7 +332,7 @@ mod tests {
 
     #[test]
     fn a_full_body_refuses_before_the_message_counts_as_seen() {
-        let mut lane = Lane::new();
+        let mut lane = Lane::new(App::Relay);
         for id in 0..30 {
             lane.set_record("tok", &chat(), MessageId(id), Status::Done, String::new());
         }
@@ -350,7 +347,7 @@ mod tests {
 
     #[test]
     fn a_record_of_a_retired_token_never_enters_the_body() {
-        let mut lane = Lane::new();
+        let mut lane = Lane::new(App::Relay);
         lane.add_token("old");
         lane.add_token("new");
         lane.set_record("old", &chat(), MessageId(1), Status::Done, "a".into());
@@ -362,14 +359,25 @@ mod tests {
     }
 
     #[test]
+    fn a_lane_writes_the_body_global_of_its_app() {
+        let relay = Lane::new(App::Relay).body(NOW);
+        let timeways = Lane::new(App::Timeways).body(NOW);
+        assert!(relay.starts_with(b"GnomishRelay_SlotData = {"));
+        assert!(timeways.starts_with(b"Timeways_SlotData = {"));
+    }
+
+    #[test]
     fn a_lane_state_loads_the_same() {
-        let mut lane = Lane::new();
+        let mut lane = Lane::new(App::Relay);
         lane.admit(b"tok", 7, NOW).unwrap();
         lane.add_token("tok");
         lane.set_record("tok", &chat(), MessageId(7), Status::Working, String::new());
         lane.take_report("tok", &flags::parse(b"next=9;build=7;out=shot;in=slots"));
         let state = lane.to_state();
-        assert_eq!(Lane::from_state(lane.to_state()).to_state(), state);
+        assert_eq!(
+            Lane::from_state(App::Relay, lane.to_state()).to_state(),
+            state
+        );
         assert_eq!(state.next_slot, 9);
     }
 }

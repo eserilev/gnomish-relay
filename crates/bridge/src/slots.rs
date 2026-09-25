@@ -5,6 +5,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 use anyhow::{Context, Result};
+use protocol::apps::App;
 use protocol::live::live_body;
 use protocol::restore::restore_body;
 use protocol::slot::{SLOT_WINDOW, SLOTS, slot_body};
@@ -26,9 +27,9 @@ impl Files {
     /// No replies, no restore, and no activity.
     pub fn empty(now: u32) -> Files {
         Files {
-            body: slot_body(now, &[]),
-            restore: restore_body(b"", &[]),
-            live: live_body(&[], &[]),
+            body: slot_body(App::Relay, now, &[]),
+            restore: restore_body(App::Relay, b"", &[]),
+            live: live_body(App::Relay, &[], &[]),
         }
     }
 
@@ -104,7 +105,7 @@ mod tests {
             status: Status::Done,
             text: text.to_vec(),
         };
-        slot_body(1_790_211_079, &prepare_replies(&[reply]))
+        slot_body(App::Relay, 1_790_211_079, &prepare_replies(&[reply]))
     }
 
     #[test]
@@ -201,7 +202,7 @@ mod tests {
                 text: text.to_vec(),
             }],
         }];
-        let restore = restore_body(b"tok", &prepare_restore(&chats));
+        let restore = restore_body(App::Relay, b"tok", &prepare_restore(&chats));
         let with_restore = Files {
             restore,
             ..files(b"")
@@ -242,7 +243,7 @@ mod tests {
             }],
         };
         let with_live = Files {
-            live: live_body(&[], &prepare_requests(&[request])),
+            live: live_body(App::Relay, &[], &prepare_requests(&[request])),
             ..files(b"")
         };
         publish(addons.path(), &with_live, 1).unwrap();

@@ -16,6 +16,7 @@ use bridge::strip::{self, Image};
 use common::{Bits, load_into, lua, repo_file, screenshot_png};
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
+use protocol::apps::App;
 use protocol::cell::decode_cells;
 use protocol::frame::{decode_frame, signed_len};
 use protocol::live::{
@@ -181,7 +182,7 @@ impl Game {
 
     /// Puts a body into every slot, as the bridge does.
     fn publish(&self, replies: &[Reply]) {
-        let body = slot_body(1_790_211_079, &prepare_replies(replies));
+        let body = slot_body(App::Relay, 1_790_211_079, &prepare_replies(replies));
         self.wow
             .set("body", self.lua.create_string(body).unwrap())
             .unwrap();
@@ -437,7 +438,7 @@ fn a_restore_bundle_brings_chats_back_once_and_never_resends_them() {
         cwd: b"Code/x".to_vec(),
         history: vec![entry(Role::User, "hi"), entry(Role::Agent, "hello")],
     }];
-    let restore = restore_body(token.as_bytes(), &prepare_restore(&chats));
+    let restore = restore_body(App::Relay, token.as_bytes(), &prepare_restore(&chats));
     game.wow
         .set("restore", game.lua.create_string(restore).unwrap())
         .unwrap();
@@ -735,7 +736,11 @@ fn stop_sends_a_stop_record_for_the_chat() {
 
 /// A live file, written the way the bridge writes it.
 fn live(progress: &[Progress], requests: &[LiveRequest]) -> Vec<u8> {
-    live_body(&prepare_progress(progress), &prepare_requests(requests))
+    live_body(
+        App::Relay,
+        &prepare_progress(progress),
+        &prepare_requests(requests),
+    )
 }
 
 fn texts_of(game: &Game, kind: &str) -> Vec<String> {
