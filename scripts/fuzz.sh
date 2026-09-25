@@ -8,7 +8,7 @@ seconds="${1:-30}"
 shift || true
 targets=("$@")
 if [ ${#targets[@]} -eq 0 ]; then
-  targets=(frame records folder lua lua_model chat_text popup screenshot relay saved config live restore flags acp markdown claude)
+  targets=(frame records folder lua lua_model chat_text popup screenshot relay saved config live restore flags acp markdown claude codex)
 fi
 log=$(mktemp)
 trap 'rm -f "$log"' EXIT

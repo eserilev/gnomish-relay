@@ -4,7 +4,7 @@ Talk to your coding agents from inside World of Warcraft: Forever.
 You type in a chat window in the game. An agent such as Claude, Codex, or Gemini
 works in your project folder on the same computer, and its reply comes back as a whisper.
 
-It works with Claude Code, and with any agent that speaks the Agent Client Protocol
+It works with Claude Code, Codex, and any agent that speaks the Agent Client Protocol
 (ACP), on Windows, macOS, and Linux. It needs no Node.
 `SPEC.md` has the design, and `VERIFICATION.md` the proofs.
 
@@ -16,7 +16,7 @@ It works with Claude Code, and with any agent that speaks the Agent Client Proto
    - Windows (PowerShell): `irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex`
 3. Answer one question: the folders that the agents can work in.
 
-Setup uses the agents that you already have: `claude`, `codex-acp`, `gemini`, `qwen`,
+Setup uses the agents that you already have: `claude`, `codex`, `gemini`, `qwen`,
 `opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
 With none, replies repeat your message until you add one (below).
 4. Start WoW and type `/relay`.
@@ -27,12 +27,17 @@ Setup finds the game, installs the addon with a key that only this computer has,
 
 ## Add an agent
 
-Claude Code needs only the `claude` program:
+Claude Code needs only the `claude` program, and Codex only the `codex` program:
 
 ```toml
 [agents.claude]
 kind = "claude"
 command = ["claude"]
+permission = "ask"
+
+[agents.codex]
+kind = "codex"
+command = ["codex"]
 permission = "ask"
 ```
 

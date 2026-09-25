@@ -88,6 +88,8 @@ pub enum Kind {
     Acp,
     /// Claude Code with no adapter, through `claude -p` (SPEC.md 9.2).
     Claude,
+    /// Codex with no adapter, through `codex app-server` (SPEC.md 9.2).
+    Codex,
     /// Answers with the message. It tests the path through the game with no agent.
     Echo,
 }
@@ -98,6 +100,7 @@ impl Kind {
         match self {
             Kind::Acp => "acp",
             Kind::Claude => "claude",
+            Kind::Codex => "codex",
             Kind::Echo => "echo",
         }
     }
@@ -170,7 +173,9 @@ fn check_agent(name: &str, agent: &Agent) -> Result<()> {
         bail!("agent name {name:?} is not a valid id");
     }
     match agent.kind {
-        Kind::Acp | Kind::Claude if agent.command.first().is_none_or(String::is_empty) => {
+        Kind::Acp | Kind::Claude | Kind::Codex
+            if agent.command.first().is_none_or(String::is_empty) =>
+        {
             bail!("[agents.{name}] needs a command")
         }
         Kind::Echo if !agent.command.is_empty() => {
@@ -183,6 +188,10 @@ fn check_agent(name: &str, agent: &Agent) -> Result<()> {
     }
     if agent.kind == Kind::Claude {
         check_claude_modes(name, &agent.modes)?;
+    }
+    // Codex has sandboxes and approval policies, not modes. The level picks them.
+    if agent.kind == Kind::Codex && !agent.modes.is_empty() {
+        bail!("[agents.{name}] is kind codex, so it has no modes");
     }
     Ok(())
 }
@@ -559,6 +568,18 @@ mod tests {
             assert!(error.contains(mode), "{error}");
         }
         assert!(home.parse(&CLAUDE.replace("[\"claude\"]", "[]")).is_err());
+    }
+
+    #[test]
+    fn a_codex_entry_has_a_command_and_no_modes() {
+        let home = Home::new();
+        let codex = CLAUDE.replace("kind = \"claude\"", "kind = \"codex\"");
+        assert_eq!(
+            home.parse(&codex).unwrap().agents["claude"].kind,
+            Kind::Codex
+        );
+        let with_modes = format!("{codex}\nmodes = {{ ask = \"plan\" }}\n");
+        assert!(home.parse(&with_modes).is_err());
     }
 
     #[test]

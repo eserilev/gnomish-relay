@@ -304,7 +304,7 @@ pub fn install_addon(addons: &Path, key_hex: &str) -> Result<Installed> {
 /// ACP command comes from the official ACP registry (SPEC.md 9.2).
 pub const KNOWN_AGENTS: [Found<'static>; 13] = [
     ("claude", Kind::Claude, &["claude"]),
-    ("codex", Kind::Acp, &["codex-acp"]),
+    ("codex", Kind::Codex, &["codex"]),
     ("gemini", Kind::Acp, &["gemini", "--acp"]),
     ("qwen", Kind::Acp, &["qwen", "--acp"]),
     ("opencode", Kind::Acp, &["opencode", "acp"]),

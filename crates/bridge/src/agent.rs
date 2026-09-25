@@ -12,6 +12,7 @@ use protocol::live::OptionKind;
 use crate::acp::AcpAgent;
 use crate::claude::ClaudeAgent;
 use crate::claude_sessions;
+use crate::codex::CodexAgent;
 use crate::config::{AgentSpec, Config, Kind};
 use crate::relay::{ChatId, Job, MessageId};
 
@@ -195,6 +196,15 @@ fn claude(spec: &AgentSpec, limits: Limits) -> ClaudeAgent {
     }
 }
 
+fn codex(spec: &AgentSpec, limits: Limits) -> CodexAgent {
+    CodexAgent {
+        command: spec.command.clone(),
+        env: spec.env.clone(),
+        timeout: limits.timeout,
+        permission_timeout: limits.permission_timeout,
+    }
+}
+
 pub fn from_config(config: &Config) -> Agents {
     let limits = Limits {
         timeout: config.timeout,
@@ -208,6 +218,7 @@ pub fn from_config(config: &Config) -> Agents {
                 Kind::Echo => Arc::new(Echo),
                 Kind::Acp => Arc::new(acp(spec, limits)),
                 Kind::Claude => Arc::new(claude(spec, limits)),
+                Kind::Codex => Arc::new(codex(spec, limits)),
             };
             (name.clone(), agent)
         })
@@ -221,5 +232,85 @@ pub fn check(spec: &AgentSpec, cwd: &str) -> Option<Result<Report, String>> {
         Kind::Echo => None,
         Kind::Acp => Some(acp(spec, CHECK_LIMITS).check(cwd)),
         Kind::Claude => Some(claude(spec, CHECK_LIMITS).check(cwd)),
+        Kind::Codex => Some(codex(spec, CHECK_LIMITS).check(cwd)),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::config::Permission;
+    use crate::relay::{Session, Work};
+
+    fn spec(kind: Kind, program: &str) -> AgentSpec {
+        AgentSpec {
+            kind,
+            command: vec![program.to_owned()],
+            env: Vec::new(),
+            modes: BTreeMap::new(),
+        }
+    }
+
+    #[test]
+    fn the_echo_agent_has_nothing_to_check() {
+        assert!(check(&spec(Kind::Echo, ""), ".").is_none());
+    }
+
+    #[test]
+    fn a_check_of_a_missing_program_fails_for_every_backend() {
+        for kind in [Kind::Acp, Kind::Claude, Kind::Codex] {
+            let checked = check(&spec(kind, "no-such-agent-gnomish"), ".").unwrap();
+            let error = checked.unwrap_err();
+            assert!(
+                error.starts_with("Cannot start no-such-agent-gnomish"),
+                "{error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_config_gives_one_agent_for_each_entry() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir(home.path().join("code")).unwrap();
+        let text = r#"
+            allowed_roots = ["~/code"]
+            default_agent = "echo"
+            [wow]
+            path = "/w"
+            [agents.echo]
+            kind = "echo"
+            permission = "ask"
+            [agents.claude]
+            kind = "claude"
+            command = ["claude"]
+            permission = "ask"
+            [agents.codex]
+            kind = "codex"
+            command = ["codex"]
+            permission = "ask"
+            [agents.gemini]
+            kind = "acp"
+            command = ["gemini", "--acp"]
+            permission = "ask"
+        "#;
+        let config = crate::config::parse(text, home.path()).unwrap();
+        let agents = from_config(&config);
+        let names: Vec<&str> = agents.keys().map(String::as_str).collect();
+        assert_eq!(names, ["claude", "codex", "echo", "gemini"]);
+        let job = Job {
+            token: "t".into(),
+            chat: ChatId("c".into()),
+            id: MessageId(1),
+            agent: "echo".into(),
+            permission: Permission::Ask,
+            cwd: ".".into(),
+            session: Session::New,
+            resume: None,
+            text: "hi".into(),
+            work: Work::Prompt,
+        };
+        let run = agents["echo"].run(&job, &Control::default());
+        assert_eq!(run.reply.unwrap(), "echo: hi");
+        assert_eq!(agents["echo"].sessions(".").unwrap(), []);
     }
 }

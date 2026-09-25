@@ -1,0 +1,1 @@
+{"item":{"type":"fileChange","id":"f1","changes":[{"path":"src/a.rs"}]},"command":"rm -rf /","reason":"clean","grantRoot":"/w","data":[{"id":"a","cwd":"/w","preview":"x","updatedAt":5,"items":[{"type":"userMessage","content":[{"type":"text","text":"hi"}]},{"type":"agentMessage","text":"yo"}]}],"turn":{"status":"failed","error":{"message":"x"}}}

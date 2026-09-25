@@ -98,7 +98,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        target: [frame, records, folder, lua, lua_model, chat_text, popup, screenshot, relay, saved, config, live, restore, flags, acp, markdown, claude]
+        target: [frame, records, folder, lua, lua_model, chat_text, popup, screenshot, relay, saved, config, live, restore, flags, acp, markdown, claude, codex]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
