@@ -133,29 +133,35 @@ fn autostart() -> Result<()> {
     let exe = std::env::current_exe()?;
     let path_var = std::env::var("PATH").unwrap_or_default();
     if cfg!(windows) {
-        let run = format!("\"{}\" run", exe.display());
+        // The Run key of the user needs no admin rights, unlike a scheduled task.
+        let run = format!("\"{}\" run --background", exe.display());
         command(
-            "schtasks",
+            "reg",
             &[
-                "/Create",
-                "/F",
-                "/SC",
-                "ONLOGON",
-                "/TN",
+                "add",
+                RUN_KEY,
+                "/v",
                 "Gnomish Relay",
-                "/TR",
+                "/t",
+                "REG_SZ",
+                "/d",
                 &run,
+                "/f",
             ],
         )?;
-        command("schtasks", &["/Run", "/TN", "Gnomish Relay"])?;
+        start_background()?;
     } else if cfg!(target_os = "macos") {
         let dir = home_dir()?.join("Library").join("LaunchAgents");
         std::fs::create_dir_all(&dir)?;
         let name = format!("{}.plist", install::LAUNCHD_LABEL);
+        let log = home_dir()?
+            .join("Library")
+            .join("Logs")
+            .join("gnomish-relay.log");
         write_atomic(
             &dir,
             &name,
-            install::launchd_plist(&exe, &path_var).as_bytes(),
+            install::launchd_plist(&exe, &path_var, &log).as_bytes(),
         )?;
         let uid = String::from_utf8(std::process::Command::new("id").arg("-u").output()?.stdout)?;
         let plist = dir.join(&name).to_string_lossy().into_owned();
@@ -167,6 +173,7 @@ fn autostart() -> Result<()> {
             "launchctl",
             &["bootstrap", &format!("gui/{}", uid.trim()), &plist],
         )?;
+        println!("logs: {}", log.display());
     } else {
         let dir = config_dir()?
             .parent()
@@ -180,14 +187,43 @@ fn autostart() -> Result<()> {
             install::systemd_unit(&exe, &path_var).as_bytes(),
         )?;
         command("systemctl", &["--user", "daemon-reload"])?;
-        command(
-            "systemctl",
-            &["--user", "enable", "--now", "gnomish-relay.service"],
-        )?;
+        command("systemctl", &["--user", "enable", "gnomish-relay.service"])?;
+        command("systemctl", &["--user", "restart", "gnomish-relay.service"])?;
         println!("logs: journalctl --user -u gnomish-relay");
     }
-    println!("the bridge starts at each login");
     Ok(())
+}
+
+const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+/// Big enough for weeks of normal logs. A bigger log starts again.
+const MAX_LOG: u64 = 4 * 1024 * 1024;
+
+/// Starts `run` as a new process with no console window, and its log in a file.
+fn start_background() -> Result<PathBuf> {
+    let dir = data_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    let log_path = dir.join("bridge.log");
+    let too_big = std::fs::metadata(&log_path).is_ok_and(|m| m.len() > MAX_LOG);
+    let log = std::fs::OpenOptions::new()
+        .create(true)
+        .append(!too_big)
+        .write(true)
+        .truncate(too_big)
+        .open(&log_path)?;
+    let mut child = std::process::Command::new(std::env::current_exe()?);
+    child
+        .arg("run")
+        .stdin(std::process::Stdio::null())
+        .stdout(log.try_clone()?)
+        .stderr(log);
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        child.creation_flags(CREATE_NO_WINDOW);
+    }
+    child.spawn().context("cannot start the bridge")?;
+    Ok(log_path)
 }
 
 /// Reads one answer in a terminal. With no terminal, or an empty answer, the default.
@@ -219,16 +255,12 @@ fn choose_roots(home: &Path, given: Option<&str>) -> Result<Vec<String>> {
         .iter()
         .map(|p| with_tilde(p, home))
         .collect();
-    let default = if found.is_empty() {
-        "~".to_owned()
-    } else {
-        found.join(", ")
-    };
     let answer = match given {
         Some(list) => list.to_owned(),
+        // No default of the home folder: it holds ~/.ssh and the browser profiles.
         None => ask(
             "Folders the agents can work in, divided by commas",
-            &default,
+            &found.join(", "),
         )?,
     };
     let roots: Vec<String> = answer
@@ -237,6 +269,9 @@ fn choose_roots(home: &Path, given: Option<&str>) -> Result<Vec<String>> {
         .filter(|r| !r.is_empty())
         .map(str::to_owned)
         .collect();
+    if roots.is_empty() {
+        bail!("give the folders that the agents can work in: gnomish-relay setup --roots ~/code");
+    }
     for root in &roots {
         if !config::expand(root, home)?.is_dir() {
             bail!("{root} is not a folder");
@@ -266,19 +301,18 @@ fn setup(args: &[&str]) -> Result<()> {
             wow.display()
         );
     }
-    println!("game: {}", wow.display());
+    println!("WoW: {}", wow.display());
     let dir = config_dir()?;
     std::fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
     let key = strip_key(&dir, new_key)?;
-    let restart = match install::install_addon(&addons, &key)? {
-        install::Installed::New => true,
-        install::Installed::Updated => {
-            println!("updated the addon: type /reload in the game");
-            false
-        }
-        install::Installed::Unchanged => false,
-    };
-    if !dir.join(config::FILE).exists() {
+    // The addon and the slots first: they need nothing else, and a later step can fail.
+    let addon = install::install_addon(&addons, &key)?;
+    let slots_new = !addons.join(slots::slot_name(1)).is_dir();
+    slots::install(&addons, &Files::empty(now()))?;
+    // A first setup can stop at the folder question after the addon and the slots, so
+    // the first config also means that WoW has not seen them yet.
+    let first = !dir.join(config::FILE).exists();
+    if first {
         let agents = install::find_agents(&std::env::var_os("PATH").unwrap_or_default());
         let roots = choose_roots(&home_dir()?, roots_given)?;
         write_private(
@@ -286,26 +320,24 @@ fn setup(args: &[&str]) -> Result<()> {
             config::FILE,
             &config::default_text(&wow, &agents, &roots),
         )?;
-        let names: Vec<&str> = agents.iter().map(|(name, _)| *name).collect();
-        println!(
-            "wrote {} with agents: {}",
-            dir.join(config::FILE).display(),
-            if names.is_empty() {
-                "none, so echo".into()
-            } else {
-                names.join(", ")
-            }
-        );
+    }
+    let config = load_config()?;
+    let default = &config.policy.default_agent;
+    match config.agents.get(default).map(|a| a.kind) {
+        Some(Kind::Acp) => println!("Agent: {default}"),
+        _ => println!("Agent: none. Replies repeat your message."),
     }
     if args.contains(&"--autostart") {
-        autostart()?;
+        match autostart() {
+            Ok(()) => println!("Bridge: on, starts at login"),
+            Err(e) => println!("Bridge: not started at login ({e:#}). Run: gnomish-relay run"),
+        }
     }
-    let slots_new = !addons.join(slots::slot_name(1)).is_dir();
-    slots::install(&addons, &Files::empty(now()))?;
-    if restart || slots_new {
-        println!("restart WoW: it finds new addons only at launch");
+    match (addon, slots_new || first) {
+        (install::Installed::New, _) | (_, true) => println!("Restart WoW, then type /relay"),
+        (install::Installed::Updated, false) => println!("Type /reload in WoW"),
+        (install::Installed::Unchanged, false) => println!("Ready"),
     }
-    println!("ok");
     Ok(())
 }
 
@@ -416,6 +448,11 @@ fn main() -> Result<()> {
         ["setup", ref rest @ ..] => setup(rest),
         ["install"] => install(),
         ["run"] => start(),
+        ["run", "--background"] => {
+            let log = start_background()?;
+            println!("the bridge runs, and logs to {}", log.display());
+            Ok(())
+        }
         ["check-agent", name] => check_agent(name),
         ["say", chat, id, text] => say(chat, id, text),
         _ => bail!("{USAGE}"),

@@ -800,7 +800,11 @@ The goal: one download, one command, and no step inside the game.
 3. **Install the addon.** The addon files are built into the program. Setup writes them into `Interface/AddOns/GnomishRelay`, and writes `Key.lua` from the strip key. A folder that is a link (a developer checkout, 16) stays as it is, and only `Key.lua` changes.
 4. **Write the config**, once, with an `[agents.<name>]` entry for each known ACP agent on `PATH`: `claude-agent-acp`, `codex-acp`, and `gemini`. The default agent is the first one it finds. With none, it is `echo`.
 5. **Make the slot addons.** WoW finds a new addon only at launch, so after a first install the game needs a restart. Setup says so.
-6. **Start the bridge at login**, with `--autostart`: a systemd user service on Linux, a launchd agent on macOS, and a scheduled task on Windows.
+6. **Start the bridge at login**, with `--autostart`: a systemd user service on Linux, a launchd agent on macOS (log in `~/Library/Logs/gnomish-relay.log`), and a `Run` entry of the user on Windows, which needs no admin rights. On Windows, `run --background` starts the bridge with no console window, with its log in the data folder.
+
+The order is key, addon, slots, config, then autostart: the addon and the slots need nothing else. A failed autostart prints one line, and setup goes on.
+With no code folder found, the folder question has no default: the home folder holds `~/.ssh` and the browser profiles.
+The last lines say what setup found and the next action, for example "Agent: claude" and "Restart WoW, then type /relay".
 
 **Keeping it working.**
 

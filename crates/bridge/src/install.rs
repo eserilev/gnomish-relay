@@ -254,7 +254,7 @@ fn xml(text: &str) -> String {
 pub const LAUNCHD_LABEL: &str = "dev.gnomish-relay.bridge";
 
 /// A launchd agent that starts at login and again after a crash.
-pub fn launchd_plist(exe: &Path, path_var: &str) -> String {
+pub fn launchd_plist(exe: &Path, path_var: &str, log: &Path) -> String {
     format!(
         "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n\
          <!DOCTYPE plist PUBLIC \"-//Apple//DTD PLIST 1.0//EN\" \"http://www.apple.com/DTDs/PropertyList-1.0.dtd\">\n\
@@ -262,10 +262,12 @@ pub fn launchd_plist(exe: &Path, path_var: &str) -> String {
          <key>Label</key><string>{LAUNCHD_LABEL}</string>\n\
          <key>ProgramArguments</key><array><string>{}</string><string>run</string></array>\n\
          <key>EnvironmentVariables</key><dict><key>PATH</key><string>{}</string></dict>\n\
+         <key>StandardOutPath</key><string>{log}</string>\n<key>StandardErrorPath</key><string>{log}</string>\n\
          <key>RunAtLoad</key><true/>\n<key>KeepAlive</key><dict><key>SuccessfulExit</key><false/></dict>\n\
          </dict></plist>\n",
         xml(&exe.to_string_lossy()),
         xml(path_var),
+        log = xml(&log.to_string_lossy()),
     )
 }
 
@@ -391,7 +393,12 @@ mod tests {
 
     #[test]
     fn the_launchd_plist_escapes_the_paths() {
-        let plist = launchd_plist(Path::new("/Apps/R&D/gnomish-relay"), "/bin:<x>");
+        let plist = launchd_plist(
+            Path::new("/Apps/R&D/gnomish-relay"),
+            "/bin:<x>",
+            Path::new("/L/r.log"),
+        );
+        assert!(plist.contains("<key>StandardErrorPath</key><string>/L/r.log</string>"));
         assert!(plist.contains("<string>/Apps/R&amp;D/gnomish-relay</string><string>run</string>"));
         assert!(plist.contains("<string>/bin:&lt;x&gt;</string>"));
     }
