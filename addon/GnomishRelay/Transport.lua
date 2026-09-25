@@ -40,6 +40,9 @@ local state = {
 	lastNow = nil,
 	missing = false,
 	mismatch = false,
+	-- The permission requests of the last live file, and the ones this session answered.
+	requests = {},
+	answered = {},
 }
 
 Transport.OnChange = function() end
@@ -350,7 +353,6 @@ local function ApplyReply(r, done)
 			working = { id = r.id, since = GetTime() }
 			state.working[chat.id] = working
 		end
-		working.progress = r.progress or {}
 		return
 	end
 	done[r.id] = true
@@ -386,6 +388,62 @@ local function Apply(data)
 	state.bodyDone = done
 end
 
+local KINDS = { allow_once = true, allow_always = true, reject_once = true, reject_always = true }
+
+local function ValidRequest(r)
+	if type(r) ~= "table" or not ns.Codec.IsValidId(r.request) or type(r.text) ~= "string" then
+		return false
+	end
+	if not ns.Store.Chat(r.chat) or type(r.options) ~= "table" then
+		return false
+	end
+	for _, option in ipairs(r.options) do
+		if type(option) ~= "table" or not ns.Codec.IsValidId(option.id) or not KINDS[option.kind] then
+			return false
+		end
+	end
+	return #r.options > 0
+end
+
+-- Progress goes to the run in progress of its chat. Requests wait for an answer.
+local function ApplyLive(live)
+	if type(live) ~= "table" then
+		return
+	end
+	for _, p in ipairs(type(live.progress) == "table" and live.progress or {}) do
+		local working = type(p) == "table" and state.working[p.chat]
+		if working and working.id == p.id and type(p.lines) == "table" then
+			working.progress = p.lines
+		end
+	end
+	local requests = {}
+	for _, r in ipairs(type(live.permissions) == "table" and live.permissions or {}) do
+		if ValidRequest(r) then
+			table.insert(requests, r)
+		end
+	end
+	state.requests = requests
+end
+
+-- The oldest request that this session has not answered.
+function Transport.Request()
+	for _, r in ipairs(state.requests) do
+		if not state.answered[r.request] then
+			return r
+		end
+	end
+end
+
+-- The hash tells the bridge which text the user saw (SPEC.md 9.3).
+function Transport.Answer(request, optionId)
+	local hash = ns.Codec.Hex(ns.Sha256(request.text)):sub(1, 16)
+	local flags = string.format("perm=%s:%s:%s", request.request, optionId, hash)
+	table.insert(state.controls, { token = ns.Store.db.token, chat = request.chat, id = 0, flags = flags })
+	state.answered[request.request] = true
+	Transport.ShowNextStrip()
+	Transport.OnChange()
+end
+
 function Transport.Poll()
 	if state.nextSlot > SLOTS then
 		return
@@ -394,10 +452,12 @@ function Transport.Poll()
 	C_AddOns.EnableAddOn(name)
 	GnomishRelay_SlotData = nil
 	GnomishRelay_Restore = nil
+	GnomishRelay_Live = nil
 	local loaded = C_AddOns.LoadAddOn(name)
-	local data, restore = GnomishRelay_SlotData, GnomishRelay_Restore
+	local data, restore, live = GnomishRelay_SlotData, GnomishRelay_Restore, GnomishRelay_Live
 	GnomishRelay_SlotData = nil
 	GnomishRelay_Restore = nil
+	GnomishRelay_Live = nil
 	state.missing = not loaded
 	ns.Health.Slot(loaded)
 	if loaded then
@@ -407,6 +467,7 @@ function Transport.Poll()
 		end
 		Apply(data)
 		ApplyRestore(restore)
+		ApplyLive(live)
 	end
 	Transport.OnChange()
 end

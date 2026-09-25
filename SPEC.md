@@ -392,22 +392,17 @@ Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with four fil
 - `Restore.lua`: the restore bundle (7.6). With no restore, its token is empty, and no addon takes it.
 - `Live.lua`: the progress lines of each run, and the permission requests for the game (9.3, S20, S21).
 
-The body sets one global table:
+The body sets one global table. S9 fixes its shape:
 
 ```lua
-GnomishRelay_SlotData = {
-  proto = 1, slots = 1000, ack_max = 200, presence_max = 2000, note_max = 2000,
-  ts = 1790211079, now = 1790211081,
-  cwd = "/home/eitan/Documents/Code",
-  replies = {
-    { chat = "c1", id = 12, status = "working", text = "...", cwd = "...", session = "...",
-      progress = { "edit src/main.rs", "$ cargo test" }, denied = { "Bash(rm:*)" } },
-  },
-  notes = { { seq = 41, source = "claude", repo = "lighthouse", kind = "done", text = "..." } },
-  permissions = { { request = "p7", chat = "c1", tool = "Bash", detail = "cargo test",
-                    options = { { id = "o1", kind = "allow_once", label = "Allow" } } } },
-}
+GnomishRelay_SlotData = {proto = 1, now = 1790211081, replies = {
+{chat = "c1", id = 12, status = "working", text = ""},
+{chat = "c1", id = 11, status = "done", text = "..."},
+}}
 ```
+
+`Live.lua` carries the progress and the permission requests (9.3, S20), and `Restore.lua` the restore bundle (7.6, S18).
+Later fields (the session, the denied rules, and `notes` for pings) go into a file of their own, or need an approved change of S9.
 
 - `proto` and the pool sizes let the addon detect a mismatch (7.7).
 - `replies` holds every record that the addon has not read, at most 30. Each `text` is at most 32 KB. The bridge cuts longer text and adds a note with the full length.
@@ -883,6 +878,7 @@ All state is local to the addon files, which share one table. The files load in 
 | `Strip.lua` | Draws a frame and takes one screenshot of it. |
 | `Transport.lua` | The strip retries, the poll schedule, the slots, and the flags. It follows `models/transport.qnt`. |
 | `Window.lua` | The window of 13.1. |
+| `Popup.lua` | The permission popup (6.4). Each button names the kind of its option, never the label of the agent. |
 | `Core.lua` | Startup, slash commands, and the whisper line. |
 
 Message ids start from the clock, so the ids after a saved-data wipe never repeat the ids in an older body.
@@ -891,7 +887,7 @@ The tests run the addon in a real Lua 5.1 with a fake WoW API (`addon/tests/wow.
 They decode each strip with the proved Rust decoder and check its tag against the Rust HMAC.
 They also check the SHA code against both kinds of `bit` results: unsigned as in WoW, and signed as in LuaJIT.
 
-Still to come: the permission popup (9.3), pings (section 10), the side tabs, the agent dropdown, and the emblem texture.
+Still to come: pings (section 10), the side tabs, the agent dropdown, and the emblem texture.
 
 Slash commands:
 
@@ -1082,7 +1078,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 6. **Addon port** with the stub harness and the differential tests.
 7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`. Passed in the game on 2026-09-24: a message went out as a strip, and the echo came back through the slots.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Next:** the classifier (6.6.3) needs the tool calls of step 9.
-9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c, bridge):** progress and permission requests in `Live.lua`, and the checked `perm=` answer. **Next:** the popup and the activity panel in the addon.
+9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Next:** a live test with a real agent, then the classifier (6.6.3).
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.

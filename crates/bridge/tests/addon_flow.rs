@@ -7,6 +7,7 @@ mod common;
 
 use std::fmt::Write;
 
+use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo};
 use bridge::config::{Permission, Policy};
 use bridge::receive::{StripKey, receive};
@@ -17,6 +18,10 @@ use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
 use protocol::cell::decode_cells;
 use protocol::frame::{decode_frame, signed_len};
+use protocol::live::{
+    OptionKind, PermOption, Progress, Request as LiveRequest, live_body, prepare_progress,
+    prepare_requests,
+};
 use protocol::record::{Record, parse_records};
 use protocol::restore::{Chat, Entry, Role, prepare_restore, restore_body};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
@@ -31,6 +36,7 @@ const FILES: &[&str] = &[
     "Strip.lua",
     "Transport.lua",
     "Window.lua",
+    "Popup.lua",
     "Core.lua",
 ];
 
@@ -690,31 +696,119 @@ fn stop_sends_a_stop_record_for_the_chat() {
     assert_eq!(stop_record.chat, game.chat_id().as_bytes());
 }
 
+/// A live file, written the way the bridge writes it.
+fn live(progress: &[Progress], requests: &[LiveRequest]) -> Vec<u8> {
+    live_body(&prepare_progress(progress), &prepare_requests(requests))
+}
+
+fn texts_of(game: &Game, kind: &str) -> Vec<String> {
+    let frames: Table = game.wow.get("frames").unwrap();
+    frames
+        .sequence_values::<Table>()
+        .filter_map(Result::ok)
+        .filter(|f| {
+            f.get::<String>("kind").unwrap() == kind && f.get::<bool>("shown").unwrap_or(false)
+        })
+        .filter_map(|f| f.get::<Option<String>>("text").unwrap())
+        .collect()
+}
+
 #[test]
 fn the_activity_panel_shows_the_progress_of_a_working_agent() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("build it");
     game.advance(1.0);
-    let body = format!(
-        "GnomishRelay_SlotData = {{proto = 1, now = 1790211079, replies = {{
-            {{chat = \"{}\", id = {}, status = \"working\", text = \"\", progress = {{\"edit src/main.rs\", \"$ cargo test\"}}}}
-        }}}}",
-        game.chat_id(),
-        first_message_id(&game)
-    );
-    game.wow.set("body", body).unwrap();
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    let progress = Progress {
+        chat: game.chat_id().into_bytes(),
+        id,
+        lines: vec![b"edit src/main.rs".to_vec(), b"$ cargo test".to_vec()],
+    };
+    game.wow
+        .set(
+            "live",
+            game.lua.create_string(live(&[progress], &[])).unwrap(),
+        )
+        .unwrap();
     game.advance(5.0);
 
-    let frames: Table = game.wow.get("frames").unwrap();
-    let texts: Vec<String> = frames
-        .sequence_values::<Table>()
-        .filter_map(Result::ok)
-        .filter(|f| f.get::<String>("kind").unwrap() == "FontString")
-        .filter_map(|f| f.get::<Option<String>>("text").unwrap())
-        .collect();
+    let texts = texts_of(&game, "FontString");
     assert!(texts.contains(&"edit src/main.rs".to_owned()), "{texts:?}");
     assert!(texts.contains(&"$ cargo test".to_owned()), "{texts:?}");
+}
+
+/// A request with an "allow" option that the agent labels "Reject".
+fn request(game: &Game, text: &str) -> LiveRequest {
+    let option = |id: &[u8], kind, label: &[u8]| PermOption {
+        id: id.to_vec(),
+        kind,
+        label: label.to_vec(),
+    };
+    LiveRequest {
+        request: b"p1a2b".to_vec(),
+        chat: game.chat_id().into_bytes(),
+        id: first_message_id(game),
+        text: text.as_bytes().to_vec(),
+        options: vec![
+            option(b"o1", OptionKind::AllowOnce, b"Reject"),
+            option(b"o2", OptionKind::RejectOnce, b"Allow"),
+        ],
+    }
+}
+
+fn ask(game: &Game, text: &str) {
+    let file = live(&[], &[request(game, text)]);
+    game.wow
+        .set("live", game.lua.create_string(file).unwrap())
+        .unwrap();
+    game.run("local ns = ... ns.Transport.Poll()");
+}
+
+#[test]
+fn a_permission_request_shows_the_honest_text_and_buttons_by_kind() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(
+        &game,
+        "rm -rf build\nthe agent says: clean |cffff0000the build",
+    );
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"rm -rf build\nthe agent says: clean ||cffff0000the build".to_owned()),
+        "the text shows as it is, with no color code: {texts:?}"
+    );
+    let buttons = texts_of(&game, "Button");
+    assert_eq!(
+        buttons[buttons.len() - 2..],
+        ["Allow once", "Reject"],
+        "{buttons:?}"
+    );
+}
+
+#[test]
+fn a_click_sends_the_answer_with_the_hash_of_the_text_once() {
+    let game = Game::start();
+    game.send("clean up");
+    let text = "rm -rf build\nthe agent says: clean the build";
+    ask(&game, text);
+    let shots = game.shots();
+    game.run("GnomishRelayPopupButton1:Click()");
+    game.advance(5.0);
+
+    let expected = format!("perm=p1a2b:o1:{}", text_hash(text.as_bytes()));
+    let answers = (shots + 1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .filter(|r| flags(r).contains(&expected))
+        .count();
+    assert!(answers >= 1, "no strip carried {expected}");
+    assert!(
+        game.run("local ns = ... return ns.Transport.Request()")
+            .is_nil(),
+        "answered once"
+    );
 }
 
 #[test]

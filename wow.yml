@@ -60,6 +60,8 @@ globals:
     property: full-write
   GnomishRelay_Restore:
     property: full-write
+  GnomishRelay_Live:
+    property: full-write
   SLASH_GNOMISHRELAY1:
     property: full-write
   SLASH_GNOMISHRELAYASK1:

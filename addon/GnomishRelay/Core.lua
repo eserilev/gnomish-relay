@@ -121,7 +121,10 @@ events:SetScript("OnEvent", function(_, event, name)
 			return
 		end
 		SetCVarValue("screenshotFormat", "png")
-		ns.Transport.OnChange = ns.Window.Refresh
+		ns.Transport.OnChange = function()
+			ns.Window.Refresh()
+			ns.Popup.Refresh()
+		end
 		ns.Transport.OnReply = function(chat, reply)
 			Whisper(chat, reply)
 			ns.Window.Refresh()

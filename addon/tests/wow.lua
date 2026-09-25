@@ -15,6 +15,7 @@ local wow = {
 	loaded = {},
 	body = nil,
 	restore = nil,
+	live = nil,
 	slotsInstalled = true,
 	shotsBlocked = false,
 	shots = {},
@@ -391,6 +392,9 @@ function C_AddOns.LoadAddOn(name)
 		end
 		if wow.restore then
 			assert(loadstring(wow.restore))()
+		end
+		if wow.live then
+			assert(loadstring(wow.live))()
 		end
 	end
 	return true
