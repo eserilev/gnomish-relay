@@ -13,6 +13,9 @@ local SHOT_TIMEOUT = 10
 local frame
 local textures = {}
 local pending -- the callback of the screenshot in progress
+-- True once our Screenshot() runs. The SCREENSHOT_* events also fire for the
+-- screenshots of the player and of other addons, and those must not end our strip.
+local shooting = false
 local hideStatusUntil = 0
 
 local function Build()
@@ -61,6 +64,7 @@ end
 local function Finish(ok)
 	local done = pending
 	pending = nil
+	shooting = false
 	hideStatusUntil = GetTime() + 1
 	frame:Hide()
 	if done then
@@ -83,7 +87,12 @@ function Strip.Show(frameBytes, done)
 	pending = done
 	Draw(ns.Codec.StripRows(frameBytes))
 	C_Timer.After(SHOT_DELAY, function()
+		-- The strip can have ended by a timeout in between. A shot now would have no strip.
+		if pending ~= done then
+			return
+		end
 		hideStatusUntil = GetTime() + SHOT_TIMEOUT
+		shooting = true
 		if not pcall(Screenshot) then
 			Finish(false)
 		end
@@ -111,7 +120,7 @@ local events = CreateFrame("Frame")
 events:RegisterEvent("SCREENSHOT_SUCCEEDED")
 events:RegisterEvent("SCREENSHOT_FAILED")
 events:SetScript("OnEvent", function(_, event)
-	if pending then
+	if pending and shooting then
 		HideStatus()
 		Finish(event == "SCREENSHOT_SUCCEEDED")
 	end

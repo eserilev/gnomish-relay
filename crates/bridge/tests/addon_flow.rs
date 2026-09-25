@@ -1003,3 +1003,26 @@ fn a_bridge_that_answers_gets_no_line() {
             .any(|l| l == "Gnomish Relay: bridge not running.")
     );
 }
+
+#[test]
+fn a_screenshot_of_the_player_does_not_end_our_strip() {
+    let game = Game::start();
+    game.advance(10.0);
+    let shots = game.shots();
+    game.send("keep the strip");
+    // The player's own screenshot finishes before ours is taken.
+    game.fire("SCREENSHOT_SUCCEEDED", ());
+    game.advance(2.0);
+
+    assert!(game.shots() > shots, "our screenshot was taken");
+    for n in shots + 1..=game.shots() {
+        assert!(
+            !game.shot_rows(n).is_empty(),
+            "screenshot {n} has no strip in it"
+        );
+    }
+    let sent = (shots + 1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .any(|r| r.text == b"keep the strip");
+    assert!(sent);
+}
