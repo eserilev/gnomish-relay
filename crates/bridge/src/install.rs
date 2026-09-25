@@ -14,46 +14,55 @@ pub const ADDON: &str = "GnomishRelay";
 const KEY_FILE: &str = "Key.lua";
 
 /// The addon, built into the program, so one download installs everything.
-pub const ADDON_FILES: [(&str, &str); 10] = [
+pub const ADDON_FILES: [(&str, &[u8]); 12] = [
     (
         "GnomishRelay.toc",
-        include_str!("../../../addon/GnomishRelay/GnomishRelay.toc"),
+        include_bytes!("../../../addon/GnomishRelay/GnomishRelay.toc"),
     ),
     (
         "Sha256.lua",
-        include_str!("../../../addon/GnomishRelay/Sha256.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Sha256.lua"),
     ),
     (
         "Codec.lua",
-        include_str!("../../../addon/GnomishRelay/Codec.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Codec.lua"),
     ),
     (
         "Store.lua",
-        include_str!("../../../addon/GnomishRelay/Store.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Store.lua"),
     ),
     (
         "Health.lua",
-        include_str!("../../../addon/GnomishRelay/Health.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Health.lua"),
     ),
     (
         "Strip.lua",
-        include_str!("../../../addon/GnomishRelay/Strip.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Strip.lua"),
     ),
     (
         "Transport.lua",
-        include_str!("../../../addon/GnomishRelay/Transport.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Transport.lua"),
     ),
     (
         "Window.lua",
-        include_str!("../../../addon/GnomishRelay/Window.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Window.lua"),
     ),
     (
         "Popup.lua",
-        include_str!("../../../addon/GnomishRelay/Popup.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Popup.lua"),
     ),
     (
         "Core.lua",
-        include_str!("../../../addon/GnomishRelay/Core.lua"),
+        include_bytes!("../../../addon/GnomishRelay/Core.lua"),
+    ),
+    // The mono font of code boxes, under the SIL Open Font License.
+    (
+        "JetBrainsMono-Regular.ttf",
+        include_bytes!("../../../addon/GnomishRelay/JetBrainsMono-Regular.ttf"),
+    ),
+    (
+        "JetBrainsMono-OFL.txt",
+        include_bytes!("../../../addon/GnomishRelay/JetBrainsMono-OFL.txt"),
     ),
 ];
 
@@ -232,8 +241,8 @@ pub fn key_lua(key_hex: &str) -> String {
     )
 }
 
-fn same(path: &Path, text: &str) -> bool {
-    fs::read(path).is_ok_and(|bytes| bytes == text.as_bytes())
+fn same(path: &Path, content: &[u8]) -> bool {
+    fs::read(path).is_ok_and(|bytes| bytes == content)
 }
 
 /// What `install_addon` changed.
@@ -256,7 +265,7 @@ pub fn install_addon(addons: &Path, key_hex: &str) -> Result<Installed> {
         let real = dir
             .canonicalize()
             .with_context(|| format!("{} is a broken link", dir.display()))?;
-        if same(&real.join(KEY_FILE), &key) {
+        if same(&real.join(KEY_FILE), key.as_bytes()) {
             return Ok(Installed::Unchanged);
         }
         write_atomic_unsynced(&real, KEY_FILE, key.as_bytes())?;
@@ -265,13 +274,13 @@ pub fn install_addon(addons: &Path, key_hex: &str) -> Result<Installed> {
     let new = meta.is_err();
     fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
     let mut changed = false;
-    for (name, text) in ADDON_FILES
+    for (name, content) in ADDON_FILES
         .iter()
         .copied()
-        .chain([(KEY_FILE, key.as_str())])
+        .chain([(KEY_FILE, key.as_bytes())])
     {
-        if !same(&dir.join(name), text) {
-            write_atomic_unsynced(&dir, name, text.as_bytes())?;
+        if !same(&dir.join(name), content) {
+            write_atomic_unsynced(&dir, name, content)?;
             changed = true;
         }
     }
@@ -482,12 +491,17 @@ mod tests {
 
     #[test]
     fn every_file_of_the_toc_is_built_in() {
-        let toc = ADDON_FILES[0].1;
+        let toc = std::str::from_utf8(ADDON_FILES[0].1).unwrap();
+        let is_lua = |name: &&str| Path::new(name).extension().is_some_and(|e| e == "lua");
         let listed: Vec<&str> = toc
             .lines()
-            .filter(|l| Path::new(l).extension().is_some_and(|e| e == "lua") && *l != KEY_FILE)
+            .filter(|l| is_lua(l) && *l != KEY_FILE)
             .collect();
-        let built: Vec<&str> = ADDON_FILES[1..].iter().map(|(name, _)| *name).collect();
+        let built: Vec<&str> = ADDON_FILES[1..]
+            .iter()
+            .map(|(name, _)| *name)
+            .filter(is_lua)
+            .collect();
         assert_eq!(listed, built);
     }
 
@@ -515,6 +529,18 @@ mod tests {
         );
         let written = fs::read_to_string(addons.path().join(ADDON).join(KEY_FILE)).unwrap();
         assert_eq!(written, key_lua(&key));
+    }
+
+    #[test]
+    fn install_writes_the_mono_font_with_its_license() {
+        let addons = tempfile::tempdir().unwrap();
+        install_addon(addons.path(), &"ab".repeat(32)).unwrap();
+        let dir = addons.path().join(ADDON);
+        let font = fs::read(dir.join("JetBrainsMono-Regular.ttf")).unwrap();
+        // A TrueType file starts with the version 1.0 tag.
+        assert_eq!(font[..4], [0, 1, 0, 0]);
+        let license = fs::read_to_string(dir.join("JetBrainsMono-OFL.txt")).unwrap();
+        assert!(license.contains("SIL Open Font License"));
     }
 
     #[cfg(unix)]

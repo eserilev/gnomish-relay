@@ -44,3 +44,8 @@ Then run `gnomish-relay check-agent gemini`, and `gnomish-relay restart` to load
 
 `cargo run -q --bin gnomish-relay -- setup`. For addon work, `scripts/dev-link.sh`
 links `addon/GnomishRelay` into the game first. `CLAUDE.md` has the rules of the code.
+
+## Credits
+
+Code in the game window uses the font JetBrains Mono, under the SIL Open Font License 1.1.
+Its license is in `addon/GnomishRelay/JetBrainsMono-OFL.txt`.

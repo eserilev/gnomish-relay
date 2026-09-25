@@ -997,6 +997,8 @@ All state is local to the addon files, which share one table. The files load in 
 | `Popup.lua` | The permission popup (6.4). Each button names the kind of its option, never the label of the agent. |
 | `Core.lua` | Startup, slash commands, and the whisper line. |
 
+The folder also holds `JetBrainsMono-Regular.ttf`, the mono font of code boxes, with its license in `JetBrainsMono-OFL.txt` (SIL Open Font License 1.1). Setup installs both.
+
 Message ids start from the clock, so the ids after a saved-data wipe never repeat the ids in an older body.
 
 The tests run the addon in a real Lua 5.1 with a fake WoW API (`addon/tests/wow.lua`), from `crates/bridge/tests`.
