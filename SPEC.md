@@ -354,6 +354,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `out=shot` or `out=fail` | The result of the last screenshot (7.8). |
 | `in=slots` or `in=missing` | The result of the last slot load (7.8). |
 | `listen=start` or `listen=stop` | Push-to-talk for the chat of the record (13.3, later). |
+| `voice=skip` or `voice=stop` | Skip to the next paragraph of the spoken reply, or end it (13.3, later). |
 
 **Strip lifetime:**
 The strip shows only while its screenshot is taken, about half a second.
@@ -898,10 +899,19 @@ Slash commands:
 Voice comes after the ACP backend (step 9), because it needs a real agent to be useful.
 Both directions run on the bridge side. The WoW client gives addons no microphone, and no speech-to-text API.
 
-**Voice output.** The bridge speaks each final reply on the desktop.
+**Voice output.** The bridge speaks each final reply on the desktop. The full text always stays in the window.
 
-- The voice reads a short spoken summary, not the full reply. Code, file paths, and diffs are bad to hear. The full text stays in the window.
-- The summary comes from the agent: the bridge asks for one spoken line at the end of each run. If the agent gives none, the voice reads the first sentence of the reply.
+The config key `voice` sets what the voice reads:
+
+| Value | The voice reads |
+|---|---|
+| `auto` (default) | The full reply if it has no code. With code, it reads the text parts and skips each code block, diff, and long path with one short sound. |
+| `full` | The full reply, also the code. |
+| `summary` | One short spoken line. The bridge asks the agent for it at the end of each run. If the agent gives none, the voice reads the first sentence. |
+
+- Playback goes paragraph by paragraph. **Skip** jumps to the next paragraph, and **Stop** ends the reply.
+- Skip and Stop have keys in the game. The addon sends `voice=skip` or `voice=stop` through the strip, so a key takes about half a second. The desktop has the same two hotkeys, with no delay.
+- A new reply waits until the current one ends, or you skip it.
 - The default engine is a local model (Piper), so no reply text leaves the computer. A cloud voice is an option in the config.
 - The fallback is `C_VoiceChat.SpeakText(voiceID, text, rate, volume)` in the game. It exists in the Forever client and uses the voices of the operating system. Under Wine, the client can have no voices (17).
 - The config turns voice output on per agent. It is off by default.
