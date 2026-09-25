@@ -18,3 +18,6 @@ import Protocol.Restore
 import Protocol.Live
 import Protocol.Folder.Pure
 import Protocol.Folder.Code
+import Protocol.Spec.Markdown
+import Protocol.Inline
+import Protocol.Markdown

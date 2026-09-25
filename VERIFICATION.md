@@ -42,6 +42,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
 | 19 | S18 + S19: restore file | `restore` | `S18_restore_body`, `S18_prepare`, `S19_bound` | proved |
 | 20 | S20 + S21: live file | `live` | `S20_live_body`, `S20_prepare_progress`, `S20_prepare_requests`, `S21_bound` | proved |
+| 21 | S22 to S25: reply blocks | `markdown`, `inline` | `S22_total`, `S23_shape`, `S24_escape`, `S25_bound` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |
@@ -83,11 +84,28 @@ the S12 limit). It also checks four witnesses: states such as a full body and a
 confirmed restore, which the simulator must reach. A witness that is never reached
 means that the properties pass only because the hard states never happen.
 
+### Item 21: reply blocks
+
+- `Protocol/Spec/Markdown.lean` states the block shape and the text tokens as a grammar
+  (`Block`, `Cells`, `Text`, `Rendered`). S24 reads a text left to right in tokens, so
+  `||r` is an escaped `|` and then the letter `r`.
+- The proofs follow the writers. Each writer appends a piece and says how the piece keeps
+  the blocks well formed (`LineOut`) and how long it is. A paragraph, a list item, or a
+  quote stays open, so the next line can add a space and more text to it.
+- The size bound counts the `|r` that an open color still owes, so a color switch costs
+  at most 12 bytes for each byte of Markdown. The first draft of S25 said 10. A bold text
+  with many `*_*_` switches breaks 10, so the approved bound is 16.
+- S22 and S25 hold for an input of at most 1 MiB, as S8, S10, and S15 do. `Vec` in Aeneas
+  has a maximum length, so no bound is possible for every length.
+- S23 follows from S24: every token of an escaped text is a field byte.
+- No Rust change was needed. `step*` stops at `let x ← if c then a else b`, so the helper
+  `ite_bind` moves the rest of the block into each branch.
+
 ### Item 17: what the fuzz targets check
 
 Each target checks the property of its proof on the compiled code, not only "no crash":
 `frame` (S1, C2), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1),
-`lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), and
+`lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), `markdown` (S22 to S25), and
 `popup` (S15), `screenshot` (any file in the Screenshots folder never panics the
 bridge), `saved` (any saved variables text never panics the frame reader), `restore` and
 `live` (S18 to S21 in a real Lua 5.1: each field loads back, and each file stays under

@@ -38,3 +38,7 @@ import Statements
 #print axioms Protocol.Statements.check_S12_bound
 #print axioms Protocol.Statements.check_S5_folder
 #print axioms Protocol.Statements.check_S5_folder_complete
+#print axioms Protocol.Statements.check_S22_total
+#print axioms Protocol.Statements.check_S23_shape
+#print axioms Protocol.Statements.check_S24_escape
+#print axioms Protocol.Statements.check_S25_bound

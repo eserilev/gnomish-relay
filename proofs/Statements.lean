@@ -24,6 +24,8 @@ import Protocol.Slot
 import Protocol.Restore
 import Protocol.Live
 import Protocol.Folder.Code
+import Protocol.Spec.Markdown
+import Protocol.Markdown
 
 /-!
 # The theorems, stated
@@ -299,6 +301,34 @@ def S15_printable : Prop :=
 def S15_faithful : Prop :=
   ∀ s : List Spec.Byte, unshow (showBytes s) = some s
 
+/-! ## Reply blocks
+
+Read these with `Protocol/Spec/Markdown.lean`. A reply is at most 256 KiB, so the bound of
+1 MiB covers every real reply. -/
+
+/-- **S22.** For every Markdown text, `render_markdown` returns a value. It never panics
+and never reads out of bounds. -/
+def S22_total : Prop :=
+  ∀ md : Slice U8, md.val.length ≤ 2 ^ 20 → markdown.render_markdown md ⦃ _ => True ⦄
+
+/-- **S23.** The output is the marker, zero or more blocks of a fixed shape, and `\n`. No
+field holds `\n`, US, ESC, any other byte below `20`, or `7F`. -/
+def S23_shape : Prop :=
+  ∀ md : Slice U8, md.val.length ≤ 2 ^ 20 →
+    markdown.render_markdown md ⦃ v => Rendered fieldText (bytes v.val) ⦄
+
+/-- **S24.** Every text of the output, read left to right in tokens, holds only escaped
+pipes, the five color codes of `inline.rs` and `|r` in pairs that never nest, and in a
+SimpleHTML text no `<` or `>`, and no `&` outside `&lt;`, `&gt;`, `&amp;`. -/
+def S24_escape : Prop :=
+  ∀ md : Slice U8, md.val.length ≤ 2 ^ 20 →
+    markdown.render_markdown md ⦃ v => Rendered escapedText (bytes v.val) ⦄
+
+/-- **S25.** The output is at most 16 bytes for each byte of Markdown, plus 4. -/
+def S25_bound : Prop :=
+  ∀ md : Slice U8, md.val.length ≤ 2 ^ 20 →
+    markdown.render_markdown md ⦃ v => v.val.length ≤ 16 * md.val.length + 4 ⦄
+
 /-! ## Checks: each proved theorem against its approved statement -/
 
 theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
@@ -337,5 +367,9 @@ theorem check_S20_prepare_requests : S20_prepare_requests := Protocol.Live.prepa
 theorem check_S21_bound : S21_bound := Protocol.Live.live_bound
 theorem check_S5_folder : S5_folder := Protocol.Folder.folder_sound
 theorem check_S5_folder_complete : S5_folder_complete := Protocol.Folder.folder_complete
+theorem check_S22_total : S22_total := Protocol.Markdown.render_total
+theorem check_S23_shape : S23_shape := Protocol.Markdown.render_shape
+theorem check_S24_escape : S24_escape := Protocol.Markdown.render_escape
+theorem check_S25_bound : S25_bound := Protocol.Markdown.render_bound
 
 end Protocol.Statements

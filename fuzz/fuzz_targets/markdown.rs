@@ -1,6 +1,6 @@
-//! The Markdown renderer on the compiled code: it never panics, its output has the
+//! S22 to S25 on the compiled code: the renderer never panics, its output has the
 //! block shape of `SPEC.md` 7.3.1, no agent byte can start a WoW code or HTML
-//! markup, and the output stays within a fixed multiple of the input.
+//! markup, and the output stays within 16 times the input plus 4.
 #![no_main]
 
 use libfuzzer_sys::fuzz_target;
@@ -85,7 +85,7 @@ fn check_block(line: &[u8]) {
 
 fuzz_target!(|data: &[u8]| {
     let out = render_markdown(data);
-    assert!(out.len() <= 10 * data.len() + 4, "{} bytes from {}", out.len(), data.len());
+    assert!(out.len() <= 16 * data.len() + 4, "{} bytes from {}", out.len(), data.len());
     assert!(out.starts_with(&MARKER));
     assert_eq!(out.last(), Some(&b'\n'));
     let body = &out[MARKER.len()..out.len() - 1];

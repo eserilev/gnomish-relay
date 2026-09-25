@@ -447,12 +447,12 @@ The rendered text goes into the normal `text` field, so S9, S18, and S20 do not 
 - Inline marks become WoW color codes: bold `ffd100`, italic `c0c8ff`, both `ffe680`, inline code `b8e0b8`, and link text `69b4ff`. A link shows its text only: WoW cannot open a browser.
 - The renderer writes the only `|c` and `|r` codes. Colors never nest, and each one closes in its own field.
 - A mark with no closing mark is text. So are `*` between spaces and `_` inside a word.
-- The output is at most 10 times the input plus 4 bytes.
+- The output is at most 16 times the input plus 4 bytes (S25). A bold text with many `*_*_` switches costs 12 bytes for each input byte, so a bound of 10 is false.
 
 **Cuts.** The body cuts a text at 32 KB (S12) and the restore at 500 bytes (S18). A cut text has no last `\n`. The addon still shows its last line, without color codes, and without a half code, a half entity, or a half character at its end.
 
-The fuzz target `markdown` checks the shape, the escapes, and the size bound on the compiled code.
-The renderer has no proof yet. Its statements wait for approval.
+S22 to S25 (14.1) prove the renderer for every input of at most 1 MiB. A reply is at most 256 KiB.
+The fuzz target `markdown` checks the same shape, escapes, and size bound on the compiled code.
 
 **Poll schedule after a send:** the addon loads a slot at 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, and 300 seconds.
 Then it loads one every 60 seconds until the reply is done.
@@ -1159,6 +1159,10 @@ So most theorems are security properties. Each one closes a named attack.
 | S14 | **Rate limit and queue cap:** the limiter never admits more than N messages in any window. A chat queue never holds more than 20 messages. | Strip spam fills memory or starts many runs. |
 | S15 | **Honest popup:** the popup text contains the full raw command, or its start and end with a cut mark. It contains no raw control, bidi, or zero-width characters. | A malicious agent asks for permission with a false label, or hides the dangerous part of a command. |
 | S16 | **Classifier paths:** let `paths(call)` be the path fields of a file tool, plus the redirect targets and the working folder of a command. Command arguments are out of scope. If `classify(call) ≥ ask`, then every write path is inside the chat folder, every read path is inside `allowed_roots`, and no path is a `desktop` or `deny` path. If a path is inside `~/.config/gnomish-relay`, then `classify(call) = deny`. | An approved tool call in the game reads `~/.ssh`, writes outside the project, or reads the strip key. |
+| S22 | **Renderer totality:** for every Markdown text of at most 1 MiB, `render_markdown` returns a value. It never panics and never reads out of bounds. | A crafted reply crashes the bridge. |
+| S23 | **Block shape:** the output of `render_markdown` is the marker `1B 4D 31`, zero or more blocks, and `\n`. Each block is `\n`, a kind byte, and fields that each start with US, in the shape of 7.3.1. No field holds `\n`, US, ESC, any other byte below `20`, or `7F`. | Agent text makes a false block, fakes the marker, or moves text into another field or kind. |
+| S24 | **Reply escape (extends S10):** every text of the output, read left to right in tokens, holds each `\|` only as `\|\|`, `\|r`, or one of the five color codes of `inline.rs`. A color code comes only when no color is open, `\|r` only when one is, and no color is open at the end of a text. The texts of `h`, `p`, `l`, and `q` hold no `<` or `>`, and each `&` starts `&lt;`, `&gt;`, or `&amp;`. | A malicious agent fakes a WoW link, texture, or color, or puts SimpleHTML markup into the window. |
+| S25 | **Reply size bound:** the output of `render_markdown` is at most 16 bytes for each input byte, plus 4. | Rendering makes a reply grow without a bound. With the cut of S12, the body stays within 1 MB. |
 | S17 | **Classifier ceiling:** with the order `deny < desktop < ask < allow`, for every tool call and every rule list from the game, `classify(call, rules) ≤ classify(call, config)`. A "never always" command and an unknown tool never get `allow` from a rule. | A rule from the game, or a crafted command, gets more than the config allows. |
 
 **Correctness theorems:**
@@ -1270,7 +1274,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 6. **Addon port** with the stub harness and the differential tests.
 7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`. Passed in the game on 2026-09-24: a message went out as a strip, and the echo came back through the slots.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Next:** the classifier (6.6.3) needs the tool calls of step 9.
-9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1). The proofs of the renderer wait for approved statements. **Next:** a live test with a real agent, then the classifier (6.6.3).
+9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Next:** a live test with a real agent, then the classifier (6.6.3).
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.
