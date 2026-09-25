@@ -1,7 +1,7 @@
 //! The main loop: screenshots in, agent runs, slots out (SPEC.md 8.2).
 
 use std::collections::BTreeMap;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
@@ -12,6 +12,8 @@ use anyhow::Result;
 use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopSignal};
 use crate::config::Policy;
 use crate::receive::{StripKey, receive};
+use protocol::record::Record;
+
 use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
@@ -57,8 +59,42 @@ fn log(line: &str) {
 /// The bridge between the Screenshots folder, the agents, and the slots. `run`
 /// calls `step` four times a second. Tests call it directly.
 pub struct Bridge {
-    paths: Paths,
+    addons: PathBuf,
     key: StripKey,
+    watcher: Watcher,
+    relay: RelayLane,
+}
+
+/// What one app keeps on disk, and when it writes it (SPEC.md 9.7, decision 4).
+struct LaneFiles {
+    state: PathBuf,
+    saved: saved::Watcher,
+    changed: bool,
+    stored: bool,
+    last_publish: Instant,
+}
+
+impl LaneFiles {
+    fn new(state: PathBuf, accounts: &Path) -> LaneFiles {
+        LaneFiles {
+            state,
+            saved: saved::Watcher::new(accounts),
+            changed: true,
+            stored: false,
+            last_publish: Instant::now(),
+        }
+    }
+
+    fn publish_due(&self) -> bool {
+        self.changed || self.last_publish.elapsed() >= HEARTBEAT
+    }
+}
+
+/// The relay app: its lane, its files, and the agents that its messages start. Only
+/// this lane holds agents.
+struct RelayLane {
+    relay: Relay,
+    files: LaneFiles,
     agents: Agents,
     /// The stop signal of each run in progress, by chat.
     stops: BTreeMap<ChatId, StopSignal>,
@@ -66,14 +102,8 @@ pub struct Bridge {
     run_events: Receiver<RunEvent>,
     /// Where the answer to each open permission request goes, by request id.
     answers: BTreeMap<String, Sender<Option<usize>>>,
-    relay: Relay,
-    watcher: Watcher,
-    saved: saved::Watcher,
     finished: Sender<Finished>,
     results: Receiver<Finished>,
-    changed: bool,
-    stored: bool,
-    last_publish: Instant,
 }
 
 impl Bridge {
@@ -86,50 +116,25 @@ impl Bridge {
         let (events, run_events) = channel();
         Ok(Bridge {
             watcher: Watcher::new(&paths.screenshots),
-            saved: saved::Watcher::new(&paths.accounts),
-            paths,
+            relay: RelayLane {
+                relay,
+                files: LaneFiles::new(paths.state, &paths.accounts),
+                agents,
+                stops: BTreeMap::new(),
+                events,
+                run_events,
+                answers: BTreeMap::new(),
+                finished,
+                results,
+            },
+            addons: paths.addons,
             key,
-            agents,
-            stops: BTreeMap::new(),
-            events,
-            run_events,
-            answers: BTreeMap::new(),
-            relay,
-            finished,
-            results,
-            changed: true,
-            stored: false,
-            last_publish: Instant::now(),
         })
     }
 
     pub fn step(&mut self) {
         self.take_screenshots();
-        self.take_saved_variables();
-        self.signal_stops();
-        self.take_events();
-        self.pass_answers();
-        self.finish_runs();
-        if self.changed || self.last_publish.elapsed() >= HEARTBEAT {
-            self.store();
-            self.publish();
-            self.last_publish = Instant::now();
-        }
-        // A run starts only when its message is marked as seen on disk, so a crash
-        // cannot run it twice.
-        if self.stored {
-            self.start_runs();
-        }
-    }
-
-    /// The state after `start_runs` needs no write: a running job is a working record,
-    /// and a restart ends it as an error.
-    fn store(&mut self) {
-        let result = state::save(&self.paths.state, &self.relay.to_state());
-        if let Err(e) = &result {
-            log(&format!("cannot save the state: {e:#}"));
-        }
-        self.stored = result.is_ok();
+        self.relay.step(&self.key, &self.addons);
     }
 
     fn take_screenshots(&mut self) {
@@ -142,7 +147,7 @@ impl Bridge {
                     continue;
                 }
             };
-            if !self.take_frame(&bytes, "strip") {
+            if !self.relay.take_frame(&bytes, &self.key, "strip") {
                 log(&format!("rejected {}", path.display()));
                 continue;
             }
@@ -152,47 +157,53 @@ impl Bridge {
             }
         }
     }
+}
+
+impl RelayLane {
+    fn step(&mut self, key: &StripKey, addons: &Path) {
+        self.take_saved_variables(key);
+        self.signal_stops();
+        self.take_events();
+        self.pass_answers();
+        self.finish_runs();
+        if self.files.publish_due() {
+            self.store();
+            self.publish(addons);
+            self.files.last_publish = Instant::now();
+        }
+        // A run starts only when its message is marked as seen on disk, so a crash
+        // cannot run it twice.
+        if self.files.stored {
+            self.start_runs();
+        }
+    }
+
+    /// The state after `start_runs` needs no write: a running job is a working record,
+    /// and a restart ends it as an error.
+    fn store(&mut self) {
+        let result = state::save(&self.files.state, &self.relay.to_state());
+        if let Err(e) = &result {
+            log(&format!("cannot save the state: {e:#}"));
+        }
+        self.files.stored = result.is_ok();
+    }
 
     /// A changed file means a `/reload`: the outbox frames get the same checks as a strip.
-    fn take_saved_variables(&mut self) {
-        for text in self.saved.changed() {
+    fn take_saved_variables(&mut self, key: &StripKey) {
+        for text in self.files.saved.changed() {
             self.relay.reset_window();
-            self.changed = true;
+            self.files.changed = true;
             for frame in saved::frames(&text) {
-                self.take_frame(&frame, "outbox");
+                self.take_frame(&frame, key, "outbox");
             }
         }
     }
 
     /// Returns false for a frame that fails the tag, the time, or the format check.
-    fn take_frame(&mut self, bytes: &[u8], source: &str) -> bool {
-        match receive(bytes, &self.key, now()) {
+    fn take_frame(&mut self, bytes: &[u8], key: &StripKey, source: &str) -> bool {
+        match receive(bytes, key, now()) {
             Ok(records) => {
-                let build = self.relay.client_build().map(str::to_owned);
-                let version = self.relay.addon_version();
-                let outcomes = self.relay.on_frame(&records, now());
-                if let Some(new) = self
-                    .relay
-                    .client_build()
-                    .filter(|b| Some(*b) != build.as_deref())
-                {
-                    log(&format!("game build {new}: screenshots and slots work"));
-                }
-                if let Some(new) = self.relay.addon_version().filter(|v| Some(*v) != version) {
-                    if ADDON_VERSIONS.contains(&new) {
-                        log(&format!("addon version {new}"));
-                    } else {
-                        log(&format!(
-                            "addon version {new} is not supported: update the addon or the bridge"
-                        ));
-                    }
-                }
-                let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
-                log(&format!(
-                    "{source}: {} records, {accepted} new",
-                    records.len()
-                ));
-                self.changed = true;
+                self.take_records(&records, source);
                 true
             }
             Err(reason) => {
@@ -200,6 +211,34 @@ impl Bridge {
                 false
             }
         }
+    }
+
+    fn take_records(&mut self, records: &[Record], source: &str) {
+        let build = self.relay.client_build().map(str::to_owned);
+        let version = self.relay.addon_version();
+        let outcomes = self.relay.on_frame(records, now());
+        if let Some(new) = self
+            .relay
+            .client_build()
+            .filter(|b| Some(*b) != build.as_deref())
+        {
+            log(&format!("game build {new}: screenshots and slots work"));
+        }
+        if let Some(new) = self.relay.addon_version().filter(|v| Some(*v) != version) {
+            if ADDON_VERSIONS.contains(&new) {
+                log(&format!("addon version {new}"));
+            } else {
+                log(&format!(
+                    "addon version {new} is not supported: update the addon or the bridge"
+                ));
+            }
+        }
+        let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
+        log(&format!(
+            "{source}: {} records, {accepted} new",
+            records.len()
+        ));
+        self.files.changed = true;
     }
 
     fn start_runs(&mut self) {
@@ -265,7 +304,7 @@ impl Bridge {
                     self.answers.insert(request, question.answer);
                 }
             }
-            self.changed = true;
+            self.files.changed = true;
         }
     }
 
@@ -275,7 +314,7 @@ impl Bridge {
             if let Some(answer) = self.answers.remove(&request) {
                 let _ = answer.send(choice);
             }
-            self.changed = true;
+            self.files.changed = true;
         }
     }
 
@@ -285,7 +324,7 @@ impl Bridge {
                 Finished::Run(job, run) => (job, run),
                 Finished::List(job, found) => {
                     self.relay.finish_list(&job, found, now());
-                    self.changed = true;
+                    self.files.changed = true;
                     continue;
                 }
             };
@@ -296,21 +335,21 @@ impl Bridge {
             // A request of a run that ended gets no answer: its run stopped waiting.
             let relay = &self.relay;
             self.answers.retain(|request, _| relay.is_asked(request));
-            self.changed = true;
+            self.files.changed = true;
         }
     }
 
     /// A failed publish waits for the next heartbeat, so it does not log every tick.
-    fn publish(&mut self) {
+    fn publish(&mut self, addons: &Path) {
         let files = Files {
             body: self.relay.body(now()),
             restore: self.relay.restore_file(),
             live: self.relay.live_file(),
         };
-        if let Err(e) = slots::publish(&self.paths.addons, &files, self.relay.next_slot()) {
+        if let Err(e) = slots::publish(addons, &files, self.relay.next_slot()) {
             log(&format!("publish failed: {e:#}"));
         }
-        self.changed = false;
+        self.files.changed = false;
     }
 }
 

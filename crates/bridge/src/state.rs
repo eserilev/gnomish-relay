@@ -8,44 +8,26 @@ use serde::{Deserialize, Serialize};
 
 use crate::fs_safe::write_atomic;
 use crate::history::History;
-use crate::relay::{AgentSession, ChatId, Job, MessageId};
+use crate::lane::LaneState;
+pub use crate::lane::{SavedRecord, SavedStatus};
+use crate::relay::{AgentSession, Job};
 
 const FILE: &str = "state.json";
 /// 1000 seen ids and 30 records of 32 KiB fit in far less.
 const MAX_FILE: u64 = 16 * 1024 * 1024;
 
-/// A field that an older bridge did not write loads as its default.
+/// A field that an older bridge did not write loads as its default. The lane part is
+/// flattened, so the file keeps the shape that it had before lanes.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct State {
-    pub next_slot: usize,
-    /// The replay store, oldest first.
-    pub seen: Vec<(String, u32)>,
-    pub records: Vec<SavedRecord>,
+    #[serde(flatten)]
+    pub lane: LaneState,
     /// The messages that wait for a run, in queue order.
     pub waiting: Vec<Job>,
     pub history: History,
-    pub tokens: Vec<String>,
-    pub retired: Vec<String>,
     pub restore_for: Option<String>,
-    pub client_build: Option<String>,
     pub sessions: Vec<AgentSession>,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
-pub struct SavedRecord {
-    pub token: String,
-    pub chat: ChatId,
-    pub id: MessageId,
-    pub status: SavedStatus,
-    pub text: String,
-}
-
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone, Copy)]
-pub enum SavedStatus {
-    Working,
-    Done,
-    Error,
 }
 
 /// `None` when there is no state yet. A damaged file is an error, not a fresh start:
@@ -77,19 +59,24 @@ pub fn save(dir: &Path, state: &State) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lane::{ChatId, MessageId};
     use crate::relay::Session;
 
     fn state() -> State {
         State {
-            next_slot: 57,
-            seen: vec![("tok".into(), 7)],
-            records: vec![SavedRecord {
-                token: "tok".into(),
-                chat: ChatId("c1".into()),
-                id: MessageId(7),
-                status: SavedStatus::Done,
-                text: "done \"quoted\"\n".into(),
-            }],
+            lane: LaneState {
+                next_slot: 57,
+                seen: vec![("tok".into(), 7)],
+                records: vec![SavedRecord {
+                    token: "tok".into(),
+                    chat: ChatId("c1".into()),
+                    id: MessageId(7),
+                    status: SavedStatus::Done,
+                    text: "done \"quoted\"\n".into(),
+                }],
+                tokens: vec!["tok".into()],
+                ..LaneState::default()
+            },
             waiting: vec![Job {
                 token: "tok".into(),
                 chat: ChatId("c1".into()),
@@ -105,7 +92,6 @@ mod tests {
                     fork: true,
                 },
             }],
-            tokens: vec!["tok".into()],
             restore_for: Some("new".into()),
             ..State::default()
         }
@@ -116,6 +102,30 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         save(dir.path(), &state()).unwrap();
         assert_eq!(load(dir.path()).unwrap(), Some(state()));
+    }
+
+    /// A file that the bridge wrote before lanes, field for field.
+    #[test]
+    fn a_state_file_from_before_lanes_loads_unchanged() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = r#"{"next_slot":57,"seen":[["tok",7]],"records":[{"token":"tok","chat":"c1","id":7,"status":"Done","text":"done"}],"waiting":[],"history":{"chats":[]},"tokens":["tok"],"retired":["gone"],"restore_for":"new","client_build":"70009","sessions":[{"chat":"c1","agent":"claude","cwd":"/x","id":"s1"}]}"#;
+        fs::write(dir.path().join(FILE), old).unwrap();
+        let state = load(dir.path()).unwrap().unwrap();
+        assert_eq!(state.lane.next_slot, 57);
+        assert_eq!(state.lane.seen, [("tok".to_owned(), 7)]);
+        assert_eq!(state.lane.records[0].text, "done");
+        assert_eq!(state.lane.tokens, ["tok"]);
+        assert_eq!(state.lane.retired, ["gone"]);
+        assert_eq!(state.lane.client_build.as_deref(), Some("70009"));
+        assert_eq!(state.restore_for.as_deref(), Some("new"));
+        assert_eq!(state.sessions[0].id, "s1");
+        save(dir.path(), &state).unwrap();
+        let again: serde_json::Value =
+            serde_json::from_slice(&fs::read(dir.path().join(FILE)).unwrap()).unwrap();
+        assert_eq!(
+            again,
+            serde_json::from_str::<serde_json::Value>(old).unwrap()
+        );
     }
 
     #[test]

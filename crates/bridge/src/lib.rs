@@ -18,6 +18,7 @@ pub mod fs_safe;
 pub mod gate;
 pub mod history;
 pub mod install;
+pub mod lane;
 pub mod lock;
 pub mod process;
 pub mod program;

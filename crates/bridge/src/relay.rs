@@ -5,11 +5,10 @@
 use std::collections::{BTreeMap, BTreeSet};
 
 use protocol::folder::resolve_folder;
-use protocol::rate::{ChatQueue, MAX_QUEUE, RateLimiter, admit_message, enqueue};
+use protocol::rate::{ChatQueue, MAX_QUEUE, enqueue};
 use protocol::record::Record;
 use protocol::restore::{prepare_restore, restore_body};
-use protocol::seen::{self, Seen, admit, new_seen};
-use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
+use protocol::slot::Status;
 
 use serde::{Deserialize, Serialize};
 
@@ -18,17 +17,17 @@ use crate::agent::{Choice, SessionInfo};
 use crate::config::{
     Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
 };
-use crate::flags::{self, Channel, Flags};
+use crate::flags::{self, Flags};
 use crate::history::{ChatLog, History, Speaker};
+pub use crate::lane::{ChatId, MessageId};
+use crate::lane::{Lane, NotAdmitted, keep_last};
 use crate::reply::render_reply;
-use crate::state::{SavedRecord, SavedStatus, State};
+use crate::state::State;
 
 const BAD_FOLDER: &str = "Folder not allowed.";
 const BAD_AGENT: &str = "Agent not set up.";
 const STOPPED: &str = "Stopped.";
 const RESTARTED: &str = "Stopped: the bridge restarted.";
-/// More tokens than this means many wipes. The oldest ones then go.
-const MAX_TOKENS: usize = 16;
 /// The agent sessions of the chats with the latest runs.
 const MAX_SESSIONS: usize = 64;
 /// The sessions in one list for the game, newest first.
@@ -47,12 +46,6 @@ pub struct AgentSession {
     pub cwd: String,
     pub id: String,
 }
-
-#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ChatId(pub String);
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-pub struct MessageId(pub u32);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum Session {
@@ -127,65 +120,17 @@ pub enum Outcome {
     Control,
 }
 
-struct Entry {
-    token: String,
-    chat: ChatId,
-    id: MessageId,
-    status: Status,
-    text: String,
-}
-
-impl Entry {
-    fn to_saved(&self) -> SavedRecord {
-        SavedRecord {
-            token: self.token.clone(),
-            chat: self.chat.clone(),
-            id: self.id,
-            status: match self.status {
-                Status::Working => SavedStatus::Working,
-                Status::Done => SavedStatus::Done,
-                Status::Error => SavedStatus::Error,
-            },
-            text: self.text.clone(),
-        }
-    }
-
-    fn from_saved(saved: SavedRecord) -> Entry {
-        Entry {
-            token: saved.token,
-            chat: saved.chat,
-            id: saved.id,
-            status: match saved.status {
-                SavedStatus::Working => Status::Working,
-                SavedStatus::Done => Status::Done,
-                SavedStatus::Error => Status::Error,
-            },
-            text: saved.text,
-        }
-    }
-}
-
+/// The coding app over its lane: the policy, the queues, the agent sessions, and the
+/// history for a restore.
 pub struct Relay {
     policy: Policy,
-    seen: Seen,
-    limiter: RateLimiter,
-    /// Every record the addon has not read, newest last.
-    records: Vec<Entry>,
+    lane: Lane,
     queues: BTreeMap<ChatId, ChatQueue>,
     jobs: BTreeMap<(ChatId, MessageId), Job>,
     running: BTreeSet<ChatId>,
-    next_slot: usize,
     history: History,
-    /// The tokens that sent a hello, oldest first.
-    tokens: Vec<String>,
-    /// Tokens of wiped saved data. Their records never go into the body again.
-    retired: Vec<String>,
     /// The new token after a saved-data wipe, until it reports `restored`.
     restore_for: Option<String>,
-    /// The last client build whose screenshots and slots both worked (SPEC.md 7.8).
-    client_build: Option<String>,
-    /// The protocol version that the addon reported last.
-    addon_version: Option<u32>,
     sessions: Vec<AgentSession>,
     /// Chats whose run in progress got a Stop. The bridge signals each run.
     cancels: Vec<ChatId>,
@@ -193,12 +138,6 @@ pub struct Relay {
     deleted: Vec<ChatId>,
     listed: Vec<Listed>,
     activity: Activity,
-}
-
-fn keep_last<T>(list: &mut Vec<T>, max: usize) {
-    if list.len() > max {
-        list.drain(..list.len() - max);
-    }
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -224,19 +163,12 @@ impl Relay {
     pub fn new(policy: Policy) -> Relay {
         Relay {
             policy,
-            seen: new_seen(),
-            limiter: RateLimiter { times: Vec::new() },
-            records: Vec::new(),
+            lane: Lane::new(),
             queues: BTreeMap::new(),
             jobs: BTreeMap::new(),
             running: BTreeSet::new(),
-            next_slot: 1,
             history: History::default(),
-            tokens: Vec::new(),
-            retired: Vec::new(),
             restore_for: None,
-            client_build: None,
-            addon_version: None,
             sessions: Vec::new(),
             cancels: Vec::new(),
             deleted: Vec::new(),
@@ -246,25 +178,23 @@ impl Relay {
     }
 
     pub fn client_build(&self) -> Option<&str> {
-        self.client_build.as_deref()
+        self.lane.client_build()
     }
 
     pub fn addon_version(&self) -> Option<u32> {
-        self.addon_version
+        self.lane.addon_version()
     }
 
     pub fn next_slot(&self) -> usize {
-        self.next_slot
+        self.lane.next_slot()
     }
 
-    /// A `/reload` frees every slot, so the next body starts at slot 1 (SPEC.md 7.3).
     pub fn reset_window(&mut self) {
-        self.next_slot = 1;
+        self.lane.reset_window();
     }
 
-    /// The records that the addon has not read. The body holds all of them.
     pub fn unread(&self) -> usize {
-        self.records.len()
+        self.lane.unread()
     }
 
     /// Takes one frame. The flags of its first record carry the report of the addon.
@@ -276,21 +206,8 @@ impl Relay {
     }
 
     fn take_report(&mut self, token: &str, flags: &Flags) {
-        if let Some(next) = flags.next {
-            self.next_slot = next.max(1);
-        }
-        self.records.retain(|e| {
-            let read = e.token == token && flags.read.contains(&e.id.0);
-            !read || matches!(e.status, Status::Working)
-        });
+        self.lane.take_report(token, flags);
         self.take_restore_report(token, flags);
-        if flags.version.is_some() {
-            self.addon_version = flags.version;
-        }
-        let works = Some(Channel::Works);
-        if flags.out == works && flags.inbound == works && flags.build.is_some() {
-            self.client_build.clone_from(&flags.build);
-        }
     }
 
     /// A hello from a new token after a saved-data wipe starts a restore. The
@@ -298,20 +215,16 @@ impl Relay {
     fn take_restore_report(&mut self, token: &str, flags: &Flags) {
         if flags.restored && self.restore_for.as_deref() == Some(token) {
             self.restore_for = None;
-            let old = std::mem::replace(&mut self.tokens, vec![token.to_owned()]);
-            self.retired.extend(old.into_iter().filter(|t| t != token));
-            keep_last(&mut self.retired, MAX_TOKENS);
-            self.records.retain(|e| e.token == token);
+            self.lane.retire_all_but(token);
             return;
         }
-        if !flags.hello || self.tokens.iter().any(|t| t == token) {
+        if !flags.hello || self.lane.knows_token(token) {
             return;
         }
-        if !self.tokens.is_empty() && !self.history.is_empty() {
+        if self.lane.has_tokens() && !self.history.is_empty() {
             self.restore_for = Some(token.to_owned());
         }
-        self.tokens.push(token.to_owned());
-        keep_last(&mut self.tokens, MAX_TOKENS);
+        self.lane.add_token(token);
     }
 
     fn on_record(&mut self, r: &Record, now: u32) -> Outcome {
@@ -439,14 +352,11 @@ impl Relay {
         })
     }
 
-    /// Marks the message as seen, or says why not.
-    ///
-    /// The order is a trap. Every refusal comes before `admit`, because a refused
-    /// message must not count as seen: the addon sends it again later. The rate
-    /// limiter changes only after `admit`, so a duplicate uses no rate.
+    /// Marks the message as seen, or says why not. Every refusal of the chat queue
+    /// comes before the lane marks it as seen: a refused message must not count as seen.
     fn admit(&mut self, r: &Record, chat: &ChatId, now: u32) -> Result<(), Outcome> {
         let queued = self.queues.get(chat).map_or(0, |q| q.ids.len());
-        if self.records.len() >= MAX_REPLIES || queued >= MAX_QUEUE {
+        if queued >= MAX_QUEUE {
             return Err(Outcome::Refused);
         }
         // Jobs wait under their chat and id. A second token with the same pair waits
@@ -455,21 +365,10 @@ impl Relay {
         if waiting.is_some_and(|job| job.token.as_bytes() != r.token) {
             return Err(Outcome::Refused);
         }
-        let (rate_ok, limiter) = admit_message(&self.limiter, now);
-        if !rate_ok {
-            return Err(Outcome::Refused);
-        }
-        let (fresh, seen) = admit(
-            std::mem::replace(&mut self.seen, new_seen()),
-            &r.token,
-            r.id,
-        );
-        self.seen = seen;
-        if !fresh {
-            return Err(Outcome::Duplicate);
-        }
-        self.limiter = limiter;
-        Ok(())
+        self.lane.admit(&r.token, r.id, now).map_err(|e| match e {
+            NotAdmitted::Refused => Outcome::Refused,
+            NotAdmitted::Duplicate => Outcome::Duplicate,
+        })
     }
 
     fn enqueue_job(&mut self, job: Job) -> Outcome {
@@ -511,7 +410,7 @@ impl Relay {
     /// read and would stay in the body for good (SPEC.md 7.3).
     fn delete(&mut self, chat: ChatId) {
         self.stop(&chat);
-        self.records.retain(|e| e.chat != chat);
+        self.lane.remove_chat(&chat);
         self.sessions.retain(|s| s.chat != chat);
         self.history.remove(&chat);
         self.deleted.push(chat);
@@ -698,36 +597,15 @@ impl Relay {
         if let Some(speaker) = speaker {
             self.history.add_reply(chat, speaker, id, &text);
         }
-        if self.retired.iter().any(|t| t == token) {
-            return;
-        }
-        self.records.retain(|e| !(e.token == token && e.id == id));
-        self.records.push(Entry {
-            token: token.to_owned(),
-            chat: chat.clone(),
-            id,
-            status,
-            text,
-        });
+        self.lane.set_record(token, chat, id, status, text);
     }
 
-    /// The rate limiter is not in the state: a restart gives a fresh minute.
     pub fn to_state(&self) -> State {
         State {
-            next_slot: self.next_slot,
-            seen: self
-                .seen
-                .entries
-                .iter()
-                .map(|e| (text(&e.token), e.id))
-                .collect(),
-            records: self.records.iter().map(Entry::to_saved).collect(),
+            lane: self.lane.to_state(),
             waiting: self.waiting_jobs(),
             history: self.history.clone(),
-            tokens: self.tokens.clone(),
-            retired: self.retired.clone(),
             restore_for: self.restore_for.clone(),
-            client_build: self.client_build.clone(),
             sessions: self.sessions.clone(),
         }
     }
@@ -746,21 +624,9 @@ impl Relay {
     /// it can have changed files already.
     pub fn from_state(policy: Policy, state: State) -> Relay {
         let mut relay = Relay::new(policy);
-        relay.next_slot = state.next_slot.max(1);
-        relay.seen.entries = state
-            .seen
-            .into_iter()
-            .map(|(token, id)| seen::Entry {
-                token: token.into_bytes(),
-                id,
-            })
-            .collect();
-        relay.records = state.records.into_iter().map(Entry::from_saved).collect();
+        relay.lane = Lane::from_state(state.lane);
         relay.history = state.history;
-        relay.tokens = state.tokens;
-        relay.retired = state.retired;
         relay.restore_for = state.restore_for;
-        relay.client_build = state.client_build;
         relay.sessions = state.sessions;
         for job in state.waiting {
             let queue = relay
@@ -770,15 +636,14 @@ impl Relay {
             queue.ids.push(job.id.0);
             relay.jobs.insert((job.chat.clone(), job.id), job);
         }
-        for entry in &mut relay.records {
-            let waits = relay.jobs.contains_key(&(entry.chat.clone(), entry.id));
-            if matches!(entry.status, Status::Working) && !waits {
-                entry.status = Status::Error;
-                entry.text = RESTARTED.into();
-                relay
-                    .history
-                    .add_reply(&entry.chat, Speaker::Error, entry.id, RESTARTED);
-            }
+        let jobs = &relay.jobs;
+        let ended = relay
+            .lane
+            .end_working(|chat, id| jobs.contains_key(&(chat.clone(), id)), RESTARTED);
+        for (chat, id) in ended {
+            relay
+                .history
+                .add_reply(&chat, Speaker::Error, id, RESTARTED);
         }
         relay
     }
@@ -795,17 +660,7 @@ impl Relay {
     }
 
     pub fn body(&self, now: u32) -> Vec<u8> {
-        let replies: Vec<Reply> = self
-            .records
-            .iter()
-            .map(|e| Reply {
-                chat: e.chat.0.as_bytes().to_vec(),
-                id: e.id.0,
-                status: e.status,
-                text: e.text.as_bytes().to_vec(),
-            })
-            .collect();
-        slot_body(now, &prepare_replies(&replies))
+        self.lane.body(now)
     }
 }
 
@@ -1061,7 +916,7 @@ mod tests {
         relay.finish(&second, Err("no **luck**".into()));
 
         let state = relay.to_state();
-        let texts: Vec<&str> = state.records.iter().map(|r| r.text.as_str()).collect();
+        let texts: Vec<&str> = state.lane.records.iter().map(|r| r.text.as_str()).collect();
         assert_eq!(texts, ["\x1bM1\np\x1f|cffffd100done|r\n", "no **luck**"]);
         let replies: Vec<Vec<u8>> = relay
             .history
