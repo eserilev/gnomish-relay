@@ -68,14 +68,19 @@ pub fn resolved_bytes(path: &Path) -> Vec<u8> {
     with_leading_slash(path_bytes(path))
 }
 
-/// `canonicalize` resolves every link. A new file resolves through its folder, so a
-/// write to a link inside the chat folder shows its real target.
+/// `canonicalize` resolves every link. A new file resolves through its nearest folder
+/// that exists, so a write to a link inside the chat folder shows its real target. The
+/// missing parts cannot be links, because they do not exist. A `..` among them gives `None`.
 pub fn resolve(path: &Path) -> Option<PathBuf> {
-    if let Ok(real) = path.canonicalize() {
-        return Some(real);
+    let mut missing = Vec::new();
+    let mut existing = path;
+    loop {
+        if let Ok(real) = existing.canonicalize() {
+            return Some(missing.iter().rev().fold(real, |p, part| p.join(part)));
+        }
+        missing.push(existing.file_name()?);
+        existing = existing.parent()?;
     }
-    let folder = path.parent()?.canonicalize().ok()?;
-    Some(folder.join(path.file_name()?))
 }
 
 fn patterns(list: &[&str]) -> Vec<Vec<u8>> {
@@ -178,9 +183,11 @@ mod tests {
     }
 
     #[test]
-    fn a_file_in_a_missing_folder_does_not_resolve() {
+    fn a_file_in_a_missing_folder_resolves_through_its_nearest_folder() {
         let f = folders();
-        assert_eq!(resolve(&f.chat.join("no").join("x")), None);
+        let new = f.chat.join("no").join("x");
+        assert_eq!(resolve(&new), Some(f.chat.join("no").join("x")));
+        assert_eq!(resolve(&f.chat.join("no").join("..").join("x")), None);
     }
 
     #[test]
