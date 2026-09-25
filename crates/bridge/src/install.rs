@@ -292,6 +292,22 @@ fn on_path(program: &str, path: &OsStr) -> bool {
     crate::program::find_program(program, path, cfg!(windows)).is_some()
 }
 
+/// The command that logs in each known agent, for the message of setup.
+pub fn login_command(agent: &str) -> Option<&'static str> {
+    match agent {
+        "claude" => Some("claude"),
+        "codex" => Some("codex login"),
+        "gemini" => Some("gemini"),
+        _ => None,
+    }
+}
+
+/// ACP agents answer `session/new` with an "auth required" error when nobody is logged in.
+pub fn needs_login(error: &str) -> bool {
+    let error = error.to_ascii_lowercase();
+    error.contains("auth") || error.contains("login") || error.contains("log in")
+}
+
 /// The usual folders of code projects that hold at least one git repository. On
 /// Windows and macOS, `code` and `Code` are one folder, so it is named once.
 pub fn suggest_roots(home: &Path) -> Vec<PathBuf> {
@@ -564,5 +580,14 @@ mod tests {
         assert!(plist.contains("<key>StandardErrorPath</key><string>/L/r.log</string>"));
         assert!(plist.contains("<string>/Apps/R&amp;D/gnomish-relay</string><string>run</string>"));
         assert!(plist.contains("<string>/bin:&lt;x&gt;</string>"));
+    }
+
+    #[test]
+    fn an_auth_error_means_a_login() {
+        assert!(needs_login(
+            "The agent failed at session/new: Authentication required"
+        ));
+        assert!(!needs_login("Cannot start gemini: not found on PATH"));
+        assert_eq!(login_command("codex"), Some("codex login"));
     }
 }

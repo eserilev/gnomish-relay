@@ -967,9 +967,39 @@ fn an_addon_with_no_key_asks_for_setup() {
     game.run("local ns = ... ns.key = nil");
     game.fire("PLAYER_LOGIN", ());
     assert!(
-        game.printed()
-            .contains(&"Gnomish Relay: run gnomish-relay setup.".into()),
+        game.printed().contains(
+            &"Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay"
+                .into()
+        ),
         "{:?}",
         game.printed()
+    );
+}
+
+#[test]
+fn a_silent_bridge_shows_one_line_a_minute_after_login() {
+    let game = Game::start();
+    game.advance(59.0);
+    let silent = |game: &Game| {
+        game.printed()
+            .iter()
+            .filter(|l| *l == "Gnomish Relay: bridge not running.")
+            .count()
+    };
+    assert_eq!(silent(&game), 0);
+    game.advance(120.0);
+    assert_eq!(silent(&game), 1);
+}
+
+#[test]
+fn a_bridge_that_answers_gets_no_line() {
+    let game = Game::start();
+    game.publish(&[]);
+    game.advance(120.0);
+    assert!(
+        !game
+            .printed()
+            .iter()
+            .any(|l| l == "Gnomish Relay: bridge not running.")
     );
 }

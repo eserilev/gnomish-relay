@@ -814,7 +814,9 @@ The last lines say what setup found and the next action, for example "Agent: cla
 **Keeping it working.**
 
 - At each start, the bridge writes `Key.lua` again if it is missing, and the addon files again if their version differs. An addon app such as CurseForge can replace the folder, and a `/reload` then loads the files.
-- With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup."
+- With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay".
+- With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running."
+- Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude needs a login. Run: claude"), not as the first reply in the game.
 
 **Distribution.**
 

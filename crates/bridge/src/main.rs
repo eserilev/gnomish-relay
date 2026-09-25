@@ -326,11 +326,7 @@ fn setup(args: &[&str]) -> Result<()> {
         )?;
     }
     let config = load_config()?;
-    let default = &config.policy.default_agent;
-    match config.agents.get(default).map(|a| a.kind) {
-        Some(Kind::Acp) => println!("Agent: {default}"),
-        _ => println!("Agent: none. Replies repeat your message."),
-    }
+    println!("{}", agent_line(&config));
     if args.contains(&"--autostart") {
         match autostart() {
             Ok(()) => println!("Bridge: on, starts at login"),
@@ -402,6 +398,31 @@ fn start() -> Result<()> {
     }
     let agents = agent::from_config(&config);
     run(paths, config.policy, key, agents)
+}
+
+/// The default agent, started once with no prompt, so a missing login shows here and
+/// not as the first reply in the game.
+fn agent_line(config: &Config) -> String {
+    let name = &config.policy.default_agent;
+    let Some(spec) = config.agents.get(name).filter(|s| s.kind == Kind::Acp) else {
+        return "Agent: none. Replies repeat your message.".into();
+    };
+    let agent = AcpAgent {
+        command: spec.command.clone(),
+        env: spec.env.clone(),
+        modes: spec.modes.clone(),
+        timeout: std::time::Duration::from_mins(1),
+        permission_timeout: std::time::Duration::from_mins(1),
+    };
+    let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
+    match agent.check(&cwd) {
+        Ok(_) => format!("Agent: {name}"),
+        Err(e) if install::needs_login(&e) => match install::login_command(name) {
+            Some(login) => format!("Agent: {name} needs a login. Run: {login}"),
+            None => format!("Agent: {name} needs a login."),
+        },
+        Err(e) => format!("Agent: {name} does not start: {e}"),
+    }
 }
 
 /// Starts one agent of the config and opens a session in the default folder, with

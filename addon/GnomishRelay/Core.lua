@@ -10,6 +10,8 @@ local AGENTS = {
 	codex = { name = "Codex", color = "abd473" },
 }
 local SNIPPET = 120
+-- Long enough for the first strip and the first polls after a login.
+local BRIDGE_WAIT = 60
 
 function Relay.AgentName(agent)
 	local known = AGENTS[agent]
@@ -121,7 +123,7 @@ events:SetScript("OnEvent", function(_, event, name)
 			return
 		end
 		if not ns.key then
-			print("Gnomish Relay: run gnomish-relay setup.")
+			print("Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay")
 			return
 		end
 		SetCVarValue("screenshotFormat", "png")
@@ -135,6 +137,11 @@ events:SetScript("OnEvent", function(_, event, name)
 		end
 		ns.Transport.Init()
 		C_Timer.NewTicker(1, ns.Transport.Tick)
+		C_Timer.After(BRIDGE_WAIT, function()
+			if not ns.Transport.Online() then
+				print("Gnomish Relay: bridge not running.")
+			end
+		end)
 	end
 end)
 
