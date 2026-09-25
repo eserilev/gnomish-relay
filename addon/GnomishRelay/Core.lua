@@ -29,6 +29,9 @@ function Relay.Plain(text)
 end
 
 local function Snippet(text)
+	if ns.Blocks.IsRendered(text) then
+		text = ns.Blocks.Plain(text)
+	end
 	local line = tostring(text or ""):match("^[^\n]*")
 	if #line > SNIPPET then
 		line = line:sub(1, SNIPPET) .. "..."

@@ -14,7 +14,7 @@ pub const ADDON: &str = "GnomishRelay";
 const KEY_FILE: &str = "Key.lua";
 
 /// The addon, built into the program, so one download installs everything.
-pub const ADDON_FILES: [(&str, &[u8]); 12] = [
+pub const ADDON_FILES: [(&str, &[u8]); 14] = [
     (
         "GnomishRelay.toc",
         include_bytes!("../../../addon/GnomishRelay/GnomishRelay.toc"),
@@ -42,6 +42,14 @@ pub const ADDON_FILES: [(&str, &[u8]); 12] = [
     (
         "Transport.lua",
         include_bytes!("../../../addon/GnomishRelay/Transport.lua"),
+    ),
+    (
+        "Blocks.lua",
+        include_bytes!("../../../addon/GnomishRelay/Blocks.lua"),
+    ),
+    (
+        "Transcript.lua",
+        include_bytes!("../../../addon/GnomishRelay/Transcript.lua"),
     ),
     (
         "Window.lua",

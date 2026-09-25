@@ -22,6 +22,7 @@ use protocol::live::{
     OptionKind, PermOption, Progress, Request as LiveRequest, live_body, prepare_progress,
     prepare_requests,
 };
+use protocol::markdown::render_markdown;
 use protocol::record::{Record, parse_records};
 use protocol::restore::{Chat, Entry, Role, prepare_restore, restore_body};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
@@ -35,6 +36,8 @@ const FILES: &[&str] = &[
     "Health.lua",
     "Strip.lua",
     "Transport.lua",
+    "Blocks.lua",
+    "Transcript.lua",
     "Window.lua",
     "Popup.lua",
     "Core.lua",
@@ -211,6 +214,41 @@ fn loaded_slots(game: &Game) -> usize {
         .unwrap()
         .pairs::<String, bool>()
         .count()
+}
+
+/// One shown object of the transcript, from `wow.Drawn`.
+struct Drawn {
+    kind: String,
+    text: Option<String>,
+    y: i64,
+    object: Table,
+}
+
+/// Every shown object of the transcript, top to bottom.
+fn transcript(game: &Game) -> Vec<Drawn> {
+    let root: Table = game.lua.globals().get("GnomishRelayTranscript").unwrap();
+    let drawn: Table = game
+        .wow
+        .get::<Function>("Drawn")
+        .unwrap()
+        .call(root)
+        .unwrap();
+    drawn
+        .sequence_values::<Table>()
+        .map(|d| {
+            let d = d.unwrap();
+            Drawn {
+                kind: d.get("kind").unwrap(),
+                text: d.get("text").unwrap(),
+                y: d.get("y").unwrap(),
+                object: d.get("object").unwrap(),
+            }
+        })
+        .collect()
+}
+
+fn texts(drawn: &[Drawn]) -> Vec<String> {
+    drawn.iter().filter_map(|d| d.text.clone()).collect()
 }
 
 fn first_message_id(game: &Game) -> u32 {
@@ -471,15 +509,11 @@ fn the_window_shows_the_transcript_with_code_and_safe_pipes() {
     )]);
     game.advance(5.0);
 
-    let transcript: Table = game.lua.globals().get("GnomishRelayTranscript").unwrap();
-    let lines: Vec<String> = transcript.get("lines").unwrap();
     assert_eq!(
-        lines,
+        texts(&transcript(&game)),
         [
             "|cff69ccf0[You]|r: show ||cffff0000 red",
-            "|cffff7d0a[Claude]|r: Here:",
-            "    |cffb8c8b8let x = 1;|r",
-            "Done.",
+            "|cffff7d0a[Claude]|r: Here:\n    |cffb8c8b8let x = 1;|r\nDone.",
         ]
     );
 }
@@ -1237,8 +1271,7 @@ fn the_attach_reply_shows_the_last_exchange_and_later_messages_resume() {
     )]);
     game.advance(5.0);
 
-    let transcript: Table = game.lua.globals().get("GnomishRelayTranscript").unwrap();
-    let lines: Vec<String> = transcript.get("lines").unwrap();
+    let lines = texts(&transcript(&game));
     assert_eq!(lines.len(), 3, "{lines:?}");
     assert!(lines[0].contains("Resumed \"Fix bugs\""));
     assert!(lines[1].contains("[You]") && lines[1].contains("fix the bugs"));
@@ -1289,4 +1322,246 @@ fn a_failed_list_shows_its_error() {
         "hidden"
     );
     assert!(text_of(&game, "GnomishRelayPickNote:GetText()").contains("not logged in"));
+}
+
+const MONO: &str = "Interface\\AddOns\\GnomishRelay\\JetBrainsMono-Regular.ttf";
+
+/// Sends one message and answers it with `markdown`, rendered as the bridge does.
+fn rendered_reply(game: &Game, markdown: &str) {
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("go");
+    game.advance(1.0);
+    let text = render_markdown(markdown.as_bytes());
+    game.publish(&[Reply {
+        chat: game.chat_id().into_bytes(),
+        id: first_message_id(game),
+        status: Status::Done,
+        text,
+    }]);
+    game.advance(5.0);
+}
+
+fn of_kind<'a>(drawn: &'a [Drawn], kind: &str) -> Vec<&'a Drawn> {
+    drawn.iter().filter(|d| d.kind == kind).collect()
+}
+
+fn text_color(d: &Drawn) -> Vec<f64> {
+    d.object.get("textColor").unwrap()
+}
+
+/// Every `|` that WoW sees starts `||`, a color code, or `|r`.
+fn wow_safe(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] != b'|' {
+            i += 1;
+        } else if bytes.get(i + 1) == Some(&b'|') || bytes.get(i + 1) == Some(&b'r') {
+            i += 2;
+        } else if bytes.get(i + 1) == Some(&b'c')
+            && bytes.len() >= i + 10
+            && bytes[i + 2..i + 10].iter().all(u8::is_ascii_hexdigit)
+        {
+            i += 10;
+        } else {
+            return false;
+        }
+    }
+    true
+}
+
+/// Every `&` of a `SimpleHTML` text starts a whole entity.
+fn entities_whole(text: &str) -> bool {
+    text.match_indices('&').all(|(i, _)| {
+        ["&lt;", "&gt;", "&amp;"]
+            .iter()
+            .any(|e| text[i..].starts_with(e))
+    })
+}
+
+#[test]
+fn a_markdown_reply_draws_headings_a_code_box_and_a_table_grid() {
+    let game = Game::start();
+    rendered_reply(
+        &game,
+        "# Plan\n\nSome **bold** text.\n\n## Steps\n\n- one\n- two\n\n\
+         ```\nfn main() {}\n```\n\n| Name | Age |\n|---|---|\n| Ann | 31 |",
+    );
+
+    let drawn = transcript(&game);
+    let html = of_kind(&drawn, "SimpleHTML");
+    assert_eq!(html.len(), 1);
+    let doc = html[0].text.clone().unwrap();
+    assert!(doc.contains("<h1>Plan</h1>"), "{doc}");
+    assert!(doc.contains("<h2>Steps</h2>"), "{doc}");
+    assert!(doc.contains("<p>Some |cffffd100bold|r text.</p>"), "{doc}");
+    assert!(doc.contains("\u{2022} one</p><p>"), "{doc}");
+
+    let code = drawn
+        .iter()
+        .find(|d| d.text.as_deref() == Some("fn main() {}"))
+        .expect("a code line");
+    assert_eq!(code.object.get::<String>("font").unwrap(), MONO);
+    let parent: Table = code.object.get("parent").unwrap();
+    assert_eq!(parent.get::<String>("kind").unwrap(), "Frame");
+
+    let cell = |text: &str| {
+        drawn
+            .iter()
+            .find(|d| d.text.as_deref() == Some(text))
+            .unwrap_or_else(|| panic!("no cell {text}"))
+    };
+    let (name, age, ann, years) = (cell("Name"), cell("Age"), cell("Ann"), cell("31"));
+    assert_eq!(name.y, age.y);
+    assert_eq!(ann.y, years.y);
+    assert!(ann.y > name.y);
+    assert!(age.object.get::<f64>("x").unwrap() > name.object.get::<f64>("x").unwrap());
+    assert_eq!(text_color(name), [1.0, 0.82, 0.0]);
+    assert_eq!(text_color(ann), [1.0, 1.0, 1.0]);
+    assert!(
+        html[0].y < code.y && code.y < name.y,
+        "blocks stack in order"
+    );
+}
+
+#[test]
+fn a_table_too_wide_for_the_window_draws_each_row_as_a_card() {
+    let game = Game::start();
+    let long = "x".repeat(80);
+    rendered_reply(
+        &game,
+        &format!("| Test | Result | Note |\n|---|---|---|\n| parse | ok | {long} |"),
+    );
+
+    let drawn = transcript(&game);
+    let title = drawn
+        .iter()
+        .find(|d| d.text.as_deref() == Some("parse"))
+        .expect("the first cell as a title");
+    assert_eq!(text_color(title), [1.0, 0.82, 0.0]);
+    let body = drawn
+        .iter()
+        .find(|d| d.text.as_deref().is_some_and(|t| t.contains("ok")))
+        .expect("the other cells");
+    assert_eq!(
+        body.text.as_deref().unwrap(),
+        format!("|cff9d9d9dResult:|r ok\n|cff9d9d9dNote:|r {long}")
+    );
+    assert!(body.y > title.y);
+    assert!(
+        texts(&drawn).iter().all(|t| t != "Test"),
+        "no card for the header"
+    );
+}
+
+#[test]
+fn a_reply_cut_at_any_byte_draws_with_no_broken_code() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open(ns.Store.NewChat().id)");
+    let full = render_markdown(
+        "# A <b> & c\n\n**bold** `|x|` [link](u) é\n\n| a | b |\n|---|---|\n| 1 | 2 |\n```\nx | y\n```"
+            .as_bytes(),
+    );
+    for cut in 4..=full.len() {
+        let text = game.lua.create_string(&full[..cut]).unwrap();
+        game.lua.globals().set("CUT", text).unwrap();
+        game.run(
+            "local ns = ... local chat = ns.Store.db.chats[1] \
+             chat.history = { { role = 'agent', text = CUT } } ns.Window.Refresh()",
+        );
+        let drawn = transcript(&game);
+        assert!(
+            of_kind(&drawn, "SimpleHTML").len() <= 1,
+            "cut at {cut} fell back or doubled"
+        );
+        for text in texts(&drawn) {
+            assert!(wow_safe(&text), "cut at {cut}: {text:?}");
+            assert!(
+                !text.starts_with("<html>") || entities_whole(&text),
+                "cut at {cut} leaves half an entity: {text:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_reply_that_fails_to_draw_shows_as_plain_text() {
+    let game = Game::start();
+    game.wow.set("brokenHtml", true).unwrap();
+    rendered_reply(&game, "# Title\n\nA <b> and `code`.");
+
+    let drawn = transcript(&game);
+    assert!(of_kind(&drawn, "SimpleHTML").is_empty());
+    assert_eq!(
+        texts(&drawn).last().unwrap(),
+        "|cffff7d0a[Claude]|r: Title\nA <b> and code."
+    );
+}
+
+#[test]
+fn a_missing_mono_font_falls_back_to_a_game_font() {
+    let game = Game::start_with(|wow| {
+        let missing: Table = wow.get("missingFiles").unwrap();
+        missing.set(MONO, true).unwrap();
+    });
+    rendered_reply(&game, "```\nlet x = 1;\n```");
+
+    let drawn = transcript(&game);
+    let code = drawn
+        .iter()
+        .find(|d| d.text.as_deref() == Some("let x = 1;"))
+        .expect("a code line");
+    assert_eq!(
+        code.object.get::<String>("font").unwrap(),
+        "Fonts\\ARIALN.TTF"
+    );
+}
+
+#[test]
+fn the_whisper_line_shows_the_plain_words_of_a_rendered_reply() {
+    let game = Game::start();
+    rendered_reply(&game, "**Done**: all `tests` pass | green\n\nMore.");
+
+    let whisper = game
+        .printed()
+        .into_iter()
+        .find(|l| l.contains("whispers:"))
+        .expect("a whisper line");
+    assert!(
+        whisper.ends_with("] Done: all tests pass || green|r"),
+        "{whisper}"
+    );
+}
+
+#[test]
+fn a_long_transcript_scrolls_to_the_newest_entry_and_the_wheel_scrolls_up() {
+    let game = Game::start();
+    rendered_reply(&game, &"line\n\n".repeat(60));
+
+    let scroll: Table = game.lua.globals().get("GnomishRelayScroll").unwrap();
+    let bottom: i64 = scroll.get("scroll").unwrap();
+    assert!(bottom > 0);
+    game.run("GnomishRelayScroll:GetScript('OnMouseWheel')(GnomishRelayScroll, 1)");
+    assert_eq!(scroll.get::<i64>("scroll").unwrap(), bottom - 40);
+    game.run("GnomishRelayScroll:GetScript('OnMouseWheel')(GnomishRelayScroll, -5)");
+    assert_eq!(scroll.get::<i64>("scroll").unwrap(), bottom);
+}
+
+#[test]
+fn an_error_that_looks_rendered_shows_as_plain_text() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("go");
+    game.advance(1.0);
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Error,
+        "\x1bM1\np\x1f|cffff0000fake\n",
+    )]);
+    game.advance(5.0);
+
+    let drawn = transcript(&game);
+    assert!(of_kind(&drawn, "SimpleHTML").is_empty());
+    assert!(texts(&drawn).last().unwrap().contains("||cffff0000fake"));
 }

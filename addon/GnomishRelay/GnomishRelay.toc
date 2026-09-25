@@ -11,6 +11,8 @@ Store.lua
 Health.lua
 Strip.lua
 Transport.lua
+Blocks.lua
+Transcript.lua
 Window.lua
 Popup.lua
 Core.lua

@@ -449,7 +449,7 @@ The rendered text goes into the normal `text` field, so S9, S18, and S20 do not 
 - A mark with no closing mark is text. So are `*` between spaces and `_` inside a word.
 - The output is at most 10 times the input plus 4 bytes.
 
-**Cuts.** The body cuts a text at 32 KB (S12) and the restore at 500 bytes (S18). A cut text has no last `\n`. The addon then shows the cut last line with its codes and entities taken out, as plain text.
+**Cuts.** The body cuts a text at 32 KB (S12) and the restore at 500 bytes (S18). A cut text has no last `\n`. The addon still shows its last line, without color codes, and without a half code, a half entity, or a half character at its end.
 
 The fuzz target `markdown` checks the shape, the escapes, and the size bound on the compiled code.
 The renderer has no proof yet. Its statements wait for approval.
@@ -971,12 +971,18 @@ The mockup is the reference for the layout.
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
 - **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tiles are "Start a New Chat" and "Resume". Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
-- **Center:** a dropdown for the agent and the permission mode, the folder, and the bridge light. Below them, the transcript on a black background in classic lines: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. Code shows in black boxes in a shipped mono font.
+- **Center:** a dropdown for the agent and the permission mode, the folder, and the bridge light. Below them, the transcript on a black background: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. The mouse wheel scrolls it, and a new entry scrolls it to the bottom.
+- **Replies:** a rendered reply (7.3.1) shows its blocks below the name.
+  - Headings, paragraphs, list items, and quotes go into one SimpleHTML frame, with real sizes for `h1` to `h3`, and a bullet or the number before each item.
+  - Code shows in a black box in the shipped mono font (13.2).
+  - A table is a grid of font strings with a gold header row. A table with more than 8 columns, or too wide for the transcript, shows each row as a card: the first cell in gold, and each other cell below it with the name of its column.
+  - If anything fails while a reply draws, it shows as plain text.
+  - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
 - **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details.
 - **Side tabs:** Chats, Terminal pings, Settings, and Diagnostics.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
-- **Game chat:** a finished reply or a ping shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). A click on it opens the chat. It plays the whisper sound.
+- **Game chat:** a finished reply or a ping shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound.
 - **Permission requests** use the separate popup of 6.4, never the window.
 
 ### 13.2 Code
@@ -993,11 +999,14 @@ All state is local to the addon files, which share one table. The files load in 
 | `Health.lua` | The login self-test and the health of each channel (7.8). |
 | `Strip.lua` | Draws a frame and takes one screenshot of it. |
 | `Transport.lua` | The strip retries, the poll schedule, the slots, and the flags. It follows `models/transport.qnt`. |
+| `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
+| `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks. |
 | `Window.lua` | The window of 13.1. |
 | `Popup.lua` | The permission popup (6.4). Each button names the kind of its option, never the label of the agent. |
 | `Core.lua` | Startup, slash commands, and the whisper line. |
 
 The folder also holds `JetBrainsMono-Regular.ttf`, the mono font of code boxes, with its license in `JetBrainsMono-OFL.txt` (SIL Open Font License 1.1). Setup installs both.
+The game finds a new file only at launch. Until then, code boxes use `Fonts\ARIALN.TTF` of the game.
 
 Message ids start from the clock, so the ids after a saved-data wipe never repeat the ids in an older body.
 

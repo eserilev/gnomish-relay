@@ -11,13 +11,10 @@ local TILE_HEIGHT = 48
 local STEP_ROWS = 14
 local PICK_ROWS = 20
 local PICK_ROW_HEIGHT = 19
-local GREY = "9d9d9d"
 local GREEN = "1eff00"
 local MAX_INPUT = 3000
 local EMBLEM = "Interface\\Icons\\INV_Misc_Wrench_01"
 local STATUS_BAR = "Interface\\TargetingFrame\\UI-StatusBar"
-local YOU = "69ccf0"
-local CODE = "b8c8b8"
 
 local frame
 local tiles = {}
@@ -144,41 +141,6 @@ local function RefreshTiles(current)
 	end
 end
 
-local function AddText(name, color, text)
-	local prefix = string.format("|cff%s[%s]|r: ", color, name)
-	local inCode = false
-	for line in (tostring(text) .. "\n"):gmatch("([^\n]*)\n") do
-		if line:match("^```") then
-			inCode = not inCode
-		elseif inCode then
-			ui.transcript:AddMessage(string.format("    |cff%s%s|r", CODE, ns.Relay.Plain(line)))
-		else
-			ui.transcript:AddMessage(prefix .. ns.Relay.Plain(line))
-			prefix = ""
-		end
-	end
-end
-
-local function RefreshTranscript(chat)
-	ui.transcript:Clear()
-	if not chat then
-		return
-	end
-	for _, entry in ipairs(chat.history) do
-		if entry.attach then
-			ui.transcript:AddMessage(string.format('|cff%sResumed "%s"|r', GREY, ns.Relay.Plain(chat.name)))
-		elseif entry.role == "user" then
-			AddText("You", YOU, entry.text)
-		elseif entry.role == "error" then
-			AddText(ns.Relay.AgentName(entry.agent or chat.agent), "ff2020", entry.text)
-		else
-			local agent = entry.agent or chat.agent
-			AddText(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent), entry.text)
-		end
-	end
-	ui.transcript:ScrollToBottom()
-end
-
 local function Elapsed(seconds)
 	return string.format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
 end
@@ -302,7 +264,7 @@ function Window.Refresh()
 	if ui.picking then
 		RefreshPicker()
 	else
-		RefreshTranscript(chat)
+		ns.Transcript.Show(chat)
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
@@ -353,22 +315,8 @@ local function BuildCenter()
 
 	local log = Inset(frame, left, -84, width, 72)
 	ui.log = log
-	ui.transcript = CreateFrame("ScrollingMessageFrame", "GnomishRelayTranscript", log)
-	ui.transcript:SetPoint("TOPLEFT", log, "TOPLEFT", 8, -6)
-	ui.transcript:SetPoint("BOTTOMRIGHT", log, "BOTTOMRIGHT", -8, 6)
-	ui.transcript:SetFontObject(ChatFontNormal)
-	ui.transcript:SetJustifyH("LEFT")
-	ui.transcript:SetFading(false)
-	ui.transcript:SetMaxLines(2000)
-	ui.transcript:SetIndentedWordWrap(true)
-	ui.transcript:EnableMouseWheel(true)
-	ui.transcript:SetScript("OnMouseWheel", function(self, delta)
-		if delta > 0 then
-			self:ScrollUp()
-		else
-			self:ScrollDown()
-		end
-	end)
+	-- The inset is HEIGHT - 84 - 72 high, less 6 at the top and the bottom.
+	ns.Transcript.Build(log, width - 16, HEIGHT - 84 - 72 - 12)
 
 	ui.picker = Inset(frame, left, -84, width, 16)
 	ui.pickNote = ui.picker:CreateFontString("GnomishRelayPickNote", "OVERLAY", "GameFontDisable")

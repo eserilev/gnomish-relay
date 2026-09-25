@@ -23,6 +23,10 @@ local wow = {
 	combat = false,
 	textures = {},
 	frames = {},
+	-- Files that the game did not find at launch.
+	missingFiles = {},
+	-- Makes every SimpleHTML fail, as a client with a different SimpleHTML could.
+	brokenHtml = false,
 }
 
 local Object = {}
@@ -176,11 +180,94 @@ function methods:SetPoint(_, _, _, x, y)
 end
 
 function methods:SetText(text)
+	if self.kind == "SimpleHTML" and wow.brokenHtml then
+		error("SimpleHTML failed")
+	end
 	self.text = text
 end
 
 function methods:GetText()
 	return self.text
+end
+
+function methods:SetWidth(w)
+	self.width = w
+end
+
+function methods:SetHeight(h)
+	self.height = h
+end
+
+function methods:SetSize(w, h)
+	self.width, self.height = w, h
+end
+
+function methods:GetWidth()
+	return self.width or 0
+end
+
+function methods:GetHeight()
+	return self.height or 0
+end
+
+-- A font string or a SimpleHTML takes a text type first.
+function methods:SetFont(...)
+	local args = { ... }
+	if self.kind == "SimpleHTML" then
+		self.fonts = self.fonts or {}
+		self.fonts[args[1]] = args[2]
+		return
+	end
+	if wow.missingFiles[args[1]] then
+		return false
+	end
+	self.font = args[1]
+	return true
+end
+
+function methods:SetTextColor(...)
+	self.textColor = { ... }
+end
+
+function methods:SetVerticalScroll(offset)
+	self.scroll = offset
+end
+
+function methods:GetVerticalScroll()
+	return self.scroll or 0
+end
+
+function methods:SetScrollChild(child)
+	self.scrollChild = child
+end
+
+-- The text as the game shows it: no color codes, and "||" as one "|".
+local function Shown(text)
+	return (text:gsub("||", "\1"):gsub("|c%x%x%x%x%x%x%x%x", ""):gsub("|r", ""):gsub("\1", "|"))
+end
+
+-- Sizes of a font with 6 pixels per character and 14 per line.
+function methods:GetUnboundedStringWidth()
+	local widest = 0
+	for line in (Shown(self.text or "") .. "\n"):gmatch("([^\n]*)\n") do
+		widest = math.max(widest, #line * 6)
+	end
+	return widest
+end
+
+function methods:GetStringHeight()
+	local lines = 0
+	for line in (Shown(self.text or "") .. "\n"):gmatch("([^\n]*)\n") do
+		local w = self.width or 0
+		lines = lines + (w > 0 and math.max(1, math.ceil(#line * 6 / w)) or 1)
+	end
+	return lines * 14
+end
+
+function methods:GetContentHeight()
+	local _, blocks = (self.text or ""):gsub("</[ph]%d?>", "")
+	local _, gaps = (self.text or ""):gsub("<br/>", "")
+	return (blocks + gaps) * 14
 end
 
 function methods:AddMessage(text)
@@ -206,6 +293,38 @@ function wow.Fire(event, ...)
 			f.scripts.OnEvent(f, event, ...)
 		end
 	end
+end
+
+local function Under(o, root)
+	local x, y = 0, 0
+	while o and o ~= root do
+		if not o.shown then
+			return nil
+		end
+		x, y = x + (o.x or 0), y + (o.y or 0)
+		o = o.parent
+	end
+	return o == root and x, -y
+end
+
+-- Every shown object inside `root`, top to bottom and then left to right, with its
+-- place relative to `root`.
+function wow.Drawn(root)
+	local drawn = {}
+	for _, o in ipairs(wow.frames) do
+		local x, y = Under(o, root)
+		if x and o ~= root then
+			local text = type(o.text) == "string" and o.text or nil
+			table.insert(drawn, { object = o, kind = o.kind, text = text, x = x, y = y })
+		end
+	end
+	table.sort(drawn, function(a, b)
+		if a.y ~= b.y then
+			return a.y < b.y
+		end
+		return a.x < b.x
+	end)
+	return drawn
 end
 
 -- Moves the clock forward and runs every timer that comes due.
