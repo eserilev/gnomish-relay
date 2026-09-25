@@ -17,11 +17,131 @@ set_option maxRecDepth 2048
 
 namespace protocol
 
+/-- [protocol::action::Verdict]
+    Source: 'crates/protocol/src/action.rs', lines 18:0-26:1
+    Visibility: public -/
+@[discriminant isize]
+inductive action.Verdict where
+| Deny : action.Verdict
+| Desktop : action.Verdict
+| Ask : action.Verdict
+| Allow : action.Verdict
+
+/-- [protocol::action::Policy]
+    Source: 'crates/protocol/src/action.rs', lines 29:0-42:1
+    Visibility: public -/
+structure action.Policy where
+  roots : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  chat : alloc.vec.Vec Std.U8
+  deny_folders : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  desktop_paths : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  desktop_writes : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  allow : alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+
+/-- [protocol::action::ToolCall]
+    Source: 'crates/protocol/src/action.rs', lines 44:0-54:1
+    Visibility: public -/
+@[discriminant isize]
+inductive action.ToolCall where
+| Files :
+  alloc.vec.Vec (alloc.vec.Vec Std.U8) →
+  alloc.vec.Vec (alloc.vec.Vec Std.U8) →
+  action.ToolCall
+| Command : alloc.vec.Vec Std.U8 → alloc.vec.Vec Std.U8 → action.ToolCall
+| Unknown : action.ToolCall
+
+/-- [protocol::action::Cover]
+    Source: 'crates/protocol/src/action.rs', lines 58:0-61:1 -/
+@[discriminant isize]
+inductive action.Cover where
+| Listed : action.Cover
+| Every : action.Cover
+
+/-- [protocol::shell::Access]
+    Source: 'crates/protocol/src/shell.rs', lines 20:0-23:1
+    Visibility: public -/
+@[discriminant isize]
+inductive shell.Access where
+| Read : shell.Access
+| Write : shell.Access
+
+/-- [protocol::shell::Redirect]
+    Source: 'crates/protocol/src/shell.rs', lines 43:0-46:1
+    Visibility: public -/
+structure shell.Redirect where
+  target : alloc.vec.Vec Std.U8
+  access : shell.Access
+
 /-- [protocol::folder::Walk]
     Source: 'crates/protocol/src/folder.rs', lines 13:0-17:1 -/
 structure folder.Walk where
   ok : Bool
   stack : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  depth : Std.Usize
+
+/-- [protocol::shell::Link]
+    Source: 'crates/protocol/src/shell.rs', lines 29:0-32:1
+    Visibility: public -/
+@[discriminant isize]
+inductive shell.Link where
+| First : shell.Link
+| Pipe : shell.Link
+
+/-- [protocol::shell::Simple]
+    Source: 'crates/protocol/src/shell.rs', lines 36:0-39:1
+    Visibility: public -/
+structure shell.Simple where
+  words : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  link : shell.Link
+
+/-- [protocol::command_rules::Test]
+    Source: 'crates/protocol/src/command_rules.rs', lines 46:0-55:1 -/
+@[discriminant isize]
+inductive command_rules.Test where
+| Name : command_rules.Test
+| Flag : command_rules.Test
+| Recursive : command_rules.Test
+| GitForce : command_rules.Test
+
+/-- [protocol::shell::Script]
+    Source: 'crates/protocol/src/shell.rs', lines 49:0-52:1
+    Visibility: public -/
+structure shell.Script where
+  simples : alloc.vec.Vec shell.Simple
+  redirects : alloc.vec.Vec shell.Redirect
+
+/-- [protocol::shell::Pending]
+    Source: 'crates/protocol/src/shell.rs', lines 67:0-73:1 -/
+@[discriminant isize]
+inductive shell.Pending where
+| Word : shell.Pending
+| Read : shell.Pending
+| Write : shell.Pending
+| Copy : shell.Pending
+
+/-- [protocol::shell::Mode]
+    Source: 'crates/protocol/src/shell.rs', lines 55:0-63:1 -/
+@[discriminant isize]
+inductive shell.Mode where
+| Plain : shell.Mode
+| Single : shell.Mode
+| Double : shell.Mode
+| DoubleEscape : shell.Mode
+| Escape : shell.Mode
+
+/-- [protocol::shell::Lexer]
+    Source: 'crates/protocol/src/shell.rs', lines 75:0-89:1 -/
+structure shell.Lexer where
+  ok : Bool
+  mode : shell.Mode
+  simples : alloc.vec.Vec shell.Simple
+  redirects : alloc.vec.Vec shell.Redirect
+  words : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  link : shell.Link
+  word : alloc.vec.Vec Std.U8
+  started : Bool
+  glob : Bool
+  pending : shell.Pending
   depth : Std.Usize
 
 /-- [protocol::frame::Frame]

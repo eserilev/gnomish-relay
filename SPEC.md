@@ -193,27 +193,50 @@ There are four answers, in this order from strict to open:
 | `ask` | The user approves in the game popup (6.4). |
 | `allow` | Runs with no question. |
 
-**How tool calls reach it:**
+**How tool calls reach it.** The classifier sees only the tool calls that a backend sends to the bridge. So its coverage is a property of each backend. The wiring comes after the backends of 9.2:
 
-- ACP: through `session/request_permission`.
-- Claude: through the `can_use_tool` control requests of `claude -p --permission-prompt-tool stdio` (9.2). A terminal session of Claude uses a `PreToolUse` hook, `gnomish-relay-hook pretool`. This subcommand ignores `GNOMISH_RELAY_JOB`, and it fails closed: if the bridge does not answer, the answer is `deny`.
-- Codex: through the approval requests of `codex app-server` (9.2), or through ACP with `codex-acp`. `codex exec` sends no tool calls to the bridge, so the bridge never uses it.
+- Claude: the bridge registers a `PreToolUse` hook in the `initialize` control request of `claude -p` (9.2). The hook sees every tool call, also the calls that the permission mode lets run with no question. A terminal session of Claude uses the same hook through `gnomish-relay-hook pretool`. This subcommand ignores `GNOMISH_RELAY_JOB`, and it fails closed: if the bridge does not answer, the answer is `deny`.
+- Codex: through the approval requests of `codex app-server` (9.2), in the approval mode of the level (9.3). Codex asks before a command that it does not know as safe, and runs the rest inside its sandbox. `codex exec` sends no tool calls to the bridge, so the bridge never uses it.
+- Other ACP agents: only through `session/request_permission`. The agent decides what it asks, so the classifier sees only part of its tool calls. For these agents the game ceiling is `ask`: no rule from the game gives `allow`.
 
-**Rules:**
+**Input.** The bridge builds the input in `crates/bridge/src/action_input.rs`:
 
-- **Unknown tools are `desktop`.** The classifier knows file reads, file writes, and shell commands. Every other tool is `desktop` in `game`: web fetch, web search, MCP tools, and subagents.
-- **Paths:** each path in the tool input, and each redirect target of a command, is resolved with `canonicalize` at check time. A write outside the chat folder is `desktop`. A read outside `allowed_roots` is `desktop`. Both checks use `resolve_folder` (S5).
-- **`deny` paths:** the strip key, `config.toml`, and everything else in `~/.config/gnomish-relay`. An approved access would let the agent sign fake strips or raise its own ceiling.
-- **`desktop` paths, for reads and writes:** `~/.ssh`, `~/.aws`, `~/.gnupg`, `.env` files, keychains, and browser profiles.
+- A file call carries its read paths and its write paths. A shell command carries its raw bytes and its working folder. Every other tool call is "unknown".
+- Each path is resolved with `canonicalize` at check time. A new file resolves through its folder. The path then has the form of `resolve_folder` (S5): it starts with `/`, it has no empty part, no `.` and no `..`, and no trailing `/`. On Windows the drive is the first part, for example `/C:/Users/x`. A path in any other form is `desktop`.
+- The policy holds `allowed_roots`, the chat folder, the `deny` folders (the config folder of the bridge), the two lists of `desktop` patterns, and the allow table of the config.
+- The rules from the game are "always allow" rules (6.6.5). Each rule is the first words of a command: `cargo test` covers `cargo test -q`. An empty rule covers nothing.
+- A path or a command longer than 1 MiB is `desktop`.
+
+**Case.** macOS and Windows compare paths without case, so `~/.SSH` is `~/.ssh` there. The classifier compares the `deny` folders and the `desktop` patterns without ASCII case on every OS. This is stricter, never looser. The checks for `allowed_roots` and the chat folder compare with case, which is also stricter.
+
+**Rules for paths:**
+
+- **Unknown tools are `desktop`.** The classifier knows file reads, file writes, and shell commands. Every other tool is `desktop`: web fetch, web search, MCP tools, and subagents.
+- **Inside:** a path is inside a folder when the parts of the folder start the parts of the path (S5). A write outside the chat folder is `desktop`. A read outside `allowed_roots` is `desktop`.
+- **`deny` paths:** the strip key, `config.toml`, and everything else in the config folder of the bridge (12). An approved access would let the agent sign fake strips or raise its own ceiling.
+- **`desktop` patterns** are whole parts that match anywhere in a path, for example `.git/hooks`. A last `*` in a part matches the rest of a part, so `.env.*` matches `.env.local`.
+- **`desktop` paths, for reads and writes:** `.ssh`, `.aws`, `.gnupg`, `.env` files, other credential files (`.netrc`, `.git-credentials`, `.config/gh`, `.docker/config.json`, `.kube`), keychains, and browser profiles. `action_input.rs` has the full list.
 - **`desktop` paths, for writes:** files that code on the host runs later, outside the sandbox. They are `.claude/`, `.git/hooks/`, `.git/config`, `.envrc`, `.vscode/`, and `.github/workflows/`.
-- **Commands:** a real shell parser splits each command. A command that does not parse is `desktop`. The popup shows its raw text (6.4).
-- **`desktop` commands:** `eval`, command substitution (`$(...)`, backticks), a pipe into a shell, `sudo`, `cmd.exe`, and PowerShell. PowerShell stays `desktop` until the classifier has a PowerShell parser.
-- **Commands that run other commands** (`find -exec`, `xargs`, `env`, `git -c`, `sh -c`, `bash -c`, `python -c`, `node -e`, `perl -e`) always ask.
-- **Network tools** (`curl`, `wget`, `nc`, `ssh`, `scp`, and more) always ask.
-- **Never "always":** `rm -r`, `chmod`, `chown`, `git push --force`, `git reset --hard`, the commands that run other commands, and every `desktop` answer. They get "Allow once" at most.
+
+**Rules for commands:**
+
+- **Grammar:** `crates/protocol/src/shell.rs` splits a command into simple commands, with a strict part of POSIX `sh`: words with single quotes, double quotes, and `\`; the operators `;`, `&&`, `||`, `|`, `|&`, `&`, and a newline; subshells in `(` `)`; and the redirects `>`, `>>`, `>|`, `<`, `<>`, `&>`, `&>>`, and a descriptor before them, such as `2>`. `2>&1` copies a descriptor and names no file.
+- **Does not parse:** an open quote, a trailing `\`, an open `(`, a redirect with no file, `$` outside single quotes (every expansion), a backtick outside single quotes, a heredoc or here-string (`<<`), process substitution (`<(`, `>(`), a brace other than `{}`, a comment, a reserved word such as `if` or `then` as the command name, and a glob in the command name. A command that does not parse is `desktop`. The popup shows its raw text (6.4).
+- **Command substitution:** a command with `$(` or a backtick anywhere in its raw bytes is `desktop`, even inside quotes.
+- **Names:** a name matches after its folder, its ASCII case, and a last `.exe` come off, so `/usr/bin/SUDO.exe` is `sudo`. Most lists match any word of a simple command, so a wrapper such as `timeout 5 sudo x` cannot hide a name.
+- **`desktop` commands:** `eval`, `sudo` and the other commands that change the user (`sudoedit`, `doas`, `su`, `pkexec`, `run0`, `gsudo`, `runas`), a shell after a `|` (every simple command after the first `|` counts), `cmd.exe`, and PowerShell. PowerShell stays `desktop` until the classifier has a PowerShell parser.
+- **Commands that run other commands** always ask: `xargs`, `env`, `sh`, `bash`, `python`, `node`, `perl`, and the other interpreters, wrappers such as `timeout`, `nohup`, and `strace`, schedulers such as `crontab`, `find` with `-exec`, `-ok`, or `-delete`, `git` with `-c`, `--upload-pack`, `--exec`, or `config`, a command name such as `.`, `source`, `command`, `export`, or `trap`, and a first word with `=`, such as `LD_PRELOAD=x cmd`. `command_rules.rs` has the full lists.
+- **Network tools** (`curl`, `wget`, `nc`, `ssh`, `scp`, `rsync`, and more) always ask.
+- **Redirects:** a redirect target resolves from the working folder with `resolve_folder`, and then follows the rules for paths: `>` is a write, `<` is a read. `/dev/null` is always allowed. A target that starts with `~` or holds a glob is `desktop`, because the shell expands it and the classifier cannot. A command with a file redirect and a `cd`, `pushd`, or `popd` is `desktop`, because the target then resolves from another folder.
+- **Never "always":** `rm -r`, `chmod`, `chown`, `chgrp`, a forced `git push` (`-f`, `--force`, `+main`), `git reset --hard`, the commands that run other commands, network tools, and every `desktop` answer. They get "Allow once" at most. The allow table of the config cannot allow them either.
+- **Everything else** asks, unless the allow table of the config or a rule from the game covers every simple command of it. Then it is `allow`.
 - A prompt keyword (for example `.ssh` or `token`) is only a signal. It moves the whole run to `ask`. It is never the wall.
 
-The classifier core is pure and lives in `protocol`. Theorems S16 and S17 cover it.
+**The answer** of a tool call is the strictest answer of its parts: each path, each redirect target, and each simple command. The ceiling of a tool call is its answer when a game rule covers every command. No rule list gets more (S17).
+
+**Limits.** The proofs work on the paths of file tools. Paths inside the arguments of a command are out of scope: a command asks by default, the popup shows the raw command (S15), and the sandbox is the wall for commands (6.6.4). The proofs work on paths that the bridge has already resolved. A symbolic link made after the check is a race that the proofs do not cover.
+
+The classifier core is pure and lives in `protocol`. Theorems S16, S17, S27, and S28 cover it.
 
 #### 6.6.4 Sandbox
 

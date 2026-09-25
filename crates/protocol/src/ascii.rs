@@ -39,6 +39,10 @@ pub(crate) fn bytes_equal(a: &[u8], b: &[u8]) -> bool {
     true
 }
 
+pub(crate) fn to_lower(b: u8) -> u8 {
+    if b'A' <= b && b <= b'Z' { b + 32 } else { b }
+}
+
 pub(crate) fn copy_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     push_range(&mut out, bytes, 0, bytes.len());

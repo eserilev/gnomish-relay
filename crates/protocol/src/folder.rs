@@ -33,7 +33,7 @@ fn take_byte(parts: Vec<Vec<u8>>, mut cur: Vec<u8>, b: u8) -> (Vec<Vec<u8>>, Vec
 }
 
 /// `/a//b/` has the parts `a` and `b`.
-fn split_parts(path: &[u8]) -> Vec<Vec<u8>> {
+pub(crate) fn split_parts(path: &[u8]) -> Vec<Vec<u8>> {
     let mut parts = Vec::new();
     let mut cur = Vec::new();
     let mut i = 0;
@@ -46,11 +46,11 @@ fn split_parts(path: &[u8]) -> Vec<Vec<u8>> {
     end_part(parts, cur)
 }
 
-fn is_dot(part: &[u8]) -> bool {
+pub(crate) fn is_dot(part: &[u8]) -> bool {
     part.len() == 1 && part[0] == b'.'
 }
 
-fn is_dot_dot(part: &[u8]) -> bool {
+pub(crate) fn is_dot_dot(part: &[u8]) -> bool {
     part.len() == 2 && part[0] == b'.' && part[1] == b'.'
 }
 
@@ -112,7 +112,7 @@ fn start(base: &[u8], request: &[u8]) -> Walk {
     }
 }
 
-fn is_prefix(root: &[Vec<u8>], stack: &[Vec<u8>], depth: usize) -> bool {
+pub(crate) fn is_prefix(root: &[Vec<u8>], stack: &[Vec<u8>], depth: usize) -> bool {
     let mut same = root.len() <= depth;
     let mut j = 0;
     while same && j < root.len() {
@@ -122,7 +122,7 @@ fn is_prefix(root: &[Vec<u8>], stack: &[Vec<u8>], depth: usize) -> bool {
     same
 }
 
-fn inside_any(roots: &[Vec<u8>], stack: &[Vec<u8>], depth: usize) -> bool {
+pub(crate) fn inside_any(roots: &[Vec<u8>], stack: &[Vec<u8>], depth: usize) -> bool {
     let mut found = false;
     let mut i = 0;
     while !found && i < roots.len() {
@@ -132,7 +132,7 @@ fn inside_any(roots: &[Vec<u8>], stack: &[Vec<u8>], depth: usize) -> bool {
     found
 }
 
-fn join(stack: &[Vec<u8>], depth: usize) -> Vec<u8> {
+pub(crate) fn join(stack: &[Vec<u8>], depth: usize) -> Vec<u8> {
     let mut out = Vec::new();
     let mut j = 0;
     while j < depth {

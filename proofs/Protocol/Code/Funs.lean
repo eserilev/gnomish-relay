@@ -18,6 +18,605 @@ set_option maxRecDepth 2048
 
 namespace protocol
 
+/-- [protocol::action::DOLLAR_PAREN]
+    Source: 'crates/protocol/src/action.rs', lines 12:0-12:37 -/
+@[global_simps, irreducible]
+def action.DOLLAR_PAREN : Array Std.U8 2#usize :=
+  Array.make 2#usize [ 36#u8, 40#u8 ]
+
+/-- [protocol::action::BACKTICK]
+    Source: 'crates/protocol/src/action.rs', lines 13:0-13:32 -/
+@[global_simps, irreducible]
+def action.BACKTICK : Array Std.U8 1#usize := Array.make 1#usize [ 96#u8 ]
+
+/-- [protocol::action::{impl core::clone::Clone for protocol::action::Verdict}::clone]:
+    Source: 'crates/protocol/src/action.rs', lines 16:9-16:14
+    Visibility: public -/
+def action.Verdict.Insts.CoreCloneClone.clone
+  (self : action.Verdict) : Result action.Verdict := do
+  ok self
+
+/-- Trait implementation: [protocol::action::{impl core::clone::Clone for protocol::action::Verdict}]
+    Source: 'crates/protocol/src/action.rs', lines 16:9-16:14 -/
+@[reducible]
+def action.Verdict.Insts.CoreCloneClone : core.clone.Clone action.Verdict := {
+  clone := action.Verdict.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::action::{impl core::marker::Copy for protocol::action::Verdict}]
+    Source: 'crates/protocol/src/action.rs', lines 16:16-16:20 -/
+@[reducible]
+def action.Verdict.Insts.CoreMarkerCopy : core.marker.Copy action.Verdict := {
+  cloneInst := action.Verdict.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::action::{impl core::marker::StructuralPartialEq for protocol::action::Verdict}]
+    Source: 'crates/protocol/src/action.rs', lines 16:22-16:31 -/
+@[reducible]
+def action.Verdict.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq action.Verdict := {
+}
+
+/-- [protocol::action::{impl core::cmp::PartialEq<protocol::action::Verdict> for protocol::action::Verdict}::eq]:
+    Source: 'crates/protocol/src/action.rs', lines 16:22-16:31
+    Visibility: public -/
+def action.Verdict.Insts.CoreCmpPartialEqVerdict.eq
+  (self : action.Verdict) (other : action.Verdict) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::action::{impl core::cmp::PartialEq<protocol::action::Verdict> for protocol::action::Verdict}]
+    Source: 'crates/protocol/src/action.rs', lines 16:22-16:31 -/
+@[reducible]
+impl_def action.Verdict.Insts.CoreCmpPartialEqVerdict : core.cmp.PartialEq
+  action.Verdict action.Verdict := {
+  eq := action.Verdict.Insts.CoreCmpPartialEqVerdict.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    action.Verdict.Insts.CoreCmpPartialEqVerdict
+}
+
+/-- [protocol::action::{impl core::cmp::Eq for protocol::action::Verdict}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/action.rs', lines 16:33-16:35
+    Visibility: public -/
+def action.Verdict.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : action.Verdict) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::action::{impl core::cmp::Eq for protocol::action::Verdict}]
+    Source: 'crates/protocol/src/action.rs', lines 16:33-16:35 -/
+@[reducible]
+def action.Verdict.Insts.CoreCmpEq : core.cmp.Eq action.Verdict := {
+  partialEqInst := action.Verdict.Insts.CoreCmpPartialEqVerdict
+  assert_fields_are_eq := action.Verdict.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::action::{impl core::clone::Clone for protocol::action::Cover}::clone]:
+    Source: 'crates/protocol/src/action.rs', lines 57:9-57:14
+    Visibility: public -/
+def action.Cover.Insts.CoreCloneClone.clone
+  (self : action.Cover) : Result action.Cover := do
+  ok self
+
+/-- Trait implementation: [protocol::action::{impl core::clone::Clone for protocol::action::Cover}]
+    Source: 'crates/protocol/src/action.rs', lines 57:9-57:14 -/
+@[reducible]
+def action.Cover.Insts.CoreCloneClone : core.clone.Clone action.Cover := {
+  clone := action.Cover.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::action::{impl core::marker::Copy for protocol::action::Cover}]
+    Source: 'crates/protocol/src/action.rs', lines 57:16-57:20 -/
+@[reducible]
+def action.Cover.Insts.CoreMarkerCopy : core.marker.Copy action.Cover := {
+  cloneInst := action.Cover.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::action::{impl core::marker::StructuralPartialEq for protocol::action::Cover}]
+    Source: 'crates/protocol/src/action.rs', lines 57:22-57:31 -/
+@[reducible]
+def action.Cover.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq action.Cover := {
+}
+
+/-- [protocol::action::{impl core::cmp::PartialEq<protocol::action::Cover> for protocol::action::Cover}::eq]:
+    Source: 'crates/protocol/src/action.rs', lines 57:22-57:31
+    Visibility: public -/
+def action.Cover.Insts.CoreCmpPartialEqCover.eq
+  (self : action.Cover) (other : action.Cover) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::action::{impl core::cmp::PartialEq<protocol::action::Cover> for protocol::action::Cover}]
+    Source: 'crates/protocol/src/action.rs', lines 57:22-57:31 -/
+@[reducible]
+impl_def action.Cover.Insts.CoreCmpPartialEqCover : core.cmp.PartialEq
+  action.Cover action.Cover := {
+  eq := action.Cover.Insts.CoreCmpPartialEqCover.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    action.Cover.Insts.CoreCmpPartialEqCover
+}
+
+/-- [protocol::action::{impl core::cmp::Eq for protocol::action::Cover}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/action.rs', lines 57:33-57:35
+    Visibility: public -/
+def action.Cover.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : action.Cover) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::action::{impl core::cmp::Eq for protocol::action::Cover}]
+    Source: 'crates/protocol/src/action.rs', lines 57:33-57:35 -/
+@[reducible]
+def action.Cover.Insts.CoreCmpEq : core.cmp.Eq action.Cover := {
+  partialEqInst := action.Cover.Insts.CoreCmpPartialEqCover
+  assert_fields_are_eq := action.Cover.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::action::rank]:
+    Source: 'crates/protocol/src/action.rs', lines 64:0-71:1
+    Visibility: public -/
+def action.rank (v : action.Verdict) : Result Std.U8 := do
+  match v with
+  | action.Verdict.Deny => ok 0#u8
+  | action.Verdict.Desktop => ok 1#u8
+  | action.Verdict.Ask => ok 2#u8
+  | action.Verdict.Allow => ok 3#u8
+
+/-- [protocol::action::stricter]:
+    Source: 'crates/protocol/src/action.rs', lines 73:0-75:1 -/
+def action.stricter
+  (a : action.Verdict) (b : action.Verdict) : Result action.Verdict := do
+  let i ← action.rank b
+  let i1 ← action.rank a
+  if i < i1
+  then ok b
+  else ok a
+
+/-- [protocol::shell::{impl core::cmp::PartialEq<protocol::shell::Access> for protocol::shell::Access}::eq]:
+    Source: 'crates/protocol/src/shell.rs', lines 18:22-18:31
+    Visibility: public -/
+def shell.Access.Insts.CoreCmpPartialEqAccess.eq
+  (self : shell.Access) (other : shell.Access) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- [protocol::search::equal_run]: loop body 0:
+    Source: 'crates/protocol/src/search.rs', lines 11:4-14:5 -/
+@[rust_loop_body]
+def search.equal_run_loop.body
+  (a : Slice Std.U8) («at» : Std.Usize) (b : Slice Std.U8) (n : Std.Usize)
+  (same : Bool) (k : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if same
+  then
+    if k < n
+    then
+      let i ← «at» + k
+      let i1 ← Slice.index_usize a i
+      let i2 ← Slice.index_usize b k
+      let k1 ← k + 1#usize
+      ok (cont (i1 = i2, k1))
+    else ok (done true)
+  else ok (done false)
+
+/-- [protocol::search::equal_run]: loop 0:
+    Source: 'crates/protocol/src/search.rs', lines 11:4-14:5 -/
+@[rust_loop]
+def search.equal_run_loop
+  (a : Slice Std.U8) («at» : Std.Usize) (b : Slice Std.U8) (n : Std.Usize)
+  (same : Bool) (k : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (same1, k1) => search.equal_run_loop.body a «at» b n same1 k1)
+    (same, k)
+
+/-- [protocol::search::equal_run]:
+    Source: 'crates/protocol/src/search.rs', lines 8:0-16:1 -/
+@[reducible]
+def search.equal_run
+  (a : Slice Std.U8) («at» : Std.Usize) (b : Slice Std.U8) (n : Std.Usize) :
+  Result Bool
+  := do
+  search.equal_run_loop a «at» b n true 0#usize
+
+/-- [protocol::ascii::bytes_equal]: loop body 0:
+    Source: 'crates/protocol/src/ascii.rs', lines 33:4-40:1 -/
+@[rust_loop_body]
+def ascii.bytes_equal_loop.body
+  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Bool)
+  := do
+  let i1 := Slice.len a
+  if i < i1
+  then
+    let i2 ← Slice.index_usize a i
+    let i3 ← Slice.index_usize b i
+    if i2 != i3
+    then ok (done false)
+    else let i4 ← i + 1#usize
+         ok (cont i4)
+  else ok (done true)
+
+/-- [protocol::ascii::bytes_equal]: loop 0:
+    Source: 'crates/protocol/src/ascii.rs', lines 33:4-40:1 -/
+@[rust_loop]
+def ascii.bytes_equal_loop
+  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) : Result Bool := do
+  loop
+    (fun i1 => ascii.bytes_equal_loop.body a b i1)
+    i
+
+/-- [protocol::ascii::bytes_equal]:
+    Source: 'crates/protocol/src/ascii.rs', lines 28:0-40:1 -/
+def ascii.bytes_equal (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
+  let i := Slice.len a
+  let i1 := Slice.len b
+  if i != i1
+  then ok false
+  else ascii.bytes_equal_loop a b 0#usize
+
+/-- [protocol::path_rules::part_matches]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 66:0-72:1 -/
+def path_rules.part_matches
+  (pattern_part : Slice Std.U8) (part : Slice Std.U8) : Result Bool := do
+  let n := Slice.len pattern_part
+  if n > 0#usize
+  then
+    let i ← n - 1#usize
+    let i1 ← Slice.index_usize pattern_part i
+    if i1 = 42#u8
+    then
+      let i2 := Slice.len part
+      if i <= i2
+      then search.equal_run part 0#usize pattern_part i
+      else ok false
+    else ascii.bytes_equal pattern_part part
+  else ascii.bytes_equal pattern_part part
+
+/-- [protocol::path_rules::pattern_at]: loop body 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 78:4-81:5 -/
+@[rust_loop_body]
+def path_rules.pattern_at_loop.body
+  (pattern : Slice (alloc.vec.Vec Std.U8))
+  (parts : Slice (alloc.vec.Vec Std.U8)) («at» : Std.Usize) (same : Bool)
+  (k : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if same
+  then
+    let i := Slice.len pattern
+    if k < i
+    then
+      let v ← Slice.index_usize pattern k
+      let s := alloc.vec.Vec.deref v
+      let i1 ← «at» + k
+      let v1 ← Slice.index_usize parts i1
+      let s1 := alloc.vec.Vec.deref v1
+      let same1 ← path_rules.part_matches s s1
+      let k1 ← k + 1#usize
+      ok (cont (same1, k1))
+    else ok (done true)
+  else ok (done false)
+
+/-- [protocol::path_rules::pattern_at]: loop 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 78:4-81:5 -/
+@[rust_loop]
+def path_rules.pattern_at_loop
+  (pattern : Slice (alloc.vec.Vec Std.U8))
+  (parts : Slice (alloc.vec.Vec Std.U8)) («at» : Std.Usize) (same : Bool)
+  (k : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (same1, k1) => path_rules.pattern_at_loop.body pattern parts «at»
+      same1 k1)
+    (same, k)
+
+/-- [protocol::path_rules::pattern_at]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 75:0-83:1 -/
+@[reducible]
+def path_rules.pattern_at
+  (pattern : Slice (alloc.vec.Vec Std.U8))
+  (parts : Slice (alloc.vec.Vec Std.U8)) («at» : Std.Usize) :
+  Result Bool
+  := do
+  path_rules.pattern_at_loop pattern parts «at» true 0#usize
+
+/-- [protocol::path_rules::pattern_in]: loop body 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 93:4-96:5 -/
+@[rust_loop_body]
+def path_rules.pattern_in_loop.body
+  (pattern : Slice (alloc.vec.Vec Std.U8))
+  (parts : Slice (alloc.vec.Vec Std.U8)) (last : Std.Usize) (found : Bool)
+  («at» : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    if «at» <= last
+    then
+      let found1 ← path_rules.pattern_at pattern parts «at»
+      let at1 ← «at» + 1#usize
+      ok (cont (found1, at1))
+    else ok (done false)
+
+/-- [protocol::path_rules::pattern_in]: loop 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 93:4-96:5 -/
+@[rust_loop]
+def path_rules.pattern_in_loop
+  (pattern : Slice (alloc.vec.Vec Std.U8))
+  (parts : Slice (alloc.vec.Vec Std.U8)) (last : Std.Usize) (found : Bool)
+  («at» : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, at1) => path_rules.pattern_in_loop.body pattern parts last
+      found1 at1)
+    (found, «at»)
+
+/-- [protocol::path_rules::pattern_in]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 86:0-98:1 -/
+def path_rules.pattern_in
+  (pattern : Slice (alloc.vec.Vec Std.U8))
+  (parts : Slice (alloc.vec.Vec Std.U8)) :
+  Result Bool
+  := do
+  let i := Slice.len pattern
+  let i1 := Slice.len parts
+  if i > i1
+  then ok false
+  else
+    let i2 := Slice.len parts
+    let i3 := Slice.len pattern
+    let last ← i2 - i3
+    path_rules.pattern_in_loop pattern parts last false 0#usize
+
+/-- [protocol::ascii::to_lower]:
+    Source: 'crates/protocol/src/ascii.rs', lines 42:0-44:1 -/
+def ascii.to_lower (b : Std.U8) : Result Std.U8 := do
+  if 65#u8 <= b
+  then if b <= 90#u8
+       then b + 32#u8
+       else ok b
+  else ok b
+
+/-- [protocol::path_rules::lower_bytes]: loop body 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 24:4-27:5 -/
+@[rust_loop_body]
+def path_rules.lower_bytes_loop.body
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    let i2 ← Slice.index_usize bytes i
+    let i3 ← ascii.to_lower i2
+    let out1 ← alloc.vec.Vec.push out i3
+    let i4 ← i + 1#usize
+    ok (cont (out1, i4))
+  else ok (done out)
+
+/-- [protocol::path_rules::lower_bytes]: loop 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 24:4-27:5 -/
+@[rust_loop]
+def path_rules.lower_bytes_loop
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => path_rules.lower_bytes_loop.body bytes out1 i1)
+    (out, i)
+
+/-- [protocol::path_rules::lower_bytes]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 21:0-29:1 -/
+@[reducible]
+def path_rules.lower_bytes
+  (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  path_rules.lower_bytes_loop bytes (alloc.vec.Vec.new Std.U8) 0#usize
+
+/-- [protocol::folder::end_part]:
+    Source: 'crates/protocol/src/folder.rs', lines 19:0-24:1 -/
+def folder.end_part
+  (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (cur : alloc.vec.Vec Std.U8) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  let i := alloc.vec.Vec.len cur
+  if i > 0#usize
+  then alloc.vec.Vec.push parts cur
+  else ok parts
+
+/-- [protocol::folder::SLASH]
+    Source: 'crates/protocol/src/folder.rs', lines 9:0-9:23 -/
+@[global_simps, irreducible] def folder.SLASH : Std.U8 := 47#u8
+
+/-- [protocol::folder::take_byte]:
+    Source: 'crates/protocol/src/folder.rs', lines 26:0-33:1 -/
+def folder.take_byte
+  (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (cur : alloc.vec.Vec Std.U8)
+  (b : Std.U8) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × (alloc.vec.Vec Std.U8))
+  := do
+  if b = folder.SLASH
+  then let v ← folder.end_part parts cur
+       ok (v, alloc.vec.Vec.new Std.U8)
+  else let cur1 ← alloc.vec.Vec.push cur b
+       ok (parts, cur1)
+
+/-- [protocol::folder::split_parts]: loop body 0:
+    Source: 'crates/protocol/src/folder.rs', lines 40:4-45:5 -/
+@[rust_loop_body]
+def folder.split_parts_loop.body
+  (path : Slice Std.U8) (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  (cur : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × (alloc.vec.Vec
+    Std.U8) × Std.Usize) ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) ×
+    (alloc.vec.Vec Std.U8)))
+  := do
+  let i1 := Slice.len path
+  if i < i1
+  then
+    let i2 ← Slice.index_usize path i
+    let (p, c) ← folder.take_byte parts cur i2
+    let i3 ← i + 1#usize
+    ok (cont (p, c, i3))
+  else ok (done (parts, cur))
+
+/-- [protocol::folder::split_parts]: loop 0:
+    Source: 'crates/protocol/src/folder.rs', lines 40:4-45:5 -/
+@[rust_loop]
+def folder.split_parts_loop
+  (path : Slice Std.U8) (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  (cur : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × (alloc.vec.Vec Std.U8))
+  := do
+  loop
+    (fun (parts1, cur1, i1) => folder.split_parts_loop.body path parts1 cur1
+      i1)
+    (parts, cur, i)
+
+/-- [protocol::folder::split_parts]:
+    Source: 'crates/protocol/src/folder.rs', lines 36:0-47:1 -/
+def folder.split_parts
+  (path : Slice Std.U8) : Result (alloc.vec.Vec (alloc.vec.Vec Std.U8)) := do
+  let (parts, cur) ←
+    folder.split_parts_loop path (alloc.vec.Vec.new (alloc.vec.Vec Std.U8))
+      (alloc.vec.Vec.new Std.U8) 0#usize
+  folder.end_part parts cur
+
+/-- [protocol::path_rules::matches_any_pattern]: loop body 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 104:4-107:5 -/
+@[rust_loop_body]
+def path_rules.matches_any_pattern_loop.body
+  (patterns : Slice (alloc.vec.Vec Std.U8))
+  (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (found : Bool) (i : Std.Usize)
+  :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len patterns
+    if i < i1
+    then
+      let v ← Slice.index_usize patterns i
+      let s := alloc.vec.Vec.deref v
+      let v1 ← path_rules.lower_bytes s
+      let s1 := alloc.vec.Vec.deref v1
+      let v2 ← folder.split_parts s1
+      let s2 := alloc.vec.Vec.deref v2
+      let s3 := alloc.vec.Vec.deref parts
+      let found1 ← path_rules.pattern_in s2 s3
+      let i2 ← i + 1#usize
+      ok (cont (found1, i2))
+    else ok (done false)
+
+/-- [protocol::path_rules::matches_any_pattern]: loop 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 104:4-107:5 -/
+@[rust_loop]
+def path_rules.matches_any_pattern_loop
+  (patterns : Slice (alloc.vec.Vec Std.U8))
+  (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (found : Bool) (i : Std.Usize)
+  :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => path_rules.matches_any_pattern_loop.body patterns
+      parts found1 i1)
+    (found, i)
+
+/-- [protocol::path_rules::matches_any_pattern]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 100:0-109:1 -/
+def path_rules.matches_any_pattern
+  (path : Slice Std.U8) (patterns : Slice (alloc.vec.Vec Std.U8)) :
+  Result Bool
+  := do
+  let v ← path_rules.lower_bytes path
+  let s := alloc.vec.Vec.deref v
+  let parts ← folder.split_parts s
+  path_rules.matches_any_pattern_loop patterns parts false 0#usize
+
+/-- [protocol::folder::is_dot_dot]:
+    Source: 'crates/protocol/src/folder.rs', lines 53:0-55:1 -/
+def folder.is_dot_dot (part : Slice Std.U8) : Result Bool := do
+  let i := Slice.len part
+  if i = 2#usize
+  then
+    let i1 ← Slice.index_usize part 0#usize
+    if i1 = 46#u8
+    then let i2 ← Slice.index_usize part 1#usize
+         ok (i2 = 46#u8)
+    else ok false
+  else ok false
+
+/-- [protocol::folder::is_dot]:
+    Source: 'crates/protocol/src/folder.rs', lines 49:0-51:1 -/
+def folder.is_dot (part : Slice Std.U8) : Result Bool := do
+  let i := Slice.len part
+  if i = 1#usize
+  then let i1 ← Slice.index_usize part 0#usize
+       ok (i1 = 46#u8)
+  else ok false
+
+/-- [protocol::path_rules::is_named_part]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 41:0-43:1 -/
+def path_rules.is_named_part (part : Slice Std.U8) : Result Bool := do
+  let b ← folder.is_dot part
+  if b
+  then ok false
+  else let b1 ← folder.is_dot_dot part
+       ok (¬ b1)
+
+/-- [protocol::path_rules::no_dot_parts]: loop body 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 48:4-51:5 -/
+@[rust_loop_body]
+def path_rules.no_dot_parts_loop.body
+  (parts : Slice (alloc.vec.Vec Std.U8)) (clean : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if clean
+  then
+    let i1 := Slice.len parts
+    if i < i1
+    then
+      let v ← Slice.index_usize parts i
+      let s := alloc.vec.Vec.deref v
+      let clean1 ← path_rules.is_named_part s
+      let i2 ← i + 1#usize
+      ok (cont (clean1, i2))
+    else ok (done true)
+  else ok (done false)
+
+/-- [protocol::path_rules::no_dot_parts]: loop 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 48:4-51:5 -/
+@[rust_loop]
+def path_rules.no_dot_parts_loop
+  (parts : Slice (alloc.vec.Vec Std.U8)) (clean : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (clean1, i1) => path_rules.no_dot_parts_loop.body parts clean1 i1)
+    (clean, i)
+
+/-- [protocol::path_rules::no_dot_parts]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 45:0-53:1 -/
+@[reducible]
+def path_rules.no_dot_parts
+  (parts : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  path_rules.no_dot_parts_loop parts true 0#usize
+
+/-- [protocol::path_rules::MAX_PATH]
+    Source: 'crates/protocol/src/path_rules.rs', lines 14:0-14:38
+    Visibility: public -/
+@[global_simps, irreducible]
+def path_rules.MAX_PATH : Std.Usize := 1048576#usize
+
 /-- [protocol::ascii::push_bytes]: loop body 0:
     Source: 'crates/protocol/src/ascii.rs', lines 5:4-8:5
     Visibility: public -/
@@ -57,6 +656,413 @@ def ascii.push_bytes
   Result (alloc.vec.Vec Std.U8)
   := do
   ascii.push_bytes_loop out bytes 0#usize
+
+/-- [protocol::folder::join]: loop body 0:
+    Source: 'crates/protocol/src/folder.rs', lines 138:4-142:5 -/
+@[rust_loop_body]
+def folder.join_loop.body
+  (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
+  (out : alloc.vec.Vec Std.U8) (j : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if j < depth
+  then
+    let out1 ← alloc.vec.Vec.push out folder.SLASH
+    let v ← Slice.index_usize stack j
+    let s := alloc.vec.Vec.deref v
+    let out2 ← ascii.push_bytes out1 s
+    let j1 ← j + 1#usize
+    ok (cont (out2, j1))
+  else ok (done out)
+
+/-- [protocol::folder::join]: loop 0:
+    Source: 'crates/protocol/src/folder.rs', lines 138:4-142:5 -/
+@[rust_loop]
+def folder.join_loop
+  (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
+  (out : alloc.vec.Vec Std.U8) (j : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, j1) => folder.join_loop.body stack depth out1 j1)
+    (out, j)
+
+/-- [protocol::folder::join]:
+    Source: 'crates/protocol/src/folder.rs', lines 135:0-144:1 -/
+@[reducible]
+def folder.join
+  (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  folder.join_loop stack depth (alloc.vec.Vec.new Std.U8) 0#usize
+
+/-- [protocol::path_rules::is_clean]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 56:0-62:1 -/
+def path_rules.is_clean (path : Slice Std.U8) : Result Bool := do
+  let i := Slice.len path
+  if i > path_rules.MAX_PATH
+  then ok false
+  else
+    let parts ← folder.split_parts path
+    let i1 := alloc.vec.Vec.len parts
+    if i1 > 0#usize
+    then
+      let s := alloc.vec.Vec.deref parts
+      let b ← path_rules.no_dot_parts s
+      if b
+      then
+        let s1 := alloc.vec.Vec.deref parts
+        let i2 := alloc.vec.Vec.len parts
+        let v ← folder.join s1 i2
+        let s2 := alloc.vec.Vec.deref v
+        ascii.bytes_equal s2 path
+      else ok false
+    else ok false
+
+/-- [protocol::folder::is_prefix]: loop body 0:
+    Source: 'crates/protocol/src/folder.rs', lines 118:4-121:5 -/
+@[rust_loop_body]
+def folder.is_prefix_loop.body
+  (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
+  (same : Bool) (j : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if same
+  then
+    let i := Slice.len root
+    if j < i
+    then
+      let v ← Slice.index_usize root j
+      let s := alloc.vec.Vec.deref v
+      let v1 ← Slice.index_usize stack j
+      let s1 := alloc.vec.Vec.deref v1
+      let same1 ← ascii.bytes_equal s s1
+      let j1 ← j + 1#usize
+      ok (cont (same1, j1))
+    else ok (done true)
+  else ok (done false)
+
+/-- [protocol::folder::is_prefix]: loop 0:
+    Source: 'crates/protocol/src/folder.rs', lines 118:4-121:5 -/
+@[rust_loop]
+def folder.is_prefix_loop
+  (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
+  (same : Bool) (j : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (same1, j1) => folder.is_prefix_loop.body root stack same1 j1)
+    (same, j)
+
+/-- [protocol::folder::is_prefix]:
+    Source: 'crates/protocol/src/folder.rs', lines 115:0-123:1 -/
+def folder.is_prefix
+  (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
+  (depth : Std.Usize) :
+  Result Bool
+  := do
+  let i := Slice.len root
+  folder.is_prefix_loop root stack (i <= depth) 0#usize
+
+/-- [protocol::folder::inside_any]: loop body 0:
+    Source: 'crates/protocol/src/folder.rs', lines 128:4-131:5 -/
+@[rust_loop_body]
+def folder.inside_any_loop.body
+  (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
+  (depth : Std.Usize) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len roots
+    if i < i1
+    then
+      let v ← Slice.index_usize roots i
+      let s := alloc.vec.Vec.deref v
+      let v1 ← folder.split_parts s
+      let s1 := alloc.vec.Vec.deref v1
+      let found1 ← folder.is_prefix s1 stack depth
+      let i2 ← i + 1#usize
+      ok (cont (found1, i2))
+    else ok (done false)
+
+/-- [protocol::folder::inside_any]: loop 0:
+    Source: 'crates/protocol/src/folder.rs', lines 128:4-131:5 -/
+@[rust_loop]
+def folder.inside_any_loop
+  (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
+  (depth : Std.Usize) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => folder.inside_any_loop.body roots stack depth found1
+      i1)
+    (found, i)
+
+/-- [protocol::folder::inside_any]:
+    Source: 'crates/protocol/src/folder.rs', lines 125:0-133:1 -/
+@[reducible]
+def folder.inside_any
+  (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
+  (depth : Std.Usize) :
+  Result Bool
+  := do
+  folder.inside_any_loop roots stack depth false 0#usize
+
+/-- [protocol::path_rules::path_allowed]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 116:0-126:1 -/
+def path_rules.path_allowed
+  (path : Slice Std.U8) (access : shell.Access) (policy : action.Policy) :
+  Result Bool
+  := do
+  let b ← path_rules.is_clean path
+  if b
+  then
+    let s := alloc.vec.Vec.deref policy.desktop_paths
+    let b1 ← path_rules.matches_any_pattern path s
+    if b1
+    then ok false
+    else
+      let parts ← folder.split_parts path
+      let b2 ←
+        shell.Access.Insts.CoreCmpPartialEqAccess.eq access shell.Access.Read
+      if b2
+      then
+        let s1 := alloc.vec.Vec.deref policy.roots
+        let s2 := alloc.vec.Vec.deref parts
+        let i := alloc.vec.Vec.len parts
+        folder.inside_any s1 s2 i
+      else
+        let s1 := alloc.vec.Vec.deref policy.chat
+        let v ← folder.split_parts s1
+        let s2 := alloc.vec.Vec.deref v
+        let s3 := alloc.vec.Vec.deref parts
+        let i := alloc.vec.Vec.len parts
+        let b3 ← folder.is_prefix s2 s3 i
+        if b3
+        then
+          let s4 := alloc.vec.Vec.deref policy.desktop_writes
+          let b4 ← path_rules.matches_any_pattern path s4
+          ok (¬ b4)
+        else ok false
+  else ok false
+
+/-- [protocol::path_rules::lower_all]: loop body 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 34:4-37:5 -/
+@[rust_loop_body]
+def path_rules.lower_all_loop.body
+  (list : Slice (alloc.vec.Vec Std.U8))
+  (out : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × Std.Usize)
+    (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  := do
+  let i1 := Slice.len list
+  if i < i1
+  then
+    let v ← Slice.index_usize list i
+    let s := alloc.vec.Vec.deref v
+    let v1 ← path_rules.lower_bytes s
+    let out1 ← alloc.vec.Vec.push out v1
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::path_rules::lower_all]: loop 0:
+    Source: 'crates/protocol/src/path_rules.rs', lines 34:4-37:5 -/
+@[rust_loop]
+def path_rules.lower_all_loop
+  (list : Slice (alloc.vec.Vec Std.U8))
+  (out : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  loop
+    (fun (out1, i1) => path_rules.lower_all_loop.body list out1 i1)
+    (out, i)
+
+/-- [protocol::path_rules::lower_all]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 31:0-39:1 -/
+@[reducible]
+def path_rules.lower_all
+  (list : Slice (alloc.vec.Vec Std.U8)) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  path_rules.lower_all_loop list (alloc.vec.Vec.new (alloc.vec.Vec Std.U8))
+    0#usize
+
+/-- [protocol::path_rules::is_denied]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 111:0-114:1 -/
+def path_rules.is_denied
+  (path : Slice Std.U8) (folders : Slice (alloc.vec.Vec Std.U8)) :
+  Result Bool
+  := do
+  let v ← path_rules.lower_bytes path
+  let s := alloc.vec.Vec.deref v
+  let parts ← folder.split_parts s
+  let v1 ← path_rules.lower_all folders
+  let s1 := alloc.vec.Vec.deref v1
+  let s2 := alloc.vec.Vec.deref parts
+  let i := alloc.vec.Vec.len parts
+  folder.inside_any s1 s2 i
+
+/-- [protocol::path_rules::path_verdict]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 128:0-137:1 -/
+def path_rules.path_verdict
+  (path : Slice Std.U8) (access : shell.Access) (policy : action.Policy) :
+  Result action.Verdict
+  := do
+  let s := alloc.vec.Vec.deref policy.deny_folders
+  let b ← path_rules.is_denied path s
+  if b
+  then ok action.Verdict.Deny
+  else
+    let b1 ← path_rules.path_allowed path access policy
+    if b1
+    then ok action.Verdict.Allow
+    else ok action.Verdict.Desktop
+
+/-- [protocol::action::paths_verdict]: loop body 0:
+    Source: 'crates/protocol/src/action.rs', lines 80:4-83:5 -/
+@[rust_loop_body]
+def action.paths_verdict_loop.body
+  (paths : Slice (alloc.vec.Vec Std.U8)) (access : shell.Access)
+  (policy : action.Policy) (v : action.Verdict) (i : Std.Usize) :
+  Result (ControlFlow (action.Verdict × Std.Usize) action.Verdict)
+  := do
+  let i1 := Slice.len paths
+  if i < i1
+  then
+    let v1 ← Slice.index_usize paths i
+    let s := alloc.vec.Vec.deref v1
+    let v2 ← path_rules.path_verdict s access policy
+    let v3 ← action.stricter v v2
+    let i2 ← i + 1#usize
+    ok (cont (v3, i2))
+  else ok (done v)
+
+/-- [protocol::action::paths_verdict]: loop 0:
+    Source: 'crates/protocol/src/action.rs', lines 80:4-83:5 -/
+@[rust_loop]
+def action.paths_verdict_loop
+  (paths : Slice (alloc.vec.Vec Std.U8)) (access : shell.Access)
+  (policy : action.Policy) (v : action.Verdict) (i : Std.Usize) :
+  Result action.Verdict
+  := do
+  loop
+    (fun (v1, i1) => action.paths_verdict_loop.body paths access policy v1 i1)
+    (v, i)
+
+/-- [protocol::action::paths_verdict]:
+    Source: 'crates/protocol/src/action.rs', lines 77:0-85:1 -/
+@[reducible]
+def action.paths_verdict
+  (paths : Slice (alloc.vec.Vec Std.U8)) (access : shell.Access)
+  (policy : action.Policy) :
+  Result action.Verdict
+  := do
+  action.paths_verdict_loop paths access policy action.Verdict.Allow 0#usize
+
+/-- [protocol::action::files_verdict]:
+    Source: 'crates/protocol/src/action.rs', lines 87:0-92:1 -/
+def action.files_verdict
+  (reads : Slice (alloc.vec.Vec Std.U8))
+  (writes : Slice (alloc.vec.Vec Std.U8)) (policy : action.Policy) :
+  Result action.Verdict
+  := do
+  let v ← action.paths_verdict reads shell.Access.Read policy
+  let v1 ← action.paths_verdict writes shell.Access.Write policy
+  action.stricter v v1
+
+/-- [protocol::path_rules::top_root]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 148:0-154:1 -/
+def path_rules.top_root : Result (alloc.vec.Vec (alloc.vec.Vec Std.U8)) := do
+  let slash ← alloc.vec.Vec.push (alloc.vec.Vec.new Std.U8) 47#u8
+  alloc.vec.Vec.push (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)) slash
+
+/-- [protocol::search::has_byte]: loop body 0:
+    Source: 'crates/protocol/src/search.rs', lines 49:4-52:5 -/
+@[rust_loop_body]
+def search.has_byte_loop.body
+  (bytes : Slice Std.U8) (b : Std.U8) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len bytes
+    if i < i1
+    then
+      let i2 ← Slice.index_usize bytes i
+      let i3 ← i + 1#usize
+      ok (cont (i2 = b, i3))
+    else ok (done false)
+
+/-- [protocol::search::has_byte]: loop 0:
+    Source: 'crates/protocol/src/search.rs', lines 49:4-52:5 -/
+@[rust_loop]
+def search.has_byte_loop
+  (bytes : Slice Std.U8) (b : Std.U8) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => search.has_byte_loop.body bytes b found1 i1)
+    (found, i)
+
+/-- [protocol::search::has_byte]:
+    Source: 'crates/protocol/src/search.rs', lines 46:0-54:1 -/
+@[reducible]
+def search.has_byte (bytes : Slice Std.U8) (b : Std.U8) : Result Bool := do
+  search.has_byte_loop bytes b false 0#usize
+
+/-- [protocol::path_rules::has_glob]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 139:0-141:1 -/
+def path_rules.has_glob (bytes : Slice Std.U8) : Result Bool := do
+  let b ← search.has_byte bytes 42#u8
+  if b
+  then ok true
+  else
+    let b1 ← search.has_byte bytes 63#u8
+    if b1
+    then ok true
+    else search.has_byte bytes 91#u8
+
+/-- [protocol::path_rules::is_literal_target]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 144:0-146:1 -/
+def path_rules.is_literal_target (target : Slice Std.U8) : Result Bool := do
+  let i := Slice.len target
+  if i > 0#usize
+  then
+    let i1 ← Slice.index_usize target 0#usize
+    if i1 != 126#u8
+    then let b ← path_rules.has_glob target
+         ok (¬ b)
+    else ok false
+  else ok false
+
+/-- [protocol::path_rules::DEV_NULL]
+    Source: 'crates/protocol/src/path_rules.rs', lines 17:0-17:40 -/
+@[global_simps, irreducible]
+def path_rules.DEV_NULL : Array Std.U8 9#usize :=
+  Array.make 9#usize [
+    47#u8, 100#u8, 101#u8, 118#u8, 47#u8, 110#u8, 117#u8, 108#u8, 108#u8
+    ]
+
+/-- [protocol::folder::put]:
+    Source: 'crates/protocol/src/folder.rs', lines 57:0-64:1 -/
+def folder.put
+  (stack : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
+  (part : alloc.vec.Vec Std.U8) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  let i := alloc.vec.Vec.len stack
+  if depth < i
+  then
+    let (_, index_mut_back) ←
+      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
+        (alloc.vec.Vec Std.U8)) stack depth
+    ok (index_mut_back part)
+  else alloc.vec.Vec.push stack part
 
 /-- [protocol::ascii::push_range]: loop body 0:
     Source: 'crates/protocol/src/ascii.rs', lines 14:4-17:5
@@ -100,6 +1106,2017 @@ def ascii.push_range
   := do
   ascii.push_range_loop out bytes «end» start
 
+/-- [protocol::ascii::copy_bytes]:
+    Source: 'crates/protocol/src/ascii.rs', lines 46:0-50:1 -/
+def ascii.copy_bytes
+  (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let i := Slice.len bytes
+  ascii.push_range (alloc.vec.Vec.new Std.U8) bytes 0#usize i
+
+/-- [protocol::folder::apply_part]:
+    Source: 'crates/protocol/src/folder.rs', lines 67:0-91:1 -/
+def folder.apply_part
+  (walk : folder.Walk) (part : Slice Std.U8) : Result folder.Walk := do
+  let b ← folder.is_dot part
+  if b
+  then ok walk
+  else
+    let b1 ← folder.is_dot_dot part
+    if b1
+    then
+      if walk.depth = 0#usize
+      then ok { walk with ok := false, depth := 0#usize }
+      else let i ← walk.depth - 1#usize
+           ok { walk with depth := i }
+    else
+      let v ← ascii.copy_bytes part
+      let v1 ← folder.put walk.stack walk.depth v
+      let i ← walk.depth + 1#usize
+      ok { walk with stack := v1, depth := i }
+
+/-- [protocol::folder::apply_all]: loop body 0:
+    Source: 'crates/protocol/src/folder.rs', lines 95:4-98:5 -/
+@[rust_loop_body]
+def folder.apply_all_loop.body
+  (parts : Slice (alloc.vec.Vec Std.U8)) (walk : folder.Walk) (i : Std.Usize) :
+  Result (ControlFlow (folder.Walk × Std.Usize) (Bool × (alloc.vec.Vec
+    (alloc.vec.Vec Std.U8)) × Std.Usize))
+  := do
+  if walk.ok
+  then
+    let i1 := Slice.len parts
+    if i < i1
+    then
+      let v ← Slice.index_usize parts i
+      let s := alloc.vec.Vec.deref v
+      let walk1 ← folder.apply_part walk s
+      let i2 ← i + 1#usize
+      ok (cont (walk1, i2))
+    else ok (done (true, walk.stack, walk.depth))
+  else ok (done (false, walk.stack, walk.depth))
+
+/-- [protocol::folder::apply_all]: loop 0:
+    Source: 'crates/protocol/src/folder.rs', lines 95:4-98:5 -/
+@[rust_loop]
+def folder.apply_all_loop
+  (walk : folder.Walk) (parts : Slice (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
+  Result (Bool × (alloc.vec.Vec (alloc.vec.Vec Std.U8)) × Std.Usize)
+  := do
+  loop
+    (fun (walk1, i1) => folder.apply_all_loop.body parts walk1 i1)
+    (walk, i)
+
+/-- [protocol::folder::apply_all]:
+    Source: 'crates/protocol/src/folder.rs', lines 93:0-100:1 -/
+def folder.apply_all
+  (walk : folder.Walk) (parts : Slice (alloc.vec.Vec Std.U8)) :
+  Result folder.Walk
+  := do
+  let (b, v, i) ← folder.apply_all_loop walk parts 0#usize
+  ok { ok := b, stack := v, depth := i }
+
+/-- [protocol::folder::start]:
+    Source: 'crates/protocol/src/folder.rs', lines 102:0-113:1 -/
+def folder.start
+  (base : Slice Std.U8) (request : Slice Std.U8) : Result folder.Walk := do
+  let i := Slice.len request
+  if i > 0#usize
+  then
+    let i1 ← Slice.index_usize request 0#usize
+    if i1 = folder.SLASH
+    then
+      ok
+        {
+          ok := true,
+          stack := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
+          depth := 0#usize
+        }
+    else
+      let v ← folder.split_parts base
+      let s := alloc.vec.Vec.deref v
+      folder.apply_all
+        {
+          ok := true,
+          stack := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
+          depth := 0#usize
+        } s
+  else
+    let v ← folder.split_parts base
+    let s := alloc.vec.Vec.deref v
+    folder.apply_all
+      {
+        ok := true,
+        stack := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
+        depth := 0#usize
+      } s
+
+/-- [protocol::folder::resolve_folder]:
+    Source: 'crates/protocol/src/folder.rs', lines 149:0-155:1
+    Visibility: public -/
+def folder.resolve_folder
+  (roots : Slice (alloc.vec.Vec Std.U8)) (base : Slice Std.U8)
+  (request : Slice Std.U8) :
+  Result (Option (alloc.vec.Vec Std.U8))
+  := do
+  let w ← folder.start base request
+  let v ← folder.split_parts request
+  let s := alloc.vec.Vec.deref v
+  let walk ← folder.apply_all w s
+  if walk.ok
+  then
+    if walk.depth = 0#usize
+    then ok none
+    else
+      let s1 := alloc.vec.Vec.deref walk.stack
+      let b ← folder.inside_any roots s1 walk.depth
+      if b
+      then
+        let s2 := alloc.vec.Vec.deref walk.stack
+        let v1 ← folder.join s2 walk.depth
+        ok (some v1)
+      else ok none
+  else ok none
+
+/-- [protocol::path_rules::target_verdict]:
+    Source: 'crates/protocol/src/path_rules.rs', lines 157:0-173:1 -/
+def path_rules.target_verdict
+  (target : Slice Std.U8) (access : shell.Access) (cwd : Slice Std.U8)
+  (policy : action.Policy) :
+  Result action.Verdict
+  := do
+  let s ← lift (Array.to_slice path_rules.DEV_NULL)
+  let b ← ascii.bytes_equal target s
+  if b
+  then ok action.Verdict.Allow
+  else
+    let b1 ← path_rules.is_literal_target target
+    if b1
+    then
+      let i := Slice.len cwd
+      if i > path_rules.MAX_PATH
+      then ok action.Verdict.Desktop
+      else
+        let i1 := Slice.len target
+        let i2 := Slice.len cwd
+        let i3 ← path_rules.MAX_PATH - i2
+        if i1 > i3
+        then ok action.Verdict.Desktop
+        else
+          let v ← path_rules.top_root
+          let s1 := alloc.vec.Vec.deref v
+          let o ← folder.resolve_folder s1 cwd target
+          match o with
+          | none => ok action.Verdict.Desktop
+          | some path =>
+            let s2 := alloc.vec.Vec.deref path
+            path_rules.path_verdict s2 access policy
+    else ok action.Verdict.Desktop
+
+/-- [protocol::action::redirects_verdict]: loop body 0:
+    Source: 'crates/protocol/src/action.rs', lines 97:4-101:5 -/
+@[rust_loop_body]
+def action.redirects_verdict_loop.body
+  (redirects : Slice shell.Redirect) (cwd : Slice Std.U8)
+  (policy : action.Policy) (v : action.Verdict) (i : Std.Usize) :
+  Result (ControlFlow (action.Verdict × Std.Usize) action.Verdict)
+  := do
+  let i1 := Slice.len redirects
+  if i < i1
+  then
+    let r ← Slice.index_usize redirects i
+    let s := alloc.vec.Vec.deref r.target
+    let v1 ← path_rules.target_verdict s r.access cwd policy
+    let v2 ← action.stricter v v1
+    let i2 ← i + 1#usize
+    ok (cont (v2, i2))
+  else ok (done v)
+
+/-- [protocol::action::redirects_verdict]: loop 0:
+    Source: 'crates/protocol/src/action.rs', lines 97:4-101:5 -/
+@[rust_loop]
+def action.redirects_verdict_loop
+  (redirects : Slice shell.Redirect) (cwd : Slice Std.U8)
+  (policy : action.Policy) (v : action.Verdict) (i : Std.Usize) :
+  Result action.Verdict
+  := do
+  loop
+    (fun (v1, i1) => action.redirects_verdict_loop.body redirects cwd policy v1
+      i1)
+    (v, i)
+
+/-- [protocol::action::redirects_verdict]:
+    Source: 'crates/protocol/src/action.rs', lines 94:0-103:1 -/
+@[reducible]
+def action.redirects_verdict
+  (redirects : Slice shell.Redirect) (cwd : Slice Std.U8)
+  (policy : action.Policy) :
+  Result action.Verdict
+  := do
+  action.redirects_verdict_loop redirects cwd policy action.Verdict.Allow
+    0#usize
+
+/-- [protocol::command_rules::rule_matches]: loop body 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 183:4-186:5 -/
+@[rust_loop_body]
+def command_rules.rule_matches_loop.body
+  (rule : Slice (alloc.vec.Vec Std.U8)) (words : Slice (alloc.vec.Vec Std.U8))
+  (same : Bool) (k : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if same
+  then
+    let i := Slice.len rule
+    if k < i
+    then
+      let v ← Slice.index_usize rule k
+      let s := alloc.vec.Vec.deref v
+      let v1 ← Slice.index_usize words k
+      let s1 := alloc.vec.Vec.deref v1
+      let same1 ← ascii.bytes_equal s s1
+      let k1 ← k + 1#usize
+      ok (cont (same1, k1))
+    else ok (done true)
+  else ok (done false)
+
+/-- [protocol::command_rules::rule_matches]: loop 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 183:4-186:5 -/
+@[rust_loop]
+def command_rules.rule_matches_loop
+  (rule : Slice (alloc.vec.Vec Std.U8)) (words : Slice (alloc.vec.Vec Std.U8))
+  (same : Bool) (k : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (same1, k1) => command_rules.rule_matches_loop.body rule words same1
+      k1)
+    (same, k)
+
+/-- [protocol::command_rules::rule_matches]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 177:0-188:1 -/
+def command_rules.rule_matches
+  (rule : Slice (alloc.vec.Vec Std.U8)) (words : Slice (alloc.vec.Vec Std.U8))
+  :
+  Result Bool
+  := do
+  let i := Slice.len rule
+  if i = 0#usize
+  then ok false
+  else
+    let i1 := Slice.len rule
+    let i2 := Slice.len words
+    if i1 > i2
+    then ok false
+    else command_rules.rule_matches_loop rule words true 0#usize
+
+/-- [protocol::command_rules::matches_any]: loop body 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 193:4-196:5 -/
+@[rust_loop_body]
+def command_rules.matches_any_loop.body
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  (words : Slice (alloc.vec.Vec Std.U8)) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len rules
+    if i < i1
+    then
+      let v ← Slice.index_usize rules i
+      let s := alloc.vec.Vec.deref v
+      let found1 ← command_rules.rule_matches s words
+      let i2 ← i + 1#usize
+      ok (cont (found1, i2))
+    else ok (done false)
+
+/-- [protocol::command_rules::matches_any]: loop 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 193:4-196:5 -/
+@[rust_loop]
+def command_rules.matches_any_loop
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  (words : Slice (alloc.vec.Vec Std.U8)) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => command_rules.matches_any_loop.body rules words found1
+      i1)
+    (found, i)
+
+/-- [protocol::command_rules::matches_any]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 190:0-198:1 -/
+@[reducible]
+def command_rules.matches_any
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  (words : Slice (alloc.vec.Vec Std.U8)) :
+  Result Bool
+  := do
+  command_rules.matches_any_loop rules words false 0#usize
+
+/-- [protocol::command_rules::is_covered]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 200:0-202:1 -/
+def command_rules.is_covered
+  (words : Slice (alloc.vec.Vec Std.U8)) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
+  :
+  Result Bool
+  := do
+  let s := alloc.vec.Vec.deref policy.allow
+  let b ← command_rules.matches_any s words
+  if b
+  then ok true
+  else
+    let b1 ←
+      action.Cover.Insts.CoreCmpPartialEqCover.eq cover action.Cover.Every
+    if b1
+    then ok true
+    else command_rules.matches_any rules words
+
+/-- [protocol::shell::{impl core::cmp::PartialEq<protocol::shell::Link> for protocol::shell::Link}::eq]:
+    Source: 'crates/protocol/src/shell.rs', lines 27:22-27:31
+    Visibility: public -/
+def shell.Link.Insts.CoreCmpPartialEqLink.eq
+  (self : shell.Link) (other : shell.Link) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- [protocol::search::contains]: loop body 0:
+    Source: 'crates/protocol/src/search.rs', lines 25:4-28:5 -/
+@[rust_loop_body]
+def search.contains_loop.body
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (last : Std.Usize)
+  (found : Bool) («at» : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    if «at» <= last
+    then
+      let i := Slice.len needle
+      let found1 ← search.equal_run hay «at» needle i
+      let at1 ← «at» + 1#usize
+      ok (cont (found1, at1))
+    else ok (done false)
+
+/-- [protocol::search::contains]: loop 0:
+    Source: 'crates/protocol/src/search.rs', lines 25:4-28:5 -/
+@[rust_loop]
+def search.contains_loop
+  (hay : Slice Std.U8) (needle : Slice Std.U8) (last : Std.Usize)
+  (found : Bool) («at» : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, at1) => search.contains_loop.body hay needle last found1 at1)
+    (found, «at»)
+
+/-- [protocol::search::contains]:
+    Source: 'crates/protocol/src/search.rs', lines 18:0-30:1 -/
+def search.contains
+  (hay : Slice Std.U8) (needle : Slice Std.U8) : Result Bool := do
+  let i := Slice.len needle
+  let i1 := Slice.len hay
+  if i > i1
+  then ok false
+  else
+    let i2 := Slice.len hay
+    let i3 := Slice.len needle
+    let last ← i2 - i3
+    search.contains_loop hay needle last false 0#usize
+
+/-- [protocol::search::SPACE]
+    Source: 'crates/protocol/src/search.rs', lines 5:0-5:23 -/
+@[global_simps, irreducible] def search.SPACE : Std.U8 := 32#u8
+
+/-- [protocol::search::listed]:
+    Source: 'crates/protocol/src/search.rs', lines 34:0-44:1 -/
+def search.listed
+  (names : Slice Std.U8) («name» : Slice Std.U8) : Result Bool := do
+  let i := Slice.len «name»
+  let i1 := Slice.len names
+  if i >= i1
+  then ok false
+  else
+    let needle ← alloc.vec.Vec.push (alloc.vec.Vec.new Std.U8) search.SPACE
+    let needle1 ← ascii.push_bytes needle «name»
+    let needle2 ← alloc.vec.Vec.push needle1 search.SPACE
+    let s := alloc.vec.Vec.deref needle2
+    search.contains names s
+
+/-- [protocol::command_rules::starts_with]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 96:0-98:1 -/
+def command_rules.starts_with
+  (word : Slice Std.U8) (b : Std.U8) : Result Bool := do
+  let i := Slice.len word
+  if i > 0#usize
+  then let i1 ← Slice.index_usize word 0#usize
+       ok (i1 = b)
+  else ok false
+
+/-- [protocol::command_rules::is_short_flags]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 101:0-103:1 -/
+def command_rules.is_short_flags (word : Slice Std.U8) : Result Bool := do
+  let b ← command_rules.starts_with word 45#u8
+  if b
+  then
+    let i := Slice.len word
+    let b1 ←
+      if i > 1#usize
+      then do
+           let i1 ← Slice.index_usize word 1#usize
+           ok (i1 = 45#u8)
+      else ok false
+    ok (¬ b1)
+  else ok false
+
+/-- [protocol::command_rules::flag_of]: loop body 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 89:4-92:5 -/
+@[rust_loop_body]
+def command_rules.flag_of_loop.body
+  (word : Slice Std.U8) (flag : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len word
+  if i < i1
+  then
+    let i2 ← Slice.index_usize word i
+    if i2 != 61#u8
+    then
+      let flag1 ← alloc.vec.Vec.push flag i2
+      let i3 ← i + 1#usize
+      ok (cont (flag1, i3))
+    else ok (done flag)
+  else ok (done flag)
+
+/-- [protocol::command_rules::flag_of]: loop 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 89:4-92:5 -/
+@[rust_loop]
+def command_rules.flag_of_loop
+  (word : Slice Std.U8) (flag : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (flag1, i1) => command_rules.flag_of_loop.body word flag1 i1)
+    (flag, i)
+
+/-- [protocol::command_rules::flag_of]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 86:0-94:1 -/
+@[reducible]
+def command_rules.flag_of
+  (word : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  command_rules.flag_of_loop word (alloc.vec.Vec.new Std.U8) 0#usize
+
+/-- [protocol::command_rules::GIT_FORCE]
+    Source: 'crates/protocol/src/command_rules.rs', lines 33:0-33:97 -/
+@[global_simps, irreducible]
+def command_rules.GIT_FORCE : Array Std.U8 64#usize :=
+  Array.make 64#usize [
+    32#u8, 45#u8, 45#u8, 102#u8, 111#u8, 114#u8, 99#u8, 101#u8, 32#u8, 45#u8,
+    45#u8, 102#u8, 111#u8, 114#u8, 99#u8, 101#u8, 45#u8, 119#u8, 105#u8,
+    116#u8, 104#u8, 45#u8, 108#u8, 101#u8, 97#u8, 115#u8, 101#u8, 32#u8, 45#u8,
+    45#u8, 102#u8, 111#u8, 114#u8, 99#u8, 101#u8, 45#u8, 105#u8, 102#u8, 45#u8,
+    105#u8, 110#u8, 99#u8, 108#u8, 117#u8, 100#u8, 101#u8, 115#u8, 32#u8,
+    45#u8, 45#u8, 104#u8, 97#u8, 114#u8, 100#u8, 32#u8, 45#u8, 45#u8, 109#u8,
+    105#u8, 114#u8, 114#u8, 111#u8, 114#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::is_git_force]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 110:0-114:1 -/
+def command_rules.is_git_force (word : Slice Std.U8) : Result Bool := do
+  let s ← lift (Array.to_slice command_rules.GIT_FORCE)
+  let v ← command_rules.flag_of word
+  let s1 := alloc.vec.Vec.deref v
+  let b ← search.listed s s1
+  if b
+  then ok true
+  else
+    let b1 ← command_rules.starts_with word 43#u8
+    if b1
+    then ok true
+    else
+      let b2 ← command_rules.is_short_flags word
+      if b2
+      then search.has_byte word 102#u8
+      else ok false
+
+/-- [protocol::command_rules::is_recursive]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 105:0-107:1 -/
+def command_rules.is_recursive (word : Slice Std.U8) : Result Bool := do
+  let b ← command_rules.starts_with word 45#u8
+  if b
+  then
+    let b1 ← search.has_byte word 114#u8
+    if b1
+    then ok true
+    else search.has_byte word 82#u8
+  else ok false
+
+/-- [protocol::command_rules::DOT_EXE]
+    Source: 'crates/protocol/src/command_rules.rs', lines 40:0-40:34 -/
+@[global_simps, irreducible]
+def command_rules.DOT_EXE : Array Std.U8 4#usize :=
+  Array.make 4#usize [ 46#u8, 101#u8, 120#u8, 101#u8 ]
+
+/-- [protocol::command_rules::without_exe]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 66:0-74:1 -/
+def command_rules.without_exe
+  («name» : alloc.vec.Vec Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let n := alloc.vec.Vec.len «name»
+  let s ← lift (Array.to_slice command_rules.DOT_EXE)
+  let i := Slice.len s
+  if n < i
+  then ok «name»
+  else
+    let s1 := alloc.vec.Vec.deref «name»
+    let s2 ← lift (Array.to_slice command_rules.DOT_EXE)
+    let i1 := Slice.len s2
+    let i2 ← n - i1
+    let s3 ← lift (Array.to_slice command_rules.DOT_EXE)
+    let s4 ← lift (Array.to_slice command_rules.DOT_EXE)
+    let i3 := Slice.len s4
+    let b ← search.equal_run s1 i2 s3 i3
+    if b
+    then
+      let s5 := alloc.vec.Vec.deref «name»
+      let s6 ← lift (Array.to_slice command_rules.DOT_EXE)
+      let i4 := Slice.len s6
+      let i5 ← n - i4
+      ascii.push_range (alloc.vec.Vec.new Std.U8) s5 0#usize i5
+    else ok «name»
+
+/-- [protocol::command_rules::name_step]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 58:0-64:1 -/
+def command_rules.name_step
+  («name» : alloc.vec.Vec Std.U8) (b : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  if b = 47#u8
+  then ok (alloc.vec.Vec.new Std.U8)
+  else
+    if b = 92#u8
+    then ok (alloc.vec.Vec.new Std.U8)
+    else let i ← ascii.to_lower b
+         alloc.vec.Vec.push «name» i
+
+/-- [protocol::command_rules::name_of]: loop body 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 79:4-82:5 -/
+@[rust_loop_body]
+def command_rules.name_of_loop.body
+  (word : Slice Std.U8) («name» : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len word
+  if i < i1
+  then
+    let i2 ← Slice.index_usize word i
+    let name1 ← command_rules.name_step «name» i2
+    let i3 ← i + 1#usize
+    ok (cont (name1, i3))
+  else ok (done «name»)
+
+/-- [protocol::command_rules::name_of]: loop 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 79:4-82:5 -/
+@[rust_loop]
+def command_rules.name_of_loop
+  (word : Slice Std.U8) («name» : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (name1, i1) => command_rules.name_of_loop.body word name1 i1)
+    («name», i)
+
+/-- [protocol::command_rules::name_of]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 76:0-84:1 -/
+def command_rules.name_of
+  (word : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let «name» ←
+    command_rules.name_of_loop word (alloc.vec.Vec.new Std.U8) 0#usize
+  command_rules.without_exe «name»
+
+/-- [protocol::command_rules::word_passes]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 116:0-123:1 -/
+def command_rules.word_passes
+  (word : Slice Std.U8) (test : command_rules.Test) (names : Slice Std.U8) :
+  Result Bool
+  := do
+  match test with
+  | command_rules.Test.Name =>
+    let v ← command_rules.name_of word
+    let s := alloc.vec.Vec.deref v
+    search.listed names s
+  | command_rules.Test.Flag =>
+    let v ← command_rules.flag_of word
+    let s := alloc.vec.Vec.deref v
+    search.listed names s
+  | command_rules.Test.Recursive => command_rules.is_recursive word
+  | command_rules.Test.GitForce => command_rules.is_git_force word
+
+/-- [protocol::command_rules::any_word]: loop body 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 128:4-131:5 -/
+@[rust_loop_body]
+def command_rules.any_word_loop.body
+  (words : Slice (alloc.vec.Vec Std.U8)) (test : command_rules.Test)
+  (names : Slice Std.U8) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len words
+    if i < i1
+    then
+      let v ← Slice.index_usize words i
+      let s := alloc.vec.Vec.deref v
+      let found1 ← command_rules.word_passes s test names
+      let i2 ← i + 1#usize
+      ok (cont (found1, i2))
+    else ok (done false)
+
+/-- [protocol::command_rules::any_word]: loop 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 128:4-131:5 -/
+@[rust_loop]
+def command_rules.any_word_loop
+  (words : Slice (alloc.vec.Vec Std.U8)) (test : command_rules.Test)
+  (names : Slice Std.U8) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => command_rules.any_word_loop.body words test names
+      found1 i1)
+    (found, i)
+
+/-- [protocol::command_rules::any_word]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 125:0-133:1 -/
+@[reducible]
+def command_rules.any_word
+  (words : Slice (alloc.vec.Vec Std.U8)) (test : command_rules.Test)
+  (names : Slice Std.U8) :
+  Result Bool
+  := do
+  command_rules.any_word_loop words test names false 0#usize
+
+/-- [protocol::command_rules::SHELLS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 20:0-20:83 -/
+@[global_simps, irreducible]
+def command_rules.SHELLS : Array Std.U8 53#usize :=
+  Array.make 53#usize [
+    32#u8, 115#u8, 104#u8, 32#u8, 98#u8, 97#u8, 115#u8, 104#u8, 32#u8, 122#u8,
+    115#u8, 104#u8, 32#u8, 100#u8, 97#u8, 115#u8, 104#u8, 32#u8, 107#u8,
+    115#u8, 104#u8, 32#u8, 109#u8, 107#u8, 115#u8, 104#u8, 32#u8, 102#u8,
+    105#u8, 115#u8, 104#u8, 32#u8, 99#u8, 115#u8, 104#u8, 32#u8, 116#u8, 99#u8,
+    115#u8, 104#u8, 32#u8, 97#u8, 115#u8, 104#u8, 32#u8, 98#u8, 117#u8, 115#u8,
+    121#u8, 98#u8, 111#u8, 120#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::DESKTOP_NAMES]
+    Source: 'crates/protocol/src/command_rules.rs', lines 17:0-18:93 -/
+@[global_simps, irreducible]
+def command_rules.DESKTOP_NAMES : Array Std.U8 84#usize :=
+  Array.make 84#usize [
+    32#u8, 101#u8, 118#u8, 97#u8, 108#u8, 32#u8, 115#u8, 117#u8, 100#u8,
+    111#u8, 32#u8, 115#u8, 117#u8, 100#u8, 111#u8, 101#u8, 100#u8, 105#u8,
+    116#u8, 32#u8, 100#u8, 111#u8, 97#u8, 115#u8, 32#u8, 115#u8, 117#u8, 32#u8,
+    112#u8, 107#u8, 101#u8, 120#u8, 101#u8, 99#u8, 32#u8, 114#u8, 117#u8,
+    110#u8, 48#u8, 32#u8, 103#u8, 115#u8, 117#u8, 100#u8, 111#u8, 32#u8,
+    114#u8, 117#u8, 110#u8, 97#u8, 115#u8, 32#u8, 99#u8, 109#u8, 100#u8, 32#u8,
+    99#u8, 111#u8, 109#u8, 109#u8, 97#u8, 110#u8, 100#u8, 46#u8, 99#u8, 111#u8,
+    109#u8, 32#u8, 112#u8, 111#u8, 119#u8, 101#u8, 114#u8, 115#u8, 104#u8,
+    101#u8, 108#u8, 108#u8, 32#u8, 112#u8, 119#u8, 115#u8, 104#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::is_desktop]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 170:0-173:1 -/
+def command_rules.is_desktop (simple : shell.Simple) : Result Bool := do
+  let s := alloc.vec.Vec.deref simple.words
+  let s1 ← lift (Array.to_slice command_rules.DESKTOP_NAMES)
+  let b ← command_rules.any_word s command_rules.Test.Name s1
+  if b
+  then ok true
+  else
+    let b1 ←
+      shell.Link.Insts.CoreCmpPartialEqLink.eq simple.link shell.Link.Pipe
+    if b1
+    then
+      let s2 := alloc.vec.Vec.deref simple.words
+      let s3 ← lift (Array.to_slice command_rules.SHELLS)
+      command_rules.any_word s2 command_rules.Test.Name s3
+    else ok false
+
+/-- [protocol::command_rules::NETWORK]
+    Source: 'crates/protocol/src/command_rules.rs', lines 21:0-22:100 -/
+@[global_simps, irreducible]
+def command_rules.NETWORK : Array Std.U8 91#usize :=
+  Array.make 91#usize [
+    32#u8, 99#u8, 117#u8, 114#u8, 108#u8, 32#u8, 119#u8, 103#u8, 101#u8,
+    116#u8, 32#u8, 110#u8, 99#u8, 32#u8, 110#u8, 99#u8, 97#u8, 116#u8, 32#u8,
+    110#u8, 101#u8, 116#u8, 99#u8, 97#u8, 116#u8, 32#u8, 115#u8, 111#u8, 99#u8,
+    97#u8, 116#u8, 32#u8, 115#u8, 115#u8, 104#u8, 32#u8, 115#u8, 99#u8, 112#u8,
+    32#u8, 115#u8, 102#u8, 116#u8, 112#u8, 32#u8, 114#u8, 115#u8, 121#u8,
+    110#u8, 99#u8, 32#u8, 102#u8, 116#u8, 112#u8, 32#u8, 116#u8, 102#u8,
+    116#u8, 112#u8, 32#u8, 116#u8, 101#u8, 108#u8, 110#u8, 101#u8, 116#u8,
+    32#u8, 97#u8, 114#u8, 105#u8, 97#u8, 50#u8, 99#u8, 32#u8, 108#u8, 102#u8,
+    116#u8, 112#u8, 32#u8, 109#u8, 111#u8, 115#u8, 104#u8, 32#u8, 114#u8,
+    99#u8, 108#u8, 111#u8, 110#u8, 101#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::is_network]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 157:0-159:1 -/
+def command_rules.is_network
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let s ← lift (Array.to_slice command_rules.NETWORK)
+  command_rules.any_word words command_rules.Test.Name s
+
+/-- [protocol::command_rules::head_assigns]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 145:0-147:1 -/
+def command_rules.head_assigns
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let i := Slice.len words
+  if i > 0#usize
+  then
+    let v ← Slice.index_usize words 0#usize
+    let s := alloc.vec.Vec.deref v
+    search.has_byte s 61#u8
+  else ok false
+
+/-- [protocol::command_rules::head_listed]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 139:0-141:1 -/
+def command_rules.head_listed
+  (words : Slice (alloc.vec.Vec Std.U8)) (names : Slice Std.U8) :
+  Result Bool
+  := do
+  let i := Slice.len words
+  if i > 0#usize
+  then
+    let v ← Slice.index_usize words 0#usize
+    let s := alloc.vec.Vec.deref v
+    let v1 ← command_rules.name_of s
+    let s1 := alloc.vec.Vec.deref v1
+    search.listed names s1
+  else ok false
+
+/-- [protocol::command_rules::head_is]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 135:0-137:1 -/
+def command_rules.head_is
+  (words : Slice (alloc.vec.Vec Std.U8)) («name» : Slice Std.U8) :
+  Result Bool
+  := do
+  let i := Slice.len words
+  if i > 0#usize
+  then
+    let v ← Slice.index_usize words 0#usize
+    let s := alloc.vec.Vec.deref v
+    let v1 ← command_rules.name_of s
+    let s1 := alloc.vec.Vec.deref v1
+    ascii.bytes_equal s1 «name»
+  else ok false
+
+/-- [protocol::command_rules::FIND]
+    Source: 'crates/protocol/src/command_rules.rs', lines 39:0-39:31 -/
+@[global_simps, irreducible]
+def command_rules.FIND : Array Std.U8 4#usize :=
+  Array.make 4#usize [ 102#u8, 105#u8, 110#u8, 100#u8 ]
+
+/-- [protocol::command_rules::GIT]
+    Source: 'crates/protocol/src/command_rules.rs', lines 38:0-38:29 -/
+@[global_simps, irreducible]
+def command_rules.GIT : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 103#u8, 105#u8, 116#u8 ]
+
+/-- [protocol::command_rules::FIND_RUNS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 34:0-34:68 -/
+@[global_simps, irreducible]
+def command_rules.FIND_RUNS : Array Std.U8 35#usize :=
+  Array.make 35#usize [
+    32#u8, 45#u8, 101#u8, 120#u8, 101#u8, 99#u8, 32#u8, 45#u8, 101#u8, 120#u8,
+    101#u8, 99#u8, 100#u8, 105#u8, 114#u8, 32#u8, 45#u8, 111#u8, 107#u8, 32#u8,
+    45#u8, 111#u8, 107#u8, 100#u8, 105#u8, 114#u8, 32#u8, 45#u8, 100#u8,
+    101#u8, 108#u8, 101#u8, 116#u8, 101#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::GIT_RUNS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 31:0-32:84 -/
+@[global_simps, irreducible]
+def command_rules.GIT_RUNS : Array Std.U8 75#usize :=
+  Array.make 75#usize [
+    32#u8, 45#u8, 99#u8, 32#u8, 45#u8, 45#u8, 99#u8, 111#u8, 110#u8, 102#u8,
+    105#u8, 103#u8, 45#u8, 101#u8, 110#u8, 118#u8, 32#u8, 45#u8, 45#u8, 101#u8,
+    120#u8, 101#u8, 99#u8, 45#u8, 112#u8, 97#u8, 116#u8, 104#u8, 32#u8, 45#u8,
+    45#u8, 117#u8, 112#u8, 108#u8, 111#u8, 97#u8, 100#u8, 45#u8, 112#u8, 97#u8,
+    99#u8, 107#u8, 32#u8, 45#u8, 45#u8, 114#u8, 101#u8, 99#u8, 101#u8, 105#u8,
+    118#u8, 101#u8, 45#u8, 112#u8, 97#u8, 99#u8, 107#u8, 32#u8, 45#u8, 45#u8,
+    101#u8, 120#u8, 101#u8, 99#u8, 32#u8, 45#u8, 120#u8, 32#u8, 99#u8, 111#u8,
+    110#u8, 102#u8, 105#u8, 103#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::HEAD_RUNNERS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 28:0-28:140 -/
+@[global_simps, irreducible]
+def command_rules.HEAD_RUNNERS : Array Std.U8 103#usize :=
+  Array.make 103#usize [
+    32#u8, 46#u8, 32#u8, 115#u8, 111#u8, 117#u8, 114#u8, 99#u8, 101#u8, 32#u8,
+    99#u8, 111#u8, 109#u8, 109#u8, 97#u8, 110#u8, 100#u8, 32#u8, 98#u8, 117#u8,
+    105#u8, 108#u8, 116#u8, 105#u8, 110#u8, 32#u8, 101#u8, 110#u8, 97#u8,
+    98#u8, 108#u8, 101#u8, 32#u8, 116#u8, 114#u8, 97#u8, 112#u8, 32#u8, 101#u8,
+    120#u8, 112#u8, 111#u8, 114#u8, 116#u8, 32#u8, 100#u8, 101#u8, 99#u8,
+    108#u8, 97#u8, 114#u8, 101#u8, 32#u8, 116#u8, 121#u8, 112#u8, 101#u8,
+    115#u8, 101#u8, 116#u8, 32#u8, 108#u8, 111#u8, 99#u8, 97#u8, 108#u8, 32#u8,
+    114#u8, 101#u8, 97#u8, 100#u8, 111#u8, 110#u8, 108#u8, 121#u8, 32#u8,
+    115#u8, 101#u8, 116#u8, 32#u8, 117#u8, 110#u8, 115#u8, 101#u8, 116#u8,
+    32#u8, 115#u8, 104#u8, 111#u8, 112#u8, 116#u8, 32#u8, 97#u8, 108#u8,
+    105#u8, 97#u8, 115#u8, 32#u8, 104#u8, 97#u8, 115#u8, 104#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::RUNNERS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 25:0-25:429 -/
+@[global_simps, irreducible]
+def command_rules.RUNNERS : Array Std.U8 397#usize :=
+  Array.make 397#usize [
+    32#u8, 120#u8, 97#u8, 114#u8, 103#u8, 115#u8, 32#u8, 101#u8, 110#u8,
+    118#u8, 32#u8, 101#u8, 120#u8, 101#u8, 99#u8, 32#u8, 110#u8, 111#u8,
+    104#u8, 117#u8, 112#u8, 32#u8, 116#u8, 105#u8, 109#u8, 101#u8, 32#u8,
+    116#u8, 105#u8, 109#u8, 101#u8, 111#u8, 117#u8, 116#u8, 32#u8, 110#u8,
+    105#u8, 99#u8, 101#u8, 32#u8, 105#u8, 111#u8, 110#u8, 105#u8, 99#u8,
+    101#u8, 32#u8, 115#u8, 101#u8, 116#u8, 115#u8, 105#u8, 100#u8, 32#u8,
+    115#u8, 116#u8, 100#u8, 98#u8, 117#u8, 102#u8, 32#u8, 119#u8, 97#u8,
+    116#u8, 99#u8, 104#u8, 32#u8, 112#u8, 97#u8, 114#u8, 97#u8, 108#u8, 108#u8,
+    101#u8, 108#u8, 32#u8, 102#u8, 108#u8, 111#u8, 99#u8, 107#u8, 32#u8,
+    115#u8, 99#u8, 114#u8, 105#u8, 112#u8, 116#u8, 32#u8, 115#u8, 116#u8,
+    114#u8, 97#u8, 99#u8, 101#u8, 32#u8, 108#u8, 116#u8, 114#u8, 97#u8, 99#u8,
+    101#u8, 32#u8, 118#u8, 97#u8, 108#u8, 103#u8, 114#u8, 105#u8, 110#u8,
+    100#u8, 32#u8, 103#u8, 100#u8, 98#u8, 32#u8, 117#u8, 110#u8, 115#u8,
+    104#u8, 97#u8, 114#u8, 101#u8, 32#u8, 110#u8, 115#u8, 101#u8, 110#u8,
+    116#u8, 101#u8, 114#u8, 32#u8, 99#u8, 104#u8, 114#u8, 111#u8, 111#u8,
+    116#u8, 32#u8, 116#u8, 97#u8, 115#u8, 107#u8, 115#u8, 101#u8, 116#u8,
+    32#u8, 110#u8, 117#u8, 109#u8, 97#u8, 99#u8, 116#u8, 108#u8, 32#u8, 102#u8,
+    105#u8, 114#u8, 101#u8, 106#u8, 97#u8, 105#u8, 108#u8, 32#u8, 98#u8,
+    119#u8, 114#u8, 97#u8, 112#u8, 32#u8, 114#u8, 117#u8, 110#u8, 117#u8,
+    115#u8, 101#u8, 114#u8, 32#u8, 115#u8, 103#u8, 32#u8, 116#u8, 109#u8,
+    117#u8, 120#u8, 32#u8, 115#u8, 99#u8, 114#u8, 101#u8, 101#u8, 110#u8,
+    32#u8, 99#u8, 97#u8, 102#u8, 102#u8, 101#u8, 105#u8, 110#u8, 97#u8, 116#u8,
+    101#u8, 32#u8, 119#u8, 115#u8, 108#u8, 32#u8, 99#u8, 114#u8, 111#u8,
+    110#u8, 116#u8, 97#u8, 98#u8, 32#u8, 115#u8, 121#u8, 115#u8, 116#u8,
+    101#u8, 109#u8, 100#u8, 45#u8, 114#u8, 117#u8, 110#u8, 32#u8, 108#u8,
+    97#u8, 117#u8, 110#u8, 99#u8, 104#u8, 99#u8, 116#u8, 108#u8, 32#u8, 115#u8,
+    99#u8, 104#u8, 116#u8, 97#u8, 115#u8, 107#u8, 115#u8, 32#u8, 115#u8,
+    104#u8, 32#u8, 98#u8, 97#u8, 115#u8, 104#u8, 32#u8, 122#u8, 115#u8, 104#u8,
+    32#u8, 100#u8, 97#u8, 115#u8, 104#u8, 32#u8, 107#u8, 115#u8, 104#u8, 32#u8,
+    109#u8, 107#u8, 115#u8, 104#u8, 32#u8, 102#u8, 105#u8, 115#u8, 104#u8,
+    32#u8, 99#u8, 115#u8, 104#u8, 32#u8, 116#u8, 99#u8, 115#u8, 104#u8, 32#u8,
+    97#u8, 115#u8, 104#u8, 32#u8, 98#u8, 117#u8, 115#u8, 121#u8, 98#u8, 111#u8,
+    120#u8, 32#u8, 112#u8, 121#u8, 116#u8, 104#u8, 111#u8, 110#u8, 32#u8,
+    112#u8, 121#u8, 116#u8, 104#u8, 111#u8, 110#u8, 50#u8, 32#u8, 112#u8,
+    121#u8, 116#u8, 104#u8, 111#u8, 110#u8, 51#u8, 32#u8, 110#u8, 111#u8,
+    100#u8, 101#u8, 32#u8, 110#u8, 111#u8, 100#u8, 101#u8, 106#u8, 115#u8,
+    32#u8, 100#u8, 101#u8, 110#u8, 111#u8, 32#u8, 98#u8, 117#u8, 110#u8, 32#u8,
+    112#u8, 101#u8, 114#u8, 108#u8, 32#u8, 114#u8, 117#u8, 98#u8, 121#u8,
+    32#u8, 112#u8, 104#u8, 112#u8, 32#u8, 108#u8, 117#u8, 97#u8, 32#u8, 108#u8,
+    117#u8, 97#u8, 106#u8, 105#u8, 116#u8, 32#u8, 97#u8, 119#u8, 107#u8, 32#u8,
+    103#u8, 97#u8, 119#u8, 107#u8, 32#u8, 109#u8, 97#u8, 119#u8, 107#u8, 32#u8,
+    110#u8, 97#u8, 119#u8, 107#u8, 32#u8, 111#u8, 115#u8, 97#u8, 115#u8, 99#u8,
+    114#u8, 105#u8, 112#u8, 116#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::is_runner]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 149:0-155:1 -/
+def command_rules.is_runner
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let s ← lift (Array.to_slice command_rules.RUNNERS)
+  let b ← command_rules.any_word words command_rules.Test.Name s
+  if b
+  then ok true
+  else
+    let s1 ← lift (Array.to_slice command_rules.HEAD_RUNNERS)
+    let b1 ← command_rules.head_listed words s1
+    if b1
+    then ok true
+    else
+      let b2 ← command_rules.head_assigns words
+      if b2
+      then ok true
+      else
+        let s2 ← lift (Array.to_slice command_rules.FIND)
+        let b3 ← command_rules.head_is words s2
+        if b3
+        then
+          let s3 ← lift (Array.to_slice command_rules.FIND_RUNS)
+          let b4 ← command_rules.any_word words command_rules.Test.Flag s3
+          if b4
+          then ok true
+          else
+            let s4 ← lift (Array.to_slice command_rules.GIT)
+            let b5 ← command_rules.head_is words s4
+            if b5
+            then
+              let s5 ← lift (Array.to_slice command_rules.GIT_RUNS)
+              command_rules.any_word words command_rules.Test.Flag s5
+            else ok false
+        else
+          let s3 ← lift (Array.to_slice command_rules.GIT)
+          let b4 ← command_rules.head_is words s3
+          if b4
+          then
+            let s4 ← lift (Array.to_slice command_rules.GIT_RUNS)
+            command_rules.any_word words command_rules.Test.Flag s4
+          else ok false
+
+/-- [protocol::command_rules::NO_LIST]
+    Source: 'crates/protocol/src/command_rules.rs', lines 42:0-42:28 -/
+@[global_simps, irreducible]
+def command_rules.NO_LIST : Array Std.U8 0#usize := Std.Array.empty Std.U8
+
+/-- [protocol::command_rules::RM]
+    Source: 'crates/protocol/src/command_rules.rs', lines 37:0-37:27 -/
+@[global_simps, irreducible]
+def command_rules.RM : Array Std.U8 2#usize :=
+  Array.make 2#usize [ 114#u8, 109#u8 ]
+
+/-- [protocol::command_rules::NEVER_ALWAYS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 29:0-29:55 -/
+@[global_simps, irreducible]
+def command_rules.NEVER_ALWAYS : Array Std.U8 19#usize :=
+  Array.make 19#usize [
+    32#u8, 99#u8, 104#u8, 109#u8, 111#u8, 100#u8, 32#u8, 99#u8, 104#u8, 111#u8,
+    119#u8, 110#u8, 32#u8, 99#u8, 104#u8, 103#u8, 114#u8, 112#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::is_capped]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 162:0-168:1 -/
+def command_rules.is_capped
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let b ← command_rules.is_runner words
+  if b
+  then ok true
+  else
+    let b1 ← command_rules.is_network words
+    if b1
+    then ok true
+    else
+      let s ← lift (Array.to_slice command_rules.NEVER_ALWAYS)
+      let b2 ← command_rules.any_word words command_rules.Test.Name s
+      if b2
+      then ok true
+      else
+        let s1 ← lift (Array.to_slice command_rules.RM)
+        let b3 ← command_rules.head_is words s1
+        if b3
+        then
+          let s2 ← lift (Array.to_slice command_rules.NO_LIST)
+          let b4 ←
+            command_rules.any_word words command_rules.Test.Recursive s2
+          if b4
+          then ok true
+          else
+            let s3 ← lift (Array.to_slice command_rules.GIT)
+            let b5 ← command_rules.head_is words s3
+            if b5
+            then
+              let s4 ← lift (Array.to_slice command_rules.NO_LIST)
+              command_rules.any_word words command_rules.Test.GitForce s4
+            else ok false
+        else
+          let s2 ← lift (Array.to_slice command_rules.GIT)
+          let b4 ← command_rules.head_is words s2
+          if b4
+          then
+            let s3 ← lift (Array.to_slice command_rules.NO_LIST)
+            command_rules.any_word words command_rules.Test.GitForce s3
+          else ok false
+
+/-- [protocol::command_rules::simple_verdict]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 204:0-221:1 -/
+def command_rules.simple_verdict
+  (simple : shell.Simple) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
+  :
+  Result action.Verdict
+  := do
+  let b ← command_rules.is_desktop simple
+  if b
+  then ok action.Verdict.Desktop
+  else
+    let s := alloc.vec.Vec.deref simple.words
+    let b1 ← command_rules.is_capped s
+    if b1
+    then ok action.Verdict.Ask
+    else
+      let s1 := alloc.vec.Vec.deref simple.words
+      let b2 ← command_rules.is_covered s1 policy rules cover
+      if b2
+      then ok action.Verdict.Allow
+      else ok action.Verdict.Ask
+
+/-- [protocol::action::simples_verdict]: loop body 0:
+    Source: 'crates/protocol/src/action.rs', lines 113:4-116:5 -/
+@[rust_loop_body]
+def action.simples_verdict_loop.body
+  (simples : Slice shell.Simple) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
+  (v : action.Verdict) (i : Std.Usize) :
+  Result (ControlFlow (action.Verdict × Std.Usize) action.Verdict)
+  := do
+  let i1 := Slice.len simples
+  if i < i1
+  then
+    let s ← Slice.index_usize simples i
+    let v1 ← command_rules.simple_verdict s policy rules cover
+    let v2 ← action.stricter v v1
+    let i2 ← i + 1#usize
+    ok (cont (v2, i2))
+  else ok (done v)
+
+/-- [protocol::action::simples_verdict]: loop 0:
+    Source: 'crates/protocol/src/action.rs', lines 113:4-116:5 -/
+@[rust_loop]
+def action.simples_verdict_loop
+  (simples : Slice shell.Simple) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
+  (v : action.Verdict) (i : Std.Usize) :
+  Result action.Verdict
+  := do
+  loop
+    (fun (v1, i1) => action.simples_verdict_loop.body simples policy rules
+      cover v1 i1)
+    (v, i)
+
+/-- [protocol::action::simples_verdict]:
+    Source: 'crates/protocol/src/action.rs', lines 105:0-118:1 -/
+@[reducible]
+def action.simples_verdict
+  (simples : Slice shell.Simple) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
+  :
+  Result action.Verdict
+  := do
+  action.simples_verdict_loop simples policy rules cover action.Verdict.Allow
+    0#usize
+
+/-- [protocol::action::is_relative]:
+    Source: 'crates/protocol/src/action.rs', lines 120:0-122:1 -/
+def action.is_relative (path : Slice Std.U8) : Result Bool := do
+  let i := Slice.len path
+  let b ←
+    if i > 0#usize
+    then do
+         let i1 ← Slice.index_usize path 0#usize
+         ok (i1 = 47#u8)
+    else ok false
+  ok (¬ b)
+
+/-- [protocol::action::has_relative_target]: loop body 0:
+    Source: 'crates/protocol/src/action.rs', lines 127:4-130:5 -/
+@[rust_loop_body]
+def action.has_relative_target_loop.body
+  (redirects : Slice shell.Redirect) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len redirects
+    if i < i1
+    then
+      let r ← Slice.index_usize redirects i
+      let s := alloc.vec.Vec.deref r.target
+      let found1 ← action.is_relative s
+      let i2 ← i + 1#usize
+      ok (cont (found1, i2))
+    else ok (done false)
+
+/-- [protocol::action::has_relative_target]: loop 0:
+    Source: 'crates/protocol/src/action.rs', lines 127:4-130:5 -/
+@[rust_loop]
+def action.has_relative_target_loop
+  (redirects : Slice shell.Redirect) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => action.has_relative_target_loop.body redirects found1
+      i1)
+    (found, i)
+
+/-- [protocol::action::has_relative_target]:
+    Source: 'crates/protocol/src/action.rs', lines 124:0-132:1 -/
+@[reducible]
+def action.has_relative_target
+  (redirects : Slice shell.Redirect) : Result Bool := do
+  action.has_relative_target_loop redirects false 0#usize
+
+/-- [protocol::command_rules::FOLDER_CHANGES]
+    Source: 'crates/protocol/src/command_rules.rs', lines 35:0-35:53 -/
+@[global_simps, irreducible]
+def command_rules.FOLDER_CHANGES : Array Std.U8 15#usize :=
+  Array.make 15#usize [
+    32#u8, 99#u8, 100#u8, 32#u8, 112#u8, 117#u8, 115#u8, 104#u8, 100#u8, 32#u8,
+    112#u8, 111#u8, 112#u8, 100#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::changes_folder]: loop body 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 227:11-228:63 -/
+@[rust_loop_body]
+def command_rules.changes_folder_loop.body
+  (simples : Slice shell.Simple) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len simples
+    if i < i1
+    then
+      let s ← Slice.index_usize simples i
+      let s1 := alloc.vec.Vec.deref s.words
+      let s2 ← lift (Array.to_slice command_rules.FOLDER_CHANGES)
+      let found1 ← command_rules.head_listed s1 s2
+      let i2 ← i + 1#usize
+      ok (cont (found1, i2))
+    else ok (done false)
+
+/-- [protocol::command_rules::changes_folder]: loop 0:
+    Source: 'crates/protocol/src/command_rules.rs', lines 227:11-228:63 -/
+@[rust_loop]
+def command_rules.changes_folder_loop
+  (simples : Slice shell.Simple) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => command_rules.changes_folder_loop.body simples found1
+      i1)
+    (found, i)
+
+/-- [protocol::command_rules::changes_folder]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 224:0-232:1 -/
+@[reducible]
+def command_rules.changes_folder
+  (simples : Slice shell.Simple) : Result Bool := do
+  command_rules.changes_folder_loop simples false 0#usize
+
+/-- [protocol::action::script_verdict]:
+    Source: 'crates/protocol/src/action.rs', lines 135:0-150:1 -/
+def action.script_verdict
+  (script : shell.Script) (cwd : Slice Std.U8) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
+  :
+  Result action.Verdict
+  := do
+  let s := alloc.vec.Vec.deref script.redirects
+  let v ← action.redirects_verdict s cwd policy
+  let s1 := alloc.vec.Vec.deref script.simples
+  let v1 ← action.simples_verdict s1 policy rules cover
+  let v2 ← action.stricter v v1
+  let s2 := alloc.vec.Vec.deref script.redirects
+  let b ← action.has_relative_target s2
+  if b
+  then
+    let s3 := alloc.vec.Vec.deref script.simples
+    let b1 ← command_rules.changes_folder s3
+    if b1
+    then action.stricter v2 action.Verdict.Desktop
+    else ok v2
+  else ok v2
+
+/-- [protocol::action::has_substitution]:
+    Source: 'crates/protocol/src/action.rs', lines 153:0-155:1 -/
+def action.has_substitution (raw : Slice Std.U8) : Result Bool := do
+  let s ← lift (Array.to_slice action.DOLLAR_PAREN)
+  let b ← search.contains raw s
+  if b
+  then ok true
+  else let s1 ← lift (Array.to_slice action.BACKTICK)
+       search.contains raw s1
+
+/-- [protocol::shell::take_word]:
+    Source: 'crates/protocol/src/shell.rs', lines 127:0-133:1 -/
+def shell.take_word
+  (lx : shell.Lexer) : Result (shell.Lexer × (alloc.vec.Vec Std.U8)) := do
+  ok
+    ({
+       lx
+         with
+         word := (alloc.vec.Vec.new Std.U8), started := false, glob := false
+     }, lx.word)
+
+/-- [protocol::shell::RESERVED]
+    Source: 'crates/protocol/src/shell.rs', lines 15:0-16:96 -/
+@[global_simps, irreducible]
+def shell.RESERVED : Array Std.U8 87#usize :=
+  Array.make 87#usize [
+    32#u8, 105#u8, 102#u8, 32#u8, 116#u8, 104#u8, 101#u8, 110#u8, 32#u8,
+    101#u8, 108#u8, 115#u8, 101#u8, 32#u8, 101#u8, 108#u8, 105#u8, 102#u8,
+    32#u8, 102#u8, 105#u8, 32#u8, 102#u8, 111#u8, 114#u8, 32#u8, 119#u8,
+    104#u8, 105#u8, 108#u8, 101#u8, 32#u8, 117#u8, 110#u8, 116#u8, 105#u8,
+    108#u8, 32#u8, 100#u8, 111#u8, 32#u8, 100#u8, 111#u8, 110#u8, 101#u8,
+    32#u8, 99#u8, 97#u8, 115#u8, 101#u8, 32#u8, 101#u8, 115#u8, 97#u8, 99#u8,
+    32#u8, 115#u8, 101#u8, 108#u8, 101#u8, 99#u8, 116#u8, 32#u8, 102#u8,
+    117#u8, 110#u8, 99#u8, 116#u8, 105#u8, 111#u8, 110#u8, 32#u8, 99#u8,
+    111#u8, 112#u8, 114#u8, 111#u8, 99#u8, 32#u8, 33#u8, 32#u8, 91#u8, 91#u8,
+    32#u8, 93#u8, 93#u8, 32#u8
+    ]
+
+/-- [protocol::shell::bad_command_name]:
+    Source: 'crates/protocol/src/shell.rs', lines 122:0-125:1 -/
+def shell.bad_command_name (lx : shell.Lexer) : Result Bool := do
+  let i := alloc.vec.Vec.len lx.words
+  if i = 0#usize
+  then
+    let s ← lift (Array.to_slice shell.RESERVED)
+    let s1 := alloc.vec.Vec.deref lx.word
+    let b ← search.listed s s1
+    if b
+    then ok true
+    else
+      if lx.glob
+      then
+        let i1 := alloc.vec.Vec.len lx.word
+        let b1 ←
+          if i1 = 1#usize
+          then
+            do
+            let i2 ←
+              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                Std.U8) lx.word 0#usize
+            ok (i2 = 91#u8)
+          else ok false
+        ok (¬ b1)
+      else ok false
+  else ok false
+
+/-- [protocol::shell::is_digit]:
+    Source: 'crates/protocol/src/shell.rs', lines 102:0-104:1 -/
+def shell.is_digit (b : Std.U8) : Result Bool := do
+  if 48#u8 <= b
+  then ok (b <= 57#u8)
+  else ok false
+
+/-- [protocol::shell::all_digits]: loop body 0:
+    Source: 'crates/protocol/src/shell.rs', lines 109:4-112:5 -/
+@[rust_loop_body]
+def shell.all_digits_loop.body
+  (bytes : Slice Std.U8) (digits : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if digits
+  then
+    let i1 := Slice.len bytes
+    if i < i1
+    then
+      let i2 ← Slice.index_usize bytes i
+      let digits1 ← shell.is_digit i2
+      let i3 ← i + 1#usize
+      ok (cont (digits1, i3))
+    else ok (done true)
+  else ok (done false)
+
+/-- [protocol::shell::all_digits]: loop 0:
+    Source: 'crates/protocol/src/shell.rs', lines 109:4-112:5 -/
+@[rust_loop]
+def shell.all_digits_loop
+  (bytes : Slice Std.U8) (digits : Bool) (i : Std.Usize) : Result Bool := do
+  loop
+    (fun (digits1, i1) => shell.all_digits_loop.body bytes digits1 i1)
+    (digits, i)
+
+/-- [protocol::shell::all_digits]:
+    Source: 'crates/protocol/src/shell.rs', lines 106:0-114:1 -/
+@[reducible]
+def shell.all_digits (bytes : Slice Std.U8) : Result Bool := do
+  shell.all_digits_loop bytes true 0#usize
+
+/-- [protocol::shell::is_descriptor]:
+    Source: 'crates/protocol/src/shell.rs', lines 116:0-118:1 -/
+def shell.is_descriptor (word : Slice Std.U8) : Result Bool := do
+  let i := Slice.len word
+  if i > 0#usize
+  then
+    let b ← shell.all_digits word
+    if b
+    then ok true
+    else
+      let i1 := Slice.len word
+      if i1 = 1#usize
+      then let i2 ← Slice.index_usize word 0#usize
+           ok (i2 = 45#u8)
+      else ok false
+  else ok false
+
+/-- [protocol::shell::fail]:
+    Source: 'crates/protocol/src/shell.rs', lines 91:0-94:1 -/
+def shell.fail (lx : shell.Lexer) : Result shell.Lexer := do
+  ok { lx with ok := false }
+
+/-- [protocol::shell::{impl core::cmp::PartialEq<protocol::shell::Pending> for protocol::shell::Pending}::eq]:
+    Source: 'crates/protocol/src/shell.rs', lines 66:22-66:31
+    Visibility: public -/
+def shell.Pending.Insts.CoreCmpPartialEqPending.eq
+  (self : shell.Pending) (other : shell.Pending) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- [protocol::shell::end_word]:
+    Source: 'crates/protocol/src/shell.rs', lines 135:0-161:1 -/
+def shell.end_word (lx : shell.Lexer) : Result shell.Lexer := do
+  if lx.started
+  then
+    let b ←
+      shell.Pending.Insts.CoreCmpPartialEqPending.eq lx.pending
+        shell.Pending.Word
+    if b
+    then
+      let b1 ← shell.bad_command_name lx
+      if b1
+      then shell.fail lx
+      else
+        let (lx1, word) ← shell.take_word lx
+        if b
+        then
+          let v ← alloc.vec.Vec.push lx1.words word
+          ok { lx1 with words := v, pending := shell.Pending.Word }
+        else
+          let b2 ←
+            shell.Pending.Insts.CoreCmpPartialEqPending.eq lx.pending
+              shell.Pending.Read
+          if b2
+          then
+            let v ←
+              alloc.vec.Vec.push lx1.redirects
+                ({ target := word, access := shell.Access.Read } :
+                shell.Redirect)
+            ok { lx1 with redirects := v, pending := shell.Pending.Word }
+          else
+            let b3 ←
+              shell.Pending.Insts.CoreCmpPartialEqPending.eq lx.pending
+                shell.Pending.Write
+            if b3
+            then
+              let v ←
+                alloc.vec.Vec.push lx1.redirects
+                  ({ target := word, access := shell.Access.Write } :
+                  shell.Redirect)
+              ok { lx1 with redirects := v, pending := shell.Pending.Word }
+            else
+              let s := alloc.vec.Vec.deref word
+              let b4 ← shell.is_descriptor s
+              if b4
+              then ok { lx1 with pending := shell.Pending.Word }
+              else shell.fail { lx1 with pending := shell.Pending.Word }
+    else
+      let (lx1, word) ← shell.take_word lx
+      if b
+      then
+        let v ← alloc.vec.Vec.push lx1.words word
+        ok { lx1 with words := v, pending := shell.Pending.Word }
+      else
+        let b1 ←
+          shell.Pending.Insts.CoreCmpPartialEqPending.eq lx.pending
+            shell.Pending.Read
+        if b1
+        then
+          let v ←
+            alloc.vec.Vec.push lx1.redirects
+              ({ target := word, access := shell.Access.Read } :
+              shell.Redirect)
+          ok { lx1 with redirects := v, pending := shell.Pending.Word }
+        else
+          let b2 ←
+            shell.Pending.Insts.CoreCmpPartialEqPending.eq lx.pending
+              shell.Pending.Write
+          if b2
+          then
+            let v ←
+              alloc.vec.Vec.push lx1.redirects
+                ({ target := word, access := shell.Access.Write } :
+                shell.Redirect)
+            ok { lx1 with redirects := v, pending := shell.Pending.Word }
+          else
+            let s := alloc.vec.Vec.deref word
+            let b3 ← shell.is_descriptor s
+            if b3
+            then ok { lx1 with pending := shell.Pending.Word }
+            else shell.fail { lx1 with pending := shell.Pending.Word }
+  else ok lx
+
+/-- Trait implementation: [protocol::shell::{impl core::cmp::PartialEq<protocol::shell::Pending> for protocol::shell::Pending}]
+    Source: 'crates/protocol/src/shell.rs', lines 66:22-66:31 -/
+@[reducible]
+impl_def shell.Pending.Insts.CoreCmpPartialEqPending : core.cmp.PartialEq
+  shell.Pending shell.Pending := {
+  eq := shell.Pending.Insts.CoreCmpPartialEqPending.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    shell.Pending.Insts.CoreCmpPartialEqPending
+}
+
+/-- [protocol::shell::end_simple]:
+    Source: 'crates/protocol/src/shell.rs', lines 163:0-180:1 -/
+def shell.end_simple
+  (lx : shell.Lexer) (next : shell.Link) : Result shell.Lexer := do
+  let lx1 ← shell.end_word lx
+  let b ←
+    core.cmp.PartialEq.ne.trait_default
+      shell.Pending.Insts.CoreCmpPartialEqPending lx1.pending
+      shell.Pending.Word
+  if b
+  then shell.fail lx1
+  else
+    let i := alloc.vec.Vec.len lx1.words
+    let (v, v1) ←
+      if i > 0#usize
+      then
+        do
+        let v2 ←
+          alloc.vec.Vec.push lx1.simples
+            ({ words := lx1.words, link := lx1.link } : shell.Simple)
+        ok (v2, alloc.vec.Vec.new (alloc.vec.Vec Std.U8))
+      else ok (lx1.simples, lx1.words)
+    let b1 ←
+      shell.Link.Insts.CoreCmpPartialEqLink.eq lx1.link shell.Link.First
+    if b1
+    then ok { lx1 with simples := v, words := v1, link := next }
+    else ok { lx1 with simples := v, words := v1 }
+
+/-- [protocol::shell::{impl core::cmp::PartialEq<protocol::shell::Mode> for protocol::shell::Mode}::eq]:
+    Source: 'crates/protocol/src/shell.rs', lines 54:22-54:31
+    Visibility: public -/
+def shell.Mode.Insts.CoreCmpPartialEqMode.eq
+  (self : shell.Mode) (other : shell.Mode) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::shell::{impl core::cmp::PartialEq<protocol::shell::Mode> for protocol::shell::Mode}]
+    Source: 'crates/protocol/src/shell.rs', lines 54:22-54:31 -/
+@[reducible]
+impl_def shell.Mode.Insts.CoreCmpPartialEqMode : core.cmp.PartialEq shell.Mode
+  shell.Mode := {
+  eq := shell.Mode.Insts.CoreCmpPartialEqMode.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    shell.Mode.Insts.CoreCmpPartialEqMode
+}
+
+/-- [protocol::shell::finish]:
+    Source: 'crates/protocol/src/shell.rs', lines 428:0-440:1 -/
+def shell.finish (lx : shell.Lexer) : Result (Option shell.Script) := do
+  if lx.ok
+  then
+    let b ←
+      core.cmp.PartialEq.ne.trait_default shell.Mode.Insts.CoreCmpPartialEqMode
+        lx.mode shell.Mode.Plain
+    if b
+    then ok none
+    else
+      if lx.depth != 0#usize
+      then ok none
+      else
+        let lx1 ← shell.end_simple lx shell.Link.First
+        if lx1.ok
+        then ok (some { simples := lx1.simples, redirects := lx1.redirects })
+        else ok none
+  else ok none
+
+/-- [protocol::shell::new_lexer]:
+    Source: 'crates/protocol/src/shell.rs', lines 400:0-414:1 -/
+def shell.new_lexer : Result shell.Lexer := do
+  ok
+    {
+      ok := true,
+      mode := shell.Mode.Plain,
+      simples := (alloc.vec.Vec.new shell.Simple),
+      redirects := (alloc.vec.Vec.new shell.Redirect),
+      words := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
+      link := shell.Link.First,
+      word := (alloc.vec.Vec.new Std.U8),
+      started := false,
+      glob := false,
+      pending := shell.Pending.Word,
+      depth := 0#usize
+    }
+
+/-- [protocol::shell::set_mode]:
+    Source: 'crates/protocol/src/shell.rs', lines 290:0-293:1 -/
+def shell.set_mode
+  (lx : shell.Lexer) (mode : shell.Mode) : Result shell.Lexer := do
+  ok { lx with mode }
+
+/-- [protocol::shell::add_byte]:
+    Source: 'crates/protocol/src/shell.rs', lines 96:0-100:1 -/
+def shell.add_byte (lx : shell.Lexer) (b : Std.U8) : Result shell.Lexer := do
+  let v ← alloc.vec.Vec.push lx.word b
+  ok { lx with word := v, started := true }
+
+/-- [protocol::shell::escape]:
+    Source: 'crates/protocol/src/shell.rs', lines 377:0-383:1 -/
+def shell.escape (lx : shell.Lexer) (b : Std.U8) : Result shell.Lexer := do
+  let lx1 ← shell.set_mode lx shell.Mode.Plain
+  if b = 10#u8
+  then ok lx1
+  else shell.add_byte lx1 b
+
+/-- [protocol::shell::double_escape]:
+    Source: 'crates/protocol/src/shell.rs', lines 365:0-374:1 -/
+def shell.double_escape
+  (lx : shell.Lexer) (b : Std.U8) : Result shell.Lexer := do
+  let lx1 ← shell.set_mode lx shell.Mode.Double
+  if b = 10#u8
+  then ok lx1
+  else
+    if b = 36#u8
+    then shell.add_byte lx1 b
+    else
+      if b = 96#u8
+      then shell.add_byte lx1 b
+      else
+        if b = 34#u8
+        then shell.add_byte lx1 b
+        else
+          if b = 92#u8
+          then shell.add_byte lx1 b
+          else let l ← shell.add_byte lx1 92#u8
+               shell.add_byte l b
+
+/-- [protocol::shell::double]:
+    Source: 'crates/protocol/src/shell.rs', lines 352:0-362:1 -/
+def shell.double (lx : shell.Lexer) (b : Std.U8) : Result shell.Lexer := do
+  if b = 34#u8
+  then shell.set_mode lx shell.Mode.Plain
+  else
+    if b = 92#u8
+    then shell.set_mode lx shell.Mode.DoubleEscape
+    else
+      if b = 36#u8
+      then shell.fail lx
+      else if b = 96#u8
+           then shell.fail lx
+           else shell.add_byte lx b
+
+/-- [protocol::shell::single]:
+    Source: 'crates/protocol/src/shell.rs', lines 345:0-350:1 -/
+def shell.single (lx : shell.Lexer) (b : Std.U8) : Result shell.Lexer := do
+  if b = 39#u8
+  then shell.set_mode lx shell.Mode.Plain
+  else shell.add_byte lx b
+
+/-- [protocol::shell::start_quote]:
+    Source: 'crates/protocol/src/shell.rs', lines 297:0-301:1 -/
+def shell.start_quote
+  (lx : shell.Lexer) (mode : shell.Mode) : Result shell.Lexer := do
+  let lx1 ← shell.set_mode lx mode
+  ok { lx1 with started := true }
+
+/-- [protocol::shell::glob_byte]:
+    Source: 'crates/protocol/src/shell.rs', lines 284:0-288:1 -/
+def shell.glob_byte (lx : shell.Lexer) (b : Std.U8) : Result shell.Lexer := do
+  let lx1 ← shell.add_byte lx b
+  ok { lx1 with glob := true }
+
+/-- [protocol::shell::close_group]:
+    Source: 'crates/protocol/src/shell.rs', lines 204:0-210:1 -/
+def shell.close_group (lx : shell.Lexer) : Result shell.Lexer := do
+  if lx.depth = 0#usize
+  then shell.fail lx
+  else
+    let i ← lx.depth - 1#usize
+    shell.end_simple { lx with depth := i } shell.Link.First
+
+/-- [protocol::shell::open_group]:
+    Source: 'crates/protocol/src/shell.rs', lines 199:0-202:1 -/
+def shell.open_group (lx : shell.Lexer) : Result shell.Lexer := do
+  let i ← lx.depth + 1#usize
+  shell.end_simple { lx with depth := i } shell.Link.First
+
+/-- [protocol::shell::plain_single]:
+    Source: 'crates/protocol/src/shell.rs', lines 304:0-326:1 -/
+def shell.plain_single
+  (lx : shell.Lexer) (b : Std.U8) : Result shell.Lexer := do
+  if b = 32#u8
+  then shell.end_word lx
+  else
+    if b = 9#u8
+    then shell.end_word lx
+    else
+      if b = 10#u8
+      then shell.end_simple lx shell.Link.First
+      else
+        if b = 59#u8
+        then shell.end_simple lx shell.Link.First
+        else
+          if b = 40#u8
+          then shell.open_group lx
+          else
+            if b = 41#u8
+            then shell.close_group lx
+            else
+              if b = 36#u8
+              then shell.fail lx
+              else
+                if b = 96#u8
+                then shell.fail lx
+                else
+                  if b = 125#u8
+                  then shell.fail lx
+                  else
+                    if b = 35#u8
+                    then
+                      if lx.started
+                      then
+                        if b = 42#u8
+                        then shell.glob_byte lx b
+                        else
+                          if b = 63#u8
+                          then shell.glob_byte lx b
+                          else
+                            if b = 91#u8
+                            then shell.glob_byte lx b
+                            else
+                              if b = 92#u8
+                              then shell.set_mode lx shell.Mode.Escape
+                              else
+                                if b = 39#u8
+                                then shell.start_quote lx shell.Mode.Single
+                                else
+                                  if b = 34#u8
+                                  then shell.start_quote lx shell.Mode.Double
+                                  else shell.add_byte lx b
+                      else shell.fail lx
+                    else
+                      if b = 42#u8
+                      then shell.glob_byte lx b
+                      else
+                        if b = 63#u8
+                        then shell.glob_byte lx b
+                        else
+                          if b = 91#u8
+                          then shell.glob_byte lx b
+                          else
+                            if b = 92#u8
+                            then shell.set_mode lx shell.Mode.Escape
+                            else
+                              if b = 39#u8
+                              then shell.start_quote lx shell.Mode.Single
+                              else
+                                if b = 34#u8
+                                then shell.start_quote lx shell.Mode.Double
+                                else shell.add_byte lx b
+
+/-- [protocol::shell::peek]:
+    Source: 'crates/protocol/src/shell.rs', lines 213:0-215:1 -/
+def shell.peek (raw : Slice Std.U8) (i : Std.Usize) : Result Std.U8 := do
+  let i1 := Slice.len raw
+  if i < i1
+  then Slice.index_usize raw i
+  else ok 0#u8
+
+/-- [protocol::shell::brace]:
+    Source: 'crates/protocol/src/shell.rs', lines 277:0-282:1 -/
+def shell.brace
+  (lx : shell.Lexer) (raw : Slice Std.U8) (i : Std.Usize) :
+  Result (shell.Lexer × Std.Usize)
+  := do
+  let i1 ← i + 1#usize
+  let i2 ← shell.peek raw i1
+  if i2 = 125#u8
+  then
+    let l ← shell.add_byte lx 123#u8
+    let l1 ← shell.add_byte l 125#u8
+    let i3 ← i + 2#usize
+    ok (l1, i3)
+  else let l ← shell.fail lx
+       ok (l, i1)
+
+/-- [protocol::shell::end_word_before_redirect]:
+    Source: 'crates/protocol/src/shell.rs', lines 183:0-188:1 -/
+def shell.end_word_before_redirect
+  (lx : shell.Lexer) : Result shell.Lexer := do
+  if lx.started
+  then
+    let s := alloc.vec.Vec.deref lx.word
+    let b ← shell.all_digits s
+    if b
+    then let (l, _) ← shell.take_word lx
+         ok l
+    else shell.end_word lx
+  else shell.end_word lx
+
+/-- [protocol::shell::open_redirect]:
+    Source: 'crates/protocol/src/shell.rs', lines 190:0-197:1 -/
+def shell.open_redirect
+  (lx : shell.Lexer) (pending : shell.Pending) : Result shell.Lexer := do
+  let lx1 ← shell.end_word_before_redirect lx
+  let b ←
+    core.cmp.PartialEq.ne.trait_default
+      shell.Pending.Insts.CoreCmpPartialEqPending lx1.pending
+      shell.Pending.Word
+  if b
+  then shell.fail lx1
+  else ok { lx1 with pending }
+
+/-- [protocol::shell::less]:
+    Source: 'crates/protocol/src/shell.rs', lines 261:0-273:1 -/
+def shell.less
+  (lx : shell.Lexer) (raw : Slice Std.U8) (i : Std.Usize) :
+  Result (shell.Lexer × Std.Usize)
+  := do
+  let i1 ← i + 1#usize
+  let next ← shell.peek raw i1
+  if next = 60#u8
+  then let l ← shell.fail lx
+       ok (l, i1)
+  else
+    if next = 40#u8
+    then let l ← shell.fail lx
+         ok (l, i1)
+    else
+      if next = 38#u8
+      then
+        let l ← shell.open_redirect lx shell.Pending.Copy
+        let i2 ← i + 2#usize
+        ok (l, i2)
+      else
+        if next = 62#u8
+        then
+          let l ← shell.open_redirect lx shell.Pending.Write
+          let i2 ← i + 2#usize
+          ok (l, i2)
+        else let l ← shell.open_redirect lx shell.Pending.Read
+             ok (l, i1)
+
+/-- [protocol::shell::greater]:
+    Source: 'crates/protocol/src/shell.rs', lines 246:0-258:1 -/
+def shell.greater
+  (lx : shell.Lexer) (raw : Slice Std.U8) (i : Std.Usize) :
+  Result (shell.Lexer × Std.Usize)
+  := do
+  let i1 ← i + 1#usize
+  let next ← shell.peek raw i1
+  if next = 62#u8
+  then
+    let l ← shell.open_redirect lx shell.Pending.Write
+    let i2 ← i + 2#usize
+    ok (l, i2)
+  else
+    if next = 124#u8
+    then
+      let l ← shell.open_redirect lx shell.Pending.Write
+      let i2 ← i + 2#usize
+      ok (l, i2)
+    else
+      if next = 38#u8
+      then
+        let l ← shell.open_redirect lx shell.Pending.Copy
+        let i2 ← i + 2#usize
+        ok (l, i2)
+      else
+        if next = 40#u8
+        then let l ← shell.fail lx
+             ok (l, i1)
+        else let l ← shell.open_redirect lx shell.Pending.Write
+             ok (l, i1)
+
+/-- [protocol::shell::bar]:
+    Source: 'crates/protocol/src/shell.rs', lines 234:0-243:1 -/
+def shell.bar
+  (lx : shell.Lexer) (raw : Slice Std.U8) (i : Std.Usize) :
+  Result (shell.Lexer × Std.Usize)
+  := do
+  let i1 ← i + 1#usize
+  let next ← shell.peek raw i1
+  if next = 124#u8
+  then
+    let l ← shell.end_simple lx shell.Link.First
+    let i2 ← i + 2#usize
+    ok (l, i2)
+  else
+    if next = 38#u8
+    then
+      let l ← shell.end_simple lx shell.Link.Pipe
+      let i2 ← i + 2#usize
+      ok (l, i2)
+    else let l ← shell.end_simple lx shell.Link.Pipe
+         ok (l, i1)
+
+/-- [protocol::shell::ampersand]:
+    Source: 'crates/protocol/src/shell.rs', lines 218:0-231:1 -/
+def shell.ampersand
+  (lx : shell.Lexer) (raw : Slice Std.U8) (i : Std.Usize) :
+  Result (shell.Lexer × Std.Usize)
+  := do
+  let i1 ← i + 1#usize
+  let next ← shell.peek raw i1
+  if next = 38#u8
+  then
+    let l ← shell.end_simple lx shell.Link.First
+    let i2 ← i + 2#usize
+    ok (l, i2)
+  else
+    if next = 62#u8
+    then
+      let lx1 ← shell.open_redirect lx shell.Pending.Write
+      let i2 ← i + 2#usize
+      let i3 ← shell.peek raw i2
+      if i3 = 62#u8
+      then let i4 ← i + 3#usize
+           ok (lx1, i4)
+      else ok (lx1, i2)
+    else let l ← shell.end_simple lx shell.Link.First
+         ok (l, i1)
+
+/-- [protocol::shell::plain]:
+    Source: 'crates/protocol/src/shell.rs', lines 328:0-343:1 -/
+def shell.plain
+  (lx : shell.Lexer) (raw : Slice Std.U8) (i : Std.Usize) :
+  Result (shell.Lexer × Std.Usize)
+  := do
+  let b ← Slice.index_usize raw i
+  if b = 38#u8
+  then shell.ampersand lx raw i
+  else
+    if b = 124#u8
+    then shell.bar lx raw i
+    else
+      if b = 62#u8
+      then shell.greater lx raw i
+      else
+        if b = 60#u8
+        then shell.less lx raw i
+        else
+          if b = 123#u8
+          then shell.brace lx raw i
+          else
+            let l ← shell.plain_single lx b
+            let i1 ← i + 1#usize
+            ok (l, i1)
+
+/-- [protocol::shell::step]:
+    Source: 'crates/protocol/src/shell.rs', lines 385:0-398:1 -/
+def shell.step
+  (lx : shell.Lexer) (raw : Slice Std.U8) (i : Std.Usize) :
+  Result (shell.Lexer × Std.Usize)
+  := do
+  let b ← Slice.index_usize raw i
+  let b1 ← shell.Mode.Insts.CoreCmpPartialEqMode.eq lx.mode shell.Mode.Plain
+  if b1
+  then shell.plain lx raw i
+  else
+    let b2 ←
+      shell.Mode.Insts.CoreCmpPartialEqMode.eq lx.mode shell.Mode.Single
+    if b2
+    then let l ← shell.single lx b
+         let i1 ← i + 1#usize
+         ok (l, i1)
+    else
+      let b3 ←
+        shell.Mode.Insts.CoreCmpPartialEqMode.eq lx.mode shell.Mode.Double
+      if b3
+      then let l ← shell.double lx b
+           let i1 ← i + 1#usize
+           ok (l, i1)
+      else
+        let b4 ←
+          shell.Mode.Insts.CoreCmpPartialEqMode.eq lx.mode
+            shell.Mode.DoubleEscape
+        if b4
+        then
+          let l ← shell.double_escape lx b
+          let i1 ← i + 1#usize
+          ok (l, i1)
+        else let l ← shell.escape lx b
+             let i1 ← i + 1#usize
+             ok (l, i1)
+
+/-- [protocol::shell::run]: loop body 0:
+    Source: 'crates/protocol/src/shell.rs', lines 419:4-423:5 -/
+@[rust_loop_body]
+def shell.run_loop.body
+  (raw : Slice Std.U8) (lx : shell.Lexer) (i : Std.Usize) :
+  Result (ControlFlow (shell.Lexer × Std.Usize) (Bool × shell.Mode ×
+    (alloc.vec.Vec shell.Simple) × (alloc.vec.Vec shell.Redirect) ×
+    (alloc.vec.Vec (alloc.vec.Vec Std.U8)) × shell.Link × (alloc.vec.Vec
+    Std.U8) × Bool × Bool × shell.Pending × Std.Usize))
+  := do
+  if lx.ok
+  then
+    let i1 := Slice.len raw
+    if i < i1
+    then let (next, j) ← shell.step lx raw i
+         ok (cont (next, j))
+    else
+      ok (done (true, lx.mode, lx.simples, lx.redirects, lx.words, lx.link,
+        lx.word, lx.started, lx.glob, lx.pending, lx.depth))
+  else
+    ok (done (false, lx.mode, lx.simples, lx.redirects, lx.words, lx.link,
+      lx.word, lx.started, lx.glob, lx.pending, lx.depth))
+
+/-- [protocol::shell::run]: loop 0:
+    Source: 'crates/protocol/src/shell.rs', lines 419:4-423:5 -/
+@[rust_loop]
+def shell.run_loop
+  (raw : Slice Std.U8) (lx : shell.Lexer) (i : Std.Usize) :
+  Result (Bool × shell.Mode × (alloc.vec.Vec shell.Simple) × (alloc.vec.Vec
+    shell.Redirect) × (alloc.vec.Vec (alloc.vec.Vec Std.U8)) × shell.Link ×
+    (alloc.vec.Vec Std.U8) × Bool × Bool × shell.Pending × Std.Usize)
+  := do
+  loop
+    (fun (lx1, i1) => shell.run_loop.body raw lx1 i1)
+    (lx, i)
+
+/-- [protocol::shell::run]:
+    Source: 'crates/protocol/src/shell.rs', lines 416:0-425:1 -/
+def shell.run (raw : Slice Std.U8) : Result shell.Lexer := do
+  let lx ← shell.new_lexer
+  let (b, m, v, v1, v2, l, v3, b1, b2, p, i) ← shell.run_loop raw lx 0#usize
+  ok
+    {
+      ok := b,
+      mode := m,
+      simples := v,
+      redirects := v1,
+      words := v2,
+      link := l,
+      word := v3,
+      started := b1,
+      glob := b2,
+      pending := p,
+      depth := i
+    }
+
+/-- [protocol::shell::MAX_COMMAND]
+    Source: 'crates/protocol/src/shell.rs', lines 11:0-11:41
+    Visibility: public -/
+@[global_simps, irreducible] def shell.MAX_COMMAND : Std.Usize := 1048576#usize
+
+/-- [protocol::shell::split]:
+    Source: 'crates/protocol/src/shell.rs', lines 444:0-449:1
+    Visibility: public -/
+def shell.split (raw : Slice Std.U8) : Result (Option shell.Script) := do
+  let i := Slice.len raw
+  if i > shell.MAX_COMMAND
+  then ok none
+  else let l ← shell.run raw
+       shell.finish l
+
+/-- [protocol::action::command_verdict]:
+    Source: 'crates/protocol/src/action.rs', lines 157:0-171:1 -/
+def action.command_verdict
+  (raw : Slice Std.U8) (cwd : Slice Std.U8) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
+  :
+  Result action.Verdict
+  := do
+  let i := Slice.len raw
+  if i > shell.MAX_COMMAND
+  then ok action.Verdict.Desktop
+  else
+    let b ← action.has_substitution raw
+    if b
+    then ok action.Verdict.Desktop
+    else
+      let o ← shell.split raw
+      match o with
+      | none => ok action.Verdict.Desktop
+      | some script => action.script_verdict script cwd policy rules cover
+
+/-- [protocol::action::verdict]:
+    Source: 'crates/protocol/src/action.rs', lines 173:0-179:1 -/
+def action.verdict
+  (call : action.ToolCall) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
+  :
+  Result action.Verdict
+  := do
+  match call with
+  | action.ToolCall.Files reads writes =>
+    let s := alloc.vec.Vec.deref reads
+    let s1 := alloc.vec.Vec.deref writes
+    action.files_verdict s s1 policy
+  | action.ToolCall.Command raw cwd =>
+    let s := alloc.vec.Vec.deref raw
+    let s1 := alloc.vec.Vec.deref cwd
+    action.command_verdict s s1 policy rules cover
+  | action.ToolCall.Unknown => ok action.Verdict.Desktop
+
+/-- [protocol::action::classify]:
+    Source: 'crates/protocol/src/action.rs', lines 183:0-185:1
+    Visibility: public -/
+def action.classify
+  (call : action.ToolCall) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) :
+  Result action.Verdict
+  := do
+  action.verdict call policy rules action.Cover.Listed
+
+/-- [protocol::action::ceiling]:
+    Source: 'crates/protocol/src/action.rs', lines 189:0-192:1
+    Visibility: public -/
+def action.ceiling
+  (call : action.ToolCall) (policy : action.Policy) :
+  Result action.Verdict
+  := do
+  let s :=
+    alloc.vec.Vec.deref (alloc.vec.Vec.new (alloc.vec.Vec (alloc.vec.Vec
+      Std.U8)))
+  action.verdict call policy s action.Cover.Every
+
 /-- [protocol::ascii::push_decimal]:
     Source: 'crates/protocol/src/ascii.rs', lines 21:0-26:1
     Visibility: public -/
@@ -118,49 +3135,6 @@ def ascii.push_decimal
   let i2 ← 48#u8 + i1
   alloc.vec.Vec.push out1 i2
 partial_fixpoint
-
-/-- [protocol::ascii::bytes_equal]: loop body 0:
-    Source: 'crates/protocol/src/ascii.rs', lines 33:4-40:1 -/
-@[rust_loop_body]
-def ascii.bytes_equal_loop.body
-  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) :
-  Result (ControlFlow Std.Usize Bool)
-  := do
-  let i1 := Slice.len a
-  if i < i1
-  then
-    let i2 ← Slice.index_usize a i
-    let i3 ← Slice.index_usize b i
-    if i2 != i3
-    then ok (done false)
-    else let i4 ← i + 1#usize
-         ok (cont i4)
-  else ok (done true)
-
-/-- [protocol::ascii::bytes_equal]: loop 0:
-    Source: 'crates/protocol/src/ascii.rs', lines 33:4-40:1 -/
-@[rust_loop]
-def ascii.bytes_equal_loop
-  (a : Slice Std.U8) (b : Slice Std.U8) (i : Std.Usize) : Result Bool := do
-  loop
-    (fun i1 => ascii.bytes_equal_loop.body a b i1)
-    i
-
-/-- [protocol::ascii::bytes_equal]:
-    Source: 'crates/protocol/src/ascii.rs', lines 28:0-40:1 -/
-def ascii.bytes_equal (a : Slice Std.U8) (b : Slice Std.U8) : Result Bool := do
-  let i := Slice.len a
-  let i1 := Slice.len b
-  if i != i1
-  then ok false
-  else ascii.bytes_equal_loop a b 0#usize
-
-/-- [protocol::ascii::copy_bytes]:
-    Source: 'crates/protocol/src/ascii.rs', lines 42:0-46:1 -/
-def ascii.copy_bytes
-  (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
-  let i := Slice.len bytes
-  ascii.push_range (alloc.vec.Vec.new Std.U8) bytes 0#usize i
 
 /-- [protocol::cell::BYTES_PER_GROUP]
     Source: 'crates/protocol/src/cell.rs', lines 11:0-11:37
@@ -419,367 +3393,70 @@ def cell.decode_cells
   then cell.decode_cells_loop cells (alloc.vec.Vec.new Std.U8) 0#usize
   else ok none
 
-/-- [protocol::folder::SLASH]
-    Source: 'crates/protocol/src/folder.rs', lines 9:0-9:23 -/
-@[global_simps, irreducible] def folder.SLASH : Std.U8 := 47#u8
-
-/-- [protocol::folder::end_part]:
-    Source: 'crates/protocol/src/folder.rs', lines 19:0-24:1 -/
-def folder.end_part
-  (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (cur : alloc.vec.Vec Std.U8) :
-  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
-  := do
-  let i := alloc.vec.Vec.len cur
-  if i > 0#usize
-  then alloc.vec.Vec.push parts cur
-  else ok parts
-
-/-- [protocol::folder::take_byte]:
-    Source: 'crates/protocol/src/folder.rs', lines 26:0-33:1 -/
-def folder.take_byte
-  (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (cur : alloc.vec.Vec Std.U8)
-  (b : Std.U8) :
-  Result ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × (alloc.vec.Vec Std.U8))
-  := do
-  if b = folder.SLASH
-  then let v ← folder.end_part parts cur
-       ok (v, alloc.vec.Vec.new Std.U8)
-  else let cur1 ← alloc.vec.Vec.push cur b
-       ok (parts, cur1)
-
-/-- [protocol::folder::split_parts]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 40:4-45:5 -/
-@[rust_loop_body]
-def folder.split_parts_loop.body
-  (path : Slice Std.U8) (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8))
-  (cur : alloc.vec.Vec Std.U8) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × (alloc.vec.Vec
-    Std.U8) × Std.Usize) ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) ×
-    (alloc.vec.Vec Std.U8)))
-  := do
-  let i1 := Slice.len path
-  if i < i1
-  then
-    let i2 ← Slice.index_usize path i
-    let (p, c) ← folder.take_byte parts cur i2
-    let i3 ← i + 1#usize
-    ok (cont (p, c, i3))
-  else ok (done (parts, cur))
-
-/-- [protocol::folder::split_parts]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 40:4-45:5 -/
-@[rust_loop]
-def folder.split_parts_loop
-  (path : Slice Std.U8) (parts : alloc.vec.Vec (alloc.vec.Vec Std.U8))
-  (cur : alloc.vec.Vec Std.U8) (i : Std.Usize) :
-  Result ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × (alloc.vec.Vec Std.U8))
-  := do
-  loop
-    (fun (parts1, cur1, i1) => folder.split_parts_loop.body path parts1 cur1
-      i1)
-    (parts, cur, i)
-
-/-- [protocol::folder::split_parts]:
-    Source: 'crates/protocol/src/folder.rs', lines 36:0-47:1 -/
-def folder.split_parts
-  (path : Slice Std.U8) : Result (alloc.vec.Vec (alloc.vec.Vec Std.U8)) := do
-  let (parts, cur) ←
-    folder.split_parts_loop path (alloc.vec.Vec.new (alloc.vec.Vec Std.U8))
-      (alloc.vec.Vec.new Std.U8) 0#usize
-  folder.end_part parts cur
-
-/-- [protocol::folder::is_dot]:
-    Source: 'crates/protocol/src/folder.rs', lines 49:0-51:1 -/
-def folder.is_dot (part : Slice Std.U8) : Result Bool := do
-  let i := Slice.len part
-  if i = 1#usize
-  then let i1 ← Slice.index_usize part 0#usize
-       ok (i1 = 46#u8)
-  else ok false
-
-/-- [protocol::folder::is_dot_dot]:
-    Source: 'crates/protocol/src/folder.rs', lines 53:0-55:1 -/
-def folder.is_dot_dot (part : Slice Std.U8) : Result Bool := do
-  let i := Slice.len part
-  if i = 2#usize
-  then
-    let i1 ← Slice.index_usize part 0#usize
-    if i1 = 46#u8
-    then let i2 ← Slice.index_usize part 1#usize
-         ok (i2 = 46#u8)
-    else ok false
-  else ok false
-
-/-- [protocol::folder::put]:
-    Source: 'crates/protocol/src/folder.rs', lines 57:0-64:1 -/
-def folder.put
-  (stack : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
-  (part : alloc.vec.Vec Std.U8) :
-  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
-  := do
-  let i := alloc.vec.Vec.len stack
-  if depth < i
-  then
-    let (_, index_mut_back) ←
-      alloc.vec.Vec.index_mut (core.slice.index.SliceIndexUsizeSlice
-        (alloc.vec.Vec Std.U8)) stack depth
-    ok (index_mut_back part)
-  else alloc.vec.Vec.push stack part
-
-/-- [protocol::folder::apply_part]:
-    Source: 'crates/protocol/src/folder.rs', lines 67:0-91:1 -/
-def folder.apply_part
-  (walk : folder.Walk) (part : Slice Std.U8) : Result folder.Walk := do
-  let b ← folder.is_dot part
-  if b
-  then ok walk
-  else
-    let b1 ← folder.is_dot_dot part
-    if b1
-    then
-      if walk.depth = 0#usize
-      then ok { walk with ok := false, depth := 0#usize }
-      else let i ← walk.depth - 1#usize
-           ok { walk with depth := i }
-    else
-      let v ← ascii.copy_bytes part
-      let v1 ← folder.put walk.stack walk.depth v
-      let i ← walk.depth + 1#usize
-      ok { walk with stack := v1, depth := i }
-
-/-- [protocol::folder::apply_all]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 95:4-98:5 -/
-@[rust_loop_body]
-def folder.apply_all_loop.body
-  (parts : Slice (alloc.vec.Vec Std.U8)) (walk : folder.Walk) (i : Std.Usize) :
-  Result (ControlFlow (folder.Walk × Std.Usize) (Bool × (alloc.vec.Vec
-    (alloc.vec.Vec Std.U8)) × Std.Usize))
-  := do
-  if walk.ok
-  then
-    let i1 := Slice.len parts
-    if i < i1
-    then
-      let v ← Slice.index_usize parts i
-      let s := alloc.vec.Vec.deref v
-      let walk1 ← folder.apply_part walk s
-      let i2 ← i + 1#usize
-      ok (cont (walk1, i2))
-    else ok (done (true, walk.stack, walk.depth))
-  else ok (done (false, walk.stack, walk.depth))
-
-/-- [protocol::folder::apply_all]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 95:4-98:5 -/
-@[rust_loop]
-def folder.apply_all_loop
-  (walk : folder.Walk) (parts : Slice (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
-  Result (Bool × (alloc.vec.Vec (alloc.vec.Vec Std.U8)) × Std.Usize)
-  := do
-  loop
-    (fun (walk1, i1) => folder.apply_all_loop.body parts walk1 i1)
-    (walk, i)
-
-/-- [protocol::folder::apply_all]:
-    Source: 'crates/protocol/src/folder.rs', lines 93:0-100:1 -/
-def folder.apply_all
-  (walk : folder.Walk) (parts : Slice (alloc.vec.Vec Std.U8)) :
-  Result folder.Walk
-  := do
-  let (b, v, i) ← folder.apply_all_loop walk parts 0#usize
-  ok { ok := b, stack := v, depth := i }
-
-/-- [protocol::folder::start]:
-    Source: 'crates/protocol/src/folder.rs', lines 102:0-113:1 -/
-def folder.start
-  (base : Slice Std.U8) (request : Slice Std.U8) : Result folder.Walk := do
-  let i := Slice.len request
-  if i > 0#usize
-  then
-    let i1 ← Slice.index_usize request 0#usize
-    if i1 = folder.SLASH
-    then
-      ok
-        {
-          ok := true,
-          stack := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
-          depth := 0#usize
-        }
-    else
-      let v ← folder.split_parts base
-      let s := alloc.vec.Vec.deref v
-      folder.apply_all
-        {
-          ok := true,
-          stack := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
-          depth := 0#usize
-        } s
-  else
-    let v ← folder.split_parts base
-    let s := alloc.vec.Vec.deref v
-    folder.apply_all
-      {
-        ok := true,
-        stack := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
-        depth := 0#usize
-      } s
-
-/-- [protocol::folder::is_prefix]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 118:4-121:5 -/
-@[rust_loop_body]
-def folder.is_prefix_loop.body
-  (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
-  (same : Bool) (j : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  if same
-  then
-    let i := Slice.len root
-    if j < i
-    then
-      let v ← Slice.index_usize root j
-      let s := alloc.vec.Vec.deref v
-      let v1 ← Slice.index_usize stack j
-      let s1 := alloc.vec.Vec.deref v1
-      let same1 ← ascii.bytes_equal s s1
-      let j1 ← j + 1#usize
-      ok (cont (same1, j1))
-    else ok (done true)
-  else ok (done false)
-
-/-- [protocol::folder::is_prefix]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 118:4-121:5 -/
-@[rust_loop]
-def folder.is_prefix_loop
-  (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
-  (same : Bool) (j : Std.Usize) :
-  Result Bool
-  := do
-  loop
-    (fun (same1, j1) => folder.is_prefix_loop.body root stack same1 j1)
-    (same, j)
-
-/-- [protocol::folder::is_prefix]:
-    Source: 'crates/protocol/src/folder.rs', lines 115:0-123:1 -/
-def folder.is_prefix
-  (root : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
-  (depth : Std.Usize) :
-  Result Bool
-  := do
-  let i := Slice.len root
-  folder.is_prefix_loop root stack (i <= depth) 0#usize
-
-/-- [protocol::folder::inside_any]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 128:4-131:5 -/
-@[rust_loop_body]
-def folder.inside_any_loop.body
-  (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
-  (depth : Std.Usize) (found : Bool) (i : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  if found
-  then ok (done true)
-  else
-    let i1 := Slice.len roots
-    if i < i1
-    then
-      let v ← Slice.index_usize roots i
-      let s := alloc.vec.Vec.deref v
-      let v1 ← folder.split_parts s
-      let s1 := alloc.vec.Vec.deref v1
-      let found1 ← folder.is_prefix s1 stack depth
-      let i2 ← i + 1#usize
-      ok (cont (found1, i2))
-    else ok (done false)
-
-/-- [protocol::folder::inside_any]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 128:4-131:5 -/
-@[rust_loop]
-def folder.inside_any_loop
-  (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
-  (depth : Std.Usize) (found : Bool) (i : Std.Usize) :
-  Result Bool
-  := do
-  loop
-    (fun (found1, i1) => folder.inside_any_loop.body roots stack depth found1
-      i1)
-    (found, i)
-
-/-- [protocol::folder::inside_any]:
-    Source: 'crates/protocol/src/folder.rs', lines 125:0-133:1 -/
-@[reducible]
-def folder.inside_any
-  (roots : Slice (alloc.vec.Vec Std.U8)) (stack : Slice (alloc.vec.Vec Std.U8))
-  (depth : Std.Usize) :
-  Result Bool
-  := do
-  folder.inside_any_loop roots stack depth false 0#usize
-
-/-- [protocol::folder::join]: loop body 0:
-    Source: 'crates/protocol/src/folder.rs', lines 138:4-142:5 -/
-@[rust_loop_body]
-def folder.join_loop.body
-  (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
-  (out : alloc.vec.Vec Std.U8) (j : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
-    Std.U8))
-  := do
-  if j < depth
-  then
-    let out1 ← alloc.vec.Vec.push out folder.SLASH
-    let v ← Slice.index_usize stack j
-    let s := alloc.vec.Vec.deref v
-    let out2 ← ascii.push_bytes out1 s
-    let j1 ← j + 1#usize
-    ok (cont (out2, j1))
-  else ok (done out)
-
-/-- [protocol::folder::join]: loop 0:
-    Source: 'crates/protocol/src/folder.rs', lines 138:4-142:5 -/
-@[rust_loop]
-def folder.join_loop
-  (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize)
-  (out : alloc.vec.Vec Std.U8) (j : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  loop
-    (fun (out1, j1) => folder.join_loop.body stack depth out1 j1)
-    (out, j)
-
-/-- [protocol::folder::join]:
-    Source: 'crates/protocol/src/folder.rs', lines 135:0-144:1 -/
-@[reducible]
-def folder.join
-  (stack : Slice (alloc.vec.Vec Std.U8)) (depth : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  folder.join_loop stack depth (alloc.vec.Vec.new Std.U8) 0#usize
-
-/-- [protocol::folder::resolve_folder]:
-    Source: 'crates/protocol/src/folder.rs', lines 149:0-155:1
+/-- [protocol::command_rules::{impl core::clone::Clone for protocol::command_rules::Test}::clone]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:9-45:14
     Visibility: public -/
-def folder.resolve_folder
-  (roots : Slice (alloc.vec.Vec Std.U8)) (base : Slice Std.U8)
-  (request : Slice Std.U8) :
-  Result (Option (alloc.vec.Vec Std.U8))
-  := do
-  let w ← folder.start base request
-  let v ← folder.split_parts request
-  let s := alloc.vec.Vec.deref v
-  let walk ← folder.apply_all w s
-  if walk.ok
-  then
-    if walk.depth = 0#usize
-    then ok none
-    else
-      let s1 := alloc.vec.Vec.deref walk.stack
-      let b ← folder.inside_any roots s1 walk.depth
-      if b
-      then
-        let s2 := alloc.vec.Vec.deref walk.stack
-        let v1 ← folder.join s2 walk.depth
-        ok (some v1)
-      else ok none
-  else ok none
+def command_rules.Test.Insts.CoreCloneClone.clone
+  (self : command_rules.Test) : Result command_rules.Test := do
+  ok self
+
+/-- Trait implementation: [protocol::command_rules::{impl core::clone::Clone for protocol::command_rules::Test}]
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:9-45:14 -/
+@[reducible]
+def command_rules.Test.Insts.CoreCloneClone : core.clone.Clone
+  command_rules.Test := {
+  clone := command_rules.Test.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::command_rules::{impl core::marker::Copy for protocol::command_rules::Test}]
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:16-45:20 -/
+@[reducible]
+def command_rules.Test.Insts.CoreMarkerCopy : core.marker.Copy
+  command_rules.Test := {
+  cloneInst := command_rules.Test.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::command_rules::{impl core::marker::StructuralPartialEq for protocol::command_rules::Test}]
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:22-45:31 -/
+@[reducible]
+def command_rules.Test.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq command_rules.Test := {
+}
+
+/-- [protocol::command_rules::{impl core::cmp::PartialEq<protocol::command_rules::Test> for protocol::command_rules::Test}::eq]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:22-45:31
+    Visibility: public -/
+def command_rules.Test.Insts.CoreCmpPartialEqTest.eq
+  (self : command_rules.Test) (other : command_rules.Test) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::command_rules::{impl core::cmp::PartialEq<protocol::command_rules::Test> for protocol::command_rules::Test}]
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:22-45:31 -/
+@[reducible]
+impl_def command_rules.Test.Insts.CoreCmpPartialEqTest : core.cmp.PartialEq
+  command_rules.Test command_rules.Test := {
+  eq := command_rules.Test.Insts.CoreCmpPartialEqTest.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    command_rules.Test.Insts.CoreCmpPartialEqTest
+}
+
+/-- [protocol::command_rules::{impl core::cmp::Eq for protocol::command_rules::Test}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:33-45:35
+    Visibility: public -/
+def command_rules.Test.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : command_rules.Test) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::command_rules::{impl core::cmp::Eq for protocol::command_rules::Test}]
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:33-45:35 -/
+@[reducible]
+def command_rules.Test.Insts.CoreCmpEq : core.cmp.Eq command_rules.Test := {
+  partialEqInst := command_rules.Test.Insts.CoreCmpPartialEqTest
+  assert_fields_are_eq :=
+    command_rules.Test.Insts.CoreCmpEq.assert_fields_are_eq
+}
 
 /-- [protocol::frame::MAGIC]
     Source: 'crates/protocol/src/frame.rs', lines 13:0-13:40
@@ -1138,9 +3815,11 @@ def inline.Escape.Insts.CoreCmpPartialEqEscape.eq
 /-- Trait implementation: [protocol::inline::{impl core::cmp::PartialEq<protocol::inline::Escape> for protocol::inline::Escape}]
     Source: 'crates/protocol/src/inline.rs', lines 10:22-10:31 -/
 @[reducible]
-def inline.Escape.Insts.CoreCmpPartialEqEscape : core.cmp.PartialEq
+impl_def inline.Escape.Insts.CoreCmpPartialEqEscape : core.cmp.PartialEq
   inline.Escape inline.Escape := {
   eq := inline.Escape.Insts.CoreCmpPartialEqEscape.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    inline.Escape.Insts.CoreCmpPartialEqEscape
 }
 
 /-- [protocol::inline::{impl core::cmp::Eq for protocol::inline::Escape}::assert_fields_are_eq]:
@@ -1198,9 +3877,11 @@ def inline.Mark.Insts.CoreCmpPartialEqMark.eq
 /-- Trait implementation: [protocol::inline::{impl core::cmp::PartialEq<protocol::inline::Mark> for protocol::inline::Mark}]
     Source: 'crates/protocol/src/inline.rs', lines 16:22-16:31 -/
 @[reducible]
-def inline.Mark.Insts.CoreCmpPartialEqMark : core.cmp.PartialEq inline.Mark
-  inline.Mark := {
+impl_def inline.Mark.Insts.CoreCmpPartialEqMark : core.cmp.PartialEq
+  inline.Mark inline.Mark := {
   eq := inline.Mark.Insts.CoreCmpPartialEqMark.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    inline.Mark.Insts.CoreCmpPartialEqMark
 }
 
 /-- [protocol::inline::{impl core::cmp::Eq for protocol::inline::Mark}::assert_fields_are_eq]:
@@ -2921,9 +5602,11 @@ def markdown.Open.Insts.CoreCmpPartialEqOpen.eq
 /-- Trait implementation: [protocol::markdown::{impl core::cmp::PartialEq<protocol::markdown::Open> for protocol::markdown::Open}]
     Source: 'crates/protocol/src/markdown.rs', lines 28:22-28:31 -/
 @[reducible]
-def markdown.Open.Insts.CoreCmpPartialEqOpen : core.cmp.PartialEq markdown.Open
-  markdown.Open := {
+impl_def markdown.Open.Insts.CoreCmpPartialEqOpen : core.cmp.PartialEq
+  markdown.Open markdown.Open := {
   eq := markdown.Open.Insts.CoreCmpPartialEqOpen.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    markdown.Open.Insts.CoreCmpPartialEqOpen
 }
 
 /-- [protocol::markdown::{impl core::cmp::Eq for protocol::markdown::Open}::assert_fields_are_eq]:
@@ -2990,9 +5673,11 @@ def markdown.Mode.Insts.CoreCmpPartialEqMode.eq
 /-- Trait implementation: [protocol::markdown::{impl core::cmp::PartialEq<protocol::markdown::Mode> for protocol::markdown::Mode}]
     Source: 'crates/protocol/src/markdown.rs', lines 37:22-37:31 -/
 @[reducible]
-def markdown.Mode.Insts.CoreCmpPartialEqMode : core.cmp.PartialEq markdown.Mode
-  markdown.Mode := {
+impl_def markdown.Mode.Insts.CoreCmpPartialEqMode : core.cmp.PartialEq
+  markdown.Mode markdown.Mode := {
   eq := markdown.Mode.Insts.CoreCmpPartialEqMode.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    markdown.Mode.Insts.CoreCmpPartialEqMode
 }
 
 /-- [protocol::markdown::{impl core::cmp::Eq for protocol::markdown::Mode}::assert_fields_are_eq]:
@@ -5411,6 +8096,198 @@ def seen.admit
     let entries1 ←
       alloc.vec.Vec.push entries ({ token := v, id } : seen.Entry)
     ok (true, { entries := entries1 })
+
+/-- [protocol::shell::{impl core::clone::Clone for protocol::shell::Access}::clone]:
+    Source: 'crates/protocol/src/shell.rs', lines 18:9-18:14
+    Visibility: public -/
+def shell.Access.Insts.CoreCloneClone.clone
+  (self : shell.Access) : Result shell.Access := do
+  ok self
+
+/-- Trait implementation: [protocol::shell::{impl core::clone::Clone for protocol::shell::Access}]
+    Source: 'crates/protocol/src/shell.rs', lines 18:9-18:14 -/
+@[reducible]
+def shell.Access.Insts.CoreCloneClone : core.clone.Clone shell.Access := {
+  clone := shell.Access.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::marker::Copy for protocol::shell::Access}]
+    Source: 'crates/protocol/src/shell.rs', lines 18:16-18:20 -/
+@[reducible]
+def shell.Access.Insts.CoreMarkerCopy : core.marker.Copy shell.Access := {
+  cloneInst := shell.Access.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::marker::StructuralPartialEq for protocol::shell::Access}]
+    Source: 'crates/protocol/src/shell.rs', lines 18:22-18:31 -/
+@[reducible]
+def shell.Access.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq shell.Access := {
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::cmp::PartialEq<protocol::shell::Access> for protocol::shell::Access}]
+    Source: 'crates/protocol/src/shell.rs', lines 18:22-18:31 -/
+@[reducible]
+impl_def shell.Access.Insts.CoreCmpPartialEqAccess : core.cmp.PartialEq
+  shell.Access shell.Access := {
+  eq := shell.Access.Insts.CoreCmpPartialEqAccess.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    shell.Access.Insts.CoreCmpPartialEqAccess
+}
+
+/-- [protocol::shell::{impl core::cmp::Eq for protocol::shell::Access}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/shell.rs', lines 18:33-18:35
+    Visibility: public -/
+def shell.Access.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : shell.Access) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::shell::{impl core::cmp::Eq for protocol::shell::Access}]
+    Source: 'crates/protocol/src/shell.rs', lines 18:33-18:35 -/
+@[reducible]
+def shell.Access.Insts.CoreCmpEq : core.cmp.Eq shell.Access := {
+  partialEqInst := shell.Access.Insts.CoreCmpPartialEqAccess
+  assert_fields_are_eq := shell.Access.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::shell::{impl core::clone::Clone for protocol::shell::Link}::clone]:
+    Source: 'crates/protocol/src/shell.rs', lines 27:9-27:14
+    Visibility: public -/
+def shell.Link.Insts.CoreCloneClone.clone
+  (self : shell.Link) : Result shell.Link := do
+  ok self
+
+/-- Trait implementation: [protocol::shell::{impl core::clone::Clone for protocol::shell::Link}]
+    Source: 'crates/protocol/src/shell.rs', lines 27:9-27:14 -/
+@[reducible]
+def shell.Link.Insts.CoreCloneClone : core.clone.Clone shell.Link := {
+  clone := shell.Link.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::marker::Copy for protocol::shell::Link}]
+    Source: 'crates/protocol/src/shell.rs', lines 27:16-27:20 -/
+@[reducible]
+def shell.Link.Insts.CoreMarkerCopy : core.marker.Copy shell.Link := {
+  cloneInst := shell.Link.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::marker::StructuralPartialEq for protocol::shell::Link}]
+    Source: 'crates/protocol/src/shell.rs', lines 27:22-27:31 -/
+@[reducible]
+def shell.Link.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq shell.Link := {
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::cmp::PartialEq<protocol::shell::Link> for protocol::shell::Link}]
+    Source: 'crates/protocol/src/shell.rs', lines 27:22-27:31 -/
+@[reducible]
+impl_def shell.Link.Insts.CoreCmpPartialEqLink : core.cmp.PartialEq shell.Link
+  shell.Link := {
+  eq := shell.Link.Insts.CoreCmpPartialEqLink.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    shell.Link.Insts.CoreCmpPartialEqLink
+}
+
+/-- [protocol::shell::{impl core::cmp::Eq for protocol::shell::Link}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/shell.rs', lines 27:33-27:35
+    Visibility: public -/
+def shell.Link.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : shell.Link) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::shell::{impl core::cmp::Eq for protocol::shell::Link}]
+    Source: 'crates/protocol/src/shell.rs', lines 27:33-27:35 -/
+@[reducible]
+def shell.Link.Insts.CoreCmpEq : core.cmp.Eq shell.Link := {
+  partialEqInst := shell.Link.Insts.CoreCmpPartialEqLink
+  assert_fields_are_eq := shell.Link.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::shell::{impl core::clone::Clone for protocol::shell::Mode}::clone]:
+    Source: 'crates/protocol/src/shell.rs', lines 54:9-54:14
+    Visibility: public -/
+def shell.Mode.Insts.CoreCloneClone.clone
+  (self : shell.Mode) : Result shell.Mode := do
+  ok self
+
+/-- Trait implementation: [protocol::shell::{impl core::clone::Clone for protocol::shell::Mode}]
+    Source: 'crates/protocol/src/shell.rs', lines 54:9-54:14 -/
+@[reducible]
+def shell.Mode.Insts.CoreCloneClone : core.clone.Clone shell.Mode := {
+  clone := shell.Mode.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::marker::Copy for protocol::shell::Mode}]
+    Source: 'crates/protocol/src/shell.rs', lines 54:16-54:20 -/
+@[reducible]
+def shell.Mode.Insts.CoreMarkerCopy : core.marker.Copy shell.Mode := {
+  cloneInst := shell.Mode.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::marker::StructuralPartialEq for protocol::shell::Mode}]
+    Source: 'crates/protocol/src/shell.rs', lines 54:22-54:31 -/
+@[reducible]
+def shell.Mode.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq shell.Mode := {
+}
+
+/-- [protocol::shell::{impl core::cmp::Eq for protocol::shell::Mode}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/shell.rs', lines 54:33-54:35
+    Visibility: public -/
+def shell.Mode.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : shell.Mode) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::shell::{impl core::cmp::Eq for protocol::shell::Mode}]
+    Source: 'crates/protocol/src/shell.rs', lines 54:33-54:35 -/
+@[reducible]
+def shell.Mode.Insts.CoreCmpEq : core.cmp.Eq shell.Mode := {
+  partialEqInst := shell.Mode.Insts.CoreCmpPartialEqMode
+  assert_fields_are_eq := shell.Mode.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::shell::{impl core::clone::Clone for protocol::shell::Pending}::clone]:
+    Source: 'crates/protocol/src/shell.rs', lines 66:9-66:14
+    Visibility: public -/
+def shell.Pending.Insts.CoreCloneClone.clone
+  (self : shell.Pending) : Result shell.Pending := do
+  ok self
+
+/-- Trait implementation: [protocol::shell::{impl core::clone::Clone for protocol::shell::Pending}]
+    Source: 'crates/protocol/src/shell.rs', lines 66:9-66:14 -/
+@[reducible]
+def shell.Pending.Insts.CoreCloneClone : core.clone.Clone shell.Pending := {
+  clone := shell.Pending.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::marker::Copy for protocol::shell::Pending}]
+    Source: 'crates/protocol/src/shell.rs', lines 66:16-66:20 -/
+@[reducible]
+def shell.Pending.Insts.CoreMarkerCopy : core.marker.Copy shell.Pending := {
+  cloneInst := shell.Pending.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::shell::{impl core::marker::StructuralPartialEq for protocol::shell::Pending}]
+    Source: 'crates/protocol/src/shell.rs', lines 66:22-66:31 -/
+@[reducible]
+def shell.Pending.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq shell.Pending := {
+}
+
+/-- [protocol::shell::{impl core::cmp::Eq for protocol::shell::Pending}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/shell.rs', lines 66:33-66:35
+    Visibility: public -/
+def shell.Pending.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : shell.Pending) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::shell::{impl core::cmp::Eq for protocol::shell::Pending}]
+    Source: 'crates/protocol/src/shell.rs', lines 66:33-66:35 -/
+@[reducible]
+def shell.Pending.Insts.CoreCmpEq : core.cmp.Eq shell.Pending := {
+  partialEqInst := shell.Pending.Insts.CoreCmpPartialEqPending
+  assert_fields_are_eq := shell.Pending.Insts.CoreCmpEq.assert_fields_are_eq
+}
 
 /-- [protocol::slot::SLOTS]
     Source: 'crates/protocol/src/slot.rs', lines 8:0-8:30
