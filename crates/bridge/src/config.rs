@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use protocol::folder::resolve_folder;
@@ -15,7 +16,7 @@ use crate::relay::Folders;
 pub const FILE: &str = "config.toml";
 const MAX_FILE: u64 = 64 * 1024;
 
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq, PartialOrd, Ord)]
 #[serde(rename_all = "kebab-case")]
 pub enum Permission {
     #[default]
@@ -73,6 +74,26 @@ pub struct Config {
     /// The game folder that holds `Interface`, `Screenshots`, and `WTF`.
     pub wow: PathBuf,
     pub policy: Policy,
+    pub agents: BTreeMap<String, AgentSpec>,
+    pub timeout: Duration,
+}
+
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Kind {
+    /// Any agent that speaks the Agent Client Protocol.
+    Acp,
+    /// Answers with the message. It tests the path through the game with no agent.
+    Echo,
+}
+
+/// How to start one agent. A new ACP agent is one `[agents.<name>]` entry.
+#[derive(Debug, PartialEq, Eq)]
+pub struct AgentSpec {
+    pub kind: Kind,
+    pub command: Vec<String>,
+    pub env: Vec<String>,
+    pub modes: BTreeMap<Permission, String>,
 }
 
 /// Only the keys that the bridge uses. Any other key is an error, so a typo never
@@ -83,6 +104,7 @@ struct File {
     allowed_roots: Vec<String>,
     default_cwd: Option<String>,
     default_agent: String,
+    timeout_minutes: Option<u64>,
     wow: Wow,
     agents: BTreeMap<String, Agent>,
 }
@@ -96,7 +118,43 @@ struct Wow {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Agent {
+    kind: Kind,
     permission: Permission,
+    #[serde(default)]
+    command: Vec<String>,
+    #[serde(default)]
+    env: Vec<String>,
+    #[serde(default)]
+    modes: BTreeMap<Permission, String>,
+}
+
+const DEFAULT_TIMEOUT_MINUTES: u64 = 30;
+const MAX_TIMEOUT_MINUTES: u64 = 240;
+
+fn is_env_name(name: &str) -> bool {
+    !name.is_empty()
+        && name
+            .bytes()
+            .all(|b| b.is_ascii_uppercase() || b.is_ascii_digit() || b == b'_')
+}
+
+fn check_agent(name: &str, agent: &Agent) -> Result<()> {
+    if !is_valid_id(name.as_bytes()) {
+        bail!("agent name {name:?} is not a valid id");
+    }
+    match agent.kind {
+        Kind::Acp if agent.command.first().is_none_or(String::is_empty) => {
+            bail!("[agents.{name}] needs a command")
+        }
+        Kind::Echo if !agent.command.is_empty() => {
+            bail!("[agents.{name}] is kind echo, so it has no command")
+        }
+        _ => {}
+    }
+    if let Some(bad) = agent.env.iter().find(|n| !is_env_name(n)) {
+        bail!("[agents.{name}] env name {bad:?} is not A-Z, 0-9, and _");
+    }
+    Ok(())
 }
 
 fn expand(path: &str, home: &Path) -> Result<PathBuf> {
@@ -174,8 +232,12 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
     if resolve_folder(&roots, &base, b"").is_none() {
         bail!("default_cwd is outside allowed_roots");
     }
-    if let Some(name) = file.agents.keys().find(|n| !is_valid_id(n.as_bytes())) {
-        bail!("agent name {name:?} is not a valid id");
+    for (name, agent) in &file.agents {
+        check_agent(name, agent)?;
+    }
+    let minutes = file.timeout_minutes.unwrap_or(DEFAULT_TIMEOUT_MINUTES);
+    if !(1..=MAX_TIMEOUT_MINUTES).contains(&minutes) {
+        bail!("timeout_minutes must be 1 to {MAX_TIMEOUT_MINUTES}");
     }
     if !file.agents.contains_key(&file.default_agent) {
         bail!(
@@ -183,17 +245,33 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
             file.default_agent
         );
     }
+    let levels = file
+        .agents
+        .iter()
+        .map(|(name, agent)| (name.clone(), agent.permission))
+        .collect();
+    let agents = file
+        .agents
+        .into_iter()
+        .map(|(name, agent)| {
+            let spec = AgentSpec {
+                kind: agent.kind,
+                command: agent.command,
+                env: agent.env,
+                modes: agent.modes,
+            };
+            (name, spec)
+        })
+        .collect();
     Ok(Config {
         wow: expand(&file.wow.path, home)?,
         policy: Policy {
             folders: Folders { roots, base },
-            agents: file
-                .agents
-                .into_iter()
-                .map(|(name, agent)| (name, agent.permission))
-                .collect(),
+            agents: levels,
             default_agent: file.default_agent,
         },
+        agents,
+        timeout: Duration::from_mins(minutes),
     })
 }
 
@@ -233,6 +311,7 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
 }
 
 /// The first config: every agent asks, and agents work only under `Documents/Code`.
+/// The comments show how to add another ACP agent.
 pub fn default_text(wow: &Path) -> String {
     let wow = wow
         .to_string_lossy()
@@ -246,7 +325,17 @@ pub fn default_text(wow: &Path) -> String {
          path = \"{wow}\"\n\
          \n\
          [agents.claude]\n\
-         permission = \"ask\"\n"
+         kind = \"acp\"\n\
+         command = [\"claude-agent-acp\"]\n\
+         permission = \"ask\"\n\
+         \n\
+         # Any ACP agent is one entry. Run `gnomish-relay check-agent <name>` to test it.\n\
+         # [agents.codex]\n\
+         # kind = \"acp\"\n\
+         # command = [\"codex-acp\"]\n\
+         # permission = \"ask\"\n\
+         # env = [\"OPENAI_API_KEY\"]        # passed to the agent; all others stay out\n\
+         # modes = {{ ask = \"<mode id>\" }}  # check-agent lists the mode ids of the agent\n"
     )
 }
 
@@ -280,6 +369,8 @@ mod tests {
         [wow]
         path = "~/wow"
         [agents.claude]
+        kind = "acp"
+        command = ["claude-agent-acp"]
         permission = "auto-edit"
     "#;
 
@@ -303,6 +394,53 @@ mod tests {
         );
         let typo = GOOD.replace("permission = ", "permision = ");
         assert!(home.parse(&typo).is_err());
+    }
+
+    #[test]
+    fn an_agent_entry_gives_its_command_its_variables_and_its_modes() {
+        let home = Home::new();
+        let text = format!(
+            "{GOOD}\nenv = [\"ANTHROPIC_API_KEY\"]\nmodes = {{ ask = \"plan\", auto-edit = \"default\" }}\n"
+        );
+        let config = home.parse(&text).unwrap();
+        let claude = &config.agents["claude"];
+        assert_eq!(claude.kind, Kind::Acp);
+        assert_eq!(claude.command, ["claude-agent-acp"]);
+        assert_eq!(claude.env, ["ANTHROPIC_API_KEY"]);
+        assert_eq!(claude.modes[&Permission::Ask], "plan");
+        assert_eq!(config.timeout, Duration::from_mins(30));
+    }
+
+    #[test]
+    fn a_bad_agent_entry_is_an_error() {
+        let home = Home::new();
+        let bad = [
+            GOOD.replace("kind = \"acp\"\n", ""),
+            GOOD.replace("[\"claude-agent-acp\"]", "[]"),
+            GOOD.replace("kind = \"acp\"", "kind = \"echo\""),
+            format!("{GOOD}\nenv = [\"PATH; rm\"]\n"),
+            format!("{GOOD}\nmodes = {{ root = \"x\" }}\n"),
+        ];
+        for text in bad {
+            assert!(home.parse(&text).is_err(), "{text}");
+        }
+    }
+
+    #[test]
+    fn the_timeout_has_limits() {
+        let home = Home::new();
+        let with = |minutes: u64| {
+            GOOD.replace(
+                "default_agent",
+                &format!("timeout_minutes = {minutes}\ndefault_agent"),
+            )
+        };
+        assert_eq!(
+            home.parse(&with(5)).unwrap().timeout,
+            Duration::from_mins(5)
+        );
+        assert!(home.parse(&with(0)).is_err());
+        assert!(home.parse(&with(241)).is_err());
     }
 
     #[test]

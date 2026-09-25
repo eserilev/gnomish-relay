@@ -1,11 +1,11 @@
 //! The `gnomish-relay` command.
 
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
 
 use anyhow::{Context, Result, bail};
-use bridge::agent::Echo;
-use bridge::config::{self, Config};
+use bridge::acp::AcpAgent;
+use bridge::agent;
+use bridge::config::{self, Config, Kind};
 use bridge::fs_safe::write_atomic;
 use bridge::receive::StripKey;
 use bridge::run::{Paths, now, run};
@@ -17,7 +17,8 @@ const USAGE: &str = "\
 usage:
   gnomish-relay setup <wow folder>   write the first config.toml (the _classic_beta_ folder)
   gnomish-relay install              make the slot addons (game closed)
-  gnomish-relay run                  read strips, answer with the echo agent, publish
+  gnomish-relay run                  read strips, run the agents, publish the replies
+  gnomish-relay check-agent <name>   start an agent of the config and show what it offers
   gnomish-relay say <chat> <id> <text>
                                      publish a reply to message <id> (from `/relay diag`)";
 
@@ -141,7 +142,49 @@ fn start() -> Result<()> {
         addons: addons_dir(&config.wow),
     };
     let key = StripKey::load(&config_dir()?.join("strip.key"))?;
-    run(paths, config.policy, key, Arc::new(Echo))
+    let agents = agent::from_config(&config);
+    run(paths, config.policy, key, agents)
+}
+
+/// Starts one agent of the config and opens a session in the default folder, with
+/// no prompt. It shows that a new `[agents.<name>]` entry works.
+fn check_agent(name: &str) -> Result<()> {
+    let config = load_config()?;
+    let spec = config
+        .agents
+        .get(name)
+        .with_context(|| format!("the config has no [agents.{name}]"))?;
+    if spec.kind != Kind::Acp {
+        bail!("[agents.{name}] is not an ACP agent");
+    }
+    let agent = AcpAgent {
+        command: spec.command.clone(),
+        env: spec.env.clone(),
+        modes: spec.modes.clone(),
+        timeout: std::time::Duration::from_mins(1),
+    };
+    let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
+    let report = agent.check(&cwd).map_err(anyhow::Error::msg)?;
+    println!("{name}: {} {}", report.name, report.version);
+    println!(
+        "resumes sessions: {}",
+        if report.load_session { "yes" } else { "no" }
+    );
+    println!(
+        "modes: {}",
+        if report.modes.is_empty() {
+            "none".into()
+        } else {
+            report.modes.join(", ")
+        }
+    );
+    for (level, mode) in &spec.modes {
+        if !report.modes.contains(mode) {
+            bail!("the agent has no mode {mode:?}, which the config names for {level:?}");
+        }
+    }
+    println!("ok");
+    Ok(())
 }
 
 fn main() -> Result<()> {
@@ -150,6 +193,7 @@ fn main() -> Result<()> {
         ["setup", wow] => setup(wow),
         ["install"] => install(),
         ["run"] => start(),
+        ["check-agent", name] => check_agent(name),
         ["say", chat, id, text] => say(chat, id, text),
         _ => bail!("{USAGE}"),
     }

@@ -5,4 +5,7 @@ default_agent = "claude"
 path = "/games/wow"
 
 [agents.claude]
+kind = "acp"
+command = ["claude-agent-acp"]
 permission = "ask"
+modes = { ask = "default" }

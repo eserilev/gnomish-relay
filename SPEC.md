@@ -604,40 +604,19 @@ If the lock is taken, the bridge stops with an error.
 
 ### 9.1 The Agent trait
 
+Today the trait has one call. It runs one message to its final reply:
+
 ```rust
-trait Agent {
-    async fn open_session(&self, cwd: &Path, resume: Option<SessionId>) -> Result<SessionId>;
-    async fn prompt(&self, session: &SessionId, text: &str) -> Result<EventStream>;
-    async fn answer_permission(&self, request: RequestId, choice: Option<OptionId>) -> Result<()>;
-    async fn cancel(&self, session: &SessionId) -> Result<()>;
+trait Agent: Send + Sync {
+    fn run(&self, job: &Job) -> Result<String, String>;
 }
-
-enum Event {
-    SessionStarted(SessionId),
-    Text(String),
-    ToolCall { name: String, detail: String },
-    PermissionRequest(PermissionRequest),
-    Denied(Vec<Rule>),
-    Done { text: String, stop: StopReason },
-    Error(String),
-}
-
-struct PermissionRequest {
-    id: RequestId,
-    session: SessionId,
-    tool: String,
-    detail: String,
-    options: Vec<PermissionOption>,
-}
-
-struct PermissionOption { id: OptionId, kind: OptionKind, label: String }
-enum OptionKind { AllowOnce, AllowAlways, RejectOnce, RejectAlways }
-enum StopReason { EndTurn, MaxTokens, Refusal, Cancelled }
 ```
 
-- `resume` restores a session after a bridge restart. If the agent cannot resume, the bridge opens a new session and tells the user in the game.
-- `answer_permission(id, None)` means "cancelled".
-- `Denied` carries the rules that the agent refused. The **Allow & retry** button needs them.
+`Job` carries the chat, the folder after the policy check, the level after the ceiling (S6), and the text.
+Each run of the `acp` backend starts the agent process, opens a session, sets the mode of the level, sends the prompt, and stops the process.
+
+Next, the trait grows events for progress and for permission requests from the game (9.3). Those need new fields in the slot body, so they wait for an approved S9 statement.
+Session resume across messages also comes next (`session/load` or `session/resume`, with the session id of each chat in `state.json`).
 
 ### 9.2 Backends
 
@@ -667,9 +646,32 @@ ACP agents (checked 2026-09-23):
 - Claude Code: the `claude-agent-acp` adapter (formerly `claude-code-acp`).
 - Codex: the `codex-acp` adapter, now in the `agentclientprotocol` organization.
 
-The Rust crate is `agent-client-protocol` 2.2.x. Its API uses builders and roles.
-Pin 2.2.x. Do not turn on the unstable v2 features in v1.
-Put a thin adapter between the crate and the `Agent` trait, so that API changes stay in one file.
+The bridge speaks ACP protocol version 1 in `crates/bridge/src/acp.rs`, with no crate: JSON-RPC 2.0, one message per line.
+The `agent-client-protocol` crate needs an async runtime, and the bridge needs only a few messages. Version 2 of the schema is still an alpha.
+
+The agent process is untrusted:
+
+- It gets only `PATH`, `HOME`, `LANG`, `TERM`, `USER`, the temp and Windows profile variables, the `env` list of its entry, and `GNOMISH_RELAY_JOB=1`.
+- Each line from it is at most 8 MiB, and the reply is at most 256 KiB. A line that is not JSON ends the run.
+- The run ends at `timeout_minutes` (default 30). The bridge then kills the process.
+- The bridge declares no `fs` and no `terminal` capability, and answers every other request from the agent with "method not found".
+- If the config names a mode for the level, and the agent does not offer it, the run stops. With no mode, the agent runs at its own default, which can be more open.
+- Until the game can answer (9.3), the bridge answers each permission request under the ceiling: `full-auto` allows once, every other level refuses once. The reply then ends with "Not allowed from the game:" and the refused tool calls.
+
+**Adding an agent.** Any ACP agent is one entry in `config.toml`. Nothing else changes:
+
+```toml
+[agents.gemini]
+kind = "acp"
+command = ["gemini", "--acp"]
+permission = "ask"
+env = ["GEMINI_API_KEY"]
+modes = { ask = "default" }
+```
+
+Then run `gnomish-relay check-agent gemini`. It starts the agent, opens one session in `default_cwd`, and shows the name, the version, whether it resumes sessions, and its mode ids. It fails if a mode in `modes` does not exist.
+The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "Agent not set up.".
+`kind = "echo"` answers with the message, for a test of the path through the game with no agent.
 
 ### 9.3 Permissions
 
@@ -798,7 +800,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never replaces a config.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `[wow] path`, and `[agents.<name>] permission`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `[wow] path`, and `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`.
 The other keys below come with their features.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
@@ -1072,7 +1074,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 6. **Addon port** with the stub harness and the differential tests.
 7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`. Passed in the game on 2026-09-24: a message went out as a strip, and the echo came back through the slots.
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Next:** the classifier (6.6.3) needs the tool calls of step 9.
-9. **ACP backend.** Test with one agent first.
+9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Next:** progress and permissions in the game (needs an S9 change), session resume, and Stop for a running run.
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.

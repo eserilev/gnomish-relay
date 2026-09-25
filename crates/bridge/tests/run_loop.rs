@@ -10,6 +10,7 @@ use std::path::Path;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
+use bridge::acp::AcpAgent;
 use bridge::agent::{Agent, Echo};
 use bridge::config::{Permission, Policy};
 use bridge::receive::StripKey;
@@ -71,18 +72,22 @@ fn bridge(f: &Dirs) -> Bridge {
 }
 
 fn bridge_with(f: &Dirs, agent: Arc<dyn Agent>) -> Bridge {
+    bridge_in(f, policy(), agent)
+}
+
+fn bridge_in(f: &Dirs, policy: Policy, agent: Arc<dyn Agent>) -> Bridge {
     let paths = Paths {
         addons: f.addons.clone(),
         screenshots: f.screenshots.clone(),
         accounts: f.accounts.clone(),
         state: f.state.clone(),
     };
-    let folders = policy();
+    let agents = [("claude".to_owned(), agent)].into();
     Bridge::new(
         paths,
-        folders,
+        policy,
         StripKey::from_hex(&hex(KEY)).unwrap(),
-        agent,
+        agents,
     )
     .unwrap()
 }
@@ -224,5 +229,44 @@ fn a_damaged_state_file_stops_the_bridge_at_start() {
     };
     let folders = policy();
     let key = StripKey::from_hex(&hex(KEY)).unwrap();
-    assert!(Bridge::new(paths, folders, key, Arc::new(Echo)).is_err());
+    let agents = [("claude".to_owned(), Arc::new(Echo) as Arc<dyn Agent>)].into();
+    assert!(Bridge::new(paths, folders, key, agents).is_err());
+}
+
+#[test]
+fn a_strip_comes_back_with_the_reply_of_an_acp_agent() {
+    let f = folders();
+    let root = tempfile::tempdir().unwrap();
+    let base = root
+        .path()
+        .canonicalize()
+        .unwrap()
+        .to_string_lossy()
+        .as_bytes()
+        .to_vec();
+    let policy = Policy {
+        folders: Folders {
+            roots: vec![base.clone()],
+            base,
+        },
+        agents: [("claude".to_owned(), Permission::AutoEdit)].into(),
+        default_agent: "claude".into(),
+    };
+    let fake = AcpAgent {
+        command: vec![env!("CARGO_BIN_EXE_fake-acp-agent").into(), "reply".into()],
+        env: Vec::new(),
+        modes: std::collections::BTreeMap::new(),
+        timeout: Duration::from_secs(20),
+    };
+    let mut bridge = bridge_in(&f, policy, Arc::new(fake));
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        strip_png(KEY, "fix the build"),
+    )
+    .unwrap();
+
+    let answered = step_until(&mut bridge, || {
+        slot_body(&f.addons).contains("you said: fix the build")
+    });
+    assert!(answered, "{}", slot_body(&f.addons));
 }

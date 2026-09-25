@@ -8,7 +8,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
-use crate::agent::Agent;
+use crate::agent::Agents;
 use crate::config::Policy;
 use crate::receive::{StripKey, receive};
 use crate::relay::{Job, Outcome, Relay};
@@ -50,7 +50,7 @@ fn log(line: &str) {
 pub struct Bridge {
     paths: Paths,
     key: StripKey,
-    agent: Arc<dyn Agent>,
+    agents: Agents,
     relay: Relay,
     watcher: Watcher,
     saved: saved::Watcher,
@@ -62,12 +62,7 @@ pub struct Bridge {
 }
 
 impl Bridge {
-    pub fn new(
-        paths: Paths,
-        policy: Policy,
-        key: StripKey,
-        agent: Arc<dyn Agent>,
-    ) -> Result<Bridge> {
+    pub fn new(paths: Paths, policy: Policy, key: StripKey, agents: Agents) -> Result<Bridge> {
         let relay = match state::load(&paths.state)? {
             Some(saved) => Relay::from_state(policy, saved),
             None => Relay::new(policy),
@@ -78,7 +73,7 @@ impl Bridge {
             saved: saved::Watcher::new(&paths.accounts),
             paths,
             key,
-            agent,
+            agents,
             relay,
             finished,
             results,
@@ -180,8 +175,12 @@ impl Bridge {
                 "run {} #{} with {} at {:?}",
                 job.chat.0, job.id.0, job.agent, job.permission
             ));
-            let agent = Arc::clone(&self.agent);
             let finished = self.finished.clone();
+            // The policy refuses an agent that the config does not have, so this is a guard.
+            let Some(agent) = self.agents.get(&job.agent).map(Arc::clone) else {
+                let _ = finished.send((job, Err("Agent not set up.".into())));
+                continue;
+            };
             thread::spawn(move || {
                 let result = agent.run(&job);
                 let _ = finished.send((job, result));
@@ -209,9 +208,9 @@ impl Bridge {
     }
 }
 
-pub fn run(paths: Paths, policy: Policy, key: StripKey, agent: Arc<dyn Agent>) -> Result<()> {
+pub fn run(paths: Paths, policy: Policy, key: StripKey, agents: Agents) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
-    let mut bridge = Bridge::new(paths, policy, key, agent)?;
+    let mut bridge = Bridge::new(paths, policy, key, agents)?;
     loop {
         bridge.step();
         thread::sleep(TICK);
