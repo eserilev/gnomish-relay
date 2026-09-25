@@ -92,6 +92,17 @@ pub enum Kind {
     Echo,
 }
 
+impl Kind {
+    /// The word of the config.
+    pub fn word(self) -> &'static str {
+        match self {
+            Kind::Acp => "acp",
+            Kind::Claude => "claude",
+            Kind::Echo => "echo",
+        }
+    }
+}
+
 /// How to start one agent. A new ACP agent is one `[agents.<name>]` entry.
 #[derive(Debug, PartialEq, Eq)]
 pub struct AgentSpec {
@@ -372,9 +383,12 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
     parse(&text, home).with_context(|| format!("{} is not valid", path.display()))
 }
 
+/// An agent that setup found: its entry name, its kind, and its command.
+pub type Found<'a> = (&'a str, Kind, &'a [&'a str]);
+
 /// The first config: every agent asks, and agents work only in `roots`. It names the
 /// agents that setup found; with none, the echo agent.
-pub fn default_text(wow: &Path, agents: &[(&str, &[&str])], roots: &[String]) -> String {
+pub fn default_text(wow: &Path, agents: &[Found], roots: &[String]) -> String {
     let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
     let mut text = format!(
         "allowed_roots = [{}]\ndefault_agent = {}\n\n[wow]\npath = {}\n",
@@ -383,14 +397,15 @@ pub fn default_text(wow: &Path, agents: &[(&str, &[&str])], roots: &[String]) ->
             .map(|r| quote(r))
             .collect::<Vec<_>>()
             .join(", "),
-        quote(agents.first().map_or("echo", |(name, _)| name)),
+        quote(agents.first().map_or("echo", |(name, _, _)| name)),
         quote(&wow.to_string_lossy()),
     );
-    for (name, command) in agents {
+    for (name, kind, command) in agents {
         let command: Vec<String> = command.iter().map(|word| quote(word)).collect();
         let _ = write!(
             text,
-            "\n[agents.{name}]\nkind = \"acp\"\ncommand = [{}]\npermission = \"ask\"\n",
+            "\n[agents.{name}]\nkind = \"{}\"\ncommand = [{}]\npermission = \"ask\"\n",
+            kind.word(),
             command.join(", ")
         );
     }
@@ -615,9 +630,9 @@ mod tests {
         } else {
             r#"/games/"wow"\x"#
         };
-        let agents: [(&str, &[&str]); 2] = [
-            ("claude", &["claude-agent-acp"]),
-            ("gemini", &["gemini", "--acp"]),
+        let agents: [Found; 2] = [
+            ("claude", Kind::Claude, &["claude"]),
+            ("gemini", Kind::Acp, &["gemini", "--acp"]),
         ];
         let roots = ["~/Documents/Code".to_owned()];
         let config = home
@@ -626,6 +641,7 @@ mod tests {
         assert_eq!(config.policy.agents["claude"], Permission::Ask);
         assert_eq!(config.policy.default_agent, "claude");
         assert_eq!(config.agents["gemini"].command, ["gemini", "--acp"]);
+        assert_eq!(config.agents["claude"].kind, Kind::Claude);
         assert_eq!(config.wow, PathBuf::from(wow));
     }
 

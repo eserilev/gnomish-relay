@@ -681,10 +681,25 @@ Next, the trait grows events for progress and for permission requests from the g
 - The chat header shows the level next to the agent name, for example "Aider · trusted".
 - An ACP agent needs one line in the config. An agent with a hook system needs a small hook command. Every other CLI agent uses `command`.
 
-ACP agents (checked 2026-09-23):
+Agents that speak ACP with no adapter (checked 2026-09-25 in the official registry, `github.com/agentclientprotocol/registry`, one `agent.json` per agent). Setup knows these commands (11.3):
 
-- Gemini CLI: `gemini --acp`. It supports new sessions, `loadSession`, and `setSessionMode`.
-- Claude Code: the `claude-agent-acp` adapter (formerly `claude-code-acp`). It needs Node. The `claude` backend below needs only the `claude` program.
+| Agent | Command |
+|---|---|
+| Gemini CLI | `gemini --acp` (`--experimental-acp` is the old name) |
+| Qwen Code | `qwen --acp` |
+| opencode | `opencode acp` |
+| goose | `goose acp` |
+| GitHub Copilot CLI | `copilot --acp` |
+| Cursor | `cursor-agent acp` |
+| Kimi CLI | `kimi acp` |
+| Augment (auggie) | `auggie --acp` |
+| Cline | `cline --acp` |
+| Kilo | `kilo acp` |
+| Mistral Vibe | `vibe-acp` |
+
+Agents through an adapter:
+
+- Claude Code: the `claude-agent-acp` adapter (formerly `claude-code-acp`). It needs Node. The `claude` backend below needs only the `claude` program, so setup uses that.
 - Codex: the `codex-acp` adapter, now in the `agentclientprotocol` organization.
 
 The bridge speaks ACP protocol version 1 in `crates/bridge/src/acp.rs`, with no crate: JSON-RPC 2.0, one message per line.
@@ -894,7 +909,7 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
    With more than one, or none, it asks in a terminal. `setup <folder>` skips the search, and takes the `World of Warcraft` folder or `_classic_beta_`. It makes `Interface/AddOns` if WoW has not made it yet, and it finds that folder in any case.
 2. **Make the strip key**, 32 random bytes from the OS, into `strip.key` with mode 0600, once. `--new-key` makes a new one, and then the addon needs a `/reload`.
 3. **Install the addon.** The addon files are built into the program. Setup writes them into `Interface/AddOns/GnomishRelay`, and writes `Key.lua` from the strip key. A folder that is a link (a developer checkout, 16) stays as it is, and only `Key.lua` changes.
-4. **Write the config**, once, with an `[agents.<name>]` entry for each known ACP agent on `PATH`: `claude-agent-acp`, `codex-acp`, and `gemini`. The default agent is the first one it finds. With none, it is `echo`.
+4. **Write the config**, once, with an `[agents.<name>]` entry for each known agent on `PATH`: `claude` (as `kind = "claude"`), `codex-acp`, and the ACP agents of 9.2. The default agent is the first one it finds, in the order of `KNOWN_AGENTS` in `install.rs`. With none, it is `echo`.
 5. **Make the slot addons.** WoW finds a new addon only at launch, so after a first install the game needs a restart. Setup says so.
 6. **Start the bridge at login**, with `--autostart`: a systemd user service on Linux, a launchd agent on macOS (log in `~/Library/Logs/gnomish-relay.log`), and a `Run` entry of the user on Windows, which needs no admin rights. On Windows, `run --background` starts the bridge with no console window, with its log in the data folder.
 

@@ -16,7 +16,8 @@ It works with Claude Code, and with any agent that speaks the Agent Client Proto
    - Windows (PowerShell): `irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex`
 3. Answer one question: the folders that the agents can work in.
 
-Setup uses the agents that you already have: `claude-agent-acp`, `codex-acp`, or `gemini`.
+Setup uses the agents that you already have: `claude`, `codex-acp`, `gemini`, `qwen`,
+`opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
 With none, replies repeat your message until you add one (below).
 4. Start WoW and type `/relay`.
 

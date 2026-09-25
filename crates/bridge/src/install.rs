@@ -8,6 +8,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
+use crate::config::{Found, Kind};
 use crate::fs_safe::write_atomic_unsynced;
 
 pub const ADDON: &str = "GnomishRelay";
@@ -299,11 +300,22 @@ pub fn install_addon(addons: &Path, key_hex: &str) -> Result<Installed> {
     })
 }
 
-/// The ACP agents that setup knows, with their config entry name and command.
-pub const KNOWN_AGENTS: [(&str, &[&str]); 3] = [
-    ("claude", &["claude-agent-acp"]),
-    ("codex", &["codex-acp"]),
-    ("gemini", &["gemini", "--acp"]),
+/// The agents that setup knows: the config entry name, the kind, and the command. Each
+/// ACP command comes from the official ACP registry (SPEC.md 9.2).
+pub const KNOWN_AGENTS: [Found<'static>; 13] = [
+    ("claude", Kind::Claude, &["claude"]),
+    ("codex", Kind::Acp, &["codex-acp"]),
+    ("gemini", Kind::Acp, &["gemini", "--acp"]),
+    ("qwen", Kind::Acp, &["qwen", "--acp"]),
+    ("opencode", Kind::Acp, &["opencode", "acp"]),
+    ("goose", Kind::Acp, &["goose", "acp"]),
+    ("copilot", Kind::Acp, &["copilot", "--acp"]),
+    ("cursor", Kind::Acp, &["cursor-agent", "acp"]),
+    ("kimi", Kind::Acp, &["kimi", "acp"]),
+    ("auggie", Kind::Acp, &["auggie", "--acp"]),
+    ("cline", Kind::Acp, &["cline", "--acp"]),
+    ("kilo", Kind::Acp, &["kilo", "acp"]),
+    ("vibe", Kind::Acp, &["vibe-acp"]),
 ];
 
 fn on_path(program: &str, path: &OsStr) -> bool {
@@ -316,11 +328,13 @@ pub fn login_command(agent: &str) -> Option<&'static str> {
         "claude" => Some("claude"),
         "codex" => Some("codex login"),
         "gemini" => Some("gemini"),
+        "qwen" => Some("qwen"),
         _ => None,
     }
 }
 
-/// ACP agents answer `session/new` with an "auth required" error when nobody is logged in.
+/// ACP agents answer `session/new` with an "auth required" error when nobody is logged
+/// in. The native backends say "needs a login".
 pub fn needs_login(error: &str) -> bool {
     let error = error.to_ascii_lowercase();
     error.contains("auth") || error.contains("login") || error.contains("log in")
@@ -371,11 +385,11 @@ fn same_folder(a: &Path, b: &Path) -> bool {
 }
 
 /// The known agents whose program is on `path`, in the order of `KNOWN_AGENTS`.
-pub fn find_agents(path: &OsStr) -> Vec<(&'static str, &'static [&'static str])> {
+pub fn find_agents(path: &OsStr) -> Vec<Found<'static>> {
     KNOWN_AGENTS
         .iter()
         .copied()
-        .filter(|(_, command)| on_path(command[0], path))
+        .filter(|(_, _, command)| on_path(command[0], path))
         .collect()
 }
 
@@ -592,12 +606,28 @@ mod tests {
             }
         };
         fs::write(dir.path().join(name("gemini")), "").unwrap();
-        fs::write(dir.path().join(name("claude-agent-acp")), "").unwrap();
-        let found: Vec<&str> = find_agents(dir.path().as_os_str())
+        fs::write(dir.path().join(name("claude")), "").unwrap();
+        fs::write(dir.path().join(name("opencode")), "").unwrap();
+        let found: Vec<(&str, Kind)> = find_agents(dir.path().as_os_str())
             .iter()
-            .map(|(n, _)| *n)
+            .map(|(n, kind, _)| (*n, *kind))
             .collect();
-        assert_eq!(found, ["claude", "gemini"]);
+        assert_eq!(
+            found,
+            [
+                ("claude", Kind::Claude),
+                ("gemini", Kind::Acp),
+                ("opencode", Kind::Acp)
+            ]
+        );
+    }
+
+    #[test]
+    fn every_known_agent_has_a_valid_name_and_a_command() {
+        for (name, _, command) in KNOWN_AGENTS {
+            assert!(protocol::record::is_valid_id(name.as_bytes()), "{name}");
+            assert!(!command[0].is_empty(), "{name}");
+        }
     }
 
     #[test]
@@ -629,6 +659,8 @@ mod tests {
             "The agent failed at session/new: Authentication required"
         ));
         assert!(!needs_login("Cannot start gemini: not found on PATH"));
+        assert!(needs_login("Claude Code needs a login."));
+        assert_eq!(login_command("claude"), Some("claude"));
         assert_eq!(login_command("codex"), Some("codex login"));
     }
 }
