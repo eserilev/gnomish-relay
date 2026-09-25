@@ -237,6 +237,7 @@ pub fn launchd_plist(exe: &Path, path_var: &str) -> String {
 mod tests {
     use super::*;
 
+    #[cfg(target_os = "linux")]
     fn game_in(prefix: &Path) -> PathBuf {
         let game = WINE_GAME
             .iter()
