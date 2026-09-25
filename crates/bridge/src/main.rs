@@ -8,9 +8,11 @@ use bridge::agent;
 use bridge::config::{self, Config, Kind};
 use bridge::fs_safe::write_atomic;
 use bridge::install;
+use bridge::lock::{self, Bridge};
 use bridge::receive::StripKey;
 use bridge::run::{Paths, now, run};
 use bridge::slots::{self, Files};
+use bridge::update::{self, Replaced};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const USAGE: &str = "\
@@ -19,6 +21,8 @@ usage:
                                      install the addon, the key, the config, and the slots
   gnomish-relay install              make the slot addons (game closed)
   gnomish-relay run                  read strips, run the agents, publish the replies
+  gnomish-relay restart              stop the bridge and start it again, for example after a config edit
+  gnomish-relay update               install the latest release and restart the bridge
   gnomish-relay check-agent <name>   start an agent of the config and show what it offers
   gnomish-relay say <chat> <id> <text>
                                      publish a reply to message <id> (from `/relay diag`)";
@@ -153,9 +157,9 @@ fn autostart() -> Result<()> {
                 "/f",
             ],
         )?;
-        start_background()?;
+        restart_process(&exe)?;
     } else if cfg!(target_os = "macos") {
-        let dir = home_dir()?.join("Library").join("LaunchAgents");
+        let dir = launch_agents_dir()?;
         std::fs::create_dir_all(&dir)?;
         let name = format!("{}.plist", install::LAUNCHD_LABEL);
         let log = home_dir()?
@@ -167,34 +171,106 @@ fn autostart() -> Result<()> {
             &name,
             install::launchd_plist(&exe, &path_var, &log).as_bytes(),
         )?;
-        let uid = String::from_utf8(std::process::Command::new("id").arg("-u").output()?.stdout)?;
+        let domain = launchd_domain()?;
         let plist = dir.join(&name).to_string_lossy().into_owned();
-        let _ = command(
-            "launchctl",
-            &["bootout", &format!("gui/{}", uid.trim()), &plist],
-        );
-        command(
-            "launchctl",
-            &["bootstrap", &format!("gui/{}", uid.trim()), &plist],
-        )?;
+        let _ = command("launchctl", &["bootout", &domain, &plist]);
+        command("launchctl", &["bootstrap", &domain, &plist])?;
         println!("logs: {}", log.display());
     } else {
-        let dir = config_dir()?
-            .parent()
-            .context("no config folder")?
-            .join("systemd")
-            .join("user");
+        let dir = systemd_dir()?;
         std::fs::create_dir_all(&dir)?;
         write_atomic(
             &dir,
-            "gnomish-relay.service",
+            SYSTEMD_UNIT,
             install::systemd_unit(&exe, &path_var).as_bytes(),
         )?;
         command("systemctl", &["--user", "daemon-reload"])?;
-        command("systemctl", &["--user", "enable", "gnomish-relay.service"])?;
-        command("systemctl", &["--user", "restart", "gnomish-relay.service"])?;
+        command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
+        command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
         println!("logs: journalctl --user -u gnomish-relay");
     }
+    Ok(())
+}
+
+const SYSTEMD_UNIT: &str = "gnomish-relay.service";
+
+fn systemd_dir() -> Result<PathBuf> {
+    Ok(config_dir()?
+        .parent()
+        .context("no config folder")?
+        .join("systemd")
+        .join("user"))
+}
+
+fn launch_agents_dir() -> Result<PathBuf> {
+    Ok(home_dir()?.join("Library").join("LaunchAgents"))
+}
+
+fn launchd_domain() -> Result<String> {
+    let uid = std::process::Command::new("id").arg("-u").output()?.stdout;
+    Ok(format!("gui/{}", String::from_utf8(uid)?.trim()))
+}
+
+/// Restarts the bridge through the login service of setup, or as a process with no
+/// service. `exe` is the program to start: after an update, `current_exe` names the
+/// old file.
+fn restart(exe: &Path) -> Result<()> {
+    if cfg!(target_os = "linux") && systemd_dir()?.join(SYSTEMD_UNIT).is_file() {
+        return command("systemctl", &["--user", "restart", SYSTEMD_UNIT]);
+    }
+    let plist = launch_agents_dir()?.join(format!("{}.plist", install::LAUNCHD_LABEL));
+    if cfg!(target_os = "macos") && plist.is_file() {
+        let service = format!("{}/{}", launchd_domain()?, install::LAUNCHD_LABEL);
+        return command("launchctl", &["kickstart", "-k", &service]);
+    }
+    restart_process(exe)
+}
+
+/// A bridge that runs with no service gets stopped, and then `exe` starts in the background.
+fn restart_process(exe: &Path) -> Result<()> {
+    let data = data_dir()?;
+    std::fs::create_dir_all(&data)?;
+    match lock::status(&data)? {
+        Bridge::Stopped => {}
+        Bridge::Runs(None) => {
+            bail!("a bridge runs, but its process id is unknown. Stop it by hand")
+        }
+        Bridge::Runs(Some(pid)) => stop_process(pid)?,
+    }
+    if !lock::wait_until_stopped(&data, std::time::Duration::from_secs(10))? {
+        bail!("the bridge does not stop");
+    }
+    let log = start_background(exe)?;
+    println!("the bridge runs, and logs to {}", log.display());
+    Ok(())
+}
+
+fn stop_process(pid: u32) -> Result<()> {
+    let pid = pid.to_string();
+    if cfg!(windows) {
+        // `/T` also stops the agents that the bridge started.
+        command("taskkill", &["/PID", &pid, "/T", "/F"])
+    } else {
+        command("kill", &[&pid])
+    }
+}
+
+fn self_update() -> Result<()> {
+    let name = update::archive_name().context("there is no release build for this OS and CPU")?;
+    let base = std::env::var("GNOMISH_URL").unwrap_or_else(|_| update::RELEASES.to_owned());
+    let exe = std::env::current_exe()?;
+    let work = data_dir()?.join("update");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work)?;
+    let replaced = update::fetch(&base, name, &work).and_then(|new| update::replace(&exe, &new));
+    let _ = std::fs::remove_dir_all(&work);
+    if replaced? == Replaced::Same {
+        println!("gnomish-relay is the latest release");
+        return Ok(());
+    }
+    println!("updated {}", exe.display());
+    restart(&exe)?;
+    println!("type /reload in the game");
     Ok(())
 }
 
@@ -203,7 +279,7 @@ const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const MAX_LOG: u64 = 4 * 1024 * 1024;
 
 /// Starts `run` as a new process with no console window, and its log in a file.
-fn start_background() -> Result<PathBuf> {
+fn start_background(exe: &Path) -> Result<PathBuf> {
     let dir = data_dir()?;
     std::fs::create_dir_all(&dir)?;
     let log_path = dir.join("bridge.log");
@@ -214,7 +290,7 @@ fn start_background() -> Result<PathBuf> {
         .write(true)
         .truncate(too_big)
         .open(&log_path)?;
-    let mut child = std::process::Command::new(std::env::current_exe()?);
+    let mut child = std::process::Command::new(exe);
     child
         .arg("run")
         .stdin(std::process::Stdio::null())
@@ -383,6 +459,7 @@ fn start() -> Result<()> {
     let config = load_config()?;
     let state = data_dir()?;
     std::fs::create_dir_all(&state).with_context(|| format!("cannot make {}", state.display()))?;
+    let _lock = lock::take(&state)?;
     let paths = Paths {
         state,
         screenshots: config.wow.join("Screenshots"),
@@ -474,10 +551,12 @@ fn main() -> Result<()> {
         ["install"] => install(),
         ["run"] => start(),
         ["run", "--background"] => {
-            let log = start_background()?;
+            let log = start_background(&std::env::current_exe()?)?;
             println!("the bridge runs, and logs to {}", log.display());
             Ok(())
         }
+        ["restart"] => restart(&std::env::current_exe()?),
+        ["update"] => self_update(),
         ["check-agent", name] => check_agent(name),
         ["say", chat, id, text] => say(chat, id, text),
         _ => bail!("{USAGE}"),

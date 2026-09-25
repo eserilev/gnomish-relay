@@ -595,8 +595,9 @@ Rules:
 ### 8.4 Only one bridge
 
 Two bridges fight over the screen and the slot files.
-The bridge takes an OS advisory lock (`fd-lock` crate) at start. The OS releases the lock when the process stops, also after a crash.
-If the lock is taken, the bridge stops with an error.
+The bridge takes an OS advisory lock on `bridge.lock` in the data folder at start (`File::try_lock` of the standard library). The OS releases the lock when the process stops, also after a crash.
+If the lock is taken, the bridge stops with an error that names the process of the other bridge.
+The bridge writes its process id into `bridge.pid`. Windows does not let another process read a locked file, so the id has its own file.
 
 ## 9. Agents
 
@@ -819,6 +820,15 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay".
 - With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running."
 - Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude needs a login. Run: claude"), not as the first reply in the game.
+
+**Updates and restarts.**
+
+- `gnomish-relay restart` stops the bridge and starts it again, for example after a config edit. With the service of setup, it uses the service: `systemctl --user restart` on Linux and `launchctl kickstart -k` on macOS. With no service (Windows, or no `--autostart`), it stops the process in `bridge.pid`, waits up to 10 s for the lock (8.4), and starts `run --background`.
+- `gnomish-relay update` downloads the archive of the latest release for this OS with `curl`, checks its SHA-256 sum, and unpacks it with `tar`. Every supported OS has both tools. `GNOMISH_URL` changes the download folder, as in `install.sh`.
+- If the new program is the same as the installed one, update changes nothing. Otherwise, it puts the new program in place of the old one and restarts the bridge.
+- Windows refuses to replace a running program, but it lets update rename it. So update renames the old program to `gnomish-relay.exe.old` first, and the next update deletes that file.
+- The sum comes from the same release as the archive. It finds a broken download, not a changed release.
+- The new bridge writes the new addon files at its start. Then the game needs a `/reload`, and update says so.
 
 **Distribution.**
 

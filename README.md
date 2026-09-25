@@ -34,7 +34,11 @@ command = ["gemini", "--acp"]
 permission = "ask"
 ```
 
-Then run `gnomish-relay check-agent gemini`.
+Then run `gnomish-relay check-agent gemini`, and `gnomish-relay restart` to load the change.
+
+## Update
+
+`gnomish-relay update` installs the latest release and restarts the bridge.
 
 ## From source
 
