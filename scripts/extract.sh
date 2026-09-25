@@ -9,6 +9,11 @@ aeneas_dir=${AENEAS_DIR:-$HOME/verif/aeneas}
 root=$(git rev-parse --show-toplevel)
 llbc=$root/target/protocol.llbc
 
+# `cargo miri setup` of any other nightly also writes ~/.cache/miri, and Charon then
+# reads a std of the wrong compiler. So Charon gets a sysroot and a cache of its own.
+export MIRI_SYSROOT=$HOME/.cache/charon-protocol/miri
+export CHARON_CACHE_DIR=$HOME/.cache/charon-protocol
+
 mkdir -p "$root/target"
 # Start clean, so a file from an older run cannot hide a problem.
 rm -rf "$root/proofs/Protocol/Code"
