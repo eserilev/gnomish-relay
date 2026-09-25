@@ -353,6 +353,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 | `build=<n>` | The client build from `GetBuildInfo`, digits only (7.8). |
 | `out=shot` or `out=fail` | The result of the last screenshot (7.8). |
 | `in=slots` or `in=missing` | The result of the last slot load (7.8). |
+| `listen=start` or `listen=stop` | Push-to-talk for the chat of the record (13.3, later). |
 
 **Strip lifetime:**
 The strip shows only while its screenshot is taken, about half a second.
@@ -869,6 +870,7 @@ All state is local to the addon files, which share one table. The files load in 
 | `Sha256.lua` | SHA-256 and HMAC-SHA256 for the strip tag. |
 | `Codec.lua` | Records, frames, and cells: the Lua side of `crates/protocol`. |
 | `Store.lua` | The saved data: token, chats, and the outbox. |
+| `Health.lua` | The login self-test and the health of each channel (7.8). |
 | `Strip.lua` | Draws a frame and takes one screenshot of it. |
 | `Transport.lua` | The strip retries, the poll schedule, the slots, and the flags. It follows `models/transport.qnt`. |
 | `Window.lua` | The window of 13.1. |
@@ -890,6 +892,36 @@ Slash commands:
 | `/ai <text>` | Send a message to the current chat. |
 | `/relay diag` | Show transport diagnostics. |
 | `/relay poll` | Load the next slot now. |
+
+### 13.3 Voice (later)
+
+Voice comes after the ACP backend (step 9), because it needs a real agent to be useful.
+Both directions run on the bridge side. The WoW client gives addons no microphone, and no speech-to-text API.
+
+**Voice output.** The bridge speaks each final reply on the desktop.
+
+- The voice reads a short spoken summary, not the full reply. Code, file paths, and diffs are bad to hear. The full text stays in the window.
+- The summary comes from the agent: the bridge asks for one spoken line at the end of each run. If the agent gives none, the voice reads the first sentence of the reply.
+- The default engine is a local model (Piper), so no reply text leaves the computer. A cloud voice is an option in the config.
+- The fallback is `C_VoiceChat.SpeakText(voiceID, text, rate, volume)` in the game. It exists in the Forever client and uses the voices of the operating system. Under Wine, the client can have no voices (17).
+- The config turns voice output on per agent. It is off by default.
+
+**Voice input.** You hold a key in the game and talk. The bridge records and transcribes.
+
+1. You hold the push-to-talk key of the addon. The addon sends a `listen=start` record for the open chat through the strip.
+2. The bridge records the microphone.
+3. You release the key. The addon sends `listen=stop`.
+4. The bridge transcribes the audio on the computer (Whisper). The text becomes a message of the chat, with the same checks and the same ceiling as a typed message.
+5. The window shows the text as your message.
+
+**Privacy rules for voice input.** Any addon can send a game record (6.6.1). So a hostile addon can send `listen=start` and record the room.
+
+- The bridge records only when the config turns voice input on. It is off by default.
+- While the bridge records, the desktop shows a sign, and the game window shows a red "Listening" light.
+- One recording stops after 60 seconds, also with no `listen=stop`.
+- The bridge never stores the audio. It deletes the audio after the transcription.
+- The config can require a desktop hotkey to start a recording, so that no game record can start one. On Wayland, a global hotkey needs the portal (17).
+- A transcript runs under the game ceiling (6.6.2). Voice gives no more rights than typing.
 
 ## 14. Verification and tests
 
@@ -1033,6 +1065,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.
+13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
@@ -1050,6 +1083,8 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 - Can an AppContainer or a restricted token give Claude and other agents a sandbox on native Windows?
 - Which `claude` flag keeps the project and user settings out of a run (6.6.4)?
 - What can Codex read inside `workspace-write`?
+- Does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
+- Can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?
 - Two WoW accounts on one computer have two tokens. A hello from the second account starts a restore, and its `restored` flag retires the first token. How does the bridge tell two accounts from a saved-data wipe?
 
 1. Does X11 capture of the WoW window work under XWayland? (Only for the fallback.)
