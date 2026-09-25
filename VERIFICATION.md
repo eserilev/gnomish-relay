@@ -41,6 +41,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 14 | S14: rate limit and queue | `rate` | `S14_admit`, `S14_window`, `S14_queue` | proved |
 | 15 | S9 + S12: slot body | `slot` | `S9_slot_body`, `S12_prepare`, `S12_bound` | proved |
 | 19 | S18 + S19: restore file | `restore` | `S18_restore_body`, `S18_prepare`, `S19_bound` | proved |
+| 20 | S20 + S21: live file | `live` | `S20_live_body`, `S20_prepare_progress`, `S20_prepare_requests`, `S21_bound` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |

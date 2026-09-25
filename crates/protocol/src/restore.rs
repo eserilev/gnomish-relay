@@ -1,10 +1,10 @@
 //! The restore bundle after a saved-data wipe (SPEC.md 7.6). It has its own file,
 //! `Restore.lua`, so the slot body keeps its own 1 MiB bound.
 
-use crate::ascii::{push_bytes, push_decimal, push_range};
+use crate::ascii::{push_bytes, push_decimal};
 use crate::lua::lua_string;
 use crate::record::MAX_ID_LEN;
-use crate::slot::min_len;
+use crate::slot::{cut, keep_from};
 
 pub const MAX_CHATS: usize = 16;
 pub const MAX_HISTORY: usize = 10;
@@ -49,18 +49,6 @@ const ENTRY_END: [u8; 3] = *b"},\n";
 const USER: [u8; 6] = *b"\"user\"";
 const AGENT_ROLE: [u8; 7] = *b"\"agent\"";
 const ERROR: [u8; 7] = *b"\"error\"";
-
-/// The bridge cuts at a character boundary first. This cut only keeps the bound.
-fn cut(bytes: &[u8], max: usize) -> Vec<u8> {
-    let mut out = Vec::new();
-    push_range(&mut out, bytes, 0, min_len(bytes.len(), max));
-    out
-}
-
-#[allow(clippy::implicit_saturating_sub)] // Aeneas has no model for `saturating_sub`
-fn keep_from(len: usize, max: usize) -> usize {
-    if len > max { len - max } else { 0 }
-}
 
 fn prepare_entry(entry: &Entry) -> Entry {
     Entry {

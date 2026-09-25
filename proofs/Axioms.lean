@@ -30,6 +30,10 @@ import Statements
 #print axioms Protocol.Statements.check_S18_restore_body
 #print axioms Protocol.Statements.check_S18_prepare
 #print axioms Protocol.Statements.check_S19_bound
+#print axioms Protocol.Statements.check_S20_live_body
+#print axioms Protocol.Statements.check_S20_prepare_progress
+#print axioms Protocol.Statements.check_S20_prepare_requests
+#print axioms Protocol.Statements.check_S21_bound
 #print axioms Protocol.Statements.check_S12_prepare
 #print axioms Protocol.Statements.check_S12_bound
 #print axioms Protocol.Statements.check_S5_folder

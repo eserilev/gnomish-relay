@@ -1,9 +1,9 @@
-import Protocol.Slot
+import Protocol.Cut
 import Protocol.Spec.Restore
 
 /-! # The restore bundle (S18, S19) -/
 
-open Aeneas Aeneas.Std Result protocol Protocol.Spec Protocol.Ascii
+open Aeneas Aeneas.Std Result protocol Protocol.Spec Protocol.Ascii Protocol.Cut
 
 namespace Protocol.Restore
 
@@ -21,25 +21,6 @@ theorem max_cwd_val : restore.MAX_CWD.val = 1024 := by unfold restore.MAX_CWD; r
 
 @[simp, scalar_tac_simps]
 theorem max_entry_text_val : restore.MAX_ENTRY_TEXT.val = 500 := by unfold restore.MAX_ENTRY_TEXT; rfl
-
-theorem take_min_bytes (l : List U8) (n : Nat) : bytes (l.take (min l.length n)) = (bytes l).take n := by
-  rcases le_total l.length n with h | h
-  · rw [min_eq_left h, List.take_length, List.take_of_length_le (by simp [bytes, h])]
-  · rw [min_eq_right h, bytes, bytes, List.map_take]
-
-@[step]
-theorem cut_spec (s : Slice U8) (max : Usize) :
-    restore.cut s max ⦃ v => bytes v.val = (bytes s.val).take max.val ∧ v.val.length ≤ max.val ⦄ := by
-  unfold restore.cut
-  step*
-  have hv : v.val = s.val.take (min s.val.length max.val) := by rw [v_post, i1_post]; simp
-  exact ⟨by rw [hv]; exact take_min_bytes _ _, by rw [hv]; simp⟩
-
-@[step]
-theorem keep_from_spec (len max : Usize) : restore.keep_from len max ⦃ r => r.val = len.val - max.val ⦄ := by
-  unfold restore.keep_from
-  step*
-  scalar_tac
 
 @[step]
 theorem prepare_entry_spec (e : restore.Entry) :
@@ -149,8 +130,6 @@ theorem prepare_restore_spec (chats : Slice restore.Chat) :
 theorem role_literal_length (r : restore.Role) : (luaLiteral (ascii (roleWord r))).length ≤ 7 := by
   cases r <;> decide
 
-theorem bytes_length (l : List U8) : (bytes l).length = l.length := by simp [bytes]
-
 theorem entryLine_length (e : restore.Entry) (h : e.text.val.length ≤ maxEntryText) :
     (entryLine e).length ≤ 2046 := by
   have ht := Protocol.Slot.literal_length_le (bytes e.text.val)
@@ -164,16 +143,6 @@ theorem entryLine_length (e : restore.Entry) (h : e.text.val.length ≤ maxEntry
   have : (ascii ", text = ").length = 9 := rfl
   have : (ascii "},\n").length = 3 := rfl
   omega
-
-theorem sum_le {α : Type} (f : α → List Spec.Byte) (k : Nat) (l : List α)
-    (h : ∀ a ∈ l, (f a).length ≤ k) : (l.flatMap f).length ≤ k * l.length := by
-  rw [List.length_flatMap]
-  have : ∀ x ∈ l.map (fun a => (f a).length), x ≤ k := by
-    intro x hx
-    obtain ⟨a, ha, rfl⟩ := List.mem_map.mp hx
-    exact h a ha
-  have := List.sum_le_card_nsmul _ _ this
-  simpa [mul_comm] using this
 
 theorem chatLine_length (c : restore.Chat) (h : fitsChat c) : (chatLine c).length ≤ 25127 := by
   obtain ⟨hid, hname, hagent, hcwd, hn, hall⟩ := h

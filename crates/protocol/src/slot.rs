@@ -63,6 +63,20 @@ pub(crate) fn min_len(n: usize, max: usize) -> usize {
     if n > max { max } else { n }
 }
 
+/// The first `max` bytes. The bridge cuts at a character boundary first, so this
+/// cut only keeps a bound.
+pub(crate) fn cut(bytes: &[u8], max: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_range(&mut out, bytes, 0, min_len(bytes.len(), max));
+    out
+}
+
+/// The first index of the last `max` items of a list of `len`.
+#[allow(clippy::implicit_saturating_sub)] // Aeneas has no model for `saturating_sub`
+pub(crate) fn keep_from(len: usize, max: usize) -> usize {
+    if len > max { len - max } else { 0 }
+}
+
 #[allow(clippy::implicit_saturating_sub)] // Aeneas has no model for `saturating_sub`
 fn first_kept(len: usize) -> usize {
     if len > MAX_REPLIES {

@@ -7,6 +7,7 @@ import Protocol.Spec.Lua
 import Protocol.Spec.WowText
 import Protocol.Spec.Slot
 import Protocol.Spec.Restore
+import Protocol.Spec.Live
 import Protocol.Spec.Rate
 import Protocol.Spec.Popup
 import Protocol.Spec.Policy
@@ -21,6 +22,7 @@ import Protocol.Seen
 import Protocol.Rate
 import Protocol.Slot
 import Protocol.Restore
+import Protocol.Live
 import Protocol.Folder.Code
 
 /-!
@@ -224,6 +226,35 @@ def S19_bound : Prop :=
   ∀ (token : List Spec.Byte) (chats : List restore.Chat), fitsRestore token chats →
     (restoreBytes token chats).length ≤ restoreLimit
 
+/-! ## Live file: progress and permission requests -/
+
+/-- **S20.** The live file is exactly the fixed template with escaped holes. -/
+def S20_live_body : Prop :=
+  ∀ (progress : Slice live.Progress) (requests : Slice live.Request),
+    fitsLive progress.val requests.val →
+    live.live_body progress requests ⦃ v => bytes v.val = liveBytes progress.val requests.val ⦄
+
+/-- **S20.** `prepare_progress` keeps the last 30 entries and the last 5 lines of each,
+cuts only the ends of strings, and makes them fit. -/
+def S20_prepare_progress : Prop :=
+  ∀ progress : Slice live.Progress,
+    live.prepare_progress progress ⦃ ps =>
+      ps.val.length ≤ maxProgress ∧ (∀ p ∈ ps.val, fitsProgress p) ∧
+      List.Forall₂ progressFrom (progress.val.drop (progress.val.length - maxProgress)) ps.val ⦄
+
+/-- **S20.** `prepare_requests` keeps the first 4 requests and the first 4 options of
+each, cuts only the ends of strings, and makes them fit. -/
+def S20_prepare_requests : Prop :=
+  ∀ requests : Slice live.Request,
+    live.prepare_requests requests ⦃ rs =>
+      rs.val.length ≤ maxRequests ∧ (∀ r ∈ rs.val, fitsRequest r) ∧
+      List.Forall₂ requestFrom (requests.val.take maxRequests) rs.val ⦄
+
+/-- **S21.** A live file that fits is at most 256 KiB. -/
+def S21_bound : Prop :=
+  ∀ (progress : List live.Progress) (requests : List live.Request), fitsLive progress requests →
+    (liveBytes progress requests).length ≤ liveLimit
+
 /-! ## WoW chat text -/
 
 /-- **S10.** WoW shows `chat_safe` output as exactly the original text, with no escape code. -/
@@ -300,6 +331,10 @@ theorem check_S12_bound : S12_bound := Protocol.Slot.slot_body_bound
 theorem check_S18_restore_body : S18_restore_body := Protocol.Restore.restore_body_spec
 theorem check_S18_prepare : S18_prepare := Protocol.Restore.prepare_restore_spec
 theorem check_S19_bound : S19_bound := Protocol.Restore.restore_bound
+theorem check_S20_live_body : S20_live_body := Protocol.Live.live_body_spec
+theorem check_S20_prepare_progress : S20_prepare_progress := Protocol.Live.prepare_progress_spec
+theorem check_S20_prepare_requests : S20_prepare_requests := Protocol.Live.prepare_requests_spec
+theorem check_S21_bound : S21_bound := Protocol.Live.live_bound
 theorem check_S5_folder : S5_folder := Protocol.Folder.folder_sound
 theorem check_S5_folder_complete : S5_folder_complete := Protocol.Folder.folder_complete
 

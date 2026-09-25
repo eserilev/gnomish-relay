@@ -54,6 +54,42 @@ inductive frame.Reject where
 | Stale : frame.Reject
 | Future : frame.Reject
 
+/-- [protocol::live::Progress]
+    Source: 'crates/protocol/src/live.rs', lines 19:0-23:1
+    Visibility: public -/
+structure live.Progress where
+  chat : alloc.vec.Vec Std.U8
+  id : Std.U32
+  lines : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+
+/-- [protocol::live::OptionKind]
+    Source: 'crates/protocol/src/live.rs', lines 26:0-31:1
+    Visibility: public -/
+@[discriminant isize]
+inductive live.OptionKind where
+| AllowOnce : live.OptionKind
+| AllowAlways : live.OptionKind
+| RejectOnce : live.OptionKind
+| RejectAlways : live.OptionKind
+
+/-- [protocol::live::PermOption]
+    Source: 'crates/protocol/src/live.rs', lines 33:0-37:1
+    Visibility: public -/
+structure live.PermOption where
+  id : alloc.vec.Vec Std.U8
+  kind : live.OptionKind
+  label : alloc.vec.Vec Std.U8
+
+/-- [protocol::live::Request]
+    Source: 'crates/protocol/src/live.rs', lines 40:0-46:1
+    Visibility: public -/
+structure live.Request where
+  request : alloc.vec.Vec Std.U8
+  chat : alloc.vec.Vec Std.U8
+  id : Std.U32
+  text : alloc.vec.Vec Std.U8
+  options : alloc.vec.Vec live.PermOption
+
 /-- [protocol::policy::Level]
     Source: 'crates/protocol/src/policy.rs', lines 6:0-10:1
     Visibility: public -/
