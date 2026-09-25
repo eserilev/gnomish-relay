@@ -18,47 +18,36 @@ set_option maxRecDepth 2048
 
 namespace protocol
 
-/-- [protocol::action::DOLLAR_PAREN]
-    Source: 'crates/protocol/src/action.rs', lines 12:0-12:37 -/
-@[global_simps, irreducible]
-def action.DOLLAR_PAREN : Array Std.U8 2#usize :=
-  Array.make 2#usize [ 36#u8, 40#u8 ]
-
-/-- [protocol::action::BACKTICK]
-    Source: 'crates/protocol/src/action.rs', lines 13:0-13:32 -/
-@[global_simps, irreducible]
-def action.BACKTICK : Array Std.U8 1#usize := Array.make 1#usize [ 96#u8 ]
-
 /-- [protocol::action::{impl core::clone::Clone for protocol::action::Verdict}::clone]:
-    Source: 'crates/protocol/src/action.rs', lines 16:9-16:14
+    Source: 'crates/protocol/src/action.rs', lines 12:9-12:14
     Visibility: public -/
 def action.Verdict.Insts.CoreCloneClone.clone
   (self : action.Verdict) : Result action.Verdict := do
   ok self
 
 /-- Trait implementation: [protocol::action::{impl core::clone::Clone for protocol::action::Verdict}]
-    Source: 'crates/protocol/src/action.rs', lines 16:9-16:14 -/
+    Source: 'crates/protocol/src/action.rs', lines 12:9-12:14 -/
 @[reducible]
 def action.Verdict.Insts.CoreCloneClone : core.clone.Clone action.Verdict := {
   clone := action.Verdict.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [protocol::action::{impl core::marker::Copy for protocol::action::Verdict}]
-    Source: 'crates/protocol/src/action.rs', lines 16:16-16:20 -/
+    Source: 'crates/protocol/src/action.rs', lines 12:16-12:20 -/
 @[reducible]
 def action.Verdict.Insts.CoreMarkerCopy : core.marker.Copy action.Verdict := {
   cloneInst := action.Verdict.Insts.CoreCloneClone
 }
 
 /-- Trait implementation: [protocol::action::{impl core::marker::StructuralPartialEq for protocol::action::Verdict}]
-    Source: 'crates/protocol/src/action.rs', lines 16:22-16:31 -/
+    Source: 'crates/protocol/src/action.rs', lines 12:22-12:31 -/
 @[reducible]
 def action.Verdict.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq action.Verdict := {
 }
 
 /-- [protocol::action::{impl core::cmp::PartialEq<protocol::action::Verdict> for protocol::action::Verdict}::eq]:
-    Source: 'crates/protocol/src/action.rs', lines 16:22-16:31
+    Source: 'crates/protocol/src/action.rs', lines 12:22-12:31
     Visibility: public -/
 def action.Verdict.Insts.CoreCmpPartialEqVerdict.eq
   (self : action.Verdict) (other : action.Verdict) : Result Bool := do
@@ -67,7 +56,7 @@ def action.Verdict.Insts.CoreCmpPartialEqVerdict.eq
   ok (self1 = other1)
 
 /-- Trait implementation: [protocol::action::{impl core::cmp::PartialEq<protocol::action::Verdict> for protocol::action::Verdict}]
-    Source: 'crates/protocol/src/action.rs', lines 16:22-16:31 -/
+    Source: 'crates/protocol/src/action.rs', lines 12:22-12:31 -/
 @[reducible]
 impl_def action.Verdict.Insts.CoreCmpPartialEqVerdict : core.cmp.PartialEq
   action.Verdict action.Verdict := {
@@ -77,14 +66,14 @@ impl_def action.Verdict.Insts.CoreCmpPartialEqVerdict : core.cmp.PartialEq
 }
 
 /-- [protocol::action::{impl core::cmp::Eq for protocol::action::Verdict}::assert_fields_are_eq]:
-    Source: 'crates/protocol/src/action.rs', lines 16:33-16:35
+    Source: 'crates/protocol/src/action.rs', lines 12:33-12:35
     Visibility: public -/
 def action.Verdict.Insts.CoreCmpEq.assert_fields_are_eq
   (self : action.Verdict) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [protocol::action::{impl core::cmp::Eq for protocol::action::Verdict}]
-    Source: 'crates/protocol/src/action.rs', lines 16:33-16:35 -/
+    Source: 'crates/protocol/src/action.rs', lines 12:33-12:35 -/
 @[reducible]
 def action.Verdict.Insts.CoreCmpEq : core.cmp.Eq action.Verdict := {
   partialEqInst := action.Verdict.Insts.CoreCmpPartialEqVerdict
@@ -92,35 +81,35 @@ def action.Verdict.Insts.CoreCmpEq : core.cmp.Eq action.Verdict := {
 }
 
 /-- [protocol::action::{impl core::clone::Clone for protocol::action::Cover}::clone]:
-    Source: 'crates/protocol/src/action.rs', lines 57:9-57:14
+    Source: 'crates/protocol/src/action.rs', lines 53:9-53:14
     Visibility: public -/
 def action.Cover.Insts.CoreCloneClone.clone
   (self : action.Cover) : Result action.Cover := do
   ok self
 
 /-- Trait implementation: [protocol::action::{impl core::clone::Clone for protocol::action::Cover}]
-    Source: 'crates/protocol/src/action.rs', lines 57:9-57:14 -/
+    Source: 'crates/protocol/src/action.rs', lines 53:9-53:14 -/
 @[reducible]
 def action.Cover.Insts.CoreCloneClone : core.clone.Clone action.Cover := {
   clone := action.Cover.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [protocol::action::{impl core::marker::Copy for protocol::action::Cover}]
-    Source: 'crates/protocol/src/action.rs', lines 57:16-57:20 -/
+    Source: 'crates/protocol/src/action.rs', lines 53:16-53:20 -/
 @[reducible]
 def action.Cover.Insts.CoreMarkerCopy : core.marker.Copy action.Cover := {
   cloneInst := action.Cover.Insts.CoreCloneClone
 }
 
 /-- Trait implementation: [protocol::action::{impl core::marker::StructuralPartialEq for protocol::action::Cover}]
-    Source: 'crates/protocol/src/action.rs', lines 57:22-57:31 -/
+    Source: 'crates/protocol/src/action.rs', lines 53:22-53:31 -/
 @[reducible]
 def action.Cover.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq action.Cover := {
 }
 
 /-- [protocol::action::{impl core::cmp::PartialEq<protocol::action::Cover> for protocol::action::Cover}::eq]:
-    Source: 'crates/protocol/src/action.rs', lines 57:22-57:31
+    Source: 'crates/protocol/src/action.rs', lines 53:22-53:31
     Visibility: public -/
 def action.Cover.Insts.CoreCmpPartialEqCover.eq
   (self : action.Cover) (other : action.Cover) : Result Bool := do
@@ -129,7 +118,7 @@ def action.Cover.Insts.CoreCmpPartialEqCover.eq
   ok (self1 = other1)
 
 /-- Trait implementation: [protocol::action::{impl core::cmp::PartialEq<protocol::action::Cover> for protocol::action::Cover}]
-    Source: 'crates/protocol/src/action.rs', lines 57:22-57:31 -/
+    Source: 'crates/protocol/src/action.rs', lines 53:22-53:31 -/
 @[reducible]
 impl_def action.Cover.Insts.CoreCmpPartialEqCover : core.cmp.PartialEq
   action.Cover action.Cover := {
@@ -139,14 +128,14 @@ impl_def action.Cover.Insts.CoreCmpPartialEqCover : core.cmp.PartialEq
 }
 
 /-- [protocol::action::{impl core::cmp::Eq for protocol::action::Cover}::assert_fields_are_eq]:
-    Source: 'crates/protocol/src/action.rs', lines 57:33-57:35
+    Source: 'crates/protocol/src/action.rs', lines 53:33-53:35
     Visibility: public -/
 def action.Cover.Insts.CoreCmpEq.assert_fields_are_eq
   (self : action.Cover) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [protocol::action::{impl core::cmp::Eq for protocol::action::Cover}]
-    Source: 'crates/protocol/src/action.rs', lines 57:33-57:35 -/
+    Source: 'crates/protocol/src/action.rs', lines 53:33-53:35 -/
 @[reducible]
 def action.Cover.Insts.CoreCmpEq : core.cmp.Eq action.Cover := {
   partialEqInst := action.Cover.Insts.CoreCmpPartialEqCover
@@ -154,7 +143,7 @@ def action.Cover.Insts.CoreCmpEq : core.cmp.Eq action.Cover := {
 }
 
 /-- [protocol::action::rank]:
-    Source: 'crates/protocol/src/action.rs', lines 64:0-71:1
+    Source: 'crates/protocol/src/action.rs', lines 60:0-67:1
     Visibility: public -/
 def action.rank (v : action.Verdict) : Result Std.U8 := do
   match v with
@@ -164,7 +153,7 @@ def action.rank (v : action.Verdict) : Result Std.U8 := do
   | action.Verdict.Allow => ok 3#u8
 
 /-- [protocol::action::stricter]:
-    Source: 'crates/protocol/src/action.rs', lines 73:0-75:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 69:0-71:1 -/
 def action.stricter
   (a : action.Verdict) (b : action.Verdict) : Result action.Verdict := do
   let i ← action.rank b
@@ -923,7 +912,7 @@ def path_rules.path_verdict
     else ok action.Verdict.Desktop
 
 /-- [protocol::action::paths_verdict]: loop body 0:
-    Source: 'crates/protocol/src/action.rs', lines 80:4-83:5 -/
+    Source: 'crates/protocol/src/action.rs', lines 76:4-79:5 -/
 @[rust_loop_body]
 def action.paths_verdict_loop.body
   (paths : Slice (alloc.vec.Vec Std.U8)) (access : shell.Access)
@@ -942,7 +931,7 @@ def action.paths_verdict_loop.body
   else ok (done v)
 
 /-- [protocol::action::paths_verdict]: loop 0:
-    Source: 'crates/protocol/src/action.rs', lines 80:4-83:5 -/
+    Source: 'crates/protocol/src/action.rs', lines 76:4-79:5 -/
 @[rust_loop]
 def action.paths_verdict_loop
   (paths : Slice (alloc.vec.Vec Std.U8)) (access : shell.Access)
@@ -954,7 +943,7 @@ def action.paths_verdict_loop
     (v, i)
 
 /-- [protocol::action::paths_verdict]:
-    Source: 'crates/protocol/src/action.rs', lines 77:0-85:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 73:0-81:1 -/
 @[reducible]
 def action.paths_verdict
   (paths : Slice (alloc.vec.Vec Std.U8)) (access : shell.Access)
@@ -964,7 +953,7 @@ def action.paths_verdict
   action.paths_verdict_loop paths access policy action.Verdict.Allow 0#usize
 
 /-- [protocol::action::files_verdict]:
-    Source: 'crates/protocol/src/action.rs', lines 87:0-92:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 83:0-88:1 -/
 def action.files_verdict
   (reads : Slice (alloc.vec.Vec Std.U8))
   (writes : Slice (alloc.vec.Vec Std.U8)) (policy : action.Policy) :
@@ -1273,7 +1262,7 @@ def path_rules.target_verdict
     else ok action.Verdict.Desktop
 
 /-- [protocol::action::redirects_verdict]: loop body 0:
-    Source: 'crates/protocol/src/action.rs', lines 97:4-101:5 -/
+    Source: 'crates/protocol/src/action.rs', lines 93:4-97:5 -/
 @[rust_loop_body]
 def action.redirects_verdict_loop.body
   (redirects : Slice shell.Redirect) (cwd : Slice Std.U8)
@@ -1292,7 +1281,7 @@ def action.redirects_verdict_loop.body
   else ok (done v)
 
 /-- [protocol::action::redirects_verdict]: loop 0:
-    Source: 'crates/protocol/src/action.rs', lines 97:4-101:5 -/
+    Source: 'crates/protocol/src/action.rs', lines 93:4-97:5 -/
 @[rust_loop]
 def action.redirects_verdict_loop
   (redirects : Slice shell.Redirect) (cwd : Slice Std.U8)
@@ -1305,7 +1294,7 @@ def action.redirects_verdict_loop
     (v, i)
 
 /-- [protocol::action::redirects_verdict]:
-    Source: 'crates/protocol/src/action.rs', lines 94:0-103:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 90:0-99:1 -/
 @[reducible]
 def action.redirects_verdict
   (redirects : Slice shell.Redirect) (cwd : Slice Std.U8)
@@ -2109,7 +2098,7 @@ def command_rules.simple_verdict
       else ok action.Verdict.Ask
 
 /-- [protocol::action::simples_verdict]: loop body 0:
-    Source: 'crates/protocol/src/action.rs', lines 113:4-116:5 -/
+    Source: 'crates/protocol/src/action.rs', lines 109:4-112:5 -/
 @[rust_loop_body]
 def action.simples_verdict_loop.body
   (simples : Slice shell.Simple) (policy : action.Policy)
@@ -2128,7 +2117,7 @@ def action.simples_verdict_loop.body
   else ok (done v)
 
 /-- [protocol::action::simples_verdict]: loop 0:
-    Source: 'crates/protocol/src/action.rs', lines 113:4-116:5 -/
+    Source: 'crates/protocol/src/action.rs', lines 109:4-112:5 -/
 @[rust_loop]
 def action.simples_verdict_loop
   (simples : Slice shell.Simple) (policy : action.Policy)
@@ -2142,7 +2131,7 @@ def action.simples_verdict_loop
     (v, i)
 
 /-- [protocol::action::simples_verdict]:
-    Source: 'crates/protocol/src/action.rs', lines 105:0-118:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 101:0-114:1 -/
 @[reducible]
 def action.simples_verdict
   (simples : Slice shell.Simple) (policy : action.Policy)
@@ -2154,7 +2143,7 @@ def action.simples_verdict
     0#usize
 
 /-- [protocol::action::is_relative]:
-    Source: 'crates/protocol/src/action.rs', lines 120:0-122:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 116:0-118:1 -/
 def action.is_relative (path : Slice Std.U8) : Result Bool := do
   let i := Slice.len path
   let b ←
@@ -2166,7 +2155,7 @@ def action.is_relative (path : Slice Std.U8) : Result Bool := do
   ok (¬ b)
 
 /-- [protocol::action::has_relative_target]: loop body 0:
-    Source: 'crates/protocol/src/action.rs', lines 127:4-130:5 -/
+    Source: 'crates/protocol/src/action.rs', lines 123:4-126:5 -/
 @[rust_loop_body]
 def action.has_relative_target_loop.body
   (redirects : Slice shell.Redirect) (found : Bool) (i : Std.Usize) :
@@ -2186,7 +2175,7 @@ def action.has_relative_target_loop.body
     else ok (done false)
 
 /-- [protocol::action::has_relative_target]: loop 0:
-    Source: 'crates/protocol/src/action.rs', lines 127:4-130:5 -/
+    Source: 'crates/protocol/src/action.rs', lines 123:4-126:5 -/
 @[rust_loop]
 def action.has_relative_target_loop
   (redirects : Slice shell.Redirect) (found : Bool) (i : Std.Usize) :
@@ -2198,7 +2187,7 @@ def action.has_relative_target_loop
     (found, i)
 
 /-- [protocol::action::has_relative_target]:
-    Source: 'crates/protocol/src/action.rs', lines 124:0-132:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 120:0-128:1 -/
 @[reducible]
 def action.has_relative_target
   (redirects : Slice shell.Redirect) : Result Bool := do
@@ -2254,7 +2243,7 @@ def command_rules.changes_folder
   command_rules.changes_folder_loop simples false 0#usize
 
 /-- [protocol::action::script_verdict]:
-    Source: 'crates/protocol/src/action.rs', lines 135:0-150:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 131:0-146:1 -/
 def action.script_verdict
   (script : shell.Script) (cwd : Slice Std.U8) (policy : action.Policy)
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
@@ -2276,16 +2265,6 @@ def action.script_verdict
     then action.stricter v2 action.Verdict.Desktop
     else ok v2
   else ok v2
-
-/-- [protocol::action::has_substitution]:
-    Source: 'crates/protocol/src/action.rs', lines 153:0-155:1 -/
-def action.has_substitution (raw : Slice Std.U8) : Result Bool := do
-  let s ← lift (Array.to_slice action.DOLLAR_PAREN)
-  let b ← search.contains raw s
-  if b
-  then ok true
-  else let s1 ← lift (Array.to_slice action.BACKTICK)
-       search.contains raw s1
 
 /-- [protocol::shell::take_word]:
     Source: 'crates/protocol/src/shell.rs', lines 127:0-133:1 -/
@@ -2556,7 +2535,7 @@ impl_def shell.Mode.Insts.CoreCmpPartialEqMode : core.cmp.PartialEq shell.Mode
 }
 
 /-- [protocol::shell::finish]:
-    Source: 'crates/protocol/src/shell.rs', lines 428:0-440:1 -/
+    Source: 'crates/protocol/src/shell.rs', lines 482:0-494:1 -/
 def shell.finish (lx : shell.Lexer) : Result (Option shell.Script) := do
   if lx.ok
   then
@@ -2576,7 +2555,7 @@ def shell.finish (lx : shell.Lexer) : Result (Option shell.Script) := do
   else ok none
 
 /-- [protocol::shell::new_lexer]:
-    Source: 'crates/protocol/src/shell.rs', lines 400:0-414:1 -/
+    Source: 'crates/protocol/src/shell.rs', lines 454:0-468:1 -/
 def shell.new_lexer : Result shell.Lexer := do
   ok
     {
@@ -2985,7 +2964,7 @@ def shell.step
              ok (l, i1)
 
 /-- [protocol::shell::run]: loop body 0:
-    Source: 'crates/protocol/src/shell.rs', lines 419:4-423:5 -/
+    Source: 'crates/protocol/src/shell.rs', lines 473:4-477:5 -/
 @[rust_loop_body]
 def shell.run_loop.body
   (raw : Slice Std.U8) (lx : shell.Lexer) (i : Std.Usize) :
@@ -3008,7 +2987,7 @@ def shell.run_loop.body
       lx.word, lx.started, lx.glob, lx.pending, lx.depth))
 
 /-- [protocol::shell::run]: loop 0:
-    Source: 'crates/protocol/src/shell.rs', lines 419:4-423:5 -/
+    Source: 'crates/protocol/src/shell.rs', lines 473:4-477:5 -/
 @[rust_loop]
 def shell.run_loop
   (raw : Slice Std.U8) (lx : shell.Lexer) (i : Std.Usize) :
@@ -3021,7 +3000,7 @@ def shell.run_loop
     (lx, i)
 
 /-- [protocol::shell::run]:
-    Source: 'crates/protocol/src/shell.rs', lines 416:0-425:1 -/
+    Source: 'crates/protocol/src/shell.rs', lines 470:0-479:1 -/
 def shell.run (raw : Slice Std.U8) : Result shell.Lexer := do
   let lx ← shell.new_lexer
   let (b, m, v, v1, v2, l, v3, b1, b2, p, i) ← shell.run_loop raw lx 0#usize
@@ -3046,7 +3025,7 @@ def shell.run (raw : Slice Std.U8) : Result shell.Lexer := do
 @[global_simps, irreducible] def shell.MAX_COMMAND : Std.Usize := 1048576#usize
 
 /-- [protocol::shell::split]:
-    Source: 'crates/protocol/src/shell.rs', lines 444:0-449:1
+    Source: 'crates/protocol/src/shell.rs', lines 498:0-503:1
     Visibility: public -/
 def shell.split (raw : Slice Std.U8) : Result (Option shell.Script) := do
   let i := Slice.len raw
@@ -3055,8 +3034,98 @@ def shell.split (raw : Slice Std.U8) : Result (Option shell.Script) := do
   else let l ← shell.run raw
        shell.finish l
 
+/-- [protocol::shell::opens_substitution]:
+    Source: 'crates/protocol/src/shell.rs', lines 435:0-437:1 -/
+def shell.opens_substitution
+  (raw : Slice Std.U8) (i : Std.Usize) : Result Bool := do
+  let i1 ← Slice.index_usize raw i
+  if i1 = 96#u8
+  then ok true
+  else
+    if i1 = 36#u8
+    then
+      let i2 ← i + 1#usize
+      let i3 := Slice.len raw
+      if i2 < i3
+      then let i4 ← Slice.index_usize raw i2
+           ok (i4 = 40#u8)
+      else ok false
+    else ok false
+
+/-- [protocol::shell::quote_step]:
+    Source: 'crates/protocol/src/shell.rs', lines 401:0-433:1 -/
+def shell.quote_step (mode : shell.Mode) (b : Std.U8) : Result shell.Mode := do
+  match mode with
+  | shell.Mode.Plain =>
+    if b = 39#u8
+    then ok shell.Mode.Single
+    else
+      if b = 34#u8
+      then ok shell.Mode.Double
+      else if b = 92#u8
+           then ok shell.Mode.Escape
+           else ok shell.Mode.Plain
+  | shell.Mode.Single =>
+    if b = 39#u8
+    then ok shell.Mode.Plain
+    else ok shell.Mode.Single
+  | shell.Mode.Double =>
+    if b = 34#u8
+    then ok shell.Mode.Plain
+    else if b = 92#u8
+         then ok shell.Mode.DoubleEscape
+         else ok shell.Mode.Double
+  | shell.Mode.DoubleEscape => ok shell.Mode.Double
+  | shell.Mode.Escape => ok shell.Mode.Plain
+
+/-- [protocol::shell::has_substitution]: loop body 0:
+    Source: 'crates/protocol/src/shell.rs', lines 446:11-446:33
+    Visibility: public -/
+@[rust_loop_body]
+def shell.has_substitution_loop.body
+  (raw : Slice Std.U8) (mode : shell.Mode) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (shell.Mode × Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len raw
+    if i < i1
+    then
+      let b ←
+        core.cmp.PartialEq.ne.trait_default
+          shell.Mode.Insts.CoreCmpPartialEqMode mode shell.Mode.Single
+      let found1 ← if b
+                     then shell.opens_substitution raw i
+                     else ok false
+      let i2 ← Slice.index_usize raw i
+      let mode1 ← shell.quote_step mode i2
+      let i3 ← i + 1#usize
+      ok (cont (mode1, found1, i3))
+    else ok (done false)
+
+/-- [protocol::shell::has_substitution]: loop 0:
+    Source: 'crates/protocol/src/shell.rs', lines 446:11-446:33
+    Visibility: public -/
+@[rust_loop]
+def shell.has_substitution_loop
+  (raw : Slice Std.U8) (mode : shell.Mode) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (mode1, found1, i1) => shell.has_substitution_loop.body raw mode1
+      found1 i1)
+    (mode, found, i)
+
+/-- [protocol::shell::has_substitution]:
+    Source: 'crates/protocol/src/shell.rs', lines 442:0-452:1
+    Visibility: public -/
+@[reducible]
+def shell.has_substitution (raw : Slice Std.U8) : Result Bool := do
+  shell.has_substitution_loop raw shell.Mode.Plain false 0#usize
+
 /-- [protocol::action::command_verdict]:
-    Source: 'crates/protocol/src/action.rs', lines 157:0-171:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 148:0-162:1 -/
 def action.command_verdict
   (raw : Slice Std.U8) (cwd : Slice Std.U8) (policy : action.Policy)
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
@@ -3067,7 +3136,7 @@ def action.command_verdict
   if i > shell.MAX_COMMAND
   then ok action.Verdict.Desktop
   else
-    let b ← action.has_substitution raw
+    let b ← shell.has_substitution raw
     if b
     then ok action.Verdict.Desktop
     else
@@ -3077,7 +3146,7 @@ def action.command_verdict
       | some script => action.script_verdict script cwd policy rules cover
 
 /-- [protocol::action::verdict]:
-    Source: 'crates/protocol/src/action.rs', lines 173:0-179:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 164:0-170:1 -/
 def action.verdict
   (call : action.ToolCall) (policy : action.Policy)
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
@@ -3096,7 +3165,7 @@ def action.verdict
   | action.ToolCall.Unknown => ok action.Verdict.Desktop
 
 /-- [protocol::action::classify]:
-    Source: 'crates/protocol/src/action.rs', lines 183:0-185:1
+    Source: 'crates/protocol/src/action.rs', lines 174:0-176:1
     Visibility: public -/
 def action.classify
   (call : action.ToolCall) (policy : action.Policy)
@@ -3106,7 +3175,7 @@ def action.classify
   action.verdict call policy rules action.Cover.Listed
 
 /-- [protocol::action::ceiling]:
-    Source: 'crates/protocol/src/action.rs', lines 189:0-192:1
+    Source: 'crates/protocol/src/action.rs', lines 180:0-183:1
     Visibility: public -/
 def action.ceiling
   (call : action.ToolCall) (policy : action.Policy) :

@@ -37,8 +37,35 @@ fn name(word: &[u8]) -> Vec<u8> {
     }
 }
 
+/// `$(` or a backtick outside single quotes, with a quote state written apart from the
+/// one of the splitter.
+fn substitution(raw: &[u8]) -> bool {
+    let mut single = false;
+    let mut double = false;
+    let mut escaped = false;
+    for (i, &b) in raw.iter().enumerate() {
+        if !single && (b == b'`' || (b == b'$' && raw.get(i + 1) == Some(&b'('))) {
+            return true;
+        }
+        if escaped {
+            escaped = false;
+        } else if single {
+            single = b != b'\'';
+        } else if b == b'\\' {
+            escaped = true;
+        } else if b == b'"' {
+            double = !double;
+        } else if b == b'\'' && !double {
+            single = true;
+        }
+    }
+    false
+}
+
 fn parts(path: &[u8]) -> Vec<&[u8]> {
-    path.split(|&b| b == b'/').filter(|p| !p.is_empty()).collect()
+    path.split(|&b| b == b'/')
+        .filter(|p| !p.is_empty())
+        .collect()
 }
 
 fn inside(root: &[u8], path: &[u8]) -> bool {
@@ -54,8 +81,7 @@ fn check_command(raw: &[u8], cwd: &[u8], rules: &[Vec<Vec<u8>>]) {
     };
     let got = rank(classify(&call, &policy, rules));
     assert!(got <= rank(ceiling(&call, &policy)));
-    let substitution = raw.windows(2).any(|w| w == b"$(") || raw.contains(&b'`');
-    if substitution {
+    if substitution(raw) {
         assert_eq!(got, rank(Verdict::Desktop));
     }
     let Some(script) = split(raw) else {

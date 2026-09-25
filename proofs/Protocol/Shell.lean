@@ -282,6 +282,104 @@ theorem finish_spec (lx : shell.Lexer) (h : load lx ≤ 2 ^ 21) : shell.finish l
   step*
   exact mode_eq_spec _ _
 
+/-! ## The quote state (S28) -/
+
+theorem bv_eq_iff (b k : U8) (c : Char) (hk : k.bv = ch c) : b.bv = ch c ↔ b = k := by
+  rw [← hk]; exact (UScalar.eq_equiv_bv_eq b k).symm
+
+@[step]
+theorem quote_step_spec (m : shell.Mode) (b : U8) :
+    shell.quote_step m b ⦃ r => r = quoteStep m b.bv ⦄ := by
+  unfold shell.quote_step
+  have h39 := bv_eq_iff b 39#u8 '\'' (by decide)
+  have h34 := bv_eq_iff b 34#u8 '"' (by decide)
+  have h92 := bv_eq_iff b 92#u8 '\\' (by decide)
+  induction m <;> step* <;> simp only [quoteStep, h39, h34, h92] <;> simp_all
+
+@[step]
+theorem opens_substitution_spec (raw : Slice U8) (i : Usize) (h : i.val < raw.val.length) :
+    shell.opens_substitution raw i ⦃ r => (r = true ↔ opensAt (bytes raw.val) i.val) ⦄ := by
+  unfold shell.opens_substitution
+  have hi : (bytes raw.val)[i.val]? = some (raw.val[i.val].bv) := by simp [bytes, h]
+  have h96 := bv_eq_iff (raw.val[i.val]) 96#u8 '`' (by decide)
+  have h36 := bv_eq_iff (raw.val[i.val]) 36#u8 '$' (by decide)
+  step*
+  · simp only [true_iff, opensAt, hi, Option.some.injEq, h96]
+    left; rw [← i1_post]; assumption
+  · have hlt : i.val + 1 < raw.val.length := by scalar_tac
+    have hj : (bytes raw.val)[i.val + 1]? = some (raw.val[i.val + 1]).bv := by
+      simp only [bytes, List.getElem?_map, List.getElem?_eq_getElem hlt, Option.map_some]
+    have h40 := bv_eq_iff (raw.val[i.val + 1]) 40#u8 '(' (by decide)
+    have e : i4 = raw.val[i.val + 1] := by rw [i4_post]; simp [i2_post]
+    simp only [opensAt, hi, hj, Option.some.injEq, h96, h36, h40, decide_eq_true_iff, e]
+    simp_all
+  · have hj : (bytes raw.val)[i.val + 1]? = none := by simp [bytes]; scalar_tac
+    simp only [Bool.false_eq_true, false_iff, opensAt, hi, hj, Option.some.injEq, h96]
+    simp_all
+  · have hj : True := trivial
+    simp only [Bool.false_eq_true, false_iff, opensAt, hi, Option.some.injEq, h96, h36]
+    simp_all
+
+/-- **S28, substitution.** `has_substitution` follows the quote state of the splitter. -/
+theorem has_substitution_spec (raw : Slice U8) :
+    shell.has_substitution raw ⦃ r => (r = true ↔ substitution (bytes raw.val)) ⦄ := by
+  unfold shell.has_substitution shell.has_substitution_loop
+  apply loop.spec_decr_nat (fun st => raw.val.length - st.2.2.val)
+    (fun st => st.2.2.val ≤ raw.val.length ∧ st.1 = modeAt (bytes raw.val) st.2.2.val ∧
+      (st.2.1 = true ↔ ∃ i < st.2.2.val, modeAt (bytes raw.val) i ≠ .Single ∧ opensAt (bytes raw.val) i))
+    _ _ _ _ ⟨by simp, by simp [modeAt], by simp⟩
+  rintro ⟨mode, found, i⟩ ⟨hi, hmode, hfound⟩
+  simp only at hi hmode hfound
+  unfold shell.has_substitution_loop.body
+  step*
+  · simp only [true_iff]
+    obtain ⟨j, hj, h⟩ := hfound.mp (by assumption)
+    exact ⟨j, by simp [bytes]; omega, h⟩
+  · exact mode_eq_spec _ _
+  · have hlt : i.val < raw.val.length := by scalar_tac
+    have hnot : ¬ ∃ j < i.val, modeAt (bytes raw.val) j ≠ .Single ∧ opensAt (bytes raw.val) j := by
+      rw [← hfound]; assumption
+    have hnext : modeAt (bytes raw.val) (i.val + 1) = quoteStep (modeAt (bytes raw.val) i.val) raw.val[i.val].bv := by
+      unfold modeAt
+      rw [List.take_add_one, List.foldl_append]
+      simp [bytes, hlt]
+    have hstep : ∀ found1 : Bool, (found1 = true ↔ modeAt (bytes raw.val) i.val ≠ .Single ∧
+        opensAt (bytes raw.val) i.val) →
+        (found1 = true ↔ ∃ j < i.val + 1, modeAt (bytes raw.val) j ≠ .Single ∧ opensAt (bytes raw.val) j) := by
+      intro f hf
+      rw [hf]
+      constructor
+      · intro h; exact ⟨i.val, by omega, h⟩
+      · rintro ⟨j, hj, h⟩
+        by_cases hji : j < i.val
+        · exact absurd ⟨j, hji, h⟩ hnot
+        · have : j = i.val := by omega
+          subst this; exact h
+    split
+    · step*
+      have hb := b_post.mp (by assumption)
+      have hf : found1 = true ↔ modeAt (bytes raw.val) i.val ≠ .Single ∧ opensAt (bytes raw.val) i.val := by
+        rw [found1_post, ← hmode]; simp [hb]
+      refine ⟨by scalar_tac, ?_, ?_, by scalar_tac⟩
+      · rw [mode1_post, i3_post, hnext, hmode, i2_post]
+      · rw [i3_post]; exact hstep _ hf
+    · step*
+      have hb : mode = .Single := by
+        have := (by assumption : ¬ b = true)
+        rw [b_post] at this
+        simpa using this
+      have hf : false = true ↔ modeAt (bytes raw.val) i.val ≠ .Single ∧ opensAt (bytes raw.val) i.val := by
+        rw [← hmode]; simp [hb]
+      refine ⟨by scalar_tac, ?_, ?_, by scalar_tac⟩
+      · rw [mode1_post, i3_post, hnext, hmode, i2_post]
+      · rw [i3_post]; exact hstep _ hf
+  · have : i.val = raw.val.length := by scalar_tac
+    simp only [Bool.false_eq_true, false_iff, substitution, not_exists, not_and]
+    intro j hj h1 h2
+    have hn : ¬ ∃ k < i.val, modeAt (bytes raw.val) k ≠ .Single ∧ opensAt (bytes raw.val) k := by
+      rw [← hfound]; assumption
+    exact hn ⟨j, by simp [bytes] at hj; omega, h1, h2⟩
+
 /-- **S27, splitter.** `split` returns for every input. -/
 theorem split_spec (raw : Slice U8) : shell.split raw ⦃ _ => True ⦄ := by
   unfold shell.split

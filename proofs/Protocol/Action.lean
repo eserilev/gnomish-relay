@@ -190,30 +190,10 @@ theorem script_verdict_spec (script : shell.Script) (cwd : Slice U8) (policy : a
   all_goals subst_vars
   all_goals simp_all
 
-theorem dollar_paren_bytes : bytes (Array.to_slice action.DOLLAR_PAREN).val = ascii "$(" := by
-  unfold action.DOLLAR_PAREN; rfl
-
-theorem backtick_bytes : bytes (Array.to_slice action.BACKTICK).val = [ch '`'] := by
-  unfold action.BACKTICK; rfl
-
-theorem singleton_infix_iff {α : Type} (x : α) (l : List α) : [x] <:+: l ↔ x ∈ l := by
-  constructor
-  · rintro ⟨s, t, rfl⟩; simp
-  · intro h
-    obtain ⟨s, t, rfl⟩ := List.append_of_mem h
-    exact ⟨s, t, by simp⟩
-
 @[step]
-theorem has_substitution_spec (raw : Slice U8) (h : raw.val.length < Usize.max) :
-    action.has_substitution raw ⦃ r => (r = true ↔ substitution (bytes raw.val)) ⦄ := by
-  unfold action.has_substitution
-  have h1 : (Array.to_slice action.DOLLAR_PAREN).val <:+: raw.val ↔ ascii "$(" <:+: bytes raw.val := by
-    rw [← dollar_paren_bytes, Protocol.Search.infix_bytes_iff]
-  have h2 : (Array.to_slice action.BACKTICK).val <:+: raw.val ↔ ch '`' ∈ bytes raw.val := by
-    rw [← singleton_infix_iff, ← backtick_bytes, Protocol.Search.infix_bytes_iff]
-  step*
-  all_goals subst_vars
-  all_goals simp_all [substitution]
+theorem has_substitution_spec (raw : Slice U8) :
+    shell.has_substitution raw ⦃ r => (r = true ↔ substitution (bytes raw.val)) ⦄ :=
+  Protocol.Shell.has_substitution_spec raw
 
 open Classical in
 /-- The answer for a command: `desktop` if it is too long, has a substitution, or does

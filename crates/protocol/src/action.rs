@@ -6,11 +6,7 @@
 
 use crate::command_rules::{changes_folder, simple_verdict};
 use crate::path_rules::{path_verdict, target_verdict};
-use crate::search::contains;
-use crate::shell::{Access, MAX_COMMAND, Redirect, Script, Simple, split};
-
-const DOLLAR_PAREN: [u8; 2] = *b"$(";
-const BACKTICK: [u8; 1] = *b"`";
+use crate::shell::{Access, MAX_COMMAND, Redirect, Script, Simple, has_substitution, split};
 
 /// From strict to open. `rank` gives the order.
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -147,11 +143,6 @@ fn script_verdict(
         return stricter(v, Verdict::Desktop);
     }
     v
-}
-
-/// This looks at the raw bytes, so `$(` and a backtick count even inside quotes.
-fn has_substitution(raw: &[u8]) -> bool {
-    contains(raw, &DOLLAR_PAREN) || contains(raw, &BACKTICK)
 }
 
 fn command_verdict(
@@ -337,10 +328,31 @@ mod tests {
     }
 
     #[test]
-    fn command_substitution_is_desktop_even_in_quotes() {
+    fn command_substitution_is_desktop() {
         assert_eq!(run(b"cat $(echo /etc/passwd)"), Verdict::Desktop);
         assert_eq!(run(b"echo `id`"), Verdict::Desktop);
-        assert_eq!(run(b"echo '$(x)'"), Verdict::Desktop);
+    }
+
+    #[test]
+    fn command_substitution_in_double_quotes_is_desktop() {
+        assert_eq!(run(b"git commit -m \"fix `x`\""), Verdict::Desktop);
+        assert_eq!(run(b"echo \"a $(b)\""), Verdict::Desktop);
+    }
+
+    #[test]
+    fn single_quotes_make_substitution_plain_text() {
+        let allow = [vec![b"git".to_vec(), b"commit".to_vec()]];
+        let call = ToolCall::Command {
+            raw: b"git commit -m 'fix `x`'".to_vec(),
+            cwd: b"/home/x/Code/app".to_vec(),
+        };
+        assert_eq!(classify(&call, &policy(), &allow), Verdict::Allow);
+        assert_eq!(run(b"echo '$(x)'"), Verdict::Ask);
+    }
+
+    #[test]
+    fn an_unbalanced_single_quote_is_desktop() {
+        assert_eq!(run(b"echo 'a `x`"), Verdict::Desktop);
     }
 
     #[test]

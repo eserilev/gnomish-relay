@@ -146,7 +146,10 @@ in these ways. None of them changes the meaning.
   1 MiB, so every inner length bound holds.
 - **S28.** "Does not parse" means that `shell.split` returns `none`; the grammar is in
   SPEC 6.6.3. "A command with command substitution" is exact on the raw bytes: `$(` or a
-  backtick anywhere, also inside quotes. "`eval`, `sudo`, a pipe into a shell,
+  backtick at a byte where the quote state of the splitter (`modeAt`, from
+  `quoteStep`) is not "inside single quotes". An escaped one counts too. On
+  2026-09-25 the user approved this change: at first the check counted them inside
+  single quotes too. "`eval`, `sudo`, a pipe into a shell,
   `cmd.exe`, PowerShell" are words of a simple command of the parse, by their name
   (`progName`: no folder, lower case, no `.exe`). "Is `desktop`" is "at most `desktop`"
   for these words, because a redirect into a `deny` folder in the same command gives

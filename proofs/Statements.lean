@@ -398,7 +398,8 @@ def S28_no_parse : Prop :=
     shell.split (alloc.vec.Vec.deref raw) = .ok none →
     action.classify (.Command raw cwd) policy rules ⦃ v => v = .Desktop ⦄
 
-/-- **S28, substitution.** A command with `$(` or a backtick anywhere is `desktop`. -/
+/-- **S28, substitution.** A command with `$(` or a backtick outside single quotes, by the
+quote state of the splitter (`modeAt`), is `desktop`. -/
 def S28_substitution : Prop :=
   ∀ (raw cwd : alloc.vec.Vec U8) (policy : action.Policy)
     (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))),

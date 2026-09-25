@@ -18,7 +18,7 @@ set_option maxRecDepth 2048
 namespace protocol
 
 /-- [protocol::action::Verdict]
-    Source: 'crates/protocol/src/action.rs', lines 18:0-26:1
+    Source: 'crates/protocol/src/action.rs', lines 14:0-22:1
     Visibility: public -/
 @[discriminant isize]
 inductive action.Verdict where
@@ -28,7 +28,7 @@ inductive action.Verdict where
 | Allow : action.Verdict
 
 /-- [protocol::action::Policy]
-    Source: 'crates/protocol/src/action.rs', lines 29:0-42:1
+    Source: 'crates/protocol/src/action.rs', lines 25:0-38:1
     Visibility: public -/
 structure action.Policy where
   roots : alloc.vec.Vec (alloc.vec.Vec Std.U8)
@@ -39,7 +39,7 @@ structure action.Policy where
   allow : alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))
 
 /-- [protocol::action::ToolCall]
-    Source: 'crates/protocol/src/action.rs', lines 44:0-54:1
+    Source: 'crates/protocol/src/action.rs', lines 40:0-50:1
     Visibility: public -/
 @[discriminant isize]
 inductive action.ToolCall where
@@ -51,7 +51,7 @@ inductive action.ToolCall where
 | Unknown : action.ToolCall
 
 /-- [protocol::action::Cover]
-    Source: 'crates/protocol/src/action.rs', lines 58:0-61:1 -/
+    Source: 'crates/protocol/src/action.rs', lines 54:0-57:1 -/
 @[discriminant isize]
 inductive action.Cover where
 | Listed : action.Cover

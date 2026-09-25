@@ -121,9 +121,29 @@ def neverAlways (ws : List (List Byte)) : Prop :=
   runner ws ∨ network ws ∨ anyName neverAlwaysNames ws ∨
     (headIs "rm" ws ∧ ∃ w ∈ ws, recursiveFlag w) ∨ (headIs "git" ws ∧ ∃ w ∈ ws, gitForce w)
 
-/-- Command substitution, `$(...)` or a backtick. The check looks at the raw bytes, so it
-also counts them inside quotes. -/
-def substitution (raw : List Byte) : Prop := ascii "$(" <:+: raw ∨ ch '`' ∈ raw
+/-- The quote state of the splitter after one byte: `'` starts and ends single quotes,
+`"` double quotes, and `\` escapes the next byte. The lexer of `shell.rs` changes its
+mode the same way. -/
+def quoteStep (mode : shell.Mode) (b : Byte) : shell.Mode :=
+  match mode with
+  | .Plain => if b = ch '\'' then .Single else if b = ch '"' then .Double
+      else if b = ch '\\' then .Escape else .Plain
+  | .Single => if b = ch '\'' then .Plain else .Single
+  | .Double => if b = ch '"' then .Plain else if b = ch '\\' then .DoubleEscape else .Double
+  | .DoubleEscape => .Double
+  | .Escape => .Plain
+
+/-- The quote state before byte `i`. -/
+def modeAt (raw : List Byte) (i : Nat) : shell.Mode := (raw.take i).foldl quoteStep .Plain
+
+/-- `$(` or a backtick starts at byte `i`. -/
+def opensAt (raw : List Byte) (i : Nat) : Prop :=
+  raw[i]? = some (ch '`') ∨ (raw[i]? = some (ch '$') ∧ raw[i + 1]? = some (ch '('))
+
+/-- Command substitution: `$(` or a backtick outside single quotes. Inside single quotes
+both are plain text. An escaped one still counts, which is stricter than the shell. -/
+def substitution (raw : List Byte) : Prop :=
+  ∃ i < raw.length, modeAt raw i ≠ .Single ∧ opensAt raw i
 
 /-- `eval`, `sudo`, `cmd.exe`, PowerShell, or a shell after a `|`. -/
 def desktopSimple (s : shell.Simple) : Prop :=

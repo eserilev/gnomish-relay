@@ -397,6 +397,60 @@ fn step(lx: Lexer, raw: &[u8], i: usize) -> (Lexer, usize) {
     }
 }
 
+/// The quote state after a byte. The lexer changes its mode the same way.
+fn quote_step(mode: Mode, b: u8) -> Mode {
+    match mode {
+        Mode::Plain => {
+            if b == b'\'' {
+                Mode::Single
+            } else if b == b'"' {
+                Mode::Double
+            } else if b == b'\\' {
+                Mode::Escape
+            } else {
+                Mode::Plain
+            }
+        }
+        Mode::Single => {
+            if b == b'\'' {
+                Mode::Plain
+            } else {
+                Mode::Single
+            }
+        }
+        Mode::Double => {
+            if b == b'"' {
+                Mode::Plain
+            } else if b == b'\\' {
+                Mode::DoubleEscape
+            } else {
+                Mode::Double
+            }
+        }
+        Mode::DoubleEscape => Mode::Double,
+        Mode::Escape => Mode::Plain,
+    }
+}
+
+fn opens_substitution(raw: &[u8], i: usize) -> bool {
+    raw[i] == b'`' || (raw[i] == b'$' && i + 1 < raw.len() && raw[i + 1] == b'(')
+}
+
+/// `$(` or a backtick outside single quotes. Inside single quotes both are plain text.
+/// An escaped one, such as `\$(`, counts too: that is stricter than the shell.
+#[must_use]
+pub fn has_substitution(raw: &[u8]) -> bool {
+    let mut mode = Mode::Plain;
+    let mut found = false;
+    let mut i = 0;
+    while !found && i < raw.len() {
+        found = mode != Mode::Single && opens_substitution(raw, i);
+        mode = quote_step(mode, raw[i]);
+        i += 1;
+    }
+    found
+}
+
 fn new_lexer() -> Lexer {
     Lexer {
         ok: true,
@@ -671,6 +725,30 @@ mod tests {
     fn invalid_utf8_is_plain_bytes() {
         let script = split(b"echo \xff\xfe").expect("parses");
         assert_eq!(script.simples[0].words[1], b"\xff\xfe");
+    }
+
+    #[test]
+    fn substitution_counts_outside_single_quotes_only() {
+        assert!(has_substitution(b"echo $(id)"));
+        assert!(has_substitution(b"echo `id`"));
+        assert!(has_substitution(b"git commit -m \"fix `x`\""));
+        assert!(has_substitution(b"echo \"a\\\"$(b)\""));
+        assert!(has_substitution(b"echo 'a' $(b)"));
+        assert!(!has_substitution(b"git commit -m 'fix `x`'"));
+        assert!(!has_substitution(b"echo '$(x)'"));
+        assert!(!has_substitution(b"echo \"it's\" a$"));
+        assert!(!has_substitution(b"echo $"));
+    }
+
+    #[test]
+    fn an_escaped_substitution_still_counts() {
+        assert!(has_substitution(b"echo \\`id"));
+        assert!(has_substitution(b"echo \"\\`id\""));
+    }
+
+    #[test]
+    fn an_unbalanced_single_quote_does_not_parse() {
+        assert!(fails("git commit -m 'fix `x`"));
     }
 
     #[test]
