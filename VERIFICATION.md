@@ -170,15 +170,16 @@ The statement makes "every path" and "reads back" exact:
   `n`, `t`, or `r` gives a control byte, and before any other byte gives that byte. The
   model says nothing about the numeric escapes (`\0` to `\7`, `\x`), and
   `sbpl_string` never writes one. The Apple reader is not open source, so the macOS
-  tests in CI back the model: they run the real `sandbox-exec` with folder names that
-  hold `"`, `\`, a line break, and UTF-8.
+  tests in CI back the model: they run the real `sandbox-exec` with a home folder
+  whose name holds `"`, `\`, and a space. The fuzz target `sandbox` runs the Rust copy of the
+  model on every literal of the profile.
 
 ### Item 17: what the fuzz targets check
 
 Each target checks the property of its proof on the compiled code, not only "no crash":
 `frame` (S1, C2, and S29 with two keys: a frame signed by one key goes only to its app), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1, and S9 for each app),
 `lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), `markdown` (S22 to S25), and
-`popup` (S15), `action` (S16, S17, S27, and S28: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor), `screenshot` (any file in the Screenshots folder never panics the
+`popup` (S15), `action` (S16, S17, S27, and S28: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor), `sandbox` (S31 and S32: the policy, the escape, the Seatbelt profile, and the `bwrap` arguments), `screenshot` (any file in the Screenshots folder never panics the
 bridge), `saved` (any saved variables text never panics the frame reader), `restore` and
 `live` (S18 to S21 in a real Lua 5.1, for each app: each field loads back in the global
 of that app only, and each file stays under its bound), `flags` (each flag value from the game has its shape, and a coding flag never changes the transport flags), `acp` (a message

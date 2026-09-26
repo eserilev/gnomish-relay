@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use bridge::agent;
 use bridge::agent::Agents;
+use bridge::command_sandbox;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::config_text::RelayPart;
 use bridge::desktop::{self, Approvals, Prompt};
@@ -603,6 +604,10 @@ fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents, Rai
     }
     let gate = Gate::new(&relay, &config_dir()?, &paths.state, Prompt::Dialog);
     gate.approvals.clear();
+    println!(
+        "commands from the game run in: {}",
+        gate.sandbox.tool.name()
+    );
     let agents = agent::from_config(&relay, &gate);
     let raiser = Raiser {
         approvals: gate.approvals.clone(),
@@ -730,6 +735,9 @@ fn main() -> Result<()> {
         ["approve", id] => answer_approval(id, desktop::Verdict::Approve),
         ["deny", id] => answer_approval(id, desktop::Verdict::Deny),
         ["say", chat, id, text] => say(chat, id, text),
+        [command_sandbox::RUN_FLAG, command] => {
+            std::process::exit(command_sandbox::run_wrapped(command))
+        }
         _ => bail!("{USAGE}"),
     }
 }

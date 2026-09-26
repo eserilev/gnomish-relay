@@ -174,7 +174,7 @@ Every message from the game (a strip or the reload outbox) runs under one ceilin
 | Write | The chat folder only (the `auto-edit` level of 9.3) |
 | Read | `allowed_roots` |
 | Commands | The allow table of the config. All others ask. |
-| Network | The agent's own API host only (6.6.4). Allowing a network tool does not widen the proxy. |
+| Network | None for commands. The agent process keeps the network of the user for its API, and each network tool of the agent asks on the desktop (6.6.4). |
 
 - The `full-auto` level (6.2 rule 5) skips the questions of the game only. `deny` and `desktop` answers of the classifier still apply, and so does the sandbox.
 - The allow table of the config (12) covers commands. A command that it covers runs with no question at `auto-edit` and `full-auto`. It never covers a `deny`, `desktop`, or "never always" command (S17).
@@ -283,47 +283,77 @@ The classifier core is pure and lives in `protocol`. Theorems S16, S17, S27, and
 
 #### 6.6.4 Sandbox
 
-The bridge starts every agent process for a game message inside a sandbox. The user does nothing.
+The bridge runs every command of an agent run from the game inside a sandbox. The user does nothing.
 
 | Rule | Value |
 |---|---|
-| Write | The chat folder, and a private temp folder |
-| Read | The system, except the `desktop` and `deny` paths of 6.6.3, which are hidden |
-| Network | Only through a bridge proxy that allows the agent's own API host |
+| Write | The chat folder, and a private temp folder of the run |
+| Read | The system, except the `deny` paths and both lists of `desktop` paths of 6.6.3, which are hidden |
+| Network | None for commands. The agent process itself is outside the sandbox (see "Where the wall is"). |
 | Children | Every child process, for example `cargo test`, is inside the same sandbox |
 
 The sandbox closes the hole that a classifier cannot close: an allowed command such as `cargo test` runs code that the agent can edit first.
 It covers shell commands. The file tools of Claude run outside it, so the classifier (6.6.3) guards them.
 
-What each backend enforces:
+**The policy (S31).** `sandbox_policy` in `crates/protocol/src/sandbox.rs` builds it from the chat folder, the temp folder, the `deny` folders (the config folder and the data folder, 12), and both lists of `desktop` patterns. A path is hidden with the predicate of the classifier: inside a `deny` folder, or a run of its parts matches a pattern, with no regard to ASCII case. The writable paths are the chat folder and the temp folder, each clean in the form of S5 and not hidden. If the chat folder lies inside a hidden path, the policy leaves it out, and the bridge refuses the run: "The chat folder is inside a folder that the sandbox hides (the config folder, the data folder, or a credential folder), so the agent cannot work there." S31 proves the policy (14.1).
+
+**Where the wall is** (decided with an advisor on 2026-09-26). The sandbox holds the commands, not the agent process:
+
+- The agent writes its own state all the time: sessions, logins, and settings in `~/.claude`, `~/.claude.json`, and `~/.codex`. With these folders read-only, the agents stop working. With them writable, a command can plant a hook, an MCP server, or an allow rule that runs later with no sandbox, in a terminal session of the user. So the agent process stays outside, and only its commands go in.
+- The bridge also resumes Claude sessions from `~/.claude/projects` (9.6), which needs the real folder.
+- Nested sandboxes fail on macOS: a process inside Seatbelt cannot start `sandbox-exec` again.
+
+**Claude (`kind = "claude"`).** Claude Code runs each command of its Bash tool through `CLAUDE_CODE_SHELL_PREFIX`. The bridge sets it to `<gnomish-relay> --sandbox-run`: this program, at its absolute path. Claude Code then runs `bash -c -l "'<gnomish-relay>' --sandbox-run '<command>'"`, and the bridge program starts the command inside the sandbox of the run. Checked on Claude Code 2.1.283 in the code of the program: it quotes the part before the last " -" as the program and adds the command as one quoted word. The same prefix wraps command hooks and MCP servers.
+
+- At the start of each run, the bridge makes the private temp folder (`gnomish-relay-run-<random>`, mode 0700, under the temp folder of the OS) and writes the walls of the run to `<data>/sandbox/<name>.json`: the tool, the writable paths, and the hidden paths that exist. `GNOMISH_RELAY_SANDBOX` names the file, and `TMPDIR` is the temp folder. Both go away at the end of the run.
+- The wrapper never runs a command outside the sandbox. With no walls, or with a tool that does not start, the command fails with exit status 126.
+- The command gets only the variables of the allowlist of 6.2 rule 12, and `TMPDIR`. The `env` list of the entry, for example `ANTHROPIC_API_KEY`, stays with the agent.
+- The wrapper leaves a mark in the temp folder. If a Bash call ran and the mark is missing, Claude Code ignored the prefix, and the run stops at once with "A command ran outside the sandbox, so the run stopped.".
+- The bridge refuses a run when the bridge program is inside the chat folder, because a command could change it: "The bridge program <path> is inside the chat folder, so a command could change it. Install it somewhere else, for example ~/.local/bin."
+- The flags of a game run: `--setting-sources ""`, so the settings of the user and of the project do not apply; `--strict-mcp-config`, so no MCP server starts; and `--settings` with `sandbox.enabled: false` and `env.CLAUDE_CODE_SHELL_PREFIX`. A project from the web can hold a `.claude/settings.json` with hooks, or with an `env` that clears the prefix, so no project setting applies. The model and the other settings of the user do not apply either: the `command` of the entry can add `--model`.
+- The own sandbox of Claude Code stays off. Checked on 2.1.283: the keys are `sandbox.enabled`, `sandbox.failIfUnavailable`, and `sandbox.allowUnsandboxedCommands`. With `failIfUnavailable`, Claude Code refuses to start on a Linux with no `socat` ("sandbox required but unavailable: ... socat not installed"), and on macOS it cannot start inside the sandbox of the bridge. The sandbox of the bridge covers the same commands.
+
+**Linux: `bwrap`.** `--ro-bind / /`, `--dev /dev`, `--proc /proc`, an empty `--tmpfs` on `/tmp`, `/var/tmp`, and `/run` (they hold the sockets of the ssh agent and the desktop), a writable `--bind` of the chat folder and the temp folder, then a `--tmpfs` over each hidden folder and a read-only empty file over each hidden file, then `--remount-ro` of each of these. Then `--unshare-all` (no network, own process ids), `--die-with-parent`, `--new-session`, and `bash -c <command>` in the working folder of the command. A folder that holds a writable path keeps its place: a chat folder under `/tmp` still works.
+
+**macOS: `sandbox-exec`** with a generated profile: `(allow default)`, `(deny network*)`, `(deny file-write*)`, an allow of writes to a few devices (`/dev/null`, `/dev/tty`, `/dev/fd`), an allow of writes to the chat folder and the temp folder, and last a deny of reads and writes under each hidden path, `/private/tmp`, and `/private/var/tmp`. A later rule wins in Seatbelt. Each path is a string literal in the profile, with the escape of S32. Mach services stay reachable, so the keychain answers with the rules of its own access lists.
+
+**Hidden paths that exist.** A `bwrap` mount and a Seatbelt `subpath` name a real path, so the bridge looks for the hidden paths at the start of each run: the `deny` folders, each pattern in the home folder (for example `~/.ssh` and `~/.config/gh`), and a walk of the chat folder. The walk does not follow links, but a link with a hidden name hides its real target. A chat folder with more than 1000000 files and folders gets no run. Limits:
+
+- A path that matches a pattern in another folder, for example `.env` in another project under `allowed_roots`, stays readable for commands. The classifier still asks before a command that names it.
+- A file that a command makes during the run and that matches a pattern is not hidden. It holds only what the agent wrote.
+- The logins of the agents are `desktop` paths too (`.claude.json`, `.claude/.credentials.json`, `.codex/auth.json`), so no command reads them.
+- In the sandbox `.git/config` reads as empty, so `git` works with no remote and no settings of the repository, and `git config` fails. The hooks of git are gone.
+
+**Network: the decision and the gap.** 6.6.2 asks for "the agent's own API host only". Commands get no network at all, which is stricter. The agent process is outside the sandbox and has the normal network of the user: it needs its API host, and the bridge proxy that would limit it to that host is not built. The network tools of the agent (web fetch, web search, MCP tools) are unknown tools, so each one asks on the desktop (6.6.3). A command that needs the network, such as `cargo fetch` or `npm install`, fails in a game run.
+
+What each backend and OS enforces:
 
 | Backend | Linux | macOS | Windows |
 |---|---|---|---|
-| Claude | Its own sandbox (bubblewrap) | Its own sandbox (Seatbelt) | None: fallback. Under WSL2, as Linux. |
-| Codex (`codex app-server` or ACP) | Its own sandbox, `workspace-write` | Its own sandbox, `workspace-write` | Its own Windows sandbox |
-| Other agents | `@anthropic-ai/sandbox-runtime` around the command | `@anthropic-ai/sandbox-runtime` around the command | None: fallback |
+| Claude | The sandbox of the bridge (`bwrap`) around each command | The sandbox of the bridge (`sandbox-exec`) around each command | None: fallback. Under WSL2, as Linux. |
+| Codex (`codex app-server`) | Its own sandbox: `read-only` at `ask`, `workspace-write` otherwise | The same | Its own Windows sandbox |
+| Other ACP agents | None: they ask at most (6.6.3) | None | None |
 
-**Claude settings.** The bridge starts Claude with a `--settings` value that sets:
+**Codex.** Codex runs its commands in its own sandbox. The bridge sets `sandbox_workspace_write.exclude_slash_tmp`, and a private temp folder of the run as `TMPDIR` (checked on codex-cli 0.157.0: `thread/start` answers with `excludeSlashTmp: true`). Against S31:
 
-- `sandbox.enabled` to true
-- `allowUnsandboxedCommands` to false, so Claude cannot retry a command outside the sandbox
-- `failIfUnavailable` to true, so a sandbox that does not start stops the run
-- the credentials and network settings of the table above, with a strict allowlist
+- Writes match: the chat folder and the temp folder only, and at `ask` nothing.
+- Network matches: none for commands.
+- Reads do not match: `workspace-write` reads the whole disk, with no hidden path. A command can read `~/.ssh` and the keys of the bridge. The bridge cannot put Codex in its own sandbox: the login and the rules of Codex live in `CODEX_HOME`, and on macOS the sandbox of Codex cannot start inside Seatbelt. codex-cli 0.157.0 has `permissions.<profile>.filesystem.deny_read`, but its format has no documentation yet, so it waits for a live test.
+- A command that an `allow` rule of Codex covers runs outside the sandbox (6.6.3).
 
-Settings from the project and the user do not apply to these runs, because array keys such as `excludedCommands` merge from every scope. The flag for this is an open question (17).
+**Other ACP agents.** The bridge cannot reach their commands: an agent runs a command itself and asks only when it wants to. So they have no sandbox, and the answer of each of their calls is at most `ask` (6.6.3). The `@anthropic-ai/sandbox-runtime` of an earlier plan is not built.
 
-**Codex.** Its `workspace-write` blocks the network for commands. Its model traffic does not go through the bridge proxy. Its read scope is an open question (17).
+**Fallback, when the computer has no sandbox tool** (Windows, a Linux with no working `bwrap`):
 
-**Processes.** For game messages, the bridge starts one ACP process per chat folder, so the write rule applies per chat (9.4).
-
-**Fallback, when a backend has no sandbox:**
-
-- The game ceiling drops to `ask` for every command.
-- "Always allow" for a command that runs code (build, test, run, install) needs a second step in the game. The popup then says: "No sandbox on this computer. This rule lets the agent run any code that it writes, with your full access. Allow always anyway?"
+- Every command asks in the game, at every level, also a command of the allow table (`gate::without_sandbox`).
 - File edits inside the chat folder still work.
-- The chat header shows "No sandbox".
+- The first reply of Claude after the start of the bridge begins with "(No sandbox on this computer: every command asks in the game.)". The bridge writes the tool of the sandbox to its log at start. A notice in the chat header waits for new slot fields.
+- "Always allow" for a command that runs code needs a second step in the game: "No sandbox on this computer. This rule lets the agent run any code that it writes, with your full access. Allow always anyway?" The game has no "always allow" yet (9.3), so this step comes with it.
+- At start the bridge runs `bwrap --version` inside a sandbox of the same kind. A `bwrap` that is missing, or that cannot make namespaces, counts as no sandbox.
 
-On Windows, the setup recommends Codex, or Claude under WSL2. Both have a sandbox there. A Windows sandbox for other agents comes later (17).
+**Windows.** A sandbox there needs calls of the Windows API, for example an AppContainer or a restricted token, and these calls need `unsafe` code. Every crate forbids `unsafe` (CLAUDE.md). So the plan is a separate small launcher crate for Windows, with an `unsafe` exception that the user must approve first. Until then, Windows has the fallback. The setup recommends Codex, which has its own Windows sandbox, or Claude under WSL2.
+
+**Processes.** For game messages, the bridge starts one agent process per run. Each run has its own walls and its own temp folder (9.4).
 
 **The story program of Timeways (9.7, decision 9).** The story program reads hostile text, so the bridge starts it in a sandbox of its own. `crates/bridge/src/story_sandbox.rs` builds it with the tools that the user already has. The bridge installs nothing.
 
@@ -857,7 +887,7 @@ The agent process is untrusted:
 
 **Claude Code with no adapter (`kind = "claude"`).** Most players have the native `claude` program and no Node. The bridge speaks the stream-json protocol of `claude -p` itself, in `crates/bridge/src/claude.rs`. It was checked on Claude Code 2.1.282.
 
-- The command is `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --permission-mode <mode>` in the chat folder, plus `--resume <id>` for the session of the chat. The `command` of the entry comes first, so it can add flags.
+- The command is `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --permission-mode <mode>` in the chat folder, plus `--resume <id>` for the session of the chat, and the flags of a game run: `--setting-sources "" --strict-mcp-config --settings <json>` (6.6.4). The `command` of the entry comes first, so it can add flags.
 - The bridge first sends the `initialize` control request, as the Claude Agent SDK does, and waits for its answer. Then it sends the prompt as one `user` message.
 - `system` with subtype `init` gives the session id. Each `tool_use` block of an `assistant` message becomes a progress line (9.3). The `result` message ends the turn, and its `result` text is the reply. A `result` with `is_error` is an error with its text, for example "Invalid API key · Please run /login".
 - The `PreToolUse` hook of 6.6.3 gates every tool call. Its timeout is `permission_timeout_minutes` plus 5 minutes, because Claude Code runs the tool when the hook times out. A `can_use_tool` control request goes through the same gate. The bridge answers every other control request with an error.
@@ -936,7 +966,7 @@ Each backend maps the level differently:
 - `acp`: the bridge sets the session mode. Mode IDs differ per agent, so the config has a `modes` table per agent.
 - `claude`: `--permission-mode`, and the hook of 6.6.3 for every call. `ask` is `manual`, and `auto-edit` and `full-auto` are `acceptEdits`. The hook decides, so the mode matters only when the hook fails. Then `manual` asks the bridge, and `acceptEdits` does not. The `modes` table of the entry can name another mode: `acceptEdits`, `auto`, `dontAsk`, `manual`, or `plan`. Config load refuses any other name. It also refuses `bypassPermissions`: in that mode Claude Code asks nothing, so no tool call reaches the bridge, and the ceiling of the game has no effect.
   - Not `plan` by default (decided with an advisor on 2026-09-26). In the first test in the game, a "create a file" message at `ask` asked on the desktop. In `plan` mode, Claude Code writes its plan to `~/.claude/plans/<name>.md`, and `.claude/` is a `desktop` write path. The gate already asks in the game before each write at `ask`, so plan mode added only this file. The gate makes no exception for plan files: Claude picks the path, and `.claude/` holds settings and hooks that run code. A user who sets `modes = { ask = "plan" }` gets one desktop question for each plan.
-- `codex`: the sandbox of the thread, and `approvalPolicy: "untrusted"` at every level, which sends the most calls to the bridge (6.6.3). `ask` is `read-only`, and `auto-edit` and `full-auto` are `workspace-write`. The sandbox applies after the answer of the gate. The bridge never uses `danger-full-access`, `never`, `on-request`, or `granular`: none of them asks more than `untrusted`.
+- `codex`: the sandbox of the thread, and `approvalPolicy: "untrusted"` at every level, which sends the most calls to the bridge (6.6.3). `ask` is `read-only`, and `auto-edit` and `full-auto` are `workspace-write`, with `exclude_slash_tmp` and a private `TMPDIR` (6.6.4). The sandbox applies after the answer of the gate. The bridge never uses `danger-full-access`, `never`, `on-request`, or `granular`: none of them asks more than `untrusted`.
 - `command`: the level is fixed by the command in the config. The addon shows the level in the chat header. If the level is `full-auto`, the addon shows a warning.
 - For game messages, Codex runs through `codex app-server` or ACP only, so the bridge sees each question of its tool calls (6.6.3).
 
@@ -971,7 +1001,7 @@ Rules:
 
 ### 9.4 Agent processes
 
-- ACP: one agent process per agent kind. It serves many sessions. For game messages: one process per chat folder, inside the sandbox (6.6.4).
+- ACP: one agent process per run. ACP agents have no sandbox, so each of their calls asks at most (6.6.4).
 - `claude`, `codex`, and `command`: one process per run.
 - `max_parallel_runs` counts active runs, not processes.
 - If an ACP process stops, the bridge starts it again and resumes the open sessions. If a session cannot resume, the bridge reports an error for that chat.
@@ -1730,6 +1760,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | The bridge state machine (`relay`) | The promises of the transport model (14.2) on the real code, with a Timeways lane next to the relay lane: no Timeways record becomes a job. |
 | The action classifier and the shell splitter (6.6.3) | Backs up S16, S17, S27, and S28 on the compiled code: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor holds. |
 | Lines of the story program and batches of the addon (`app_protocol`, 9.8) | Both are untrusted. No line panics a reader. A batch that passes has at most one line with a reply, and each line that goes on is JSON with the `id` of the bridge. An answer that passes is at most 24576 bytes, and its reply for the game is one JSON line with every `\|` doubled (S10) that the slot writer keeps whole (S12). A journal that passes holds no `note`. Both answers to a model call are one JSON line with its `call`. |
+| The sandbox policy, the Seatbelt escape and profile, and the `bwrap` arguments (`sandbox`, 6.6.4) | Backs up S31 and S32 on the compiled code: each writable path is the chat folder or the temp folder and is not hidden, each `deny` folder is hidden, each path reads back from its literal with the model of S32, the profile holds exactly the expected literals in order, and `bwrap` binds each writable path and ends with the command. |
 | Answers of a local model (`model_http`, 9.7 decision 10) | The local model is untrusted. No answer panics the reader. The text that goes to the story program is at most 16 KiB, has no control character but a newline and a tab, and its `model_answered` line is one JSON line. |
 
 ### 14.5 Security tests
@@ -1750,6 +1781,8 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 - The environment of the story program: it contains only the allowlist, with and without `bwrap`.
 - The story sandbox on Linux with a real `bwrap` (`crates/bridge/tests/story_sandbox.rs`): a write outside its folder fails, also to `state.json` of the lane and to the lore pack; a read of the config folder, the keys, the data folder, and `~/.ssh` fails, and a read of the lore pack inside the hidden data folder works; a connect to a port that answers outside the sandbox fails inside it. With no working `bwrap` these tests skip with a message. CI installs `bwrap` on Linux and sets `GNOMISH_REQUIRE_BWRAP`, so there they cannot skip.
 - A hang of the story program: its child process stops too (Linux).
+- The command sandbox with the real tool: `bwrap` on Linux and `sandbox-exec` on macOS (`crates/bridge/tests/command_sandbox.rs`). Each test runs a command through `gnomish-relay --sandbox-run`, as Claude Code does. A write inside the chat folder and the temp folder works. A write outside fails: to another project, the home folder, `/tmp`, and `/var/tmp`. A read of the strip key, the state of the bridge, `~/.ssh`, and a `.env` in the chat folder shows no secret. A git hook cannot change. A child process of a child process stays inside. A link out of the chat folder writes nothing and reads no key. A connect to a port that answers outside fails inside. Quotes, line breaks, and `$(…)` in a command stay inside. The home folder of the tests has a `"`, a `\`, and a space in its name, so each path of the profile needs the escape of S32. CI sets `GNOMISH_REQUIRE_BWRAP` on Linux and `GNOMISH_REQUIRE_SANDBOX_EXEC` on macOS, so there they cannot skip.
+- Claude with the real sandbox (`claude_gate.rs`): the scripted `claude` runs an allowed command through the prefix, and the command writes its chat folder and nothing outside. A command that ran without the wrapper stops the run. With no sandbox, a command of the allow table asks in the game, and the reply carries the notice.
 
 ### 14.6 Supply chain
 
@@ -1776,6 +1809,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
 15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 7, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. **Next:** step 8, setup for two apps, and versions.
+16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Next:** the bridge proxy for the API host of the agent, and a Windows launcher.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
@@ -1790,9 +1824,8 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
 ## 17. Open questions
 
-- Can an AppContainer or a restricted token give Claude and other agents a sandbox on native Windows?
-- Which `claude` flag keeps the project and user settings out of a run (6.6.4)?
-- What can Codex read inside `workspace-write`?
+- Can an AppContainer or a restricted token give the commands of Claude a sandbox on native Windows? It needs a launcher crate with an `unsafe` exception that the user approves (6.6.4).
+- What does `permissions.<profile>.filesystem.deny_read` of Codex take, so that Codex can hide the `deny` and `desktop` paths (6.6.4)?
 - Does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
 - Can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?
 - Two WoW accounts on one computer have two tokens. A hello from the second account starts a restore, and its `restored` flag retires the first token. How does the bridge tell two accounts from a saved-data wipe?

@@ -14,6 +14,7 @@ pub mod app_protocol;
 pub mod claude;
 pub mod claude_sessions;
 pub mod codex;
+pub mod command_sandbox;
 pub mod config;
 pub mod config_edit;
 pub mod config_text;

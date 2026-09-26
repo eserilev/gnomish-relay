@@ -16,7 +16,7 @@ use crate::agent::{
     exchange_text,
 };
 use crate::config::Permission;
-use crate::gate::{self, Call, Coverage, Gate, Refusal};
+use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Work};
 use crate::turn::{STOPPED, Turn};
@@ -48,14 +48,19 @@ pub fn sandbox(level: Permission) -> &'static str {
 }
 
 /// The settings of a thread. `approvalsReviewer` keeps a reviewer model of the user's
-/// config out of the way, and web search runs with no approval, so it is off.
+/// config out of the way, and web search runs with no approval, so it is off. The
+/// sandbox writes the chat folder and `TMPDIR`, the private temp folder of the run, and
+/// not the shared `/tmp` (SPEC.md 6.6.4).
 pub fn thread_settings(cwd: &str, level: Permission) -> Value {
     json!({
         "cwd": cwd,
         "sandbox": sandbox(level),
         "approvalPolicy": APPROVAL_POLICY,
         "approvalsReviewer": "user",
-        "config": { "web_search": "disabled" },
+        "config": {
+            "web_search": "disabled",
+            "sandbox_workspace_write": { "exclude_slash_tmp": true },
+        },
     })
 }
 
@@ -406,12 +411,17 @@ struct Connection {
     changes: HashMap<String, Vec<String>>,
     said: Vec<String>,
     ended: Option<Result<(), String>>,
+    /// The private temp folder of the run. It goes away with the run.
+    _temp: tempfile::TempDir,
 }
 
 impl Connection {
     fn start(agent: &CodexAgent, cwd: &str, control: Control) -> Result<Connection, String> {
+        let (temp, temp_path) = crate::command_sandbox::make_temp()?;
+        let vars = [("TMPDIR".to_owned(), temp_path.into())];
+        let args = ["app-server".to_owned()];
         Ok(Connection {
-            process: AgentProcess::start(&agent.command, &["app-server".into()], &agent.env, cwd)?,
+            process: AgentProcess::start_with(&agent.command, &args, &agent.env, &vars, cwd)?,
             turn: Turn::new(agent.timeout, agent.permission_timeout, control),
             next_id: 1,
             permission: Permission::Ask,
@@ -423,6 +433,7 @@ impl Connection {
             changes: HashMap::new(),
             said: Vec::new(),
             ended: None,
+            _temp: temp,
         })
     }
 
@@ -568,6 +579,7 @@ impl Connection {
             cwd: &self.cwd,
             level: self.permission,
             coverage: Coverage::Every,
+            sandboxing: Sandboxing::On,
         };
         match self.gate.check(&call, &job, &mut self.turn) {
             Ok(()) => "accept",
@@ -605,6 +617,14 @@ mod tests {
             assert_ne!(settings["sandbox"], "danger-full-access");
         }
         assert_eq!(sandbox(Permission::Ask), "read-only");
+    }
+
+    #[test]
+    fn the_sandbox_of_codex_writes_no_shared_temp_folder() {
+        let settings = thread_settings("/w", Permission::AutoEdit);
+        let write = &settings["config"]["sandbox_workspace_write"];
+        assert_eq!(write["exclude_slash_tmp"], true);
+        assert!(write.get("exclude_tmpdir_env_var").is_none());
     }
 
     #[test]

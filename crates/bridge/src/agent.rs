@@ -274,6 +274,7 @@ mod tests {
                 &dir.join("gnomish-relay-data"),
                 crate::desktop::Prompt::Off,
             ),
+            sandbox: crate::command_sandbox::CommandSandbox::none(),
         }
     }
 

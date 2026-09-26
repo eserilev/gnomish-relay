@@ -1,6 +1,7 @@
 //! The process of an agent, which is untrusted (SPEC.md 9.4): it gets only the
 //! environment variables of the allowlist, and each line from it has a size limit.
 
+use std::ffi::OsString;
 use std::io::{BufRead, BufReader, Read, Write};
 use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
@@ -77,7 +78,18 @@ impl AgentProcess {
         env: &[String],
         cwd: &str,
     ) -> Result<AgentProcess, String> {
-        let mut child = spawn(command, args, env, cwd, Stdio::piped())?;
+        AgentProcess::start_with(command, args, env, &[], cwd)
+    }
+
+    /// As `start`, with the variables of the bridge in `vars`, such as the sandbox.
+    pub fn start_with(
+        command: &[String],
+        args: &[String],
+        env: &[String],
+        vars: &[(String, OsString)],
+        cwd: &str,
+    ) -> Result<AgentProcess, String> {
+        let mut child = spawn(command, args, env, vars, cwd, Stdio::piped())?;
         let stdin = child.stdin.take().ok_or("The agent has no stdin.")?;
         let stdout = child.stdout.take().ok_or("The agent has no stdout.")?;
         let stderr_pipe = child.stderr.take().ok_or("The agent has no stderr.")?;
@@ -127,6 +139,7 @@ fn spawn(
     command: &[String],
     args: &[String],
     env: &[String],
+    vars: &[(String, OsString)],
     cwd: &str,
     stdin: Stdio,
 ) -> Result<Child, String> {
@@ -144,6 +157,7 @@ fn spawn(
         .stderr(Stdio::piped());
     // Tells a hook of the agent that this run comes from the bridge (SPEC.md 10).
     child.env("GNOMISH_RELAY_JOB", "1");
+    child.envs(vars.iter().map(|(name, value)| (name, value)));
     child
         .spawn()
         .map_err(|e| format!("Cannot start {program}: {e}"))
@@ -182,7 +196,7 @@ pub fn output(
     cwd: &str,
     timeout: Duration,
 ) -> Result<Output, String> {
-    let mut child = spawn(command, args, env, cwd, Stdio::null())?;
+    let mut child = spawn(command, args, env, &[], cwd, Stdio::null())?;
     let stdout = child.stdout.take().ok_or("The agent has no stdout.")?;
     if let Some(stderr) = child.stderr.take() {
         let (done, _) = channel();

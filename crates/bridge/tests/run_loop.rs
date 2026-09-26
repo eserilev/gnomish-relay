@@ -257,6 +257,7 @@ fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {
             data_dir: f.state.clone(),
             allow: Arc::default(),
             approvals: Approvals::new(&f.state, Prompt::Off),
+            sandbox: bridge::command_sandbox::CommandSandbox::none(),
         },
     };
     bridge_in(f, policy, Arc::new(fake))

@@ -144,6 +144,7 @@ fn turn(script: &str, text: &str, state: &str, arg: &str) -> Option<String> {
             completed("interrupted");
             None
         }
+        "tmpdir" => Some(std::env::var("TMPDIR").unwrap_or_default()),
         _ => {
             let secret = if std::env::var_os("CARGO_MANIFEST_DIR").is_some() {
                 "leaked"

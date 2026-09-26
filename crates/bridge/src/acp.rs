@@ -17,7 +17,7 @@ use crate::agent::{
     exchange_text,
 };
 use crate::config::Permission;
-use crate::gate::{self, Call, Coverage, Gate, Refusal};
+use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::process::{AgentProcess, cut};
 use crate::relay::{Job, Work};
 use crate::turn::{STOPPED, Turn};
@@ -627,6 +627,7 @@ impl Connection {
             cwd: &self.cwd,
             level: self.permission,
             coverage: Coverage::Asked,
+            sandboxing: Sandboxing::Off,
         };
         match self.gate.check(&call, &job, &mut self.turn) {
             Ok(()) => select(&offered, "allow_once").unwrap_or_else(cancelled),

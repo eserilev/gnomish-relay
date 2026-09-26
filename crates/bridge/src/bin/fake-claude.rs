@@ -88,7 +88,15 @@ fn use_tool(hook: Option<&Hook>, tool: &str, input: &Value) -> Option<String> {
     let output = answer.pointer("/response/response/hookSpecificOutput")?;
     let decision = output.get("permissionDecision")?.as_str()?;
     let reason = output.get("permissionDecisionReason")?.as_str()?;
-    tool_result("tu1", decision != "allow");
+    if decision != "allow" {
+        tool_result("tu1", true);
+        return Some(format!("{decision}: {reason}"));
+    }
+    let ran = match input.get("command").and_then(Value::as_str) {
+        Some(command) if tool == "Bash" => run_command(command),
+        _ => None,
+    };
+    tool_result("tu1", ran == Some(false));
     Some(format!("{decision}: {reason}"))
 }
 
@@ -98,6 +106,23 @@ fn plan_file() -> String {
         .or_else(|_| std::env::var("USERPROFILE"))
         .unwrap_or_default();
     format!("{home}/.claude/plans/lazy-reef.md")
+}
+
+/// Runs a command as Claude Code does: through `CLAUDE_CODE_SHELL_PREFIX` when it is set.
+/// The part before the last " -" is the program, and the rest are its flags. `None`
+/// with no prefix, else whether the command worked.
+fn run_command(command: &str) -> Option<bool> {
+    let prefix = std::env::var("CLAUDE_CODE_SHELL_PREFIX").ok()?;
+    let (program, flags) = prefix.rsplit_once(" -")?;
+    let line = format!(
+        "{} -{flags} {}",
+        shlex::try_quote(program).ok()?,
+        shlex::try_quote(command).ok()?
+    );
+    let status = std::process::Command::new("bash")
+        .args(["-c", &line])
+        .status();
+    Some(status.is_ok_and(|s| s.success()))
 }
 
 /// The scripts of the gate: a tool call through the hook, and hooks that go wrong.

@@ -10,6 +10,7 @@ use protocol::live::OptionKind;
 use crate::action_input::{self, resolve};
 use crate::agent::Choice;
 use crate::allow::AllowTable;
+use crate::command_sandbox::CommandSandbox;
 use crate::config::{Permission, RelayConfig};
 use crate::desktop::{self, Approvals, Prompt};
 use crate::turn::{Answer, Turn};
@@ -21,8 +22,17 @@ pub const NOT_FROM_THE_GAME: &str = "Not allowed from the game.";
 pub enum Effect {
     /// It only reads files.
     Read,
-    /// It writes, runs a command, or is a tool that the classifier does not know.
+    /// It writes, or it is a tool that the classifier does not know.
     Change,
+    /// It runs a shell command.
+    Command,
+}
+
+/// Whether the commands of the run are inside a sandbox (SPEC.md 6.6.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sandboxing {
+    On,
+    Off,
 }
 
 /// Which tool calls of the agent reach the bridge.
@@ -53,9 +63,19 @@ pub fn decide(level: Permission, verdict: Verdict, effect: Effect, coverage: Cov
         Verdict::Ask if level == Permission::FullAuto && coverage == Coverage::Every => Step::Run,
         Verdict::Ask => Step::AskGame,
         Verdict::Allow if coverage == Coverage::Asked => Step::AskGame,
-        Verdict::Allow if level == Permission::Ask && effect == Effect::Change => Step::AskGame,
+        Verdict::Allow if level == Permission::Ask && effect != Effect::Read => Step::AskGame,
         Verdict::Allow => Step::Run,
     }
+}
+
+/// With no sandbox, a command that runs code can do anything that the user can, so it
+/// never runs with no question (SPEC.md 6.6.4, the fallback).
+pub fn without_sandbox(step: Step, effect: Effect, sandboxing: Sandboxing) -> Step {
+    let unguarded = sandboxing == Sandboxing::Off && effect == Effect::Command;
+    if unguarded && step == Step::Run {
+        return Step::AskGame;
+    }
+    step
 }
 
 /// One tool call as a backend saw it.
@@ -85,7 +105,7 @@ impl Call {
     pub fn command(command: &str, cwd: &Path, text: Vec<u8>, title: String) -> Call {
         Call {
             tool: action_input::command_call(command, cwd),
-            effect: Effect::Change,
+            effect: Effect::Command,
             text,
             title,
         }
@@ -108,6 +128,7 @@ pub struct Job<'a> {
     pub cwd: &'a str,
     pub level: Permission,
     pub coverage: Coverage,
+    pub sandboxing: Sandboxing,
 }
 
 /// Why a call does not run.
@@ -144,6 +165,7 @@ pub struct Gate {
     pub data_dir: PathBuf,
     pub allow: std::sync::Arc<AllowTable>,
     pub approvals: Approvals,
+    pub sandbox: CommandSandbox,
 }
 
 impl Gate {
@@ -163,6 +185,7 @@ impl Gate {
             data_dir: data_dir.to_owned(),
             allow: std::sync::Arc::new(config.allow.clone()),
             approvals: Approvals::new(data_dir, prompt),
+            sandbox: CommandSandbox::detect(),
         }
     }
 
@@ -178,7 +201,8 @@ impl Gate {
     pub fn check(&self, call: &Call, job: &Job, turn: &mut Turn) -> Result<(), Refusal> {
         let chat = resolve(Path::new(job.cwd)).unwrap_or_else(|| PathBuf::from(job.cwd));
         let verdict = self.verdict(call, &chat);
-        match decide(job.level, verdict, call.effect, job.coverage) {
+        let step = decide(job.level, verdict, call.effect, job.coverage);
+        match without_sandbox(step, call.effect, job.sandboxing) {
             Step::Run => Ok(()),
             Step::Refuse => Err(Refusal::by_rule(
                 "It touches the config or data folder of Gnomish Relay, which the agent never reaches.",
@@ -320,6 +344,28 @@ mod tests {
         }
     }
 
+    #[test]
+    fn with_no_sandbox_a_command_asks_the_game_at_every_level() {
+        for level in LEVELS {
+            for verdict in [Verdict::Ask, Verdict::Allow] {
+                let step = decide(level, verdict, Effect::Command, Coverage::Every);
+                let step = without_sandbox(step, Effect::Command, Sandboxing::Off);
+                assert_eq!(step, Step::AskGame, "{level:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn with_no_sandbox_a_file_edit_and_a_refusal_stay_as_they_are() {
+        let edit = without_sandbox(Step::Run, Effect::Change, Sandboxing::Off);
+        let desktop = without_sandbox(Step::AskDesktop, Effect::Command, Sandboxing::Off);
+        let guarded = without_sandbox(Step::Run, Effect::Command, Sandboxing::On);
+        assert_eq!(
+            (edit, desktop, guarded),
+            (Step::Run, Step::AskDesktop, Step::Run)
+        );
+    }
+
     struct Setup {
         _tmp: tempfile::TempDir,
         gate: Gate,
@@ -344,6 +390,7 @@ mod tests {
             data_dir: home.join("data"),
             allow: std::sync::Arc::new(allow),
             approvals: Approvals::new(&home.join("data"), desktop::Prompt::Off),
+            sandbox: CommandSandbox::none(),
         };
         Setup {
             _tmp: tmp,
@@ -366,6 +413,7 @@ mod tests {
             cwd: &cwd,
             level,
             coverage: Coverage::Every,
+            sandboxing: Sandboxing::On,
         };
         let mut turn = Turn::new(wait, wait, crate::agent::Control::default());
         s.gate.check(call, &job, &mut turn)

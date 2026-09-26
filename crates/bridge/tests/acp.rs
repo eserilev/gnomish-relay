@@ -33,6 +33,7 @@ fn gate() -> Gate {
         data_dir: tmp.join("gnomish-relay-test-data"),
         allow: std::sync::Arc::default(),
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
+        sandbox: bridge::command_sandbox::CommandSandbox::none(),
     }
 }
 

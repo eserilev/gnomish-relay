@@ -9,7 +9,7 @@ use std::time::Duration;
 use crate::action_input::DESKTOP_PATHS;
 use crate::process;
 
-#[derive(Clone, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum Sandbox {
     /// bubblewrap, at this path.
     Bwrap(PathBuf),

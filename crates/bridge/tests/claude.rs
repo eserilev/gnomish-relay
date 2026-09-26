@@ -39,6 +39,13 @@ fn gate() -> Gate {
         data_dir: tmp.join("gnomish-relay-test-data"),
         allow: std::sync::Arc::default(),
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
+        // It marks the commands as sandboxed. With no `sandbox-exec`, the wrapper fails
+        // each command, and these tests read only the answers of the gate.
+        sandbox: bridge::command_sandbox::CommandSandbox::new(
+            bridge::story_sandbox::Sandbox::Seatbelt,
+            std::path::PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
+            None,
+        ),
     }
 }
 
@@ -471,4 +478,27 @@ fn live_claude_answers_lists_forks_and_resumes() {
         "the copy has the history"
     );
     assert_eq!(run.session, forked.session, "the copy resumes");
+}
+
+#[test]
+fn a_game_run_keeps_the_settings_of_the_user_out_and_runs_each_command_through_the_bridge() {
+    let flags = bridge::claude::game_run_flags(Some(std::path::Path::new("/opt/gnomish-relay")));
+
+    assert_eq!(flags[..3], ["--setting-sources", "", "--strict-mcp-config"]);
+    assert_eq!(flags[3], "--settings");
+    let settings: serde_json::Value = serde_json::from_str(&flags[4]).unwrap();
+    assert_eq!(settings["sandbox"]["enabled"], false);
+    assert_eq!(
+        settings["env"]["CLAUDE_CODE_SHELL_PREFIX"],
+        "/opt/gnomish-relay --sandbox-run"
+    );
+}
+
+#[test]
+fn with_no_sandbox_a_game_run_sets_no_shell_prefix() {
+    let flags = bridge::claude::game_run_flags(None);
+
+    let settings: serde_json::Value = serde_json::from_str(&flags[4]).unwrap();
+    assert_eq!(settings["sandbox"]["enabled"], false);
+    assert!(settings.get("env").is_none());
 }

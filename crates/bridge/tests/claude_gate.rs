@@ -12,6 +12,7 @@ use std::time::Duration;
 use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
 use bridge::allow::{self, AllowFile};
 use bridge::claude::ClaudeAgent;
+use bridge::command_sandbox::{CommandSandbox, NO_SANDBOX};
 use bridge::config::Permission;
 use bridge::desktop::{self, Approvals, Prompt};
 use bridge::gate::Gate;
@@ -42,6 +43,13 @@ fn home(allow_toml: &str) -> Home {
         data_dir: path.join("data"),
         allow: Arc::new(allow::parse(&file, &path).unwrap()),
         approvals: Approvals::new(&path.join("data"), Prompt::Off),
+        // It marks the commands as sandboxed. With no `sandbox-exec`, the wrapper fails
+        // each command, and these tests read only the answers of the gate.
+        sandbox: bridge::command_sandbox::CommandSandbox::new(
+            bridge::story_sandbox::Sandbox::Seatbelt,
+            std::path::PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
+            None,
+        ),
     };
     Home {
         _tmp: tmp,
@@ -264,6 +272,69 @@ fn cargo_test_in_the_allow_table_runs_with_no_popup_at_auto_edit() {
 }
 
 #[test]
+fn with_no_sandbox_a_command_of_the_allow_table_asks_the_game_and_the_reply_says_so() {
+    let mut home = home("commands = [\"cargo test\"]");
+    home.gate.sandbox = CommandSandbox::none();
+    let (reply, questions) = call_with_game(
+        &home,
+        "Bash",
+        &json!({ "command": "cargo test -q" }),
+        Permission::FullAuto,
+        |_| Some(Some(0)),
+    );
+    assert_eq!(
+        reply,
+        format!("{NO_SANDBOX}\n\nallow: Allowed by Gnomish Relay.")
+    );
+    assert_eq!(questions.len(), 1, "no sandbox: every command asks");
+}
+
+/// `None` skips the test on a computer with no working sandbox.
+fn real_sandbox() -> Option<CommandSandbox> {
+    let sandbox = CommandSandbox::detect();
+    if sandbox.is_on() {
+        return Some(CommandSandbox::new(
+            sandbox.tool,
+            PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
+            None,
+        ));
+    }
+    for require in ["GNOMISH_REQUIRE_BWRAP", "GNOMISH_REQUIRE_SANDBOX_EXEC"] {
+        assert!(
+            std::env::var_os(require).is_none(),
+            "no sandbox, and {require} is set"
+        );
+    }
+    eprintln!("skipped: the sandbox tool is missing or does not work");
+    None
+}
+
+#[cfg(unix)]
+#[test]
+fn a_command_from_the_game_writes_its_chat_folder_and_nothing_outside() {
+    let mut home = home("");
+    let Some(sandbox) = real_sandbox() else {
+        return;
+    };
+    home.gate.sandbox = sandbox;
+    let command = "echo in > inside.txt && sh -c 'echo out > ../escape.txt'";
+
+    let reply = call(
+        &home,
+        "Bash",
+        &json!({ "command": command }),
+        Permission::FullAuto,
+    );
+
+    assert_eq!(reply, "allow: Allowed by Gnomish Relay.");
+    assert_eq!(
+        std::fs::read_to_string(home.chat.join("inside.txt")).unwrap(),
+        "in\n"
+    );
+    assert!(!home.chat.join("../escape.txt").exists());
+}
+
+#[test]
 fn rm_r_asks_in_the_game_at_auto_edit_and_runs_at_full_auto() {
     let home = home("commands = [\"rm *\"]");
     let rm = json!({ "command": "rm -r build" });
@@ -435,3 +506,29 @@ fn live_the_hook_of_claude_fires_for_a_read() {
 
 /// `claude` on `PATH`. A wrapper that logs both streams also works here.
 const PROGRAM: &str = "claude";
+
+/// A Claude Code that ran the command without the wrapper leaves no mark of the wrapper.
+#[cfg(unix)]
+#[test]
+fn a_command_that_ran_outside_the_wrapper_stops_the_run() {
+    let mut home = home("");
+    home.gate.sandbox = CommandSandbox::new(
+        bridge::story_sandbox::Sandbox::Seatbelt,
+        PathBuf::from("/usr/bin/true"),
+        None,
+    );
+    let claude = claude(
+        &home,
+        &["tool", "Bash", &json!({ "command": "make" }).to_string()],
+        Duration::from_millis(300),
+    );
+
+    let reply = claude
+        .run(&job(&home, Permission::FullAuto), &Control::default())
+        .reply;
+
+    assert_eq!(
+        reply,
+        Err("A command ran outside the sandbox, so the run stopped.".into())
+    );
+}

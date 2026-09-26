@@ -32,6 +32,7 @@ fn gate() -> Gate {
         data_dir: tmp.join("gnomish-relay-test-data"),
         allow: std::sync::Arc::default(),
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
+        sandbox: bridge::command_sandbox::CommandSandbox::none(),
     }
 }
 
@@ -284,6 +285,7 @@ fn gate_in(root: &std::path::Path, allow: &str) -> Gate {
         data_dir: root.join("data"),
         allow: std::sync::Arc::new(bridge::allow::parse(&file, root).unwrap()),
         approvals: Approvals::new(&root.join("data"), Prompt::Off),
+        sandbox: bridge::command_sandbox::CommandSandbox::none(),
     }
 }
 
@@ -434,4 +436,14 @@ fn live_codex_answers_lists_forks_and_resumes() {
         run.reply.unwrap().to_lowercase().contains("pong"),
         "the copy has the history"
     );
+}
+
+#[test]
+fn codex_gets_a_private_temp_folder_that_goes_away_with_the_run() {
+    let reply = run(&agent("tmpdir"), Permission::AutoEdit).unwrap();
+
+    let temp = std::path::PathBuf::from(&reply);
+    let name = temp.file_name().unwrap().to_string_lossy().into_owned();
+    assert!(name.starts_with("gnomish-relay-run-"), "{reply}");
+    assert!(!temp.exists(), "the temp folder outlived the run");
 }

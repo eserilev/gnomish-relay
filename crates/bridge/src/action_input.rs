@@ -20,6 +20,10 @@ pub const DESKTOP_PATHS: &[&str] = &[
     ".config/gh",
     ".docker/config.json",
     ".kube",
+    // The logins of the agents. A command never needs them.
+    ".claude.json",
+    ".claude/.credentials.json",
+    ".codex/auth.json",
     // Keychains
     "Library/Keychains",
     ".local/share/keyrings",

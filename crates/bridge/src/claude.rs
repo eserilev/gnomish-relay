@@ -15,8 +15,9 @@ use crate::agent::{
     Agent, Control, Events, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo, StopSignal,
 };
 use crate::claude_sessions;
+use crate::command_sandbox::{self, Guarded, RunWalls};
 use crate::config::Permission;
-use crate::gate::{self, Call, Coverage, Gate, Refusal};
+use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Work};
 use crate::turn::{STOPPED, Turn};
@@ -38,6 +39,7 @@ const SESSION_TOOLS: [&str; 5] = [
 ];
 pub const NO_TOOLS: &str = "The story program gets no tools.";
 const UNCHECKED: &str = "A tool ran with no check by the bridge, so the run stopped.";
+const UNWRAPPED: &str = "A command ran outside the sandbox, so the run stopped.";
 const CHECK_TIME: Duration = Duration::from_secs(30);
 /// Claude Code runs a tool when the hook times out, so the bridge answers first.
 const HOOK_MARGIN: Duration = Duration::from_mins(5);
@@ -111,15 +113,41 @@ impl ClaudeAgent {
             Some(_) => (None, Some(NEW_SESSION)),
             None => (None, None),
         };
-        let args = self.args(job.permission, resume);
-        let mut stream = match AgentProcess::start(&self.command, &args, &self.env, &job.cwd) {
+        let walls = match self.walls(&job.cwd) {
+            Ok(walls) => walls,
+            Err(e) => {
+                return Run {
+                    reply: Err(e),
+                    session: job.resume.clone(),
+                };
+            }
+        };
+        let note = note.or_else(|| {
+            walls
+                .is_none()
+                .then(|| self.gate.sandbox.notice())
+                .flatten()
+        });
+        let mut args = self.args(job.permission, resume);
+        args.extend(game_run_flags(
+            walls
+                .is_some()
+                .then_some(self.gate.sandbox.wrapper.as_path()),
+        ));
+        let vars = walls
+            .as_ref()
+            .map(|w| w.claude_vars(&self.gate.sandbox.wrapper))
+            .unwrap_or_default();
+        let started = AgentProcess::start_with(&self.command, &args, &self.env, &vars, &job.cwd);
+        let mut stream = match started {
             Ok(process) => {
-                let rules = Rules::Gate(Gated {
+                let rules = Rules::Gate(Box::new(Gated {
                     gate: self.gate.clone(),
                     permission: job.permission,
                     agent: job.agent.clone(),
                     cwd: job.cwd.clone(),
-                });
+                    walls,
+                }));
                 let turn = Turn::new(self.timeout, self.permission_timeout, control.clone());
                 let mut stream = Stream::new(process, turn, rules, self.permission_timeout);
                 stream.session = resume.map(str::to_owned);
@@ -140,6 +168,18 @@ impl ClaudeAgent {
             }),
             session: stream.session,
         }
+    }
+
+    /// The walls of a run, or `None` on a computer with no sandbox.
+    fn walls(&self, cwd: &str) -> Result<Option<RunWalls>, String> {
+        if !self.gate.sandbox.is_on() {
+            return Ok(None);
+        }
+        let guarded = Guarded {
+            config_dir: &self.gate.config_dir,
+            data_dir: &self.gate.data_dir,
+        };
+        command_sandbox::prepare(&self.gate.sandbox, &guarded, Path::new(cwd)).map(Some)
     }
 
     fn args(&self, level: Permission, resume: Option<&str>) -> Vec<String> {
@@ -198,6 +238,24 @@ impl ClaudeAgent {
             modes: MODES.map(str::to_owned).into(),
         })
     }
+}
+
+/// The flags of a run from the game (SPEC.md 6.6.4). The settings of the user and of
+/// the project stay out: a project from the web can hold hooks or a shell prefix. The
+/// sandbox of Claude Code stays off, because the bridge runs each command in its own.
+pub fn game_run_flags(wrapper: Option<&Path>) -> Vec<String> {
+    let mut settings = json!({ "sandbox": { "enabled": false } });
+    if let Some(wrapper) = wrapper {
+        let prefix = command_sandbox::shell_prefix(wrapper);
+        settings["env"] = json!({ "CLAUDE_CODE_SHELL_PREFIX": prefix });
+    }
+    vec![
+        "--setting-sources".into(),
+        String::new(),
+        "--strict-mcp-config".into(),
+        "--settings".into(),
+        settings.to_string(),
+    ]
 }
 
 /// `claude auth status --json` says `"loggedIn": true`.
@@ -497,11 +555,23 @@ struct Gated {
     permission: Permission,
     agent: String,
     cwd: String,
+    /// `None` with no sandbox: then every command asks (SPEC.md 6.6.4).
+    walls: Option<RunWalls>,
+}
+
+impl Gated {
+    fn sandboxing(&self) -> Sandboxing {
+        if self.walls.is_some() {
+            Sandboxing::On
+        } else {
+            Sandboxing::Off
+        }
+    }
 }
 
 /// Who answers the tool calls of a run.
 enum Rules {
-    Gate(Gated),
+    Gate(Box<Gated>),
     /// The model route of the story program: every tool call gets a deny.
     NoTools,
 }
@@ -516,6 +586,8 @@ struct Stream {
     checked: HashSet<String>,
     /// The tool calls that the hook allowed, so `can_use_tool` does not ask twice.
     allowed: HashSet<String>,
+    /// The commands that the hook allowed. Each one runs through the wrapper.
+    commands: HashSet<String>,
     session: Option<String>,
     /// Before the prompt, Stop has no turn to interrupt.
     prompted: bool,
@@ -538,6 +610,7 @@ impl Stream {
             hook_timeout: permission_timeout + HOOK_MARGIN,
             checked: HashSet::new(),
             allowed: HashSet::new(),
+            commands: HashSet::new(),
             session: None,
             prompted: false,
             refused: Vec::new(),
@@ -619,6 +692,9 @@ impl Stream {
                 if ids.iter().any(|id| !self.checked.contains(id)) {
                     return Err(UNCHECKED.into());
                 }
+                if ids.iter().any(|id| self.commands.contains(id)) && !self.wrapper_ran() {
+                    return Err(UNWRAPPED.into());
+                }
             }
             Message::Unsupported { id } => {
                 self.respond(
@@ -673,6 +749,7 @@ impl Stream {
             cwd: &gated.cwd,
             level: gated.permission,
             coverage: Coverage::Every,
+            sandboxing: gated.sandboxing(),
         };
         let result = gated.gate.check(&call, &job, &mut self.turn);
         if let Err(Refusal::ByRule(_)) = &result {
@@ -694,8 +771,20 @@ impl Stream {
             if result.is_ok() {
                 self.allowed.insert(id.clone());
             }
+            if result.is_ok() && request.tool == "Bash" {
+                self.commands.insert(id.clone());
+            }
         }
         result
+    }
+
+    /// A Claude Code that ignores `CLAUDE_CODE_SHELL_PREFIX` runs its commands with no
+    /// sandbox. The wrapper leaves a mark, so the bridge sees it after one command.
+    fn wrapper_ran(&self) -> bool {
+        match &self.rules {
+            Rules::Gate(gated) => gated.walls.as_ref().is_none_or(RunWalls::wrapper_ran),
+            Rules::NoTools => true,
+        }
     }
 
     /// The second line after the hook. No answer ever holds the suggested rules of
