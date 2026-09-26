@@ -10,7 +10,7 @@ use std::fmt::Write;
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo};
 use bridge::config::{Permission, Policy};
-use bridge::receive::{StripKey, receive};
+use bridge::receive::{KeySet, StripKey, receive};
 use bridge::relay::{Folders, Relay};
 use bridge::strip::{self, Image};
 use common::{Bits, load_into, lua, repo_file, screenshot_png};
@@ -382,9 +382,9 @@ fn an_unacknowledged_message_goes_to_the_outbox_as_a_signed_frame() {
     );
     let frames = bridge::saved::frames(&game.saved_variables());
     assert!(!frames.is_empty());
-    let key = StripKey::from_hex(&common::hex(KEY)).unwrap();
+    let keys = KeySet::new(StripKey::from_hex(&common::hex(KEY)).unwrap(), None).unwrap();
     for frame in frames {
-        let records = receive(&frame, &key, 1_790_211_209).unwrap();
+        let (_, records) = receive(&frame, &keys, 1_790_211_209).unwrap();
         assert_eq!(records[0].text, b"anyone there?");
     }
 }
@@ -546,7 +546,8 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
         let _ = write!(hex, "{b:02x}");
         hex
     });
-    let records = receive(&bytes, &StripKey::from_hex(&hex).unwrap(), now).unwrap();
+    let keys = KeySet::new(StripKey::from_hex(&hex).unwrap(), None).unwrap();
+    let (_, records) = receive(&bytes, &keys, now).unwrap();
     let mut relay = Relay::new(Policy {
         folders: Folders {
             roots: vec![b"/home/x".to_vec()],

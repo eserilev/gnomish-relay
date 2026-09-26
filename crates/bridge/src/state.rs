@@ -1,9 +1,11 @@
-//! The bridge state across a restart: `state.json` in the data folder (SPEC.md 8.3).
+//! The bridge state across a restart: `state.json` in the data folder (SPEC.md 8.3). The
+//! Timeways lane keeps its own `state.json` in `timeways/` (SPEC.md 9.7, decision 4).
 
 use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::fs_safe::write_atomic;
@@ -32,7 +34,7 @@ pub struct State {
 
 /// `None` when there is no state yet. A damaged file is an error, not a fresh start:
 /// a fresh start forgets which messages ran.
-pub fn load(dir: &Path) -> Result<Option<State>> {
+pub fn load<T: DeserializeOwned>(dir: &Path) -> Result<Option<T>> {
     let path = dir.join(FILE);
     let meta = match fs::symlink_metadata(&path) {
         Ok(meta) => meta,
@@ -52,7 +54,7 @@ pub fn load(dir: &Path) -> Result<Option<State>> {
     Ok(Some(state))
 }
 
-pub fn save(dir: &Path, state: &State) -> Result<()> {
+pub fn save<T: Serialize>(dir: &Path, state: &T) -> Result<()> {
     write_atomic(dir, FILE, &serde_json::to_vec(state)?)
 }
 
@@ -110,7 +112,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let old = r#"{"next_slot":57,"seen":[["tok",7]],"records":[{"token":"tok","chat":"c1","id":7,"status":"Done","text":"done"}],"waiting":[],"history":{"chats":[]},"tokens":["tok"],"retired":["gone"],"restore_for":"new","client_build":"70009","sessions":[{"chat":"c1","agent":"claude","cwd":"/x","id":"s1"}]}"#;
         fs::write(dir.path().join(FILE), old).unwrap();
-        let state = load(dir.path()).unwrap().unwrap();
+        let state: State = load(dir.path()).unwrap().unwrap();
         assert_eq!(state.lane.next_slot, 57);
         assert_eq!(state.lane.seen, [("tok".to_owned(), 7)]);
         assert_eq!(state.lane.records[0].text, "done");
@@ -129,16 +131,28 @@ mod tests {
     }
 
     #[test]
+    fn a_saved_timeways_state_loads_the_same() {
+        let dir = tempfile::tempdir().unwrap();
+        let lane = LaneState {
+            next_slot: 3,
+            seen: vec![("tw".into(), 1)],
+            ..LaneState::default()
+        };
+        save(dir.path(), &lane).unwrap();
+        assert_eq!(load::<LaneState>(dir.path()).unwrap(), Some(lane));
+    }
+
+    #[test]
     fn no_file_is_no_state() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(load(dir.path()).unwrap(), None);
+        assert_eq!(load::<State>(dir.path()).unwrap(), None);
     }
 
     #[test]
     fn a_damaged_file_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         fs::write(dir.path().join(FILE), "{\"next_slot\": ").unwrap();
-        assert!(load(dir.path()).is_err());
+        assert!(load::<State>(dir.path()).is_err());
     }
 
     #[cfg(unix)]
@@ -148,6 +162,6 @@ mod tests {
         let target = dir.path().join("elsewhere.json");
         fs::write(&target, "{}").unwrap();
         std::os::unix::fs::symlink(&target, dir.path().join(FILE)).unwrap();
-        assert!(load(dir.path()).is_err());
+        assert!(load::<State>(dir.path()).is_err());
     }
 }

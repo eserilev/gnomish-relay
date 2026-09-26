@@ -7,8 +7,11 @@
 
 mod common;
 
-use bridge::receive::{StripKey, receive};
+use bridge::receive::{KeySet, StripKey, receive};
+use bridge::run::{Bridge, now};
+use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, RESTORE_FILE};
 use bridge::strip::{Image, read};
+use bridge::timeways::NO_STORY;
 use common::{Bits, hex, load_addon, lua, repo_file, screenshot_png};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
@@ -148,6 +151,11 @@ impl Game {
         advance.call::<()>(seconds).unwrap();
     }
 
+    /// Sets the Unix time of the game, so the bridge finds its frames fresh.
+    fn set_time(&self, unix: u32) {
+        self.wow.set("epoch", unix).unwrap();
+    }
+
     fn now(&self) -> u32 {
         self.lua.load("return time()").eval().unwrap()
     }
@@ -162,7 +170,7 @@ impl Game {
             .lua
             .load(
                 r#"local ns, text = ...
-                local record = { token = "tok", chat = "c1", id = 7, flags = "h", text = text }
+                local record = { token = "tok", chat = "c1", id = 7, flags = "", text = text }
                 local frame = ns.Codec.Frame(time(), 7, ns.Codec.Payload({ record }), ns.key)
                 assert(ns.Strip.Show(frame, function() end))"#,
             )
@@ -237,7 +245,8 @@ fn key(bytes: &[u8]) -> StripKey {
 /// The strip goes through a PNG as WoW writes it, then the bridge reader and `receive`.
 fn receive_png(rows: &[Vec<u8>], key_bytes: &[u8], now: u32) -> Option<Vec<Record>> {
     let bytes = read(&Image::from_png(&screenshot_png(rows)).ok()?)?;
-    receive(&bytes, &key(key_bytes), now).ok()
+    let keys = KeySet::new(key(key_bytes), None).ok()?;
+    receive(&bytes, &keys, now).ok().map(|(_, records)| records)
 }
 
 fn text_of(value: &Value) -> Vec<u8> {
@@ -476,4 +485,74 @@ fn two_addons_in_one_game_keep_separate_saved_variables() {
         game.lua.globals().get::<Table>("GnomishRelayDB").unwrap()
     );
     assert!(timeways_db.get::<Value>("chats").unwrap().is_nil());
+}
+
+/// Folders of a game and of the bridge, with the slots of both apps.
+fn bridge_folders() -> (tempfile::TempDir, bridge::run::Paths) {
+    let root = tempfile::tempdir().unwrap();
+    let paths = bridge::run::Paths {
+        addons: root.path().join("Interface/AddOns"),
+        screenshots: root.path().join("Screenshots"),
+        accounts: root.path().join("WTF/Account"),
+        state: root.path().join("data"),
+    };
+    for dir in [
+        &paths.addons,
+        &paths.screenshots,
+        &paths.accounts,
+        &paths.state,
+    ] {
+        std::fs::create_dir_all(dir).unwrap();
+    }
+    for app in [App::Relay, App::Timeways] {
+        slots::install(&paths.addons, app, &Files::empty(app, 0)).unwrap();
+    }
+    (root, paths)
+}
+
+fn slot_bytes(addons: &std::path::Path, file: &str) -> Vec<u8> {
+    std::fs::read(addons.join(slots::slot_name(App::Timeways, 1)).join(file)).unwrap()
+}
+
+#[test]
+fn a_lua_timeways_strip_comes_back_as_the_fixed_reply_in_a_timeways_slot() {
+    let (_root, paths) = bridge_folders();
+    let addons = paths.addons.clone();
+    let screenshot = paths.screenshots.join("WoWScrnShot_1.png");
+    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let policy = bridge::config::Policy {
+        folders: bridge::relay::Folders {
+            roots: vec![b"/home/x".to_vec()],
+            base: b"/home/x".to_vec(),
+        },
+        agents: std::collections::BTreeMap::new(),
+        default_agent: "claude".into(),
+    };
+    let mut bridge = Bridge::new(paths, policy, keys, std::collections::BTreeMap::new()).unwrap();
+    let game = Game::new();
+    game.set_time(now());
+    let timeways = game.shared(&TIMEWAYS);
+    game.show(&timeways, "open the portal");
+    std::fs::write(&screenshot, screenshot_png(&game.last_shot(TIMEWAYS.strip))).unwrap();
+
+    let start = std::time::Instant::now();
+    while !String::from_utf8_lossy(&slot_bytes(&addons, BODY_FILE)).contains(NO_STORY) {
+        assert!(
+            start.elapsed().as_secs() < 30,
+            "no reply in the Timeways slot"
+        );
+        bridge.step();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    game.put_slot_files(
+        App::Timeways,
+        slot_bytes(&addons, BODY_FILE),
+        slot_bytes(&addons, RESTORE_FILE),
+        slot_bytes(&addons, LIVE_FILE),
+    );
+    let (loaded, data, _, _) = load_slot(&timeways);
+
+    assert!(loaded);
+    assert_eq!(text_of(&data), NO_STORY.as_bytes());
+    assert!(!screenshot.exists());
 }

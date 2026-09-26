@@ -543,7 +543,7 @@ Total file count for slots and signals: about 17,000.
 
 The addon uses the reload fallback when the strip gets no acknowledgment, the pool is empty, or the slots are missing.
 
-1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store.
+1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store. A frame counts only if the key of the app whose saved variables hold it signed it (9.7, decision 3).
 2. The addon asks the user to press a key. `ReloadUI` needs a hardware event, and the key catcher stays off in combat.
 3. WoW writes the saved variables file at reload.
 4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 250 ms).
@@ -668,7 +668,8 @@ Each chat has a FIFO queue. A second message to a busy chat waits. It never repl
 
 The bridge keeps its state in JSON files in the data folder of the OS:
 
-- `state.json`: the replay store, the unread records, the waiting messages, the slot window, the tokens, and the restore history (7.6). Later also agent session IDs per chat, the folder of each session, and signal counters.
+- `state.json`: the replay store, the unread records, the waiting messages, the slot window, the tokens, and the restore history (7.6).
+- `timeways/state.json`: the lane of Timeways (9.7), only with a Timeways key. Later also agent session IDs per chat, the folder of each session, and signal counters.
 - `transcripts.json`: every prompt and reply, per chat. 200 messages per chat, 4000 characters each.
 
 Rules:
@@ -922,14 +923,16 @@ agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder na
 
 Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It uses this bridge as its desktop program: the same strip, the same slots, and the same proofs, with its own key, its own slots, and its own lane. This section is the approved plan (2026-09-25). A reviewer checked it, and the user approved every decision below.
 
+**Status (2026-09-25):** steps 1 to 4 are done. The Timeways lane is on only when `timeways.key` exists in the config folder. Setup does not make that key yet (step 8), so a normal install works exactly as before. Until the story program runs (step 5), the lane answers each message with "Timeways story program not running." in its own slots. `run.rs` has the seam: `TimewaysLane::serve_story` takes the queue of `Timeways::take_messages` after the state is on disk, and answers each message with `Timeways::answer`. Step 5 sends the messages to the story program there.
+
 **Decisions:**
 
 1. **Keys.** The relay key stays `strip.key`. The Timeways key is `timeways.key`, in the same config folder. The bridge refuses to start if the two keys are the same.
 2. **Routing (S29).** The bridge checks the tag of each strip under both keys. One key verifies: the strip goes to that app. No key verifies: `BadTag`. Both verify: `Ambiguous`, and the bridge drops the strip and logs it. S29 proves this choice, not the cryptography. In the bridge, the keys are a `KeySet { relay, timeways }` struct, not a list, so an index cannot swap the apps.
 3. **Outbox frames.** A frame in the saved variables of one app counts only if it verifies under that app's key. Any other frame is refused.
-4. **One lane for each app.** Each lane has its own replay store, state file, rate limit, slot window, saved-variables watch, reload inbox, tokens, and restore. The Timeways lane holds no agents in its type, so a Timeways strip can never start a coding agent. Its state lives in `<data>/timeways/`. The relay state stays where it is.
+4. **One lane for each app.** Each lane has its own replay store, state file, rate limit, slot window, saved-variables watch, reload inbox, tokens, and restore. The Timeways lane holds no agents in its type, so a Timeways strip can never start a coding agent. Its state lives in `<data>/timeways/state.json`. The relay state stays where it is. The Timeways slots are `Timeways_S0001` to `Timeways_S1000`, and its saved variables file is `Timeways.lua` (global `TimewaysDB`). The lane publishes only when those slot folders exist.
 5. **Names for each app.** The slot, restore, and live files set a Lua global whose name depends on the app, for example `GnomishRelay_SlotData` and `Timeways_SlotData`. The strip frame, the slot addon names, and the saved-variables name also differ for each app. S9, S18, and S20 are restated over an `App` enum in `protocol` (approved). One app can then never overwrite a value that the other app is about to read.
-6. **Flags.** The flags split into transport flags (`h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, `restored`) and coding flags (`perm=`, `level=`, `agent=`, `attach=`, `list`, `d`, `n`, `stop`). The Timeways lane parses the transport flags only. A Timeways record with a non-empty `cwd` is refused.
+6. **Flags.** The flags split into transport flags (`h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, `restored`) and coding flags (`perm=`, `level=`, `agent=`, `attach=`, `list`, `d`, `n`, `stop`). The Timeways lane parses the transport flags only. A Timeways record with a non-empty `cwd` is refused: it counts as seen, and its reply is the error "Timeways takes no folder.".
 7. **Restore.** Timeways has no restore bundle. The story state lives on the desktop, so the addon rebuilds from there. A Timeways hello never starts a relay restore and never retires a relay token.
 8. **The story program.** The bridge starts `timeways-story` when the Timeways key exists, from a path in the config (never a `PATH` lookup), with no shell and the environment allowlist of 6.2. It talks JSON lines over stdin and stdout, with a size limit on each line, a version handshake, and a timeout for each request. The bridge checks each message against a fixed shape. The bridge writes all files that the game reads.
 9. **The story sandbox.** The story program reads hostile text: records from any addon, other players' names and messages, and model answers. So it runs in the sandbox of 6.6.4. It writes only `<data>/timeways/`, has no network, and cannot read the `deny` and `desktop` paths. On Windows there is no sandbox yet: Timeways runs, and the bridge shows a one-time warning.
@@ -1374,7 +1377,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 
 | Target | Why |
 |---|---|
-| Frame decoder and record parser | Backs up S1 and S3 on the compiled code. |
+| Frame decoder and record parser | Backs up S1 and S3 on the compiled code. The `frame` target also backs up S29 with two keys. |
 | PNG decoding with the size limit | Any local program can write to the Screenshots folder. We did not write the PNG decoder. |
 | Hook socket messages | Any process of the same user can connect. |
 | `resolve_folder` with Unix and Windows path forms | Windows has `\\?\`, UNC paths, `C:foo`, `file:stream`, and reserved names such as `CON`. S5 must hold for all of them. |
@@ -1387,6 +1390,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | The Markdown renderer (7.3.1) | Agent text reaches the game window. Each block has its shape, no agent byte starts a WoW code or HTML markup, and the size stays within its bound. |
 | Messages of `codex app-server` | The agent is untrusted. A progress line stays short, and a popup text is printable (S15). |
 | Lines of `claude -p` and Claude Code session files | The agent and its files are untrusted. A progress line stays short, a popup text is printable (S15), and a copy of a session keeps no old id. |
+| The bridge state machine (`relay`) | The promises of the transport model (14.2) on the real code, with a Timeways lane next to the relay lane: no Timeways record becomes a job. |
 | The action classifier and the shell splitter (6.6.3) | Backs up S16, S17, S27, and S28 on the compiled code: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor holds. |
 
 ### 14.5 Security tests
@@ -1429,7 +1433,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
-15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build".
+15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 4. **Next:** step 5, the story program.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 

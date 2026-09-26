@@ -7,11 +7,11 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopSignal};
 use crate::config::Policy;
-use crate::receive::{StripKey, receive};
+use crate::receive::{KeySet, receive, receive_for};
 use protocol::apps::App;
 use protocol::record::Record;
 
@@ -20,12 +20,15 @@ use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots::{self, Files};
 use crate::state;
+use crate::timeways::{NO_STORY, Timeways};
 
 const TICK: Duration = Duration::from_millis(250);
 /// The protocol versions of the addon that this bridge speaks (SPEC.md 7.7).
 const ADDON_VERSIONS: std::ops::RangeInclusive<u32> = 1..=1;
 /// The addon calls the bridge offline after 12 minutes without a new body.
 const HEARTBEAT: Duration = Duration::from_mins(1);
+/// The folder of the Timeways state, inside the data folder (SPEC.md 9.7, decision 4).
+pub const TIMEWAYS_DIR: &str = "timeways";
 
 type Found = Result<Vec<(String, SessionInfo)>, String>;
 
@@ -61,9 +64,11 @@ fn log(line: &str) {
 /// calls `step` four times a second. Tests call it directly.
 pub struct Bridge {
     addons: PathBuf,
-    key: StripKey,
+    keys: KeySet,
     watcher: Watcher,
     relay: RelayLane,
+    /// Only with a Timeways key. It holds no agents.
+    timeways: Option<TimewaysLane>,
 }
 
 /// What one app keeps on disk, and when it writes it (SPEC.md 9.7, decision 4).
@@ -76,10 +81,10 @@ struct LaneFiles {
 }
 
 impl LaneFiles {
-    fn new(state: PathBuf, accounts: &Path) -> LaneFiles {
+    fn new(state: PathBuf, accounts: &Path, app: App) -> LaneFiles {
         LaneFiles {
             state,
-            saved: saved::Watcher::new(accounts, App::Relay),
+            saved: saved::Watcher::new(accounts, app),
             changed: true,
             stored: false,
             last_publish: Instant::now(),
@@ -107,8 +112,21 @@ struct RelayLane {
     results: Receiver<Finished>,
 }
 
+/// The Timeways app: its lane and its files. Its messages go to the story program, and
+/// never to an agent.
+struct TimewaysLane {
+    timeways: Timeways,
+    files: LaneFiles,
+}
+
 impl Bridge {
-    pub fn new(paths: Paths, policy: Policy, key: StripKey, agents: Agents) -> Result<Bridge> {
+    /// With no Timeways key there is no Timeways lane, and the bridge works as before.
+    pub fn new(paths: Paths, policy: Policy, keys: KeySet, agents: Agents) -> Result<Bridge> {
+        let timeways = if keys.has_timeways() {
+            Some(TimewaysLane::open(&paths)?)
+        } else {
+            None
+        };
         let relay = match state::load(&paths.state)? {
             Some(saved) => Relay::from_state(policy, saved),
             None => Relay::new(policy),
@@ -117,9 +135,10 @@ impl Bridge {
         let (events, run_events) = channel();
         Ok(Bridge {
             watcher: Watcher::new(&paths.screenshots),
+            timeways,
             relay: RelayLane {
                 relay,
-                files: LaneFiles::new(paths.state, &paths.accounts),
+                files: LaneFiles::new(paths.state, &paths.accounts, App::Relay),
                 agents,
                 stops: BTreeMap::new(),
                 events,
@@ -129,13 +148,16 @@ impl Bridge {
                 results,
             },
             addons: paths.addons,
-            key,
+            keys,
         })
     }
 
     pub fn step(&mut self) {
         self.take_screenshots();
-        self.relay.step(&self.key, &self.addons);
+        self.relay.step(&self.keys, &self.addons);
+        if let Some(timeways) = &mut self.timeways {
+            timeways.step(&self.keys, &self.addons);
+        }
     }
 
     fn take_screenshots(&mut self) {
@@ -148,7 +170,7 @@ impl Bridge {
                     continue;
                 }
             };
-            if !self.relay.take_frame(&bytes, &self.key, "strip") {
+            if !self.take_strip(&bytes) {
                 log(&format!("rejected {}", path.display()));
                 continue;
             }
@@ -158,11 +180,29 @@ impl Bridge {
             }
         }
     }
+
+    /// Returns false for a frame that fails a check, or whose app has no lane.
+    fn take_strip(&mut self, bytes: &[u8]) -> bool {
+        let (app, records) = match receive(bytes, &self.keys, now()) {
+            Ok(routed) => routed,
+            Err(reason) => {
+                log(&format!("strip rejected: {reason:?}"));
+                return false;
+            }
+        };
+        match (app, &mut self.timeways) {
+            (App::Relay, _) => self.relay.take_records(&records, "strip"),
+            (App::Timeways, Some(timeways)) => timeways.take_records(&records, "strip"),
+            // `KeySet` routes to Timeways only with a Timeways key, and that key makes the lane.
+            (App::Timeways, None) => return false,
+        }
+        true
+    }
 }
 
 impl RelayLane {
-    fn step(&mut self, key: &StripKey, addons: &Path) {
-        self.take_saved_variables(key);
+    fn step(&mut self, keys: &KeySet, addons: &Path) {
+        self.take_saved_variables(keys);
         self.signal_stops();
         self.take_events();
         self.pass_answers();
@@ -190,26 +230,12 @@ impl RelayLane {
     }
 
     /// A changed file means a `/reload`: the outbox frames get the same checks as a strip.
-    fn take_saved_variables(&mut self, key: &StripKey) {
+    fn take_saved_variables(&mut self, keys: &KeySet) {
         for text in self.files.saved.changed() {
             self.relay.reset_window();
             self.files.changed = true;
-            for frame in saved::frames(&text) {
-                self.take_frame(&frame, key, "outbox");
-            }
-        }
-    }
-
-    /// Returns false for a frame that fails the tag, the time, or the format check.
-    fn take_frame(&mut self, bytes: &[u8], key: &StripKey, source: &str) -> bool {
-        match receive(bytes, key, now()) {
-            Ok(records) => {
-                self.take_records(&records, source);
-                true
-            }
-            Err(reason) => {
-                log(&format!("{source} rejected: {reason:?}"));
-                false
+            for records in outbox_records(App::Relay, &text, keys) {
+                self.take_records(&records, "outbox");
             }
         }
     }
@@ -354,6 +380,101 @@ impl RelayLane {
     }
 }
 
+/// The records of each outbox frame that the key of `app` signed. Any other frame is
+/// refused (SPEC.md 9.7, decision 3).
+fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<Vec<Record>> {
+    let mut all = Vec::new();
+    for frame in saved::frames(text) {
+        match receive_for(app, &frame, keys, now()) {
+            Ok(records) => all.push(records),
+            Err(reason) => log(&format!("{app:?} outbox rejected: {reason:?}")),
+        }
+    }
+    all
+}
+
+impl TimewaysLane {
+    fn open(paths: &Paths) -> Result<TimewaysLane> {
+        let dir = paths.state.join(TIMEWAYS_DIR);
+        std::fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
+        let timeways = match state::load(&dir)? {
+            Some(saved) => Timeways::from_state(saved),
+            None => Timeways::new(),
+        };
+        log("Timeways lane on");
+        Ok(TimewaysLane {
+            timeways,
+            files: LaneFiles::new(dir, &paths.accounts, App::Timeways),
+        })
+    }
+
+    fn step(&mut self, keys: &KeySet, addons: &Path) {
+        self.take_saved_variables(keys);
+        if self.files.publish_due() {
+            self.store();
+            self.publish(addons);
+            self.files.last_publish = Instant::now();
+        }
+        if self.files.stored {
+            self.serve_story();
+        }
+    }
+
+    fn take_saved_variables(&mut self, keys: &KeySet) {
+        for text in self.files.saved.changed() {
+            self.timeways.reset_window();
+            self.files.changed = true;
+            for records in outbox_records(App::Timeways, &text, keys) {
+                self.take_records(&records, "outbox");
+            }
+        }
+    }
+
+    fn take_records(&mut self, records: &[Record], source: &str) {
+        let outcomes = self.timeways.on_frame(records, now());
+        let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
+        log(&format!(
+            "timeways {source}: {} records, {accepted} new",
+            records.len()
+        ));
+        self.files.changed = true;
+    }
+
+    /// The seam for the story program. A message reaches it only after `store` marked
+    /// it as seen on disk, as a run of the relay does.
+    // TODO: send each message to the story program when step 5 of SPEC.md 9.7 adds it.
+    fn serve_story(&mut self) {
+        for message in self.timeways.take_messages() {
+            self.timeways.answer(&message, Err(NO_STORY.into()));
+            self.files.changed = true;
+        }
+    }
+
+    fn store(&mut self) {
+        let result = state::save(&self.files.state, &self.timeways.to_state());
+        if let Err(e) = &result {
+            log(&format!("cannot save the Timeways state: {e:#}"));
+        }
+        self.files.stored = result.is_ok();
+    }
+
+    /// Setup makes the Timeways slots only for a player with the Timeways addon, so
+    /// missing slots are normal.
+    fn publish(&mut self, addons: &Path) {
+        self.files.changed = false;
+        if !slots::is_installed(addons, App::Timeways) {
+            return;
+        }
+        let files = Files {
+            body: self.timeways.body(now()),
+            ..Files::empty(App::Timeways, now())
+        };
+        if let Err(e) = slots::publish(addons, App::Timeways, &files, self.timeways.next_slot()) {
+            log(&format!("Timeways publish failed: {e:#}"));
+        }
+    }
+}
+
 /// An agent that fails to list is left out. Only when every agent fails is the list
 /// an error.
 fn list_sessions(agents: &Agents, cwd: &str) -> Found {
@@ -371,9 +492,9 @@ fn list_sessions(agents: &Agents, cwd: &str) -> Found {
     Ok(found)
 }
 
-pub fn run(paths: Paths, policy: Policy, key: StripKey, agents: Agents) -> Result<()> {
+pub fn run(paths: Paths, policy: Policy, keys: KeySet, agents: Agents) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
-    let mut bridge = Bridge::new(paths, policy, key, agents)?;
+    let mut bridge = Bridge::new(paths, policy, keys, agents)?;
     loop {
         bridge.step();
         thread::sleep(TICK);

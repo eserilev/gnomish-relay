@@ -117,20 +117,29 @@ the specs `slotBodyOf`, `restoreOf`, and `liveOf` start with `slotGlobal`,
   relay case of one of them. A restatement of S12, S19, and S21 over the app needs a new
   approval.
 
+### Item 23: routing by key (SPEC 9.7, decision 2)
+
+The user approved routing as S29 in words: "S29 proves the choice, not the
+cryptography". `route` takes the two tag results as bools, so `verify_tag` stays opaque,
+as in S2. The statement lists all four inputs, and `induction` on each bool proves it.
+The bridge keeps the keys in `KeySet { relay, timeways }`, and the fuzz target `frame`
+checks the same choice with two real keys.
+
 ### Item 17: what the fuzz targets check
 
 Each target checks the property of its proof on the compiled code, not only "no crash":
-`frame` (S1, C2), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1, and S9 for each app),
+`frame` (S1, C2, and S29 with two keys: a frame signed by one key goes only to its app), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1, and S9 for each app),
 `lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), `markdown` (S22 to S25), and
 `popup` (S15), `action` (S16, S17, S27, and S28: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor), `screenshot` (any file in the Screenshots folder never panics the
 bridge), `saved` (any saved variables text never panics the frame reader), `restore` and
 `live` (S18 to S21 in a real Lua 5.1, for each app: each field loads back in the global
-of that app only, and each file stays under its bound), `flags` (each flag value from the game has its shape), `acp` (a message
+of that app only, and each file stays under its bound), `flags` (each flag value from the game has its shape, and a coding flag never changes the transport flags), `acp` (a message
 from an agent gives short progress lines, printable popup text, and no "allow always"), `config` (any
 config text gives a config or an error, and a config has only absolute roots and a
 known default agent), and `relay` (the promises of the transport model on the real state machine:
 no message runs twice, at most 30 unread records, no job outside the root, no job
-above the level of the config). The hook
+above the level of the config; a Timeways lane runs next to it, a Timeways record never
+becomes a job, and each Timeways message reaches the story once). The hook
 socket and config targets wait for those parts. `scripts/fuzz.sh SECONDS` runs them all.
 
 ### Item 22: what the classifier statements make exact

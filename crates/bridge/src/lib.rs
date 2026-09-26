@@ -32,5 +32,6 @@ pub mod screenshots;
 pub mod slots;
 pub mod state;
 pub mod strip;
+pub mod timeways;
 pub mod turn;
 pub mod update;

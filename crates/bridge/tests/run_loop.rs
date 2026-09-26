@@ -16,7 +16,7 @@ use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy, path_bytes};
 use bridge::desktop::{Approvals, Notice};
 use bridge::gate::Gate;
-use bridge::receive::StripKey;
+use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
 use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
@@ -82,13 +82,11 @@ fn bridge_in(f: &Dirs, policy: Policy, agent: Arc<dyn Agent>) -> Bridge {
         state: f.state.clone(),
     };
     let agents = [("claude".to_owned(), agent)].into();
-    Bridge::new(
-        paths,
-        policy,
-        StripKey::from_hex(&hex(KEY)).unwrap(),
-        agents,
-    )
-    .unwrap()
+    Bridge::new(paths, policy, relay_keys(), agents).unwrap()
+}
+
+fn relay_keys() -> KeySet {
+    KeySet::new(StripKey::from_hex(&hex(KEY)).unwrap(), None).unwrap()
 }
 
 fn frame(key: &[u8], text: &str) -> Vec<u8> {
@@ -230,9 +228,8 @@ fn a_damaged_state_file_stops_the_bridge_at_start() {
         state: f.state.clone(),
     };
     let folders = policy();
-    let key = StripKey::from_hex(&hex(KEY)).unwrap();
     let agents = [("claude".to_owned(), Arc::new(Echo) as Arc<dyn Agent>)].into();
-    assert!(Bridge::new(paths, folders, key, agents).is_err());
+    assert!(Bridge::new(paths, folders, relay_keys(), agents).is_err());
 }
 
 fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {

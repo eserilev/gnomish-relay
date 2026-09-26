@@ -10,7 +10,7 @@ use bridge::fs_safe::write_atomic;
 use bridge::gate::Gate;
 use bridge::install;
 use bridge::lock::{self, Bridge};
-use bridge::receive::StripKey;
+use bridge::receive::{KeySet, RELAY_KEY_FILE};
 use bridge::run::{Paths, now, run};
 use bridge::slots::{self, Files};
 use bridge::update::{self, Replaced};
@@ -32,7 +32,6 @@ usage:
                                      publish a reply to message <id> (from `/relay diag`)";
 
 const APP: &str = "gnomish-relay";
-const KEY_FILE: &str = "strip.key";
 
 fn var(name: &str) -> Option<PathBuf> {
     std::env::var_os(name).map(PathBuf::from)
@@ -44,7 +43,7 @@ fn home_dir() -> Result<PathBuf> {
         .context("HOME is not set")
 }
 
-/// The config folder of the OS. It holds `config.toml` and `strip.key`.
+/// The config folder of the OS. It holds `config.toml`, `strip.key`, and `timeways.key`.
 fn config_dir() -> Result<PathBuf> {
     let dir = if cfg!(windows) {
         var("APPDATA").context("APPDATA is not set")?
@@ -120,12 +119,12 @@ fn pick_game(given: Option<&str>) -> Result<PathBuf> {
 
 /// The key of this computer, made once. `--new-key` replaces it.
 fn strip_key(dir: &Path, new: bool) -> Result<String> {
-    let path = dir.join(KEY_FILE);
+    let path = dir.join(RELAY_KEY_FILE);
     if !new && let Ok(hex) = std::fs::read_to_string(&path) {
         return Ok(hex.trim().to_owned());
     }
     let hex = install::new_key()?;
-    write_private(dir, KEY_FILE, &hex)?;
+    write_private(dir, RELAY_KEY_FILE, &hex)?;
     Ok(hex)
 }
 
@@ -470,8 +469,9 @@ fn start() -> Result<()> {
         accounts: config.wow.join("WTF").join("Account"),
         addons: addons_dir(&config.wow),
     };
-    let key_path = config_dir()?.join(KEY_FILE);
-    let key = StripKey::load(&key_path)?;
+    // Equal keys, or a `timeways.key` that does not load, stop the bridge here.
+    let keys = KeySet::load(&config_dir()?)?;
+    let key_path = config_dir()?.join(RELAY_KEY_FILE);
     // An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
     let hex = std::fs::read_to_string(&key_path)?;
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
@@ -480,7 +480,7 @@ fn start() -> Result<()> {
     let gate = Gate::new(&config, &config_dir()?, &paths.state, Notice::System);
     gate.approvals.clear();
     let agents = agent::from_config(&config, &gate);
-    run(paths, config.policy, key, agents)
+    run(paths, config.policy, keys, agents)
 }
 
 /// The default agent, started once with no prompt, so a missing login shows here and
