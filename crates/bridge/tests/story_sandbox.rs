@@ -80,6 +80,7 @@ fn ask_each(script: &str, sandbox: Sandbox, walls: Walls, questions: &[String]) 
         walls,
         sandbox,
         timeout: Duration::from_secs(20),
+        model: bridge::model::ModelSpec::none(),
     });
     for (id, text) in (1..).zip(questions) {
         let question = serde_json::json!({ "type": "lore_asked", "at": 1, "question": text });

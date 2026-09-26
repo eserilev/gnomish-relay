@@ -4,7 +4,11 @@
 #![no_main]
 
 use bridge::addon_lines::{forwarded_line, read_batch};
-use bridge::app_protocol::{Body, FromStory, MAX_ANSWER_LINE, MAX_PROMPT, RequestId, read_line, reply_text};
+use bridge::app_protocol::{
+    Body, CallId, FromStory, MAX_ANSWER_LINE, MAX_PROMPT, RequestId, model_answered_line,
+    model_failed_line, read_line, reply_text,
+};
+use bridge::model::clean_answer;
 use libfuzzer_sys::fuzz_target;
 use protocol::slot::{Reply, Status, prepare_replies};
 
@@ -19,6 +23,17 @@ fn check_batch(text: &str) {
         assert!(forwarded.ends_with('\n'));
         let value: serde_json::Value = serde_json::from_str(&forwarded).unwrap();
         assert_eq!(value["id"], 1);
+    }
+}
+
+/// Both answers to a model call are one JSON line with its call. The prompt stands in
+/// for a hostile answer of the model.
+fn check_model_call(call: CallId, prompt: &str) {
+    assert!(prompt.len() <= MAX_PROMPT);
+    for line in [model_answered_line(call, &clean_answer(prompt)), model_failed_line(call)] {
+        assert_eq!(line.matches('\n').count(), 1, "one line");
+        let value: serde_json::Value = serde_json::from_str(&line).unwrap();
+        assert_eq!(value["call"], call.0);
     }
 }
 
@@ -55,7 +70,7 @@ fuzz_target!(|data: &[u8]| {
                 check_reply(&reply);
             }
         }
-        Ok(FromStory::ModelCall { prompt, .. }) => assert!(prompt.len() <= MAX_PROMPT),
+        Ok(FromStory::ModelCall { call, prompt }) => check_model_call(call, &prompt),
         _ => {}
     }
 });

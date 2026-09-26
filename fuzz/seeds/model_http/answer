@@ -1,0 +1,1 @@
+{"id":"chatcmpl-1","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"A wolf howls."},"finish_reason":"stop"}]}

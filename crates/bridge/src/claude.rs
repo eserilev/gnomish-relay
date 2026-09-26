@@ -11,7 +11,9 @@ use serde_json::{Value, json};
 
 use protocol::popup::popup_text;
 
-use crate::agent::{Agent, Control, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo};
+use crate::agent::{
+    Agent, Control, Events, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo, StopSignal,
+};
 use crate::claude_sessions;
 use crate::config::Permission;
 use crate::gate::{self, Call, Coverage, Gate, Refusal};
@@ -34,6 +36,7 @@ const SESSION_TOOLS: [&str; 5] = [
     "ExitPlanMode",
     "AskUserQuestion",
 ];
+pub const NO_TOOLS: &str = "The story program gets no tools.";
 const UNCHECKED: &str = "A tool ran with no check by the bridge, so the run stopped.";
 const CHECK_TIME: Duration = Duration::from_secs(30);
 /// Claude Code runs a tool when the hook times out, so the bridge answers first.
@@ -109,21 +112,18 @@ impl ClaudeAgent {
         };
         let args = self.args(job.permission, resume);
         let mut stream = match AgentProcess::start(&self.command, &args, &self.env, &job.cwd) {
-            Ok(process) => Stream {
-                process,
-                turn: Turn::new(self.timeout, self.permission_timeout, control.clone()),
-                permission: job.permission,
-                gate: self.gate.clone(),
-                agent: job.agent.clone(),
-                cwd: job.cwd.clone(),
-                hook_timeout: self.permission_timeout + HOOK_MARGIN,
-                checked: HashSet::new(),
-                allowed: HashSet::new(),
-                session: resume.map(str::to_owned),
-                prompted: false,
-                refused: Vec::new(),
-                said: String::new(),
-            },
+            Ok(process) => {
+                let rules = Rules::Gate(Gated {
+                    gate: self.gate.clone(),
+                    permission: job.permission,
+                    agent: job.agent.clone(),
+                    cwd: job.cwd.clone(),
+                });
+                let turn = Turn::new(self.timeout, self.permission_timeout, control.clone());
+                let mut stream = Stream::new(process, turn, rules, self.permission_timeout);
+                stream.session = resume.map(str::to_owned);
+                stream
+            }
             Err(e) => {
                 return Run {
                     reply: Err(e),
@@ -469,14 +469,47 @@ fn hook_output(result: &Result<(), Refusal>) -> Value {
     }})
 }
 
+/// One answer of the model with no tools, for the story program of Timeways (SPEC.md
+/// 9.7, decision 10). The hook and the check on tool results stay on, and every tool
+/// call gets a deny. A stop ends the run at once: there is no session to keep.
+pub fn answer_with_no_tools(
+    command: &[String],
+    args: &[String],
+    folder: &str,
+    prompt: &str,
+    timeout: Duration,
+    stop: StopSignal,
+) -> Result<String, String> {
+    let process = AgentProcess::start(command, args, &[], folder)?;
+    let control = Control {
+        stop,
+        events: Events::default(),
+    };
+    let turn = Turn::new(timeout, Duration::ZERO, control);
+    let mut stream = Stream::new(process, turn, Rules::NoTools, Duration::ZERO);
+    stream.talk(prompt)
+}
+
+/// The gate of a run of the relay: its job, as the gate sees it.
+struct Gated {
+    gate: Gate,
+    permission: Permission,
+    agent: String,
+    cwd: String,
+}
+
+/// Who answers the tool calls of a run.
+enum Rules {
+    Gate(Gated),
+    /// The model route of the story program: every tool call gets a deny.
+    NoTools,
+}
+
 /// One run of `claude -p`: the answers to its control requests and the reply.
 struct Stream {
     process: AgentProcess,
     turn: Turn,
-    permission: Permission,
-    gate: Gate,
-    agent: String,
-    cwd: String,
+    rules: Rules,
     hook_timeout: Duration,
     /// The tool calls that the hook answered.
     checked: HashSet<String>,
@@ -491,6 +524,26 @@ struct Stream {
 }
 
 impl Stream {
+    fn new(
+        process: AgentProcess,
+        turn: Turn,
+        rules: Rules,
+        permission_timeout: Duration,
+    ) -> Stream {
+        Stream {
+            process,
+            turn,
+            rules,
+            hook_timeout: permission_timeout + HOOK_MARGIN,
+            checked: HashSet::new(),
+            allowed: HashSet::new(),
+            session: None,
+            prompted: false,
+            refused: Vec::new(),
+            said: String::new(),
+        }
+    }
+
     fn talk(&mut self, prompt: &str) -> Result<String, String> {
         let hooks = json!({ "PreToolUse": [{
             "hookCallbackIds": [HOOK_ID],
@@ -529,9 +582,9 @@ impl Stream {
     }
 
     fn receive(&mut self) -> Result<Value, String> {
-        let prompted = self.prompted;
+        let can_interrupt = self.prompted && matches!(self.rules, Rules::Gate(_));
         self.turn.receive(&mut self.process, |agent| {
-            if !prompted {
+            if !can_interrupt {
                 return Err(STOPPED.into());
             }
             agent.send(&json!({ "type": "control_request", "request_id": STOP_ID, "request": { "subtype": "interrupt" } }))
@@ -610,14 +663,17 @@ impl Stream {
         if self.turn.stopping() {
             return Err(Refusal::ByRule("Stopped from the game.".into()));
         }
-        let call = tool_call(request, Path::new(&self.cwd));
+        let Rules::Gate(gated) = &self.rules else {
+            return Err(Refusal::ByRule(NO_TOOLS.into()));
+        };
+        let call = tool_call(request, Path::new(&gated.cwd));
         let job = gate::Job {
-            agent: &self.agent,
-            cwd: &self.cwd,
-            level: self.permission,
+            agent: &gated.agent,
+            cwd: &gated.cwd,
+            level: gated.permission,
             coverage: Coverage::Every,
         };
-        let result = self.gate.check(&call, &job, &mut self.turn);
+        let result = gated.gate.check(&call, &job, &mut self.turn);
         if let Err(Refusal::ByRule(_)) = &result {
             self.refused.push(request.title.clone());
         }

@@ -177,6 +177,11 @@ fn on_reply_line(script: &str, line: &Value) {
             "companion": companion(script),
         })),
         "model" => send(&json!({ "type": "model_call", "call": 1, "prompt": "tell a story" })),
+        "model-crash" => {
+            send(&json!({ "type": "model_call", "call": 1, "prompt": "tell a story" }));
+            std::thread::sleep(Duration::from_secs(1));
+            crash();
+        }
         "env" => environment(line),
         "probe" => probe(line),
         "too-long" => too_long(line),
@@ -255,7 +260,8 @@ fn main() {
         remember(&text);
         match line["type"].as_str() {
             Some("model_failed") if script == "model" => answer_to(&asked["id"], &Value::Null),
-            Some("model_failed") => {}
+            Some("model_answered") if script == "model" => answer_to(&asked["id"], &line["text"]),
+            Some("model_failed" | "model_answered") => {}
             Some("lore_asked" | "journal_asked" | "talk_asked") => {
                 on_any_line(&script);
                 asked = line.clone();

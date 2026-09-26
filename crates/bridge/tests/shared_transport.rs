@@ -696,6 +696,7 @@ fn a_lua_timeways_strip_comes_back_from_the_fake_story_program_through_the_slot_
         },
         sandbox: Sandbox::None,
         timeout: std::time::Duration::from_secs(20),
+        model: bridge::model::ModelSpec::none(),
     };
     let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
     let policy = bridge::config::Policy {

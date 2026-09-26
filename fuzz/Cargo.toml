@@ -156,3 +156,10 @@ path = "fuzz_targets/app_protocol.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "model_http"
+path = "fuzz_targets/model_http.rs"
+test = false
+doc = false
+bench = false

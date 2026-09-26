@@ -6,16 +6,21 @@
 // Clippy sees helper functions outside `#[test]` as normal code, so its test exceptions miss them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+mod fake_model;
+
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use bridge::lane::{ChatId, MessageId};
+use bridge::model::{ModelChoice, ModelSpec};
+use bridge::model_local::LocalModel;
 use bridge::story::{
     BAD_CHARACTER, NO_ANSWER, NO_SANDBOX, OUT_OF_ORDER, Reply, STOPPED, Story, StorySpec, TOO_LONG,
     UPDATE_BRIDGE, UPDATE_TIMEWAYS,
 };
 use bridge::story_sandbox::{Sandbox, Walls};
 use bridge::timeways::StoryMessage;
+use fake_model::Answer;
 use serde_json::Value;
 
 const EVENTS: &str = "{\"type\":\"zone_entered\",\"at\":100,\"zone\":\"Elwynn Forest\",\"subzone\":\"Goldshire\"}\n\
@@ -40,6 +45,7 @@ fn spec(script: &str, dir: &Path, timeout: Duration) -> StorySpec {
         },
         sandbox: Sandbox::None,
         timeout,
+        model: ModelSpec::none(),
     }
 }
 
@@ -250,7 +256,7 @@ fn a_talk_request_gets_the_talk_answer() {
 }
 
 #[test]
-fn model_calls_with_no_waiting_batch_each_fail_at_once_and_give_no_reply() {
+fn with_no_model_calls_with_no_waiting_batch_each_fail_at_once_and_give_no_reply() {
     let dir = tempfile::tempdir().unwrap();
     let mut story = story("bard", dir.path());
     story.send(message(7, EVENTS));
@@ -462,7 +468,7 @@ fn an_answer_with_no_text_keeps_its_passages() {
 }
 
 #[test]
-fn a_model_call_fails_at_once_and_the_story_program_still_answers() {
+fn with_no_model_a_model_call_fails_at_once_and_the_story_program_still_answers() {
     let dir = tempfile::tempdir().unwrap();
     let mut story = story("model", dir.path());
     story.send(message(7, &question("why?")));
@@ -655,6 +661,126 @@ fn a_hang_kills_the_process_group_of_the_story_program() {
         assert!(
             start.elapsed() < Duration::from_secs(10),
             "the child of the story program still runs"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    }
+}
+
+fn with_model(script: &str, dir: &Path, choice: ModelChoice, timeout: Duration) -> Story {
+    let mut spec = spec(script, dir, Duration::from_secs(20));
+    spec.model = ModelSpec {
+        choice,
+        timeout,
+        budget_window_minutes: 20,
+    };
+    Story::new(spec)
+}
+
+fn local_model(server: &fake_model::Server) -> ModelChoice {
+    ModelChoice::Local(LocalModel {
+        url: server.url.clone(),
+        model: "llama3.2".into(),
+    })
+}
+
+/// Steps until the story program saw `count` lines, for at most 20 seconds.
+fn wait_for_seen(story: &mut Story, dir: &Path, count: usize) -> Vec<Reply> {
+    let mut replies = Vec::new();
+    let start = Instant::now();
+    while seen(dir).len() < count && start.elapsed() < Duration::from_secs(20) {
+        story.step();
+        replies.extend(story.take_replies());
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    replies
+}
+
+#[test]
+fn a_model_call_gets_the_text_of_the_model_by_its_call() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = fake_model::start(Answer::Normal);
+    let choice = local_model(&server);
+    let mut story = with_model("model", dir.path(), choice, Duration::from_secs(10));
+    story.send(message(7, &question("why?")));
+
+    let answers = answers(&mut story, 1);
+
+    assert_eq!(reply(&answers[0])["text"], "heard: tell a story");
+    assert_eq!(
+        seen(dir.path()).pop().unwrap(),
+        serde_json::json!({ "type": "model_answered", "call": 1, "text": "heard: tell a story" })
+    );
+}
+
+#[test]
+fn a_third_open_model_call_fails_at_once_and_the_two_open_ones_answer_later() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = fake_model::start(Answer::Slow(Duration::from_secs(1)));
+    let choice = local_model(&server);
+    let mut story = with_model("bard", dir.path(), choice, Duration::from_secs(10));
+    story.send(message(7, EVENTS));
+
+    let replies = wait_for_seen(&mut story, dir.path(), 5);
+
+    assert_eq!(replies.len(), 1, "a bard call gives no reply");
+    let calls = &seen(dir.path())[2..];
+    assert_eq!(
+        calls[0],
+        serde_json::json!({ "type": "model_failed", "call": 3 })
+    );
+    let answered: Vec<(&str, u64)> = calls[1..]
+        .iter()
+        .map(|c| (c["type"].as_str().unwrap(), c["call"].as_u64().unwrap()))
+        .collect();
+    assert!(answered.contains(&("model_answered", 1)), "{answered:?}");
+    assert!(answered.contains(&("model_answered", 2)), "{answered:?}");
+}
+
+#[test]
+fn a_model_call_that_times_out_gets_model_failed() {
+    let dir = tempfile::tempdir().unwrap();
+    let server = fake_model::start(Answer::Slow(Duration::from_secs(30)));
+    let choice = local_model(&server);
+    let mut story = with_model("model", dir.path(), choice, Duration::from_secs(1));
+    story.send(message(7, &question("why?")));
+
+    let answers = answers(&mut story, 1);
+
+    assert_eq!(reply(&answers[0])["text"], Value::Null);
+    assert_eq!(
+        seen(dir.path()).pop().unwrap(),
+        serde_json::json!({ "type": "model_failed", "call": 1 })
+    );
+}
+
+/// The model is the fake `claude`, which writes its process id and hangs. The story
+/// program crashes while the call is open, and the call ends with it.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_story_program_that_stops_ends_its_model_calls() {
+    let dir = tempfile::tempdir().unwrap();
+    let pid_file = dir.path().join("claude.pid");
+    let command = vec![
+        env!("CARGO_BIN_EXE_fake-claude").to_owned(),
+        "hang-pid".to_owned(),
+        pid_file.to_string_lossy().into_owned(),
+    ];
+    let choice = ModelChoice::Claude {
+        command,
+        model: None,
+    };
+    let mut story = with_model("model-crash", dir.path(), choice, Duration::from_mins(1));
+    story.send(message(7, &question("why?")));
+
+    let answers = answers(&mut story, 1);
+
+    assert!(error(&answers[0]).starts_with(STOPPED));
+    let pid = std::fs::read_to_string(&pid_file).unwrap();
+    let start = Instant::now();
+    while Path::new(&format!("/proc/{pid}")).exists() {
+        assert!(
+            start.elapsed() < Duration::from_secs(10),
+            "the model call still runs"
         );
         std::thread::sleep(Duration::from_millis(50));
     }

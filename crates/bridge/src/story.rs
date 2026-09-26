@@ -13,10 +13,11 @@ use std::time::{Duration, Instant};
 
 use crate::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
 use crate::app_protocol::{
-    self, Answer, BadLine, CompanionCheck, FromStory, RequestId, batch_end_line, hello_line,
-    model_failed_line, reply_text,
+    self, Answer, BadLine, CallId, CompanionCheck, FromStory, RequestId, batch_end_line,
+    hello_line, model_answered_line, model_failed_line, reply_text,
 };
 use crate::config::StoryConfig;
+use crate::model::{ModelCalls, ModelSpec};
 use crate::process::{self, RawLine, TooLong};
 use crate::run::log;
 use crate::story_sandbox::{self, Sandbox, Walls};
@@ -47,6 +48,7 @@ pub struct StorySpec {
     pub walls: Walls,
     pub sandbox: Sandbox,
     pub timeout: Duration,
+    pub model: ModelSpec,
 }
 
 impl StorySpec {
@@ -70,6 +72,7 @@ impl StorySpec {
             walls,
             sandbox: story_sandbox::detect(),
             timeout: config.timeout,
+            model: config.model.clone(),
         })
     }
 }
@@ -162,6 +165,8 @@ pub struct Story {
     bad_lines: usize,
     replies: Vec<Reply>,
     warning: Warning,
+    /// They belong to no batch, and end when the program stops.
+    models: ModelCalls,
 }
 
 impl Story {
@@ -174,7 +179,6 @@ impl Story {
             Warning::Given
         };
         Story {
-            spec,
             life: Life::Down {
                 until: Instant::now(),
             },
@@ -186,6 +190,8 @@ impl Story {
             bad_lines: 0,
             replies: Vec::new(),
             warning,
+            models: ModelCalls::new(&spec.model),
+            spec,
         }
     }
 
@@ -336,7 +342,9 @@ impl Story {
                     answer,
                     companion,
                 }) => self.take_answer(id, answer.as_ref(), companion),
-                Ok(FromStory::ModelCall { call, .. }) => process.write(model_failed_line(call)),
+                Ok(FromStory::ModelCall { call, prompt }) => {
+                    self.start_model_call(&process, call, prompt);
+                }
                 Ok(FromStory::Hello { .. }) => self.bad_line("a second hello"),
                 Err(bad) => self.bad_line(&format!("{bad:?}")),
             }
@@ -344,6 +352,7 @@ impl Story {
                 return self.stop(process, "too many bad lines");
             }
         }
+        self.answer_model_calls(&process);
         let now = Instant::now();
         let hang = self
             .sent
@@ -391,6 +400,29 @@ impl Story {
         }
     }
 
+    /// A call that cannot run gets `model_failed` at once.
+    fn start_model_call(&mut self, process: &StoryProcess, call: CallId, prompt: String) {
+        if let Err(refused) = self.models.start(call, prompt) {
+            log(&format!(
+                "timeways: model call {} failed at once: {refused:?}",
+                call.0
+            ));
+            process.write(model_failed_line(call));
+        }
+    }
+
+    fn answer_model_calls(&mut self, process: &StoryProcess) {
+        for (call, answer) in self.models.finished() {
+            match answer {
+                Ok(text) => process.write(model_answered_line(call, &text)),
+                Err(why) => {
+                    log(&format!("timeways: model call {} failed: {why}", call.0));
+                    process.write(model_failed_line(call));
+                }
+            }
+        }
+    }
+
     fn bad_line(&mut self, what: &str) {
         self.bad_lines += 1;
         log(&format!("timeways: skipped a bad line: {what}"));
@@ -405,6 +437,7 @@ impl Story {
     /// for the next start.
     fn stop(&mut self, process: StoryProcess, reason: &str) -> Life {
         log(&format!("timeways: story program stopped: {reason}"));
+        self.models.stop_all();
         drop(process);
         for (_, waiting) in std::mem::take(&mut self.sent) {
             self.end_unanswered(waiting, STOPPED);
@@ -665,6 +698,7 @@ mod tests {
             program: PathBuf::from("/opt/timeways-story"),
             lore_pack: pack.clone(),
             timeout: Duration::from_secs(9),
+            model: crate::model::ModelSpec::none(),
         };
 
         let spec = StorySpec::from_config(&config, &config_dir, &data, root.path()).unwrap();

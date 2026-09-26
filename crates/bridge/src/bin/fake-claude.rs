@@ -126,6 +126,30 @@ fn gate_reply(script: &str, args: &[String], hook: Option<&Hook>) -> Option<Stri
     }
 }
 
+/// Its working folder, what is in it, its mode, its arguments, and the names of its
+/// environment, as JSON: the checks of the model route of the story program.
+fn whereabouts(args: &[String]) -> String {
+    let cwd = std::env::current_dir().unwrap_or_default();
+    let entries: Vec<String> = std::fs::read_dir(&cwd)
+        .map(|dir| {
+            dir.filter_map(Result::ok)
+                .map(|e| e.file_name().to_string_lossy().into_owned())
+                .collect()
+        })
+        .unwrap_or_default();
+    #[cfg(unix)]
+    let mode = {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::metadata(&cwd).map_or(0, |m| m.permissions().mode() & 0o777)
+    };
+    #[cfg(not(unix))]
+    let mode = 0;
+    let env: Vec<String> = std::env::vars_os()
+        .map(|(name, _)| name.to_string_lossy().into_owned())
+        .collect();
+    json!({ "cwd": cwd, "entries": entries, "mode": mode, "args": args, "env": env }).to_string()
+}
+
 fn reply(
     script: &str,
     args: &[String],
@@ -138,6 +162,13 @@ fn reply(
         "hang" => loop {
             std::thread::park();
         },
+        "where" => Some(whereabouts(args)),
+        "hang-pid" => {
+            let _ = std::fs::write(args.get(1)?, std::process::id().to_string());
+            loop {
+                std::thread::park();
+            }
+        }
         "crash" => {
             eprintln!("boom: not logged in");
             std::process::exit(3);

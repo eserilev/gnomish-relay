@@ -14,6 +14,8 @@ use serde::{Deserialize, Serialize};
 
 use crate::allow::{self, AllowFile, AllowTable};
 use crate::claude;
+use crate::model::{ModelChoice, ModelSpec};
+use crate::model_local::{self, LocalModel};
 use crate::relay::Folders;
 
 pub const FILE: &str = "config.toml";
@@ -95,6 +97,7 @@ pub struct StoryConfig {
     pub lore_pack: PathBuf,
     /// The longest wait for the reply to one message.
     pub timeout: Duration,
+    pub model: ModelSpec,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -160,10 +163,29 @@ struct Story {
     program: String,
     lore_pack: String,
     timeout_seconds: Option<u64>,
+    model: Option<ModelName>,
+    claude_model: Option<String>,
+    local_url: Option<String>,
+    local_model: Option<String>,
+    model_timeout_seconds: Option<u64>,
+    budget_window_minutes: Option<u64>,
+}
+
+#[derive(Deserialize, Clone, Copy)]
+#[serde(rename_all = "lowercase")]
+enum ModelName {
+    Claude,
+    Local,
 }
 
 const DEFAULT_STORY_SECONDS: u64 = 120;
 const MAX_STORY_SECONDS: u64 = 600;
+/// A model call belongs to a batch that waits 120 seconds, so it ends first.
+const DEFAULT_MODEL_SECONDS: u64 = 60;
+/// 10 model calls in any 20 minutes: about 30 in an hour.
+const DEFAULT_BUDGET_MINUTES: u64 = 20;
+const MAX_BUDGET_MINUTES: u64 = 1440;
+const MAX_MODEL_NAME: usize = 200;
 
 fn story(file: Option<&Story>, home: &Path) -> Result<Option<StoryConfig>> {
     let Some(story) = file else {
@@ -179,7 +201,86 @@ fn story(file: Option<&Story>, home: &Path) -> Result<Option<StoryConfig>> {
         program,
         lore_pack,
         timeout: Duration::from_secs(seconds),
+        model: model_spec(story)?,
     }))
+}
+
+fn model_spec(story: &Story) -> Result<ModelSpec> {
+    let seconds = story.model_timeout_seconds.unwrap_or(DEFAULT_MODEL_SECONDS);
+    if !(1..=MAX_STORY_SECONDS).contains(&seconds) {
+        bail!("[story] model_timeout_seconds must be 1 to {MAX_STORY_SECONDS}");
+    }
+    let minutes = story
+        .budget_window_minutes
+        .unwrap_or(DEFAULT_BUDGET_MINUTES);
+    let Some(minutes) = u32::try_from(minutes)
+        .ok()
+        .filter(|m| (1..=MAX_BUDGET_MINUTES).contains(&u64::from(*m)))
+    else {
+        bail!("[story] budget_window_minutes must be 1 to {MAX_BUDGET_MINUTES}");
+    };
+    Ok(ModelSpec {
+        choice: model_choice(story)?,
+        timeout: Duration::from_secs(seconds),
+        budget_window_minutes: minutes,
+    })
+}
+
+/// The keys of one model are an error with the other model, so a typo never leaves a
+/// model that the user did not mean.
+fn model_choice(story: &Story) -> Result<ModelChoice> {
+    let claude_keys = story.claude_model.is_some();
+    let local_keys = story.local_url.is_some() || story.local_model.is_some();
+    match story.model {
+        None if claude_keys || local_keys => bail!("[story] a model key needs `model`"),
+        None => Ok(ModelChoice::None),
+        Some(ModelName::Claude) if local_keys => {
+            bail!("[story] local_url and local_model need model = \"local\"")
+        }
+        Some(ModelName::Claude) => Ok(ModelChoice::Claude {
+            command: vec!["claude".into()],
+            model: story
+                .claude_model
+                .as_deref()
+                .map(model_name)
+                .transpose()?
+                .map(str::to_owned),
+        }),
+        Some(ModelName::Local) if claude_keys => {
+            bail!("[story] claude_model needs model = \"claude\"")
+        }
+        Some(ModelName::Local) => {
+            let url = story
+                .local_url
+                .as_deref()
+                .context("[story] local_url is missing")?;
+            let model = story
+                .local_model
+                .as_deref()
+                .context("[story] local_model is missing")?;
+            Ok(ModelChoice::Local(LocalModel {
+                url: model_local::check_url(url).with_context(|| {
+                    format!("[story] local_url must be http://127.0.0.1:<port> or http://[::1]:<port>, not {url}")
+                })?,
+                model: model_name(model)?.to_owned(),
+            }))
+        }
+    }
+}
+
+/// A model name goes into an argument of `claude` or into a JSON body. One that starts
+/// with `-` would read as a flag.
+fn model_name(name: &str) -> Result<&str> {
+    let plain = !name.is_empty()
+        && name.len() <= MAX_MODEL_NAME
+        && !name.starts_with('-')
+        && !name.chars().any(|c| c.is_control() || c.is_whitespace());
+    if !plain {
+        bail!(
+            "[story] a model name must be 1 to {MAX_MODEL_NAME} bytes with no space, and must not start with -"
+        );
+    }
+    Ok(name)
 }
 
 #[derive(Deserialize)]
@@ -705,6 +806,107 @@ mod tests {
             home.parse(&text).unwrap().story.unwrap().timeout,
             Duration::from_secs(5)
         );
+    }
+
+    const STORY: &str = "[story]\nprogram = \"~/x\"\nlore_pack = \"~/l\"\n";
+
+    fn model_of(home: &Home, keys: &str) -> Result<ModelSpec> {
+        let text = format!("{GOOD}\n{STORY}{keys}");
+        Ok(home.parse(&text)?.story.context("no story")?.model)
+    }
+
+    #[test]
+    fn a_story_section_with_no_model_has_none_and_the_default_budget() {
+        let home = Home::new();
+        let model = model_of(&home, "").unwrap();
+        assert_eq!(model.choice, ModelChoice::None);
+        assert_eq!(model.timeout, Duration::from_mins(1));
+        assert_eq!(model.budget_window_minutes, 20);
+    }
+
+    #[test]
+    fn the_claude_model_runs_the_claude_program_with_an_optional_model_name() {
+        let home = Home::new();
+        let keys = "model = \"claude\"\nclaude_model = \"haiku\"\nmodel_timeout_seconds = 30\nbudget_window_minutes = 60\n";
+        let model = model_of(&home, keys).unwrap();
+        assert_eq!(
+            model.choice,
+            ModelChoice::Claude {
+                command: vec!["claude".into()],
+                model: Some("haiku".into()),
+            }
+        );
+        assert_eq!(model.timeout, Duration::from_secs(30));
+        assert_eq!(model.budget_window_minutes, 60);
+    }
+
+    /// Decisions 4 and 18 of SPEC.md 9.7: the story route never reaches a relay agent.
+    #[test]
+    fn a_story_model_takes_nothing_from_the_agents_of_the_relay() {
+        let home = Home::new();
+        let agent = CLAUDE.replace(
+            "command = [\"claude\"]",
+            "command = [\"/opt/relay-claude\"]\nenv = [\"RELAY_SECRET\"]",
+        );
+        let text = format!("{agent}\n{STORY}model = \"claude\"\n");
+        let config = home.parse(&text).unwrap();
+        let ModelChoice::Claude { command, .. } = config.story.unwrap().model.choice else {
+            panic!("not claude");
+        };
+        assert_eq!(command, ["claude"]);
+        assert_eq!(config.agents["claude"].command, ["/opt/relay-claude"]);
+    }
+
+    #[test]
+    fn a_local_model_needs_a_loopback_url_and_a_model_name() {
+        let home = Home::new();
+        let keys =
+            "model = \"local\"\nlocal_url = \"http://[::1]:1234\"\nlocal_model = \"qwen3\"\n";
+        assert_eq!(
+            model_of(&home, keys).unwrap().choice,
+            ModelChoice::Local(LocalModel {
+                url: "http://[::1]:1234".into(),
+                model: "qwen3".into(),
+            })
+        );
+    }
+
+    #[test]
+    fn a_local_url_with_localhost_or_another_host_is_refused_at_load() {
+        let home = Home::new();
+        for url in [
+            "http://localhost:11434",
+            "http://192.168.1.2:11434",
+            "http://example.com:80",
+        ] {
+            let keys = format!("model = \"local\"\nlocal_url = \"{url}\"\nlocal_model = \"m\"\n");
+            let error = format!("{:#}", model_of(&home, &keys).unwrap_err());
+            assert!(error.contains("local_url must be"), "{error}");
+        }
+    }
+
+    #[test]
+    fn model_keys_that_do_not_fit_the_model_are_refused() {
+        let home = Home::new();
+        let bad = [
+            "model = \"gpt\"\n",
+            "claude_model = \"haiku\"\n",
+            "local_url = \"http://127.0.0.1:1\"\n",
+            "model = \"claude\"\nlocal_model = \"m\"\n",
+            "model = \"local\"\nclaude_model = \"haiku\"\nlocal_url = \"http://127.0.0.1:1\"\nlocal_model = \"m\"\n",
+            "model = \"local\"\nlocal_model = \"m\"\n",
+            "model = \"local\"\nlocal_url = \"http://127.0.0.1:1\"\n",
+            "model = \"claude\"\nclaude_model = \"--dangerously-skip-permissions\"\n",
+            "model = \"claude\"\nclaude_model = \"\"\n",
+            "model = \"claude\"\nclaude_model = \"two words\"\n",
+            "model_timeout_seconds = 0\n",
+            "model_timeout_seconds = 601\n",
+            "budget_window_minutes = 0\n",
+            "budget_window_minutes = 1441\n",
+        ];
+        for keys in bad {
+            assert!(model_of(&home, keys).is_err(), "{keys}");
+        }
     }
 
     #[test]

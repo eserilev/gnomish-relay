@@ -38,7 +38,7 @@ const APP: &str = "timeways";
 pub struct RequestId(pub u64);
 
 /// A model call of the story program. The story program counts them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(transparent)]
 pub struct CallId(pub u64);
 
@@ -75,9 +75,10 @@ fn is_printable(text: &str, max: usize) -> bool {
 
 #[derive(Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
-enum ToStory {
+enum ToStory<'a> {
     Hello { protocol: u32, app: &'static str },
     BatchEnd { id: RequestId },
+    ModelAnswered { call: CallId, text: &'a str },
     ModelFailed { call: CallId },
 }
 
@@ -98,6 +99,14 @@ pub fn hello_line() -> String {
 /// After the last line of each batch.
 pub fn batch_end_line(id: RequestId) -> String {
     with_newline(serde_json::to_string(&ToStory::BatchEnd { id }))
+}
+
+/// `text` is the checked answer of the model (`model::clean_answer`).
+pub fn model_answered_line(call: CallId, text: &str) -> String {
+    with_newline(serde_json::to_string(&ToStory::ModelAnswered {
+        call,
+        text,
+    }))
 }
 
 pub fn model_failed_line(call: CallId) -> String {
@@ -201,7 +210,8 @@ pub enum FromStory {
         answer: Option<Answer>,
         companion: CompanionCheck,
     },
-    /// Step 6 of SPEC.md 9.7 runs the model. Until then the answer is `model_failed`.
+    /// The bridge runs the model and answers by `call`, with `model_answered` or
+    /// `model_failed`.
     ModelCall {
         call: CallId,
         prompt: String,
@@ -508,6 +518,17 @@ mod tests {
         assert_eq!(
             model_failed_line(CallId(4)),
             "{\"type\":\"model_failed\",\"call\":4}\n"
+        );
+    }
+
+    #[test]
+    fn a_model_answer_carries_its_call_and_its_text_on_one_line() {
+        let line = model_answered_line(CallId(2), "A wolf \"howls\".\nThen quiet.");
+        assert_eq!(
+            line,
+            r#"{"type":"model_answered","call":2,"text":"A wolf \"howls\".\nThen quiet."}"#
+                .to_owned()
+                + "\n"
         );
     }
 

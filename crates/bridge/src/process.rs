@@ -11,6 +11,7 @@ use std::time::Duration;
 
 use serde_json::Value;
 
+use crate::agent::StopSignal;
 use crate::program::find_program;
 
 /// A tool call with a large diff fits in far less.
@@ -113,10 +114,8 @@ impl AgentProcess {
     /// The error for an agent that went away, with the last line of its stderr.
     pub fn stopped(&mut self) -> String {
         let _ = self.stderr_done.recv_timeout(STDERR_WAIT);
-        let tail = self.stderr.lock().map(|t| t.clone()).unwrap_or_default();
-        let tail = String::from_utf8_lossy(&tail);
-        match tail.lines().rev().find(|l| !l.trim().is_empty()) {
-            Some(last) => format!("The agent stopped: {}", cut(last.trim(), 300)),
+        match last_line(&self.stderr) {
+            Some(last) => format!("The agent stopped: {last}"),
             None => "The agent stopped.".into(),
         }
     }
@@ -212,6 +211,107 @@ pub fn output(
         success: status.success(),
         stdout: String::from_utf8_lossy(&bytes).into_owned(),
     })
+}
+
+/// The limits of one `exchange`.
+pub struct Exchange {
+    /// A longer output kills the command, and the result is an error.
+    pub max_output: usize,
+    pub timeout: Duration,
+    pub stop: StopSignal,
+}
+
+pub const OVER_LIMIT: &str = "The answer is over the size limit.";
+
+/// Runs `command` to its end: `input` goes to its stdin, and its stdout comes back. The
+/// command is killed at the timeout and at a stop. Its output closes at the limit.
+pub fn exchange(
+    mut command: Command,
+    input: Vec<u8>,
+    limits: &Exchange,
+) -> Result<Vec<u8>, String> {
+    command
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
+    let mut child = command.spawn().map_err(|e| format!("Cannot start: {e}"))?;
+    let (Some(mut stdin), Some(stdout), Some(stderr_pipe)) =
+        (child.stdin.take(), child.stdout.take(), child.stderr.take())
+    else {
+        let _ = child.kill();
+        let _ = child.wait();
+        return Err("The command has no pipes.".into());
+    };
+    // A thread writes, so a command that reads its input late never blocks the bridge.
+    thread::spawn(move || {
+        let _ = stdin.write_all(&input);
+    });
+    let stderr = Arc::new(Mutex::new(Vec::new()));
+    let (done, stderr_done) = channel();
+    keep_tail(stderr_pipe, Arc::clone(&stderr), done);
+    let output = read_at_most(stdout, limits.max_output);
+    let status = wait_for_exit(&mut child, limits)?;
+    // A command that writes past the limit finds its output closed and fails, so the
+    // limit comes first.
+    match output.recv_timeout(STDERR_WAIT) {
+        Ok(Err(TooLong)) => Err(OVER_LIMIT.to_owned()),
+        Ok(Ok(bytes)) if status.success() => Ok(bytes),
+        _ => {
+            let _ = stderr_done.recv_timeout(STDERR_WAIT);
+            Err(failure(&stderr))
+        }
+    }
+}
+
+/// The whole output, or `TooLong` as soon as it passes `max` bytes. The output then
+/// closes, so the command cannot write more.
+fn read_at_most(output: impl Read + Send + 'static, max: usize) -> Receiver<RawLine> {
+    let (tx, rx) = channel();
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let read = output.take(max as u64 + 1).read_to_end(&mut bytes);
+        let result = match read {
+            Ok(_) if bytes.len() <= max => Ok(bytes),
+            _ => Err(TooLong),
+        };
+        let _ = tx.send(result);
+    });
+    rx
+}
+
+/// Polls the command until it ends, or kills it at a stop or at the timeout.
+fn wait_for_exit(child: &mut Child, limits: &Exchange) -> Result<std::process::ExitStatus, String> {
+    let started = std::time::Instant::now();
+    let failed = loop {
+        if let Ok(Some(status)) = child.try_wait() {
+            return Ok(status);
+        }
+        if limits.stop.requested() {
+            break crate::turn::STOPPED;
+        }
+        if started.elapsed() >= limits.timeout {
+            break crate::turn::TIMED_OUT;
+        }
+        thread::sleep(OUTPUT_POLL);
+    };
+    let _ = child.kill();
+    let _ = child.wait();
+    Err(failed.to_owned())
+}
+
+fn failure(stderr: &Mutex<Vec<u8>>) -> String {
+    match last_line(stderr) {
+        Some(last) => format!("The command failed: {last}"),
+        None => "The command failed.".into(),
+    }
+}
+
+/// The last line of stderr that is not blank, cut for an error message.
+fn last_line(stderr: &Mutex<Vec<u8>>) -> Option<String> {
+    let tail = stderr.lock().map(|t| t.clone()).unwrap_or_default();
+    let tail = String::from_utf8_lossy(&tail);
+    let last = tail.lines().rev().find(|l| !l.trim().is_empty())?;
+    Some(cut(last.trim(), 300).to_owned())
 }
 
 /// The longest start of `text` with at most `max` bytes that ends on a character.
