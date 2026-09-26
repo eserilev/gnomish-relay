@@ -571,6 +571,7 @@ fn start() -> Result<()> {
     let _lock = lock::take(&state)?;
     let paths = Paths {
         state,
+        config: config_dir()?,
         screenshots: config.wow.join("Screenshots"),
         accounts: config.wow.join("WTF").join("Account"),
         addons: addons_dir(&config.wow),

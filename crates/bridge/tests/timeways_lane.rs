@@ -83,6 +83,7 @@ fn bridge(f: &Dirs, keys: KeySet, runs: &Arc<Counting>) -> Bridge {
         screenshots: f.screenshots.clone(),
         accounts: f.accounts.clone(),
         state: f.state.clone(),
+        config: f.state.join("config"),
     };
     let policy = Policy {
         folders: Folders {
@@ -495,6 +496,7 @@ fn a_bridge_with_no_relay_serves_timeways_and_drops_a_relay_strip() {
         screenshots: f.screenshots.clone(),
         accounts: f.accounts.clone(),
         state: f.state.clone(),
+        config: f.state.join("config"),
     };
     let mut bridge = Bridge::without_relay(paths, both_keys())
         .unwrap()

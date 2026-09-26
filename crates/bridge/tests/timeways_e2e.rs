@@ -172,6 +172,7 @@ fn machine() -> Machine {
         screenshots: wow.join("Screenshots"),
         accounts: wow.join("WTF/Account"),
         state: data.clone(),
+        config: config.clone(),
     };
     for dir in [&config, &game.addons, &game.screenshots, &game.accounts] {
         std::fs::create_dir_all(dir).unwrap();
@@ -227,6 +228,7 @@ fn start_bridge(machine: &Machine, spec: StorySpec) -> Bridge {
         screenshots: machine.game.screenshots.clone(),
         accounts: machine.game.accounts.clone(),
         state: machine.game.state.clone(),
+        config: machine.game.config.clone(),
     };
     let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
     let home = machine.home().to_string_lossy().as_bytes().to_vec();

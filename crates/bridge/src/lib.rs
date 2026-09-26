@@ -36,6 +36,7 @@ pub mod raise;
 pub mod receive;
 pub mod relay;
 pub mod reply;
+pub mod repos;
 pub mod run;
 pub mod saved;
 pub mod screenshots;

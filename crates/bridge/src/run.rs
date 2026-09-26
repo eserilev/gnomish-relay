@@ -18,7 +18,9 @@ use protocol::apps::App;
 use protocol::record::Record;
 use protocol::version::version_fit;
 
+use crate::action_input::resolve;
 use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
+use crate::repos::{self, Repo, Walk};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots::{self, Files};
@@ -38,6 +40,7 @@ type Found = Result<Vec<(String, SessionInfo)>, String>;
 enum Finished {
     Run(Job, Run),
     List(Job, Found),
+    Folders(Job, Vec<Repo>),
 }
 type RunEvent = (ChatId, MessageId, Event);
 
@@ -48,6 +51,8 @@ pub struct Paths {
     pub accounts: PathBuf,
     /// The data folder of the bridge, for `state.json`.
     pub state: PathBuf,
+    /// The config folder of the bridge, with the keys. The folder list never shows it.
+    pub config: PathBuf,
 }
 
 #[allow(clippy::cast_possible_truncation)] // u32 seconds last until 2106
@@ -106,6 +111,8 @@ struct RelayLane {
     relay: Relay,
     files: LaneFiles,
     agents: Agents,
+    /// Where the folder list looks for repositories.
+    walk: Walk,
     /// The stop signal of each run in progress, by chat.
     stops: BTreeMap<ChatId, StopSignal>,
     events: Sender<RunEvent>,
@@ -232,6 +239,7 @@ impl Bridge {
 
 impl RelayLane {
     fn open(paths: &Paths, policy: Policy, agents: Agents) -> Result<RelayLane> {
+        let walk = repo_walk(&policy, paths);
         let relay = match state::load(&paths.state)? {
             Some(saved) => Relay::from_state(policy, saved),
             None => Relay::new(policy),
@@ -242,6 +250,7 @@ impl RelayLane {
             relay,
             files: LaneFiles::new(paths.state.clone(), &paths.accounts, App::Relay),
             agents,
+            walk,
             stops: BTreeMap::new(),
             events,
             run_events,
@@ -316,50 +325,54 @@ impl RelayLane {
 
     fn start_runs(&mut self) {
         while let Some(job) = self.relay.next_job() {
-            if job.work == Work::ListSessions {
-                self.start_list(job);
-                continue;
+            match job.work {
+                Work::ListSessions => self.start_list(job),
+                Work::ListFolders => self.start_folder_list(job),
+                Work::Prompt | Work::Attach { .. } => self.start_run(job),
             }
-            log(&format!(
-                "run {} #{} with {} at {:?}",
-                job.chat.0, job.id.0, job.agent, job.permission
-            ));
-            let finished = self.finished.clone();
-            // The policy refuses an agent that the config does not have, so this is a guard.
-            let Some(agent) = self.agents.get(&job.agent).map(Arc::clone) else {
-                let run = Run {
-                    reply: Err("Agent not set up.".into()),
-                    session: None,
-                };
-                let _ = finished.send(Finished::Run(job, run));
-                continue;
-            };
-            let control = Control {
-                stop: StopSignal::default(),
-                events: Events::to_bridge(self.events.clone(), &job),
-            };
-            self.stops.insert(job.chat.clone(), control.stop.clone());
-            if job.work == Work::Prompt {
-                self.relay.begin(&job);
-                self.files.changed = true;
-            }
-            let raise = self.raise_for(&job);
-            thread::spawn(move || {
-                let mut job = job;
-                if let Some((raiser, level)) = raise {
-                    job.permission = raise_level(&raiser, &job, level, &control);
-                }
-                let run = if control.stop.requested() {
-                    Run {
-                        reply: Err(STOPPED.into()),
-                        session: job.resume.clone(),
-                    }
-                } else {
-                    agent.run(&job, &control)
-                };
-                let _ = finished.send(Finished::Run(job, run));
-            });
         }
+    }
+
+    fn start_run(&mut self, job: Job) {
+        log(&format!(
+            "run {} #{} with {} at {:?}",
+            job.chat.0, job.id.0, job.agent, job.permission
+        ));
+        let finished = self.finished.clone();
+        // The policy refuses an agent that the config does not have, so this is a guard.
+        let Some(agent) = self.agents.get(&job.agent).map(Arc::clone) else {
+            let run = Run {
+                reply: Err("Agent not set up.".into()),
+                session: None,
+            };
+            let _ = finished.send(Finished::Run(job, run));
+            return;
+        };
+        let control = Control {
+            stop: StopSignal::default(),
+            events: Events::to_bridge(self.events.clone(), &job),
+        };
+        self.stops.insert(job.chat.clone(), control.stop.clone());
+        if job.work == Work::Prompt {
+            self.relay.begin(&job);
+            self.files.changed = true;
+        }
+        let raise = self.raise_for(&job);
+        thread::spawn(move || {
+            let mut job = job;
+            if let Some((raiser, level)) = raise {
+                job.permission = raise_level(&raiser, &job, level, &control);
+            }
+            let run = if control.stop.requested() {
+                Run {
+                    reply: Err(STOPPED.into()),
+                    session: job.resume.clone(),
+                }
+            } else {
+                agent.run(&job, &control)
+            };
+            let _ = finished.send(Finished::Run(job, run));
+        });
     }
 
     /// The raise that a job carries, if any. The config is checked first, so the
@@ -393,6 +406,16 @@ impl RelayLane {
         thread::spawn(move || {
             let found = list_sessions(&agents, &job.cwd);
             let _ = finished.send(Finished::List(job, found));
+        });
+    }
+
+    fn start_folder_list(&self, job: Job) {
+        log(&format!("list folders #{}", job.id.0));
+        let walk = self.walk.clone();
+        let finished = self.finished.clone();
+        thread::spawn(move || {
+            let found = repos::find_repos(&walk, &repos::LIMITS);
+            let _ = finished.send(Finished::Folders(job, found));
         });
     }
 
@@ -449,6 +472,11 @@ impl RelayLane {
                 Finished::Run(job, run) => (job, run),
                 Finished::List(job, found) => {
                     self.relay.finish_list(&job, found, now());
+                    self.files.changed = true;
+                    continue;
+                }
+                Finished::Folders(job, found) => {
+                    self.relay.finish_folders(&job, found);
                     self.files.changed = true;
                     continue;
                 }
@@ -625,6 +653,19 @@ impl TimewaysLane {
         if let Err(e) = slots::publish(addons, App::Timeways, &files, self.timeways.next_slot()) {
             log(&format!("Timeways publish failed: {e:#}"));
         }
+    }
+}
+
+/// The folders of the bridge resolve as the classifier sees them (SPEC.md 6.6.3).
+fn repo_walk(policy: &Policy, paths: &Paths) -> Walk {
+    let roots = policy.folders.roots.iter();
+    Walk {
+        roots: roots
+            .map(|r| PathBuf::from(String::from_utf8_lossy(r).into_owned()))
+            .collect(),
+        deny: [&paths.config, &paths.state]
+            .map(|d| resolve(d).unwrap_or_else(|| d.clone()))
+            .into(),
     }
 }
 

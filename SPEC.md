@@ -429,7 +429,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 
 #### 7.1.1 Flags
 
-The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
+The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
 
 | Flag | Meaning |
 |---|---|
@@ -437,6 +437,7 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 | `h` | Hello only. It announces the token and the addon version. It has no prompt. The addon sends one at login and after it applies a restore bundle (7.6). |
 | `d` | The chat is deleted. The bridge stops its runs, and drops its replies, its session link, and its history. A reply of a deleted chat can never be read, so it must leave the body (7.3). The addon keeps the id in `db.forget`, and sends it with each strip until a strip goes out while the bridge is online. The agent session itself stays, so Resume can bring the chat back. |
 | `list` | Asks for the saved sessions of the agents (9.6). The record is a message of the chat `relay`, and the reply is the list. |
+| `list=folders` | Asks for the folders where a new chat can start (9.9). The record is a message of the chat `folders`, and the reply is the list. Any other `list=` value is ignored. |
 | `attach=<session>` | The first message of a resumed chat. It has no text. The session must be in the last list (9.6). |
 | `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not set up." |
 | `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
@@ -1200,6 +1201,42 @@ scripts/e2e-timeways.sh --claude   # also the case with the real claude
 ```
 
 The script builds `timeways-story` and `timeways-pack` into `target/timeways`, so it never shares a build folder with the Timeways repo.
+
+### 9.9 Choose the folder of a new chat
+
+A new chat starts in `default_cwd`. The player can choose a git repository inside `allowed_roots` instead.
+
+**The list.** The addon sends a `list=folders` record of the chat `folders`. The bridge walks the roots in a thread, off the main loop (`repos.rs`), and answers with one line per folder:
+
+```
+folder \t folder name
+```
+
+- The first line is `default_cwd`, with an empty `folder`. Then come the repositories, newest first, at most 50. `default_cwd` shows once, also when it is a repository.
+- A repository is a folder with a `.git` entry: a folder, or a file as in a worktree. The walk never reads the `gitdir:` line of such a file, because it can lead out of the roots.
+- The time of a repository is the newest change of `.git`, `.git/index`, `.git/logs/HEAD`, and `.git/HEAD`. A background fetch changes none of them.
+- `folder` is relative to the base folder, as in the session list (9.6). It resolves to the same folder when the game sends it back.
+- The bridge resolves each repository again with the resolver (S5). A repository outside every root never shows (6.2, rule 1).
+- The walk asks the classifier (6.6.3) for a read of each repository, with the repository as the chat folder. Only a repository with the answer `allow` shows. So the config folder and the data folder of the bridge (`deny`) and credential folders such as `snap/firefox` (`desktop`) never show. This is a filter of the list, not a wall: the classifier still checks every tool call in the chat.
+- A folder whose relative path holds a control character, is not UTF-8, is longer than 255 bytes, or cannot come back from the game (7.1.1, `:` on Windows) is left out.
+- The walk never fails. A folder that it cannot read is left out.
+
+**The limits of the walk.** A root can be a whole home folder, so the walk has limits. They are constants, not config.
+
+- Breadth first, with sorted names, so a limit cuts off the deepest folders, and the order is the same on each run.
+- At most 4 levels below a root. A root is level 0, and it can be a repository itself.
+- The walk does not go into a repository. Submodules and nested checkouts stay out, and big repositories cost one visit.
+- It never follows a symbolic link or a Windows junction. Two roots that overlap give each repository once.
+- It skips hidden folders (a name that starts with `.`) and `node_modules`, `target`, `build`, `dist`, `vendor`, `venv`, `__pycache__`, `Library`, and `AppData`.
+- It reads at most 3000 folders, and stops after 2 seconds. It then lists what it found.
+
+**Decisions.** An advisor agent and the implementer chose these (2026-09-26):
+
+1. **`list=folders`, in its own chat `folders`.** The addon routes the reply by chat, so a reply after `/reload` still finds its cache. The bridge runs one job per chat, so a session list and a folder list can run at the same time.
+2. **No version change (7.7).** An older bridge takes `list=folders` as a prompt with no text. But the bridge writes the relay addon again at each start (11.3), so the addon is never newer than its bridge. A version change would also change the proof of S30.
+3. **No age in the reply.** The picker shows none, and the order already shows it.
+4. **The classifier is the filter.** The walk uses the rules that guard the tool calls, so the list and the calls never disagree about a folder.
+5. **No cap on the repositories found.** The walk does not go into a repository, so the repositories are never more than the folders that it reads.
 
 ## 10. Pings from terminal sessions
 

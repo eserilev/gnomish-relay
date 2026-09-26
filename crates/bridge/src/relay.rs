@@ -18,11 +18,12 @@ use crate::agent::{Choice, SessionInfo};
 use crate::config::{
     Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
 };
-use crate::flags::{self, TransportFlags};
+use crate::flags::{self, ListKind, TransportFlags};
 use crate::history::{ChatLog, History, Speaker};
 pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
 use crate::reply::render_reply;
+use crate::repos::Repo;
 use crate::state::State;
 
 const BAD_FOLDER: &str = "Folder not allowed.";
@@ -37,6 +38,10 @@ const MAX_TITLE: usize = 100;
 /// A session that changed this recently is probably open in a terminal.
 const ACTIVE_FOR: u32 = 300;
 const NO_SESSION: &str = "Session not found. Open Resume again.";
+/// The repositories in one folder list, newest first.
+const MAX_FOLDERS: usize = 50;
+/// The game sends a listed folder back in each message of its chat.
+const MAX_FOLDER: usize = 255;
 
 /// The agent session of a chat. The next message of the chat resumes it, if its
 /// agent and its folder are the same (SPEC.md 9.5).
@@ -61,6 +66,8 @@ pub enum Work {
     Prompt,
     /// The saved sessions of every agent, for Resume in the game.
     ListSessions,
+    /// The git repositories in the roots, for a new chat.
+    ListFolders,
     /// A new chat continues this session. A session that is open in a terminal gets a
     /// fork, so the two never write into one session.
     Attach { session: String, fork: bool },
@@ -155,6 +162,18 @@ fn field(text: &str) -> String {
     text.chars()
         .map(|c| if c.is_control() { ' ' } else { c })
         .collect()
+}
+
+/// Tab-separated: the folder relative to the base, and its name. `None` for a folder
+/// that the game cannot send back, or that would break the line.
+fn folder_line(base: &[u8], resolved: &[u8]) -> Option<String> {
+    let folder = String::from_utf8(relative_folder(base, resolved)).ok()?;
+    let fits = folder.len() <= MAX_FOLDER && !folder.chars().any(char::is_control);
+    if !fits || folder_request(folder.as_bytes(), cfg!(windows)).is_none() {
+        return None;
+    }
+    let name = resolved.rsplit(|&b| b == b'/').next().unwrap_or_default();
+    Some(format!("{folder}\t{}", field(&text(name))))
 }
 
 fn cut_chars(text: &str, max: usize) -> &str {
@@ -259,8 +278,8 @@ impl Relay {
             self.set_record(&token, &chat, id, Status::Error, update.into());
             return Outcome::WrongVersion;
         }
-        if flags.list {
-            return self.enqueue_list(r, chat);
+        if let Some(kind) = flags.list {
+            return self.enqueue_list(r, chat, kind);
         }
         if let Some(session) = &flags.attach {
             return self.attach(r, chat, session, now);
@@ -321,7 +340,7 @@ impl Relay {
         })
     }
 
-    fn enqueue_list(&mut self, r: &Record, chat: ChatId) -> Outcome {
+    fn enqueue_list(&mut self, r: &Record, chat: ChatId, kind: ListKind) -> Outcome {
         let base = self.policy.folders.base.clone();
         self.enqueue_job(Job {
             token: text(&r.token),
@@ -334,7 +353,10 @@ impl Relay {
             session: Session::New,
             resume: None,
             text: String::new(),
-            work: Work::ListSessions,
+            work: match kind {
+                ListKind::Sessions => Work::ListSessions,
+                ListKind::Folders => Work::ListFolders,
+            },
         })
     }
 
@@ -573,18 +595,24 @@ impl Relay {
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
 
-    fn to_listed(&self, agent: String, info: SessionInfo) -> Option<Listed> {
-        if !flags::is_session_id(&info.id) {
-            return None;
-        }
+    /// The folder in the form of the resolver, or `None` outside every root.
+    fn in_roots(&self, path: &std::path::Path) -> Option<Vec<u8>> {
         let folders = &self.policy.folders;
-        let mut target = path_bytes(std::path::Path::new(&info.cwd));
+        let mut target = path_bytes(path);
         // A Windows path starts with its drive. The resolver takes it as absolute only
         // with a `/` first.
         if !target.starts_with(b"/") {
             target.insert(0, b'/');
         }
-        let resolved = resolve_folder(&folders.roots, &folders.base, &target)?;
+        resolve_folder(&folders.roots, &folders.base, &target)
+    }
+
+    fn to_listed(&self, agent: String, info: SessionInfo) -> Option<Listed> {
+        if !flags::is_session_id(&info.id) {
+            return None;
+        }
+        let folders = &self.policy.folders;
+        let resolved = self.in_roots(std::path::Path::new(&info.cwd))?;
         Some(Listed {
             agent,
             id: info.id,
@@ -620,6 +648,33 @@ impl Relay {
             lines.push(fields.join("\t"));
         }
         lines.join("\n")
+    }
+
+    /// Answers a folder list with the default folder, then the newest repositories
+    /// (SPEC.md 9.9).
+    pub fn finish_folders(&mut self, job: &Job, mut repos: Vec<Repo>) {
+        self.activity.end(&job.chat, job.id);
+        self.running.remove(&job.chat);
+        repos.sort_by_key(|r| std::cmp::Reverse(r.updated));
+        let text = self.folder_lines(&repos).join("\n");
+        self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
+    }
+
+    fn folder_lines(&self, repos: &[Repo]) -> Vec<String> {
+        let base = &self.policy.folders.base;
+        let mut lines: Vec<String> = folder_line(base, base).into_iter().collect();
+        for repo in repos {
+            if lines.len() > MAX_FOLDERS {
+                break;
+            }
+            let Some(resolved) = self.in_roots(&repo.path) else {
+                continue;
+            };
+            if resolved != *base {
+                lines.extend(folder_line(base, &resolved));
+            }
+        }
+        lines
     }
 
     /// Puts the record of a message at the newest place with its new state.
@@ -1399,6 +1454,91 @@ mod tests {
             )],
         );
         assert!(relay.list_text(NOW).contains("\t0\tc1\t"));
+    }
+
+    fn repo(path: &str, updated: u32) -> Repo {
+        Repo {
+            path: path.into(),
+            updated,
+        }
+    }
+
+    /// Runs a folder list request of chat `folders` with what the walk found.
+    fn list_folders(relay: &mut Relay, id: u32, found: Vec<Repo>) -> String {
+        relay.on_frame(&[record("folders", id, "list=folders", "")], NOW);
+        let job = relay.next_job().unwrap();
+        assert_eq!(job.work, Work::ListFolders);
+        relay.finish_folders(&job, found);
+        let state = relay.to_state();
+        let reply = state.lane.records.iter().find(|r| r.id == MessageId(id));
+        reply.unwrap().text.clone()
+    }
+
+    #[test]
+    fn a_folder_list_shows_the_default_folder_then_the_newest_repositories() {
+        let mut relay = relay();
+        let text = list_folders(
+            &mut relay,
+            1,
+            vec![
+                repo("/home/x/Code/old", NOW - 7200),
+                repo("/home/x/Code/work/new", NOW - 60),
+                repo("/home/x/Other/app", NOW),
+                repo("/home/x/Code", NOW),
+            ],
+        );
+        assert_eq!(
+            text, "\tCode\nwork/new\tnew\nold\told",
+            "a folder outside the roots never shows, and the default shows once"
+        );
+    }
+
+    #[test]
+    fn a_folder_list_holds_at_most_fifty_repositories() {
+        let mut relay = relay();
+        let found = (0..60)
+            .map(|i| repo(&format!("/home/x/Code/r{i}"), NOW - i))
+            .collect();
+        let text = list_folders(&mut relay, 1, found);
+        assert_eq!(text.lines().count(), 1 + MAX_FOLDERS);
+        assert!(text.lines().nth(1).unwrap().starts_with("r0\t"));
+    }
+
+    #[test]
+    fn a_folder_that_would_break_a_line_or_a_strip_is_left_out() {
+        let mut relay = relay();
+        let long = format!("/home/x/Code/{}", "a".repeat(MAX_FOLDER + 1));
+        let text = list_folders(
+            &mut relay,
+            1,
+            vec![
+                repo("/home/x/Code/tab\there", NOW),
+                repo(&long, NOW),
+                repo("/home/x/Code/fine", NOW),
+            ],
+        );
+        assert_eq!(text, "\tCode\nfine\tfine");
+    }
+
+    #[test]
+    fn a_listed_folder_comes_back_as_the_folder_of_a_new_chat() {
+        let mut relay = relay();
+        list_folders(&mut relay, 1, vec![repo("/home/x/Code/work/app", NOW)]);
+        relay.on_frame(&[record_in("work/app", "c1", 2, "n", "hi")], NOW);
+        assert_eq!(relay.next_job().unwrap().cwd, "/home/x/Code/work/app");
+    }
+
+    #[test]
+    fn a_folder_list_leaves_the_session_list_for_attach() {
+        let mut relay = relay();
+        list(
+            &mut relay,
+            1,
+            vec![("codex".into(), info("s1", "/home/x/Code", "Work", NOW))],
+        );
+        list_folders(&mut relay, 2, Vec::new());
+        relay.on_frame(&[record("c9", 3, "attach=s1", "")], NOW);
+        assert_eq!(relay.next_job().unwrap().agent, "codex");
     }
 
     #[test]

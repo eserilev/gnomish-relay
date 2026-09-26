@@ -81,7 +81,9 @@ impl Agent for CodexAgent {
         let mut session = None;
         let reply = match &job.work {
             Work::Attach { session: id, fork } => self.attach(job, id, *fork, &mut session),
-            Work::Prompt | Work::ListSessions => self.prompt(job, control, &mut session),
+            Work::Prompt | Work::ListSessions | Work::ListFolders => {
+                self.prompt(job, control, &mut session)
+            }
         };
         Run { reply, session }
     }

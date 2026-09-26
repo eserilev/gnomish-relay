@@ -27,13 +27,21 @@ pub struct CodingFlags {
     pub new_session: bool,
     pub stop: bool,
     pub delete: bool,
-    /// The game asks for the sessions that it can resume.
-    pub list: bool,
+    pub list: Option<ListKind>,
     /// The session of an agent that a new chat continues.
     pub attach: Option<String>,
     pub agent: Option<String>,
     pub level: Option<Permission>,
     pub perm: Option<PermAnswer>,
+}
+
+/// What a list request asks for: `list` or `list=folders`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ListKind {
+    /// The saved sessions that the game can resume (SPEC.md 9.6).
+    Sessions,
+    /// The repositories where a new chat can start (SPEC.md 9.9).
+    Folders,
 }
 
 /// `perm=<request>:<option>:<hash>`: the answer to a permission request (SPEC.md 9.3).
@@ -130,9 +138,10 @@ pub fn coding(bytes: &[u8]) -> CodingFlags {
                 "n" => flags.new_session = true,
                 "stop" => flags.stop = true,
                 "d" => flags.delete = true,
-                "list" => flags.list = true,
+                "list" => flags.list = Some(ListKind::Sessions),
                 _ => {}
             },
+            Some(("list", "folders")) => flags.list = Some(ListKind::Folders),
             Some(("level", word)) => flags.level = Some(Permission::from_game(word)),
             Some(("perm", value)) => flags.perm = perm_answer(value),
             Some(("attach", id)) if is_session_id(id) => flags.attach = Some(id.to_owned()),
@@ -176,7 +185,7 @@ mod tests {
                 new_session: true,
                 stop: true,
                 delete: true,
-                list: true,
+                list: Some(ListKind::Sessions),
                 attach: Some("3f2a-9c_1".into()),
                 agent: Some("claude".into()),
                 level: Some(Permission::AutoEdit),
@@ -229,6 +238,12 @@ mod tests {
         assert_eq!(t.build, None);
         assert_eq!(t.out, None);
         assert_eq!(coding(bytes).agent, None);
+    }
+
+    #[test]
+    fn a_folder_list_parses_and_an_unknown_list_is_ignored() {
+        assert_eq!(coding(b"list=folders").list, Some(ListKind::Folders));
+        assert_eq!(coding(b"list=files").list, None);
     }
 
     #[test]

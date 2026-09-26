@@ -622,6 +622,7 @@ fn bridge_folders() -> (tempfile::TempDir, bridge::run::Paths) {
         screenshots: root.path().join("Screenshots"),
         accounts: root.path().join("WTF/Account"),
         state: root.path().join("data"),
+        config: root.path().join("config"),
     };
     for dir in [
         &paths.addons,

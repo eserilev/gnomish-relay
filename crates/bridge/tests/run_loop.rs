@@ -81,6 +81,7 @@ fn bridge_in(f: &Dirs, policy: Policy, agent: Arc<dyn Agent>) -> Bridge {
         screenshots: f.screenshots.clone(),
         accounts: f.accounts.clone(),
         state: f.state.clone(),
+        config: f.state.join("config"),
     };
     let agents = [("claude".to_owned(), agent)].into();
     Bridge::new(paths, policy, relay_keys(), agents).unwrap()
@@ -227,6 +228,7 @@ fn a_damaged_state_file_stops_the_bridge_at_start() {
         screenshots: f.screenshots.clone(),
         accounts: f.accounts.clone(),
         state: f.state.clone(),
+        config: f.state.join("config"),
     };
     let folders = policy();
     let agents = [("claude".to_owned(), Arc::new(Echo) as Arc<dyn Agent>)].into();
@@ -545,4 +547,32 @@ fn two_chats_that_ask_for_more_at_once_get_one_dialog() {
     stop.store(true, Ordering::SeqCst);
     assert!(done, "{}", slot_body(&f.addons));
     assert_eq!(answering.join().unwrap(), 1);
+}
+
+#[test]
+fn a_folder_list_comes_back_with_the_repositories_but_never_the_config_folder() {
+    let f = folders();
+    let root = f.state.parent().unwrap().canonicalize().unwrap();
+    fs::create_dir_all(root.join("Code/app/.git")).unwrap();
+    fs::create_dir_all(f.state.join("config/.git")).unwrap();
+    let base = path_bytes(&root);
+    let policy = Policy {
+        folders: Folders {
+            roots: vec![base.clone()],
+            base,
+        },
+        ..policy()
+    };
+    let mut bridge = bridge_in(&f, policy, Arc::new(Echo));
+    let payload = b"tok\x1ffolders\x1f8\x1f\x1flist=folders\x1f\x1f";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), payload, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_3.png"), png).unwrap();
+
+    let addons = f.addons.clone();
+    assert!(step_until(&mut bridge, || slot_body(&addons)
+        .contains(r#"chat = "folders", id = 8, status = "done""#)));
+
+    let body = slot_body(&f.addons);
+    assert!(body.contains("Code/app\\009app"), "{body}");
+    assert!(!body.contains("config"), "{body}");
 }
