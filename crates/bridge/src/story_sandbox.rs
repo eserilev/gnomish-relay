@@ -63,6 +63,15 @@ pub fn walls(folder: &Path, config: &Path, data: &Path, home: &Path, readable: &
     }
 }
 
+/// The hidden path that holds `path`. Both are canonical.
+pub fn hidden_by<'a>(walls: &'a Walls, path: &Path) -> Option<&'a Path> {
+    walls
+        .hidden
+        .iter()
+        .find(|hidden| path.starts_with(hidden))
+        .map(PathBuf::as_path)
+}
+
 /// The program and its arguments that start `program` inside `sandbox`.
 pub fn command_line(
     sandbox: &Sandbox,
@@ -358,6 +367,18 @@ mod tests {
             !walls.hidden.iter().any(|p| p.ends_with(".aws")),
             "missing paths are left out"
         );
+    }
+
+    #[test]
+    fn a_path_inside_a_hidden_folder_is_hidden_by_that_folder() {
+        let walls = sample();
+
+        assert_eq!(
+            hidden_by(&walls, Path::new("/data/timeways/story/x")),
+            Some(Path::new("/data"))
+        );
+        assert_eq!(hidden_by(&walls, Path::new("/tmp/x")), None);
+        assert_eq!(hidden_by(&walls, Path::new("/data2/x")), None);
     }
 
     #[test]

@@ -11,6 +11,8 @@ use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use anyhow::Context;
+
 use crate::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
 use crate::app_protocol::{
     self, Answer, BadLine, CallId, CompanionCheck, FromStory, RequestId, batch_end_line,
@@ -53,9 +55,9 @@ pub struct StorySpec {
 
 impl StorySpec {
     /// Makes the folder of the story program and finds the sandbox of this computer. The
-    /// command line is `<program> <lore pack> <story folder>`. The lore pack is the one
-    /// file that the sandbox shows even inside a hidden folder. With no program in the
-    /// config, there is nothing to start.
+    /// command line is `<program> <lore pack> <story folder>`. The lore pack and the
+    /// program are the two files that the sandbox shows inside a hidden folder, such as
+    /// `/tmp`. With no program in the config, there is nothing to start.
     pub fn from_config(
         config: &StoryConfig,
         config_dir: &Path,
@@ -68,10 +70,12 @@ impl StorySpec {
         let folder = data.join(crate::run::TIMEWAYS_DIR).join(STORY_DIR);
         make_story_folder(&folder)?;
         let pack = &story.lore_pack;
-        let walls = story_sandbox::walls(&folder, config_dir, data, home, &[pack]);
+        let mut walls = story_sandbox::walls(&folder, config_dir, data, home, &[pack]);
+        let program = visible_program(&story.program, &walls)?;
+        walls.readable.push(program.clone());
         let args = [pack, &walls.folder].map(|p| p.to_string_lossy().into_owned());
         Ok(Some(StorySpec {
-            program: story.program.clone(),
+            program,
             args: args.to_vec(),
             walls,
             sandbox: story_sandbox::detect(),
@@ -79,6 +83,25 @@ impl StorySpec {
             model: config.model.clone(),
         }))
     }
+}
+
+/// The real path of the program. A link can lie in a folder that the sandbox hides, so
+/// the bridge starts the real path. The sandbox shows this one file, never its folder.
+/// A program inside a hidden folder is refused: the story folder is one, and a program
+/// there could write itself.
+fn visible_program(program: &Path, walls: &Walls) -> anyhow::Result<PathBuf> {
+    let shown = program.display();
+    let real = program
+        .canonicalize()
+        .with_context(|| format!("[story] program {shown} is missing"))?;
+    if story_sandbox::hidden_by(walls, &real).is_some() {
+        anyhow::bail!(
+            "[story] program {shown} is inside a folder that the sandbox hides \
+             (the config folder, the data folder, or a credential folder). \
+             Install it somewhere else, for example ~/.local/bin."
+        );
+    }
+    Ok(real)
 }
 
 /// A batch and its reply: the done text, or the error text.
@@ -712,14 +735,9 @@ mod tests {
         std::fs::create_dir_all(&config_dir).unwrap();
         let pack = root.path().join("lore.sqlite");
         std::fs::write(&pack, "").unwrap();
-        let config = StoryConfig {
-            program: Some(StoryProgram {
-                program: PathBuf::from("/opt/timeways-story"),
-                lore_pack: pack.clone(),
-            }),
-            timeout: Duration::from_secs(9),
-            model: crate::model::ModelSpec::none(),
-        };
+        let program = root.path().join("timeways-story");
+        std::fs::write(&program, "").unwrap();
+        let config = story_config(&program, &pack);
 
         let spec = StorySpec::from_config(&config, &config_dir, &data, root.path())
             .unwrap()
@@ -730,13 +748,113 @@ mod tests {
         assert_eq!(spec.walls.folder, folder);
         assert!(spec.walls.hidden.contains(&real(&config_dir)));
         assert!(spec.walls.hidden.contains(&real(&data)));
-        assert_eq!(spec.walls.readable, [real(&pack)]);
-        assert_eq!(spec.program, PathBuf::from("/opt/timeways-story"));
+        assert_eq!(spec.walls.readable, [real(&pack), real(&program)]);
+        assert_eq!(spec.program, real(&program));
         assert_eq!(
             spec.args,
             [pack.to_string_lossy(), folder.to_string_lossy()]
         );
         assert_eq!(spec.timeout, Duration::from_secs(9));
+    }
+
+    fn story_config(program: &Path, pack: &Path) -> StoryConfig {
+        StoryConfig {
+            program: Some(StoryProgram {
+                program: program.to_owned(),
+                lore_pack: pack.to_owned(),
+            }),
+            timeout: Duration::from_secs(9),
+            model: crate::model::ModelSpec::none(),
+        }
+    }
+
+    /// The error of a start with the program at `program`, which the test makes. The
+    /// home holds a config folder `config` and a data folder `data`.
+    fn refusal(program: &str) -> String {
+        let home = tempfile::tempdir().unwrap();
+        let (config_dir, data) = (home.path().join("config"), home.path().join("data"));
+        let program = home.path().join(program);
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+        std::fs::write(&program, "").unwrap();
+        let config = story_config(&program, &home.path().join("lore.sqlite"));
+
+        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path());
+
+        format!("{:#}", spec.unwrap_err())
+    }
+
+    #[test]
+    fn a_story_program_inside_the_data_folder_is_refused() {
+        let error = refusal("data/timeways/story/timeways-story");
+        assert!(
+            error.contains("inside a folder that the sandbox hides"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_story_program_inside_the_config_folder_is_refused() {
+        let error = refusal("config/timeways-story");
+        assert!(
+            error.contains("inside a folder that the sandbox hides"),
+            "{error}"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_story_program_inside_the_data_folder_is_refused() {
+        let home = tempfile::tempdir().unwrap();
+        let (config_dir, data) = (home.path().join("config"), home.path().join("data"));
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::write(data.join("timeways-story"), "").unwrap();
+        let link = home.path().join("timeways-story");
+        std::os::unix::fs::symlink(data.join("timeways-story"), &link).unwrap();
+        let config = story_config(&link, &home.path().join("lore.sqlite"));
+
+        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path());
+
+        let error = format!("{:#}", spec.unwrap_err());
+        assert!(
+            error.contains("inside a folder that the sandbox hides"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_missing_story_program_is_an_error() {
+        let home = tempfile::tempdir().unwrap();
+        let program = home.path().join("timeways-story");
+        let config = story_config(&program, &home.path().join("lore.sqlite"));
+
+        let spec = StorySpec::from_config(&config, home.path(), home.path(), home.path());
+
+        let error = format!("{:#}", spec.unwrap_err());
+        assert!(error.contains("is missing"), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_story_program_starts_the_real_path() {
+        let home = tempfile::tempdir().unwrap();
+        let (config_dir, data) = (home.path().join("config"), home.path().join("data"));
+        std::fs::create_dir_all(&config_dir).unwrap();
+        let program = home.path().join("opt/timeways-story");
+        std::fs::create_dir_all(program.parent().unwrap()).unwrap();
+        std::fs::write(&program, "").unwrap();
+        let link = home.path().join("timeways-story");
+        std::os::unix::fs::symlink(&program, &link).unwrap();
+        let config = story_config(&link, &home.path().join("lore.sqlite"));
+
+        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path())
+            .unwrap()
+            .unwrap();
+
+        let real = program.canonicalize().unwrap();
+        assert_eq!(spec.program, real);
+        assert!(spec.walls.readable.contains(&real));
     }
 
     #[cfg(unix)]

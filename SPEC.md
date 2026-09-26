@@ -311,20 +311,23 @@ On Windows, the setup recommends Codex, or Claude under WSL2. Both have a sandbo
 | Rule | Value |
 |---|---|
 | Write | Only its story folder, `<data>/timeways/story/` (mode 0700) |
-| Read | The system, except the config folder, the data folder (its own folder comes back), and the `desktop` paths of 6.6.3 under the home folder that exist. The lore pack stays readable, also inside a hidden folder. `/tmp`, `/var/tmp`, and `/run` are private and empty, because they hold the sockets of the ssh agent and the desktop. |
+| Read | The system, except the config folder, the data folder (its own folder comes back), and the `desktop` paths of 6.6.3 under the home folder that exist. The lore pack and the program file stay readable, also inside a hidden folder or `/tmp`. `/tmp`, `/var/tmp`, and `/run` are private and empty, because they hold the sockets of the ssh agent and the desktop. |
 | Network | None |
 | Children | In the same sandbox |
 
 | OS | Sandbox | Tests |
 |---|---|---|
-| Linux | `bwrap` (bubblewrap): `--ro-bind / /`, a `--tmpfs` over each hidden folder and `/dev/null` over each hidden file, a writable `--bind` of its folder, a `--ro-bind` of the lore pack, then `--remount-ro` of each hidden folder, `--unshare-all`, `--die-with-parent`, and `--new-session`. | Real `bwrap` runs in CI (14.5). |
-| macOS | `sandbox-exec` with a generated Seatbelt profile: `(allow default)`, `(deny network*)`, `(deny file-write*)`, a deny of reads and writes under each hidden path, then an allow of reads of the lore pack, and last an allow of its folder. The paths go in as `-D` parameters, never into the profile text. | Built and checked as text only. It never ran: the CI tests run with no sandbox on macOS. Mach services stay reachable. |
+| Linux | `bwrap` (bubblewrap): `--ro-bind / /`, a `--tmpfs` over each hidden folder and `/dev/null` over each hidden file, a writable `--bind` of its folder, a `--ro-bind` of the lore pack and of the program file, then `--remount-ro` of each hidden folder, `--unshare-all`, `--die-with-parent`, and `--new-session`. | Real `bwrap` runs in CI (14.5). |
+| macOS | `sandbox-exec` with a generated Seatbelt profile: `(allow default)`, `(deny network*)`, `(deny file-write*)`, a deny of reads and writes under each hidden path, then an allow of reads of the lore pack and of the program file, and last an allow of its folder. The paths go in as `-D` parameters, never into the profile text. | Built and checked as text only. It never ran: the CI tests run with no sandbox on macOS. Mach services stay reachable. |
 | Windows | None | |
 
 - At start the bridge runs `bwrap --version` inside a sandbox of the same kind. A `bwrap` that is missing, or that cannot make namespaces (some systems block them for normal users), counts as no sandbox.
 - With no sandbox, the story program still runs. The bridge writes a log line, and the first reply with text after the bridge starts carries "The Timeways story program runs with no sandbox here." (9.8).
 - `bwrap` sets `PWD` to the story folder. Its other variables are the allowlist of 6.2 rule 12.
 - The `desktop` patterns that match anywhere, such as a `.env` file in a project, are not hidden. The sandbox hides only the ones under the home folder.
+- **The program file** (decided with an advisor on 2026-09-26). The bridge resolves the `program` of the config to its real path, with no link in it, and starts that path. The sandbox shows only this one file, read-only, never its folder. So a program under `/tmp` or `/run` starts. A program inside a hidden path is refused, and the bridge does not start: the config folder, the data folder, or a `desktop` path. The error is "[story] program <path> is inside a folder that the sandbox hides (the config folder, the data folder, or a credential folder). Install it somewhere else, for example ~/.local/bin.". A missing program also stops the start of the bridge, with "[story] program <path> is missing".
+- Why: the program is the user's own choice, and the sandbox runs it anyway, so a read of its file shows nothing new. A program in a hidden path is different. The story folder is inside the data folder and is writable, so a program there can write itself and keep a break-in across starts. A program in the other hidden paths is odd and can be a sign of tampering. The check reuses the list of hidden paths, so there is one rule: a hidden path never holds the program.
+- Limits: the sandbox shows the program file alone. A program that loads libraries from its own folder (`$ORIGIN`), a program in a folder bundle, or a script whose interpreter lies in a hidden path does not start. Libraries under `/usr` are readable.
 
 #### 6.6.5 "Always allow"
 
@@ -1046,7 +1049,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
 | Lanes | | | the `relay` target with two lanes | no job from a Timeways strip; no shared seen store, body, or restore |
 | App protocol | | | new target `app_protocol` | a fake `timeways-story`: crash, garbage, huge line, hang |
 | Model calls | | | new target `model_http` | a fake model server; the gate denies every tool; live tests |
-| Story sandbox | | | | its environment; a write outside its folder fails; a network connect fails |
+| Story sandbox | | | | its environment; a write outside its folder fails; a network connect fails; a program under `/tmp` starts; a program in a hidden folder is refused |
 | Corner | | `corner.qnt` | | two addons in one fake game with a fake clock |
 | Shared transport | | | | all addon tests, the golden and differential vectors of 14.3 for both sets of parameters |
 
@@ -1068,7 +1071,7 @@ The relay tests use a small second test addon built from the shared transport, n
 
 The bridge and the story program of Timeways talk in JSON lines: one JSON object on each line, over the stdin and stdout of the story program. The story program is untrusted, like an agent, and so is the addon. `crates/bridge/src/addon_lines.rs` checks the lines of the addon, `crates/bridge/src/app_protocol.rs` has the other messages, and `crates/bridge/src/story.rs` has the life cycle.
 
-**Start.** The bridge starts the story program only when the Timeways lane is on (`timeways.key` exists) and the config has a `[story]` section with a `program` (12). The command line is `<program> <lore pack> <story folder>`. The program path is absolute: the bridge never looks it up on `PATH`. The lore pack is the SQLite file of the lore. The story folder is `<data>/timeways/story/`, which the bridge makes with mode 0700. The bridge starts the program with no shell, with the environment allowlist of 6.2 rule 12, with the story folder as its working folder, and in the sandbox of 6.6.4. On Linux and macOS the story program leads its own process group. On Windows, `taskkill /T` stops its process tree.
+**Start.** The bridge starts the story program only when the Timeways lane is on (`timeways.key` exists) and the config has a `[story]` section with a `program` (12). The command line is `<program> <lore pack> <story folder>`. The program path is absolute: the bridge never looks it up on `PATH`. The bridge starts its real path, with no link in it, and refuses a program inside a path that the sandbox hides (6.6.4). The lore pack is the SQLite file of the lore. The story folder is `<data>/timeways/story/`, which the bridge makes with mode 0700. The bridge starts the program with no shell, with the environment allowlist of 6.2 rule 12, with the story folder as its working folder, and in the sandbox of 6.6.4. On Linux and macOS the story program leads its own process group. On Windows, `taskkill /T` stops its process tree.
 
 **What the story program writes.** Only files below its story folder, for example `worlds/<realm id>/<character id>.jsonl`. Each id is a safe encoding of a name from the game: `[A-Za-z0-9]` stays, and every other byte becomes `_XX` in hex (9.7, decision 19). The bridge writes every file that the game reads, with the proved writers (S9, S12). The story program never writes a slot file. Problems go to its stderr.
 
@@ -1288,7 +1291,7 @@ Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout
 
 ```toml
 [story]
-program = "~/.local/bin/timeways-story"   # an absolute path, or one that starts with ~/
+program = "~/.local/bin/timeways-story"   # an absolute path, or one that starts with ~/; never in the config folder, the data folder, or a credential folder (6.6.4)
 lore_pack = "~/.local/share/timeways/lore.sqlite"   # the same; the first argument
 timeout_seconds = 120                     # 1 to 600; the longest wait for one reply
 model = "claude"                          # or "local"; with no model, every model call fails

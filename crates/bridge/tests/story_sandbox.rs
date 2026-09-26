@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use bridge::config::{StoryConfig, StoryProgram};
 use bridge::lane::{ChatId, MessageId};
 use bridge::process::BASE_ENV;
 use bridge::story::{Story, StorySpec};
@@ -74,14 +75,19 @@ fn walls(h: &Machine) -> Walls {
 /// The text of the lore answer of the story program to each question, in order. A
 /// question is at most 1 KiB, so each one goes in a batch of its own.
 fn ask_each(script: &str, sandbox: Sandbox, walls: Walls, questions: &[String]) -> Vec<String> {
-    let mut story = Story::new(StorySpec {
+    let spec = StorySpec {
         program: PathBuf::from(env!("CARGO_BIN_EXE_fake-story")),
         args: vec![script.into()],
         walls,
         sandbox,
         timeout: Duration::from_secs(20),
         model: bridge::model::ModelSpec::none(),
-    });
+    };
+    ask_spec(spec, questions)
+}
+
+fn ask_spec(spec: StorySpec, questions: &[String]) -> Vec<String> {
+    let mut story = Story::new(spec);
     for (id, text) in (1..).zip(questions) {
         let question = serde_json::json!({ "type": "lore_asked", "at": 1, "question": text });
         story.send(StoryMessage {
@@ -187,6 +193,31 @@ fn the_sandboxed_story_program_reads_its_lore_pack_but_not_the_keys_the_config_o
         results,
         ["ok", "ok", "denied", "denied", "denied", "denied"]
     );
+}
+
+#[test]
+fn a_story_program_under_tmp_starts_in_the_sandbox() {
+    let Some(_) = bwrap() else { return };
+    let h = machine();
+    let tmp = tempfile::tempdir_in("/tmp").unwrap();
+    let program = tmp.path().join("timeways-story");
+    fs::copy(env!("CARGO_BIN_EXE_fake-story"), &program).unwrap();
+    let config = StoryConfig {
+        program: Some(StoryProgram {
+            program: program.clone(),
+            lore_pack: h.pack.clone(),
+        }),
+        timeout: Duration::from_secs(20),
+        model: bridge::model::ModelSpec::none(),
+    };
+
+    let spec = StorySpec::from_config(&config, &h.config, &h.data, &h.home)
+        .unwrap()
+        .unwrap();
+    assert!(matches!(spec.sandbox, Sandbox::Bwrap(_)));
+    let answers = ask_spec(spec, &["from tmp".into()]);
+
+    assert_eq!(answers, ["story: from tmp"]);
 }
 
 #[test]
