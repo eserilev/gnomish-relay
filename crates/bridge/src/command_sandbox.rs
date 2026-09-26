@@ -308,13 +308,26 @@ fn walk_matches(policy: &SandboxPolicy, chat: &Path) -> Result<Vec<PathBuf>, Str
     Ok(found)
 }
 
-/// The bridge writes these files itself. The sandbox hides the data folder.
+/// Runs at the same time share the file, so each one only makes it when it is missing.
 fn empty_file(place: &Path) -> Result<PathBuf, String> {
     std::fs::create_dir_all(place).map_err(|e| format!("No folder for the sandbox: {e}"))?;
     let file = place.join("empty");
-    let is_empty = std::fs::metadata(&file).is_ok_and(|m| m.is_file() && m.len() == 0);
-    if !is_empty {
-        crate::fs_safe::write_private(place, "empty", "").map_err(|e| format!("{e:#}"))?;
+    let made = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&file);
+    match made {
+        Ok(_) => Ok(file),
+        Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => check_empty(file),
+        Err(e) => Err(format!("No empty file for the sandbox: {e}")),
+    }
+}
+
+/// A link or a file with bytes would show something in place of a hidden file.
+fn check_empty(file: PathBuf) -> Result<PathBuf, String> {
+    let meta = std::fs::symlink_metadata(&file).map_err(|e| format!("{e}"))?;
+    if !meta.is_file() || meta.len() != 0 {
+        return Err(format!("{} is not an empty file.", file.display()));
     }
     Ok(file)
 }
@@ -636,6 +649,35 @@ mod tests {
         let run = run_walls(&h, &h.chat).unwrap();
 
         assert!(run.walls.hidden.contains(&secret));
+    }
+
+    #[test]
+    fn an_empty_file_with_bytes_in_it_gets_no_run() {
+        let h = folders();
+        std::fs::create_dir_all(h.data.join("sandbox")).unwrap();
+        std::fs::write(h.data.join("sandbox/empty"), "not empty").unwrap();
+
+        let error = run_walls(&h, &h.chat).err().unwrap();
+
+        assert!(error.contains("is not an empty file"), "{error}");
+    }
+
+    #[test]
+    fn many_runs_at_once_share_the_empty_file() {
+        let h = std::sync::Arc::new(folders());
+        let runs: Vec<_> = (0..16)
+            .map(|_| {
+                let h = std::sync::Arc::clone(&h);
+                std::thread::spawn(move || {
+                    run_walls(&h, &h.chat).map(|run| run.walls.empty.clone())
+                })
+            })
+            .collect();
+
+        for run in runs {
+            let empty = run.join().unwrap().unwrap();
+            assert_eq!(std::fs::read(empty).unwrap(), b"");
+        }
     }
 
     #[test]
