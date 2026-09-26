@@ -321,10 +321,13 @@ fn the_timeways_lane_publishes_nothing_without_its_slot_folders() {
         &frame(TIMEWAYS_KEY, "tok", 7, "", "story"),
     );
 
-    step_a_while(&mut bridge);
+    let state = f.state.join(TIMEWAYS_DIR).join("state.json");
 
+    let answered = step_until(&mut bridge, || {
+        fs::read_to_string(&state).is_ok_and(|text| text.contains(NO_STORY))
+    });
+
+    assert!(answered, "the lane answers in its state");
     assert!(!strip.exists(), "the lane took the strip");
     assert!(!f.addons.join(slot_name(App::Timeways, 1)).exists());
-    let state = fs::read_to_string(f.state.join(TIMEWAYS_DIR).join("state.json")).unwrap();
-    assert!(state.contains(NO_STORY));
 }
