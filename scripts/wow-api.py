@@ -1,6 +1,8 @@
-"""Writes the WoW Forever API as a Lua table, for the fake game and the lint check.
+"""Writes the WoW Forever API that an addon uses, for the fake game and the lint check.
 
-Usage: wow-api.py <wow-ui-source> <BlizzardInterfaceResources> <addon folder> <build>
+Usage: wow-api.py --ui <wow-ui-source> --bir <BlizzardInterfaceResources> --build <build>
+       --addon <folder> [--addon <folder>]... [--lint <wow.yml>] [--fake <wow.lua>]
+       --api <api.lua>
 
 Sources:
 - BlizzardInterfaceResources: the global functions, frames, and widget methods that
@@ -13,15 +15,29 @@ the client does not have, or has only in a Blizzard_Deprecated addon, is an erro
 Only the used names, the widget types, and the used templates go into the output.
 """
 
+import argparse
 import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
 
-ui_root, bir_root, addon_root = (Path(a) for a in sys.argv[1:4])
-build = sys.argv[4]
-ui = ui_root / "Interface" / "AddOns"
-resources = bir_root / "Resources"
+
+def arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--ui", type=Path, required=True)
+    parser.add_argument("--bir", type=Path, required=True)
+    parser.add_argument("--build", required=True)
+    parser.add_argument("--addon", type=Path, action="append", required=True)
+    parser.add_argument("--lint", type=Path)
+    parser.add_argument("--fake", type=Path)
+    parser.add_argument("--api", type=Path, required=True)
+    return parser.parse_args()
+
+
+args = arguments()
+build = args.build
+ui = args.ui / "Interface" / "AddOns"
+resources = args.bir / "Resources"
 
 
 def quoted(path):
@@ -160,9 +176,12 @@ def template_names(name, all_templates, bases, methods, seen=None):
 
 
 def addon_files():
-    """The files of the addon, and the shared transport that install puts into it."""
-    shared = addon_root.parent / "transport"
-    return sorted(set(addon_root.glob("*.lua")) | set(shared.glob("*.lua")))
+    return sorted(path for folder in args.addon for path in folder.glob("*.lua"))
+
+
+def addon_names():
+    """A folder with a TOC is an addon. A folder without one is shared code, like addon/transport."""
+    return sorted(folder.name for folder in args.addon if any(folder.glob("*.toc")))
 
 
 def used_templates():
@@ -174,10 +193,15 @@ def used_templates():
     return names
 
 
-# Lua 5.1 itself, and the globals of the addon.
+# Lua 5.1 itself.
 LUA = set("assert error ipairs next pairs pcall print rawget rawset select setmetatable getmetatable "
           "tonumber tostring type unpack xpcall loadstring string table math os coroutine".split())
-OWN = ("GnomishRelay", "SLASH_GNOMISHRELAY")
+
+
+def own_prefixes():
+    """The globals of the addon itself, such as `GnomishRelay_SlotData` and `SLASH_GNOMISHRELAY1`."""
+    names = addon_names()
+    return tuple(names + ["SLASH_" + name.upper() for name in names])
 
 
 def lint_globals(path):
@@ -202,43 +226,44 @@ def lint_globals(path):
 
 def referenced():
     """Every WoW name that the addon, the lint list, or the fake game uses."""
-    names = lint_globals(addon_root.parent.parent / "wow.yml")
+    names = lint_globals(args.lint) if args.lint else set()
     for path in addon_files():
         text = path.read_text(encoding="utf-8")
         names.update(".".join(m) for m in re.findall(r"\b(C_\w+|SOUNDKIT|bit)\.([A-Za-z_]\w*)", text))
-    fake = (addon_root.parent / "tests" / "wow.lua").read_text(encoding="utf-8")
-    names.update(re.findall(r"^function ([A-Za-z_]\w*(?:\.\w+)?)\s*\(", fake, re.M))
+    if args.fake:
+        names |= fake_globals(args.fake)
+    own = own_prefixes()
+    return {n for n in names if n.split(".")[0] not in LUA | {"wow"} and not n.startswith(own)}
+
+
+def fake_globals(path):
+    fake = path.read_text(encoding="utf-8")
+    names = set(re.findall(r"^function ([A-Za-z_]\w*(?:\.\w+)?)\s*\(", fake, re.M))
     names.update(re.findall(r"^([A-Za-z_]\w*)\s*=[^=]", fake, re.M))
     for pair in re.findall(r"^([A-Za-z_]\w*), ([A-Za-z_]\w*)\s*=[^=]", fake, re.M):
         names.update(pair)
-    return {n for n in names if n.split(".")[0] not in LUA | {"wow"} and not n.startswith(OWN)}
+    return names
 
 
 def lua_list(names, indent):
     return "".join(f'{indent}"{n}",\n' for n in sorted(names))
 
 
-def main():
-    known = set(quoted(resources / "GlobalAPI.lua"))
-    known |= set(quoted(resources / "FrameXML.lua"))
-    known |= set(quoted(resources / "Frames.lua"))
-    known |= ui_globals()
-    known |= {n.split(".")[0] for n in known if "." in n}
-    used = referenced()
-    missing = sorted(used - known)
-    old = sorted(used & deprecated())
-    for name in missing:
-        print(f"error: {name} is not in the WoW Forever {build} client", file=sys.stderr)
-    for name in old:
-        print(f"error: {name} is deprecated in WoW Forever {build}", file=sys.stderr)
-    if missing or old:
+def check_names(used, known):
+    errors = [f"{name} is not in the WoW Forever {build} client" for name in sorted(used - known)]
+    errors += [f"{name} is deprecated in WoW Forever {build}" for name in sorted(used & deprecated())]
+    for error in errors:
+        print(f"error: {error}", file=sys.stderr)
+    if errors:
         sys.exit(1)
 
+
+def api_text(used):
     bases, methods = mixins()
     all_templates = templates()
     widget_types = widgets()
     out = [
-        f"-- The WoW Forever {build} API that Gnomish Relay uses.\n",
+        f"-- The WoW Forever {build} API that {', '.join(addon_names())} uses.\n",
         "-- Written by scripts/wow-api.sh. Do not edit.\n",
         "return {\n",
         f'\tbuild = "{build}",\n',
@@ -257,13 +282,23 @@ def main():
     for name in sorted(used_templates() - set(widget_types)):
         template = all_templates.get(name)
         if template is None:
-            print(f"error: template {name} is not in the WoW Forever {build} client", file=sys.stderr)
-            sys.exit(1)
+            sys.exit(f"error: template {name} is not in the WoW Forever {build} client")
         out.append(f'\t\t{name} = {{\n\t\t\tbase = "{template["base"]}",\n\t\t\tnames = {{\n')
         out.append(lua_list(template_names(name, all_templates, bases, methods), "\t\t\t\t"))
         out.append("\t\t\t},\n\t\t},\n")
     out.append("\t},\n}\n")
-    sys.stdout.write("".join(out))
+    return "".join(out)
+
+
+def main():
+    known = set(quoted(resources / "GlobalAPI.lua"))
+    known |= set(quoted(resources / "FrameXML.lua"))
+    known |= set(quoted(resources / "Frames.lua"))
+    known |= ui_globals()
+    known |= {n.split(".")[0] for n in known if "." in n}
+    used = referenced()
+    check_names(used, known)
+    args.api.write_text(api_text(used), encoding="utf-8")
 
 
 main()
