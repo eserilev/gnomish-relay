@@ -351,6 +351,23 @@ structure restore.Chat where
   cwd : alloc.vec.Vec Std.U8
   history : alloc.vec.Vec restore.Entry
 
+/-- [protocol::sandbox::Network]
+    Source: 'crates/protocol/src/sandbox.rs', lines 13:0-15:1
+    Visibility: public -/
+@[discriminant isize]
+inductive sandbox.Network where
+| Off : sandbox.Network
+
+/-- [protocol::sandbox::SandboxPolicy]
+    Source: 'crates/protocol/src/sandbox.rs', lines 18:0-28:1
+    Visibility: public -/
+structure sandbox.SandboxPolicy where
+  writable : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  hidden_folders : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  hidden_paths : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  hidden_writes : alloc.vec.Vec (alloc.vec.Vec Std.U8)
+  network : sandbox.Network
+
 /-- [protocol::seen::Entry]
     Source: 'crates/protocol/src/seen.rs', lines 7:0-10:1
     Visibility: public -/

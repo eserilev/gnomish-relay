@@ -30,6 +30,8 @@ import Protocol.Markdown
 import Protocol.Spec.Action
 import Protocol.Action
 import Protocol.Version
+import Protocol.Spec.Sandbox
+import Protocol.Sandbox
 import Protocol.Spec.Sbpl
 import Protocol.Sbpl
 
@@ -453,7 +455,20 @@ def S28_capped : Prop :=
     (∃ s ∈ script.simples.val, runner (words s) ∨ network (words s)) →
     action.classify (.Command raw cwd) policy rules ⦃ v => rankV v ≤ rankV .Ask ⦄
 
-/-! ## The Seatbelt profile of the command sandbox -/
+/-! ## The sandbox of the commands of a run from the game -/
+
+/-- **S31, sandbox policy.** For every config: each `deny` and `desktop` path is hidden,
+no writable path is inside a hidden path, and writes go only to the chat folder and the
+private temp folder. "Inside" is the parts prefix of S5, and each writable path has the
+clean form of S5, so "inside" is exact. The network of the commands is off. -/
+def S31_sandbox_policy : Prop :=
+  ∀ (chat temp : Slice U8) (deny desktop writesOnly : Slice (alloc.vec.Vec U8)),
+    sandbox.sandbox_policy chat temp deny desktop writesOnly ⦃ pol =>
+      (∀ p, (∃ f ∈ strs deny.val, insideCI f p) ∨ matchesPattern (strs desktop.val) p ∨
+          matchesPattern (strs writesOnly.val) p → hiddenBy pol p) ∧
+      (∀ w ∈ strs pol.writable.val, cleanPath w ∧ ¬ hiddenBy pol w) ∧
+      (∀ w ∈ strs pol.writable.val, w = bytes chat.val ∨ w = bytes temp.val) ∧
+      pol.network = .Off ⦄
 
 /-- **S32, writer.** `sbpl_string` writes exactly `sbplLiteral` for a path, and nothing
 for bytes with NUL, which no path holds. -/
@@ -526,6 +541,7 @@ theorem check_S28_substitution : S28_substitution := Protocol.Action.classify_su
 theorem check_S28_desktop : S28_desktop := Protocol.Action.classify_desktop
 theorem check_S28_capped : S28_capped := Protocol.Action.classify_capped
 
+theorem check_S31_sandbox_policy : S31_sandbox_policy := Protocol.Sandbox.sandbox_policy_spec
 theorem check_S32_sbpl_string : S32_sbpl_string := Protocol.Sbpl.sbpl_string_spec
 theorem check_S32_reads_back : S32_reads_back := Protocol.Sbpl.sbpl_reads_back
 

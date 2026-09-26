@@ -56,5 +56,6 @@ import Statements
 #print axioms Protocol.Statements.check_S28_substitution
 #print axioms Protocol.Statements.check_S28_desktop
 #print axioms Protocol.Statements.check_S28_capped
+#print axioms Protocol.Statements.check_S31_sandbox_policy
 #print axioms Protocol.Statements.check_S32_sbpl_string
 #print axioms Protocol.Statements.check_S32_reads_back

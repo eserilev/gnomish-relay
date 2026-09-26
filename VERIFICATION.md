@@ -47,6 +47,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 23 | S29: routing by key | `apps::route` | `S29_route` | proved |
 | 24 | S30: version range | `version::version_fit` | `S30_version_fit` | proved |
 | 25 | S32: Seatbelt escape | `sbpl::sbpl_string` | `S32_sbpl_string`, `S32_reads_back` | proved |
+| 26 | S31: sandbox policy | `sandbox::sandbox_policy`, `path_rules` | `S31_sandbox_policy` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |
@@ -136,6 +137,26 @@ app: a version below the range is then never above it too. So `Version.lean` sta
 four constants, and a new range changes only those four facts. The `flags` fuzz target
 checks the same range on the compiled code.
 
+### Item 26: the sandbox policy (SPEC 6.6.4)
+
+The statement makes the words of S31 exact in these ways. None of them changes the meaning.
+
+- **"Each `deny` and `desktop` path"** is a path inside a `deny` folder of the input, or a
+  path that matches a pattern of either `desktop` list: for reads and writes, and for
+  writes only. Both lists hide, so `.git/hooks` and `.git/config` read as empty in the
+  sandbox, and a command cannot change them.
+- **"Hidden"** is `hiddenBy`: inside a hidden folder, or a run of parts matches a hidden
+  pattern, with no regard to ASCII case. It is the predicate of the classifier.
+- **"Inside"** is the parts prefix of S5. Each writable path also has the clean form of
+  S5, so "inside" is exact for it.
+- **"Writes go only to"**: every writable path is the chat folder or the temp folder.
+  When one of them lies inside a hidden path, the policy leaves it out, so the statement
+  holds for every input. The bridge then refuses the run.
+- The network of the commands is off (`Network::Off`).
+- The statement is about the policy. The bridge makes it real with `bwrap` or
+  `sandbox-exec` (SPEC 6.6.4). The tests of 14.5 and the fuzz target `sandbox` check that
+  step, and 6.6.4 lists what it does not cover.
+
 ### Item 25: the Seatbelt escape (SPEC 6.6.4)
 
 The profile of the command sandbox on macOS holds each path as an SBPL string literal.
@@ -218,3 +239,5 @@ and the `action` fuzz target run such inputs.
 **S30 approved (2026-09-26).** The user approved S30 in words: for every app and every version, `version_fit` never fails, and it gives `Supported` exactly when oldest app ≤ v ≤ newest app, `TooOld` exactly when v < oldest app, and `TooNew` exactly when newest app < v. `S30_version_fit` in `proofs/Statements.lean` states this.
 
 **S32 approved (2026-09-26).** The user approved S32 in words: for every path, the escaped path in the Seatbelt profile reads back as the same path and never ends the string literal early. `S32_sbpl_string` and `S32_reads_back` in `proofs/Statements.lean` state this.
+
+**S31 approved (2026-09-26).** The user approved S31 in words: for every config, each `deny` and `desktop` path is hidden; no writable path is inside a hidden path; writes go only to the chat folder and a private temp folder. `S31_sandbox_policy` in `proofs/Statements.lean` states this.

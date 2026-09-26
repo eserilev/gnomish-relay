@@ -8318,6 +8318,190 @@ def restore.restore_body
   let s3 ← lift (Array.to_slice restore.TAIL)
   ascii.push_bytes out4 s3
 
+/-- [protocol::sandbox::{impl core::clone::Clone for protocol::sandbox::Network}::clone]:
+    Source: 'crates/protocol/src/sandbox.rs', lines 11:9-11:14
+    Visibility: public -/
+def sandbox.Network.Insts.CoreCloneClone.clone
+  (self : sandbox.Network) : Result sandbox.Network := do
+  ok self
+
+/-- Trait implementation: [protocol::sandbox::{impl core::clone::Clone for protocol::sandbox::Network}]
+    Source: 'crates/protocol/src/sandbox.rs', lines 11:9-11:14 -/
+@[reducible]
+def sandbox.Network.Insts.CoreCloneClone : core.clone.Clone sandbox.Network
+  := {
+  clone := sandbox.Network.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::sandbox::{impl core::marker::Copy for protocol::sandbox::Network}]
+    Source: 'crates/protocol/src/sandbox.rs', lines 11:16-11:20 -/
+@[reducible]
+def sandbox.Network.Insts.CoreMarkerCopy : core.marker.Copy sandbox.Network
+  := {
+  cloneInst := sandbox.Network.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::sandbox::{impl core::marker::StructuralPartialEq for protocol::sandbox::Network}]
+    Source: 'crates/protocol/src/sandbox.rs', lines 11:22-11:31 -/
+@[reducible]
+def sandbox.Network.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq sandbox.Network := {
+}
+
+/-- [protocol::sandbox::{impl core::cmp::PartialEq<protocol::sandbox::Network> for protocol::sandbox::Network}::eq]:
+    Source: 'crates/protocol/src/sandbox.rs', lines 11:22-11:31
+    Visibility: public -/
+def sandbox.Network.Insts.CoreCmpPartialEqNetwork.eq
+  (self : sandbox.Network) (other : sandbox.Network) : Result Bool := do
+  ok true
+
+/-- Trait implementation: [protocol::sandbox::{impl core::cmp::PartialEq<protocol::sandbox::Network> for protocol::sandbox::Network}]
+    Source: 'crates/protocol/src/sandbox.rs', lines 11:22-11:31 -/
+@[reducible]
+impl_def sandbox.Network.Insts.CoreCmpPartialEqNetwork : core.cmp.PartialEq
+  sandbox.Network sandbox.Network := {
+  eq := sandbox.Network.Insts.CoreCmpPartialEqNetwork.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    sandbox.Network.Insts.CoreCmpPartialEqNetwork
+}
+
+/-- [protocol::sandbox::{impl core::cmp::Eq for protocol::sandbox::Network}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/sandbox.rs', lines 11:33-11:35
+    Visibility: public -/
+def sandbox.Network.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : sandbox.Network) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::sandbox::{impl core::cmp::Eq for protocol::sandbox::Network}]
+    Source: 'crates/protocol/src/sandbox.rs', lines 11:33-11:35 -/
+@[reducible]
+def sandbox.Network.Insts.CoreCmpEq : core.cmp.Eq sandbox.Network := {
+  partialEqInst := sandbox.Network.Insts.CoreCmpPartialEqNetwork
+  assert_fields_are_eq := sandbox.Network.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::sandbox::copy_all]: loop body 0:
+    Source: 'crates/protocol/src/sandbox.rs', lines 33:4-36:5 -/
+@[rust_loop_body]
+def sandbox.copy_all_loop.body
+  (list : Slice (alloc.vec.Vec Std.U8))
+  (out : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × Std.Usize)
+    (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  := do
+  let i1 := Slice.len list
+  if i < i1
+  then
+    let v ← Slice.index_usize list i
+    let s := alloc.vec.Vec.deref v
+    let v1 ← ascii.copy_bytes s
+    let out1 ← alloc.vec.Vec.push out v1
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::sandbox::copy_all]: loop 0:
+    Source: 'crates/protocol/src/sandbox.rs', lines 33:4-36:5 -/
+@[rust_loop]
+def sandbox.copy_all_loop
+  (list : Slice (alloc.vec.Vec Std.U8))
+  (out : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  loop
+    (fun (out1, i1) => sandbox.copy_all_loop.body list out1 i1)
+    (out, i)
+
+/-- [protocol::sandbox::copy_all]:
+    Source: 'crates/protocol/src/sandbox.rs', lines 30:0-38:1 -/
+@[reducible]
+def sandbox.copy_all
+  (list : Slice (alloc.vec.Vec Std.U8)) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  sandbox.copy_all_loop list (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)) 0#usize
+
+/-- [protocol::sandbox::is_hidden]:
+    Source: 'crates/protocol/src/sandbox.rs', lines 41:0-45:1
+    Visibility: public -/
+def sandbox.is_hidden
+  (policy : sandbox.SandboxPolicy) (path : Slice Std.U8) : Result Bool := do
+  let s := alloc.vec.Vec.deref policy.hidden_folders
+  let b ← path_rules.is_denied path s
+  if b
+  then ok true
+  else
+    let s1 := alloc.vec.Vec.deref policy.hidden_paths
+    let b1 ← path_rules.matches_any_pattern path s1
+    if b1
+    then ok true
+    else
+      let s2 := alloc.vec.Vec.deref policy.hidden_writes
+      path_rules.matches_any_pattern path s2
+
+/-- [protocol::sandbox::can_write]:
+    Source: 'crates/protocol/src/sandbox.rs', lines 48:0-50:1 -/
+def sandbox.can_write
+  (policy : sandbox.SandboxPolicy) (path : Slice Std.U8) : Result Bool := do
+  let b ← path_rules.is_clean path
+  if b
+  then let b1 ← sandbox.is_hidden policy path
+       ok (¬ b1)
+  else ok false
+
+/-- [protocol::sandbox::keep_writable]:
+    Source: 'crates/protocol/src/sandbox.rs', lines 52:0-57:1 -/
+def sandbox.keep_writable
+  (list : alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  (policy : sandbox.SandboxPolicy) (path : Slice Std.U8) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  let b ← sandbox.can_write policy path
+  if b
+  then let v ← ascii.copy_bytes path
+       alloc.vec.Vec.push list v
+  else ok list
+
+/-- [protocol::sandbox::sandbox_policy]:
+    Source: 'crates/protocol/src/sandbox.rs', lines 61:0-78:1
+    Visibility: public -/
+def sandbox.sandbox_policy
+  (chat : Slice Std.U8) (temp : Slice Std.U8)
+  (deny_folders : Slice (alloc.vec.Vec Std.U8))
+  (desktop_paths : Slice (alloc.vec.Vec Std.U8))
+  (desktop_writes : Slice (alloc.vec.Vec Std.U8)) :
+  Result sandbox.SandboxPolicy
+  := do
+  let v ← sandbox.copy_all deny_folders
+  let v1 ← sandbox.copy_all desktop_paths
+  let v2 ← sandbox.copy_all desktop_writes
+  let writable ←
+    sandbox.keep_writable (alloc.vec.Vec.new (alloc.vec.Vec Std.U8))
+      {
+        writable := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
+        hidden_folders := v,
+        hidden_paths := v1,
+        hidden_writes := v2,
+        network := sandbox.Network.Off
+      } chat
+  let v3 ←
+    sandbox.keep_writable writable
+      {
+        writable := (alloc.vec.Vec.new (alloc.vec.Vec Std.U8)),
+        hidden_folders := v,
+        hidden_paths := v1,
+        hidden_writes := v2,
+        network := sandbox.Network.Off
+      } temp
+  ok
+    {
+      writable := v3,
+      hidden_folders := v,
+      hidden_paths := v1,
+      hidden_writes := v2,
+      network := sandbox.Network.Off
+    }
+
 /-- [protocol::sbpl::QUOTE]
     Source: 'crates/protocol/src/sbpl.rs', lines 6:0-6:23 -/
 @[global_simps, irreducible] def sbpl.QUOTE : Std.U8 := 34#u8

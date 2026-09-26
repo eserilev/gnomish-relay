@@ -53,7 +53,7 @@ fn no_dot_parts(parts: &[Vec<u8>]) -> bool {
 }
 
 /// Starts with `/`, has no empty part, no `.` or `..`, and no trailing `/`.
-fn is_clean(path: &[u8]) -> bool {
+pub(crate) fn is_clean(path: &[u8]) -> bool {
     if path.len() > MAX_PATH {
         return false;
     }
@@ -97,7 +97,7 @@ fn pattern_in(pattern: &[Vec<u8>], parts: &[Vec<u8>]) -> bool {
     found
 }
 
-fn matches_any_pattern(path: &[u8], patterns: &[Vec<u8>]) -> bool {
+pub(crate) fn matches_any_pattern(path: &[u8], patterns: &[Vec<u8>]) -> bool {
     let parts = split_parts(&lower_bytes(path));
     let mut found = false;
     let mut i = 0;
@@ -108,7 +108,7 @@ fn matches_any_pattern(path: &[u8], patterns: &[Vec<u8>]) -> bool {
     found
 }
 
-fn is_denied(path: &[u8], folders: &[Vec<u8>]) -> bool {
+pub(crate) fn is_denied(path: &[u8], folders: &[Vec<u8>]) -> bool {
     let parts = split_parts(&lower_bytes(path));
     inside_any(&lower_all(folders), &parts, parts.len())
 }
