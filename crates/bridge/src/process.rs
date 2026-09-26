@@ -2,6 +2,7 @@
 //! environment variables of the allowlist, and each line from it has a size limit.
 
 use std::io::{BufRead, BufReader, Read, Write};
+use std::path::Path;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::{Receiver, RecvTimeoutError, Sender, channel};
 use std::sync::{Arc, Mutex};
@@ -18,7 +19,7 @@ const STDERR_TAIL: usize = 2048;
 /// After a crash, stdout can close before stderr is read to the end.
 const STDERR_WAIT: Duration = Duration::from_millis(500);
 /// Each agent process gets these, plus the ones in its `env` list (SPEC.md 6.2, rule 12).
-const BASE_ENV: [&str; 11] = [
+pub const BASE_ENV: [&str; 11] = [
     "PATH",
     "HOME",
     "LANG",
@@ -37,6 +38,12 @@ const OUTPUT_POLL: Duration = Duration::from_millis(20);
 
 type Line = Result<Value, String>;
 
+/// A line over the size limit. The reader skips the rest of it.
+#[derive(Debug, PartialEq, Eq)]
+pub struct TooLong;
+
+pub type RawLine = Result<Vec<u8>, TooLong>;
+
 /// What a wait for the next line found.
 pub enum Next {
     Line(Line),
@@ -49,7 +56,7 @@ pub enum Next {
 pub struct AgentProcess {
     child: Child,
     stdin: ChildStdin,
-    lines: Receiver<Line>,
+    lines: Receiver<RawLine>,
     stderr: Arc<Mutex<Vec<u8>>>,
     stderr_done: Receiver<()>,
 }
@@ -79,7 +86,7 @@ impl AgentProcess {
         Ok(AgentProcess {
             child,
             stdin,
-            lines: read_lines(stdout),
+            lines: read_raw_lines(stdout, MAX_LINE),
             stderr,
             stderr_done,
         })
@@ -97,7 +104,7 @@ impl AgentProcess {
 
     pub fn next(&self, wait: Duration) -> Next {
         match self.lines.recv_timeout(wait) {
-            Ok(line) => Next::Line(line),
+            Ok(line) => Next::Line(json(line)),
             Err(RecvTimeoutError::Timeout) => Next::Quiet,
             Err(RecvTimeoutError::Disconnected) => Next::Ended,
         }
@@ -128,29 +135,36 @@ fn spawn(
     let path = std::env::var_os("PATH").unwrap_or_default();
     let found = find_program(program, &path, cfg!(windows))
         .ok_or_else(|| format!("Cannot start {program}: not found on PATH"))?;
-    let mut child = Command::new(found);
+    let mut child = allowlisted(&found, env);
     child
         .args(own_args)
         .args(args)
         .current_dir(cwd)
-        .env_clear()
         .stdin(stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+    // Tells a hook of the agent that this run comes from the bridge (SPEC.md 10).
+    child.env("GNOMISH_RELAY_JOB", "1");
+    child
+        .spawn()
+        .map_err(|e| format!("Cannot start {program}: {e}"))
+}
+
+/// A command with only the variables of the allowlist, plus the ones in `env`
+/// (SPEC.md 6.2, rule 12).
+pub fn allowlisted(program: &Path, env: &[String]) -> Command {
+    let mut command = Command::new(program);
+    command.env_clear();
     for name in BASE_ENV
         .iter()
         .copied()
         .chain(env.iter().map(String::as_str))
     {
         if let Some(value) = std::env::var_os(name) {
-            child.env(name, value);
+            command.env(name, value);
         }
     }
-    // Tells a hook of the agent that this run comes from the bridge (SPEC.md 10).
-    child.env("GNOMISH_RELAY_JOB", "1");
-    child
-        .spawn()
-        .map_err(|e| format!("Cannot start {program}: {e}"))
+    command
 }
 
 /// The end of a short command, such as `claude --version`.
@@ -209,28 +223,21 @@ pub fn cut(text: &str, max: usize) -> &str {
     &text[..end]
 }
 
-/// Sends each line as JSON. A line over the limit or a line that is not JSON ends the stream.
-fn read_lines(stdout: impl Read + Send + 'static) -> Receiver<Line> {
+/// An agent that sends a bad line fails its run, so the caller reads no further.
+fn json(line: RawLine) -> Line {
+    let bytes =
+        line.map_err(|TooLong| "The agent sent a message over the size limit.".to_owned())?;
+    serde_json::from_slice(&bytes).map_err(|_| "The agent sent a line that is not JSON.".to_owned())
+}
+
+/// Sends each line that is not blank. A line over `max` bytes comes as `TooLong`, and
+/// the reader goes on after its end.
+pub fn read_raw_lines(output: impl Read + Send + 'static, max: usize) -> Receiver<RawLine> {
     let (tx, rx) = channel();
     thread::spawn(move || {
-        let mut reader = BufReader::new(stdout);
-        loop {
-            let mut buf = Vec::new();
-            let read = reader
-                .by_ref()
-                .take(MAX_LINE as u64 + 1)
-                .read_until(b'\n', &mut buf);
-            let line = match read {
-                Ok(0) | Err(_) => return,
-                Ok(_) if buf.len() > MAX_LINE => {
-                    Err("The agent sent a message over the size limit.".to_owned())
-                }
-                Ok(_) if buf.iter().all(u8::is_ascii_whitespace) => continue,
-                Ok(_) => serde_json::from_slice(&buf)
-                    .map_err(|_| "The agent sent a line that is not JSON.".to_owned()),
-            };
-            let end = line.is_err();
-            if tx.send(line).is_err() || end {
+        let mut reader = BufReader::new(output);
+        while let Some(line) = next_line(&mut reader, max) {
+            if tx.send(line).is_err() {
                 return;
             }
         }
@@ -238,9 +245,31 @@ fn read_lines(stdout: impl Read + Send + 'static) -> Receiver<Line> {
     rx
 }
 
+/// `None` at the end of the output. A last line with no newline still counts.
+fn next_line(reader: &mut impl BufRead, max: usize) -> Option<RawLine> {
+    loop {
+        let mut buf = Vec::new();
+        let read = reader
+            .by_ref()
+            .take(max as u64 + 1)
+            .read_until(b'\n', &mut buf)
+            .ok()?;
+        if read == 0 {
+            return None;
+        }
+        if buf.len() > max && buf.last() != Some(&b'\n') {
+            reader.skip_until(b'\n').ok()?;
+            return Some(Err(TooLong));
+        }
+        if !buf.iter().all(u8::is_ascii_whitespace) {
+            return Some(Ok(buf));
+        }
+    }
+}
+
 /// Keeps the last bytes of stderr for an error message, and drains the rest, so a
 /// chatty agent never blocks on a full pipe.
-fn keep_tail(stderr: impl Read + Send + 'static, tail: Arc<Mutex<Vec<u8>>>, done: Sender<()>) {
+pub fn keep_tail(stderr: impl Read + Send + 'static, tail: Arc<Mutex<Vec<u8>>>, done: Sender<()>) {
     thread::spawn(move || {
         // The sender drops when the thread ends, and that wakes `stopped`.
         let _done = done;
@@ -256,4 +285,39 @@ fn keep_tail(stderr: impl Read + Send + 'static, tail: Arc<Mutex<Vec<u8>>>, done
             tail.drain(..extra);
         }
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn lines(input: &[u8], max: usize) -> Vec<RawLine> {
+        read_raw_lines(std::io::Cursor::new(input.to_vec()), max)
+            .iter()
+            .collect()
+    }
+
+    #[test]
+    fn a_line_over_the_limit_is_skipped_and_the_next_line_still_comes() {
+        let input = b"{\"a\":1}\n0123456789abcdef\n{\"b\":2}\n";
+        assert_eq!(
+            lines(input, 10),
+            [
+                Ok(b"{\"a\":1}\n".to_vec()),
+                Err(TooLong),
+                Ok(b"{\"b\":2}\n".to_vec()),
+            ]
+        );
+    }
+
+    #[test]
+    fn a_line_of_exactly_the_limit_passes() {
+        assert_eq!(lines(b"0123456789\n", 10), [Ok(b"0123456789\n".to_vec())]);
+        assert_eq!(lines(b"0123456789a\n", 10), [Err(TooLong)]);
+    }
+
+    #[test]
+    fn blank_lines_are_skipped_and_a_last_line_needs_no_newline() {
+        assert_eq!(lines(b"\n  \nlast", 10), [Ok(b"last".to_vec())]);
+    }
 }
