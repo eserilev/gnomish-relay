@@ -363,7 +363,7 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 **The decoder finds the grid itself.** UI scale makes the cell size fractional. The spike measured 3.875 px wide and 4 px high at 1280×720.
 So each strip starts with two calibration rows of known colors: row 1 counts 0 to 7, and row 2 counts 7 to 0.
 The decoder tries every cell size from 3 to 8 pixels, and keeps a size that matches both rows exactly. Row 2 runs backwards, so a grid one cell off fails.
-The two rows fix the cell width but not the row height. So the decoder reads the data rows with each size that matches, and keeps the one whose bytes decode as a frame with a valid checksum.
+The two rows fix the cell width but not the row height. So the decoder reads the data rows with each size that matches, and keeps the first one whose bytes decode as a frame with a valid checksum and whose tag checks under a key. The checksum does not cover the tag, so a wrong row height can read the payload right and a tag alone in the last row wrong. With no reading that passes the tag, the bridge logs the first reading with a valid checksum as rejected.
 The search starts at the top-left corner of the image. With 8-pixel cells, a strip is 1600×384 pixels.
 
 **Records in the payload:**

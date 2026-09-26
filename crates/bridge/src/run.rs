@@ -162,7 +162,9 @@ impl Bridge {
 
     fn take_screenshots(&mut self) {
         for path in self.watcher.ready() {
-            let bytes = match read_strip(&path) {
+            let keys = &self.keys;
+            let tag_checks = |bytes: &[u8]| receive(bytes, keys, now()).is_ok();
+            let bytes = match read_strip(&path, tag_checks) {
                 Ok(Some(bytes)) => bytes,
                 Ok(None) => continue,
                 Err(e) => {

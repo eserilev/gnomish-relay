@@ -10,7 +10,7 @@ mod common;
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::run::{Bridge, now};
 use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, RESTORE_FILE};
-use bridge::strip::{Image, read};
+use bridge::strip::{Image, read_with};
 use bridge::timeways::NO_STORY;
 use common::{Bits, hex, load_addon, lua, repo_file, screenshot_png};
 use mlua::{Function, Lua, Table, Value};
@@ -244,8 +244,9 @@ fn key(bytes: &[u8]) -> StripKey {
 
 /// The strip goes through a PNG as WoW writes it, then the bridge reader and `receive`.
 fn receive_png(rows: &[Vec<u8>], key_bytes: &[u8], now: u32) -> Option<Vec<Record>> {
-    let bytes = read(&Image::from_png(&screenshot_png(rows)).ok()?)?;
     let keys = KeySet::new(key(key_bytes), None).ok()?;
+    let image = Image::from_png(&screenshot_png(rows)).ok()?;
+    let bytes = read_with(&image, |bytes| receive(bytes, &keys, now).is_ok())?;
     receive(&bytes, &keys, now).ok().map(|(_, records)| records)
 }
 

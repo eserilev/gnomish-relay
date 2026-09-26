@@ -122,9 +122,24 @@ fn data(image: &Image, grid: Grid) -> Option<Vec<u8>> {
     decode_cells(&cells)
 }
 
-/// The bytes of the data rows. The calibration rows fix the cell width but not the
-/// row height, so the frame checksum picks the grid. The bytes run past the end of
-/// the frame, and the frame header gives the real length.
-pub fn read(image: &Image) -> Option<Vec<u8>> {
-    grids(image).find_map(|grid| data(image, grid).filter(|bytes| decode_frame(bytes).is_ok()))
+/// The bytes of the data rows. The bytes run past the end of the frame, and the frame
+/// header gives the real length.
+///
+/// The calibration rows fix the cell width but not the row height. The frame checksum
+/// rules out most heights, but it does not cover the tag: a wrong height can read the
+/// payload right and a tag alone in the last row wrong. So `accept`, the tag check,
+/// picks among the readings with a good checksum. With none accepted, the first one
+/// comes back, so the caller can log why it fails.
+pub fn read_with(image: &Image, accept: impl Fn(&[u8]) -> bool) -> Option<Vec<u8>> {
+    let mut first = None;
+    let readings = grids(image)
+        .filter_map(|grid| data(image, grid))
+        .filter(|bytes| decode_frame(bytes).is_ok());
+    for bytes in readings {
+        if accept(&bytes) {
+            return Some(bytes);
+        }
+        first.get_or_insert(bytes);
+    }
+    first
 }

@@ -59,10 +59,11 @@ impl Watcher {
     }
 }
 
-/// The strip bytes, or `None` for a normal screenshot of the user.
-pub fn read_strip(path: &Path) -> Result<Option<Vec<u8>>> {
+/// The strip bytes, or `None` for a normal screenshot of the user. `accept` is the tag
+/// check of `strip::read_with`.
+pub fn read_strip(path: &Path, accept: impl Fn(&[u8]) -> bool) -> Result<Option<Vec<u8>>> {
     let image = Image::from_png(&fs::read(path)?)?;
-    Ok(strip::read(&image))
+    Ok(strip::read_with(&image, accept))
 }
 
 #[cfg(test)]

@@ -541,12 +541,14 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
     let now = 1_790_211_080;
 
     let png = screenshot_png(&game.shot_rows(game.shots()));
-    let bytes = strip::read(&Image::from_png(&png).unwrap()).expect("the bridge finds the strip");
     let hex = KEY.iter().fold(String::new(), |mut hex, b| {
         let _ = write!(hex, "{b:02x}");
         hex
     });
     let keys = KeySet::new(StripKey::from_hex(&hex).unwrap(), None).unwrap();
+    let tag_checks = |bytes: &[u8]| receive(bytes, &keys, now).is_ok();
+    let bytes = strip::read_with(&Image::from_png(&png).unwrap(), tag_checks)
+        .expect("the bridge finds the strip");
     let (_, records) = receive(&bytes, &keys, now).unwrap();
     let mut relay = Relay::new(Policy {
         folders: Folders {

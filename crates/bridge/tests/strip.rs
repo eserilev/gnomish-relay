@@ -5,7 +5,7 @@
 
 mod common;
 
-use bridge::strip::{Image, MAX_SIDE, read};
+use bridge::strip::{Image, MAX_SIDE, read_with};
 use common::{HEIGHT, WIDTH, encode_png, scene, screenshot_png, strip_rows};
 use png::{BitDepth, ColorType};
 use protocol::frame::{decode_frame, encode_frame};
@@ -15,7 +15,7 @@ fn frame(payload: &[u8]) -> Vec<u8> {
 }
 
 fn payload_of(png_bytes: &[u8]) -> Option<Vec<u8>> {
-    let bytes = read(&Image::from_png(png_bytes).ok()?)?;
+    let bytes = read_with(&Image::from_png(png_bytes).ok()?, |_| true)?;
     decode_frame(&bytes).ok().map(|f| f.payload)
 }
 
@@ -31,6 +31,35 @@ fn the_largest_frame_reads_back() {
     let rgb = scene(&strip_rows(&frame(&payload)), 4.0, 4.0);
     let png_bytes = encode_png(WIDTH, HEIGHT, ColorType::Rgb, BitDepth::Eight, &rgb);
     assert_eq!(payload_of(&png_bytes).unwrap(), payload);
+}
+
+/// The checksum does not cover the tag. So a wrong row height can read the payload right
+/// and the tag wrong, when the tag sits alone in the last row.
+#[test]
+fn a_tag_alone_in_the_last_row_reads_back() {
+    let tag_checks = |bytes: &[u8]| decode_frame(bytes).is_ok_and(|f| f.tag == [9; 8]);
+    for len in 55..70 {
+        let payload = vec![b'p'; len];
+        let png_bytes = screenshot_png(&strip_rows(&frame(&payload)));
+
+        let bytes = read_with(&Image::from_png(&png_bytes).unwrap(), tag_checks).unwrap();
+
+        let tag = decode_frame(&bytes).ok().map(|f| f.tag);
+        assert_eq!(tag, Some([9; 8]), "payload of {len}");
+    }
+}
+
+#[test]
+fn a_strip_whose_tag_never_checks_still_reads_so_the_bridge_can_log_it() {
+    let png_bytes = screenshot_png(&strip_rows(&frame(b"a strip of another key")));
+
+    let bytes = read_with(&Image::from_png(&png_bytes).unwrap(), |_| false);
+
+    let payload = decode_frame(&bytes.unwrap()).ok().map(|f| f.payload);
+    assert_eq!(
+        payload.as_deref(),
+        Some(b"a strip of another key".as_slice())
+    );
 }
 
 #[test]
