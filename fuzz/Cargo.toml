@@ -170,3 +170,10 @@ path = "fuzz_targets/sandbox.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "connect"
+path = "fuzz_targets/connect.rs"
+test = false
+doc = false
+bench = false
