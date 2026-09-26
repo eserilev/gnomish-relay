@@ -319,6 +319,43 @@ fn a_permission_request_waits_for_the_answer_from_the_game() {
     assert!(live_request(&f.addons).is_none());
 }
 
+/// An agent that works until the test lets it go.
+struct Held(Arc<std::sync::atomic::AtomicBool>);
+
+impl Agent for Held {
+    fn run(&self, _job: &Job, _control: &Control) -> Run {
+        while !self.0.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        Run {
+            reply: Ok("let go".into()),
+            session: None,
+        }
+    }
+}
+
+fn live_text(addons: &Path) -> String {
+    fs::read_to_string(addons.join(slot_name(App::Relay, 1)).join(LIVE_FILE)).unwrap_or_default()
+}
+
+#[test]
+fn a_run_shows_its_level_as_its_first_progress_line() {
+    let f = folders();
+    let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut bridge = bridge_with(&f, Arc::new(Held(release.clone())));
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        strip_png(KEY, "work"),
+    )
+    .unwrap();
+
+    let shown = step_until(&mut bridge, || {
+        live_text(&f.addons).contains(r#"lines = {"Level: auto-edit", }"#)
+    });
+    release.store(true, Ordering::SeqCst);
+    assert!(shown, "{}", live_text(&f.addons));
+}
+
 /// An agent with saved sessions, or one whose list fails.
 struct Sessions(Result<Vec<bridge::agent::SessionInfo>, String>);
 

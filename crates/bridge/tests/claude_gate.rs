@@ -72,6 +72,7 @@ fn job(home: &Home, permission: Permission) -> Job {
         id: MessageId(1),
         agent: "claude".into(),
         permission,
+        asked: permission,
         cwd: home.chat.to_string_lossy().into_owned(),
         session: Session::New,
         resume: None,

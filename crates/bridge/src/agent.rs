@@ -321,6 +321,7 @@ mod tests {
             id: MessageId(1),
             agent: "echo".into(),
             permission: Permission::Ask,
+            asked: Permission::Ask,
             cwd: ".".into(),
             session: Session::New,
             resume: None,

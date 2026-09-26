@@ -85,6 +85,7 @@ mod tests {
                 id: MessageId(8),
                 agent: "claude".into(),
                 permission: crate::config::Permission::AutoEdit,
+                asked: crate::config::Permission::AutoEdit,
                 cwd: "/home/x".into(),
                 session: Session::Resume,
                 resume: None,

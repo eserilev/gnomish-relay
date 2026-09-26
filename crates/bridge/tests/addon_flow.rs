@@ -788,6 +788,57 @@ fn the_activity_panel_shows_the_progress_of_a_working_agent() {
     assert!(texts.contains(&"$ cargo test".to_owned()), "{texts:?}");
 }
 
+fn show_progress(game: &Game, lines: &[&[u8]]) {
+    let id = first_message_id(game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    let progress = Progress {
+        chat: game.chat_id().into_bytes(),
+        id,
+        lines: lines.iter().map(|l| l.to_vec()).collect(),
+    };
+    game.wow
+        .set(
+            "live",
+            game.lua.create_string(live(&[progress], &[])).unwrap(),
+        )
+        .unwrap();
+    game.advance(5.0);
+}
+
+#[test]
+fn the_header_shows_the_level_that_the_bridge_used_not_the_one_the_chat_asked_for() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("build it");
+    game.advance(1.0);
+    show_progress(&game, &[b"Level: ask (config)", b"edit src/main.rs"]);
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"Claude · ask (config)".to_owned()),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.contains(&"Claude · auto-edit".to_owned()),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn a_level_line_that_is_not_first_does_not_change_the_header() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("build it");
+    game.advance(1.0);
+    show_progress(&game, &[b"edit src/main.rs", b"Level: full-auto"]);
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"Claude · auto-edit".to_owned()),
+        "{texts:?}"
+    );
+}
+
 /// A request with an "allow" option that the agent labels "Reject".
 fn request(game: &Game, text: &str) -> LiveRequest {
     let option = |id: &[u8], kind, label: &[u8]| PermOption {

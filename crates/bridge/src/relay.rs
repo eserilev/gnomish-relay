@@ -13,7 +13,7 @@ use protocol::slot::Status;
 
 use serde::{Deserialize, Serialize};
 
-use crate::activity::Activity;
+use crate::activity::{self, Activity};
 use crate::agent::{Choice, SessionInfo};
 use crate::config::{
     Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
@@ -96,6 +96,9 @@ pub struct Job {
     /// A job from an older state file has none, and gets the strictest level.
     #[serde(default)]
     pub permission: Permission,
+    /// The level that the chat asked for. The config can lower it (S6).
+    #[serde(default)]
+    pub asked: Permission,
     pub cwd: String,
     pub session: Session,
     /// The agent session to resume, set when the job starts.
@@ -297,6 +300,7 @@ impl Relay {
             );
             return Outcome::BadAgent;
         };
+        let asked = flags.level.unwrap_or(*permission);
         let permission = permission.ceiling(flags.level);
         self.enqueue_job(Job {
             token: text(&r.token),
@@ -304,6 +308,7 @@ impl Relay {
             id: MessageId(r.id),
             agent,
             permission,
+            asked,
             cwd: text(&native_folder(cwd, cfg!(windows))),
             session: if flags.new_session {
                 Session::New
@@ -324,6 +329,7 @@ impl Relay {
             id: MessageId(r.id),
             agent: self.policy.default_agent.clone(),
             permission: Permission::Ask,
+            asked: Permission::Ask,
             cwd: text(&native_folder(base, cfg!(windows))),
             session: Session::New,
             resume: None,
@@ -349,6 +355,7 @@ impl Relay {
             id: MessageId(r.id),
             agent: listed.agent,
             permission: Permission::Ask,
+            asked: Permission::Ask,
             cwd: listed.cwd,
             session: Session::New,
             resume: None,
@@ -471,6 +478,13 @@ impl Relay {
         keep_last(&mut self.sessions, MAX_SESSIONS);
     }
 
+    /// The first progress line of a run says its level, so the game shows the level
+    /// that applies, not the one that the chat asked for (SPEC.md 9.3).
+    pub fn begin(&mut self, job: &Job) {
+        let line = activity::level_line(job.permission, job.asked);
+        self.activity.begin(&job.chat, job.id, line);
+    }
+
     pub fn step(&mut self, chat: &ChatId, id: MessageId, line: String) {
         self.activity.step(chat, id, line);
     }
@@ -505,7 +519,10 @@ impl Relay {
             return;
         }
         let (status, text) = match result {
-            Ok(text) => (Status::Done, render_reply(&job.work, &text)),
+            Ok(text) => (
+                Status::Done,
+                render_reply(&job.work, &with_level_note(job, text)),
+            ),
             Err(text) => (Status::Error, text),
         };
         self.set_record(&job.token, &job.chat, job.id, status, text);
@@ -671,6 +688,15 @@ impl Relay {
     pub fn body(&self, now: u32) -> Vec<u8> {
         self.lane.body(now)
     }
+}
+
+/// The addon cannot tell this note from agent text, so it is for the player only.
+fn with_level_note(job: &Job, text: String) -> String {
+    if job.work != Work::Prompt || job.permission >= job.asked {
+        return text;
+    }
+    let level = job.permission.word();
+    format!("(Ran at {level}: the config allows at most {level}.)\n\n{text}")
 }
 
 #[cfg(test)]
@@ -975,6 +1001,33 @@ mod tests {
             levels,
             [Permission::AutoEdit, Permission::Ask, Permission::Ask]
         );
+    }
+
+    #[test]
+    fn a_lowered_run_shows_its_level_first_in_the_live_file_and_in_its_reply() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "agent=codex;level=auto-edit", "hi")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.begin(&job);
+        let live = String::from_utf8(relay.live_file()).unwrap();
+        assert!(
+            live.contains(r#"lines = {"Level: ask (config)", }"#),
+            "{live}"
+        );
+        relay.finish(&job, Ok("done".into()));
+        assert!(body(&relay).contains("(Ran at ask: the config allows at most ask.)"));
+    }
+
+    #[test]
+    fn a_run_at_the_level_that_it_asked_for_has_no_note() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "level=auto-edit", "hi")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.begin(&job);
+        let live = String::from_utf8(relay.live_file()).unwrap();
+        assert!(live.contains(r#"lines = {"Level: auto-edit", }"#), "{live}");
+        relay.finish(&job, Ok("done".into()));
+        assert!(!body(&relay).contains("Ran at"));
     }
 
     #[test]

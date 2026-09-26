@@ -10,13 +10,28 @@ use std::fmt::Write;
 use sha2::{Digest, Sha256};
 
 use crate::agent::Choice;
+use crate::config::Permission;
 use crate::flags::PermAnswer;
 use crate::relay::{ChatId, MessageId};
 
 struct Steps {
     chat: ChatId,
     id: MessageId,
+    /// The level line of the bridge. It stays first, so the addon always finds it.
+    level: Option<String>,
     lines: Vec<String>,
+}
+
+/// Only the bridge writes a line with this start (SPEC.md 9.3).
+const LEVEL: &str = "Level: ";
+
+/// The level that a run really has. "(config)" marks a level that the config lowered.
+pub fn level_line(level: Permission, asked: Permission) -> String {
+    if level < asked {
+        format!("{LEVEL}{} (config)", level.word())
+    } else {
+        format!("{LEVEL}{}", level.word())
+    }
 }
 
 struct Asked {
@@ -48,22 +63,41 @@ pub fn text_hash(text: &[u8]) -> String {
 }
 
 impl Activity {
+    /// The first line of a run: its level.
+    pub fn begin(&mut self, chat: &ChatId, id: MessageId, level: String) {
+        self.steps_of(chat, id).level = Some(level);
+    }
+
+    /// An agent line never looks like the level line of the bridge.
     pub fn step(&mut self, chat: &ChatId, id: MessageId, line: String) {
-        let of_run = |s: &&mut Steps| &s.chat == chat && s.id == id;
-        if !self.steps.iter_mut().any(|s| of_run(&s)) {
+        let line = if line.starts_with(LEVEL.trim_end()) {
+            format!("agent: {line}")
+        } else {
+            line
+        };
+        let steps = self.steps_of(chat, id);
+        steps.lines.push(line);
+        let room = MAX_LINES - usize::from(steps.level.is_some());
+        if steps.lines.len() > room {
+            steps.lines.remove(0);
+        }
+    }
+
+    fn steps_of(&mut self, chat: &ChatId, id: MessageId) -> &mut Steps {
+        let at = self
+            .steps
+            .iter()
+            .position(|s| &s.chat == chat && s.id == id);
+        let at = at.unwrap_or_else(|| {
             self.steps.push(Steps {
                 chat: chat.clone(),
                 id,
+                level: None,
                 lines: Vec::new(),
             });
-        }
-        let Some(steps) = self.steps.iter_mut().find(of_run) else {
-            return;
-        };
-        steps.lines.push(line);
-        if steps.lines.len() > MAX_LINES {
-            steps.lines.remove(0);
-        }
+            self.steps.len() - 1
+        });
+        &mut self.steps[at]
     }
 
     /// Returns the id of the new request. The time in the id keeps an old strip from
@@ -126,7 +160,12 @@ impl Activity {
             .map(|s| Progress {
                 chat: s.chat.0.as_bytes().to_vec(),
                 id: s.id.0,
-                lines: s.lines.iter().map(|l| l.as_bytes().to_vec()).collect(),
+                lines: s
+                    .level
+                    .iter()
+                    .chain(&s.lines)
+                    .map(|l| l.as_bytes().to_vec())
+                    .collect(),
             })
             .collect();
         let requests: Vec<Request> = self.asked.iter().map(Asked::to_request).collect();
@@ -241,6 +280,45 @@ mod tests {
         );
         activity.end(&chat(), MessageId(7));
         assert!(!String::from_utf8(activity.file()).unwrap().contains("step"));
+    }
+
+    #[test]
+    fn the_level_line_stays_first_when_the_agent_sends_many_steps() {
+        let mut activity = Activity::default();
+        let level = level_line(Permission::Ask, Permission::AutoEdit);
+        activity.begin(&chat(), MessageId(7), level);
+        for n in 0..8 {
+            activity.step(&chat(), MessageId(7), format!("step {n}"));
+        }
+        let file = String::from_utf8(activity.file()).unwrap();
+        assert!(
+            file.contains(
+                r#"lines = {"Level: ask (config)", "step 4", "step 5", "step 6", "step 7", }"#
+            ),
+            "{file}"
+        );
+    }
+
+    #[test]
+    fn an_agent_line_that_starts_with_level_gets_a_prefix() {
+        let mut activity = Activity::default();
+        activity.step(&chat(), MessageId(7), "Level: full-auto".into());
+        activity.step(&chat(), MessageId(7), "Level:full-auto".into());
+        let file = String::from_utf8(activity.file()).unwrap();
+        assert!(
+            file.contains(r#"lines = {"agent: Level: full-auto", "agent: Level:full-auto", }"#),
+            "{file}"
+        );
+    }
+
+    #[test]
+    fn the_level_line_says_config_only_when_the_config_lowered_the_level() {
+        use Permission::{Ask, AutoEdit, FullAuto};
+        assert_eq!(level_line(Ask, AutoEdit), "Level: ask (config)");
+        assert_eq!(level_line(AutoEdit, AutoEdit), "Level: auto-edit");
+        assert_eq!(level_line(AutoEdit, FullAuto), "Level: auto-edit (config)");
+        assert_eq!(level_line(FullAuto, FullAuto), "Level: full-auto");
+        assert_eq!(level_line(Ask, Ask), "Level: ask");
     }
 
     #[test]

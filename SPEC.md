@@ -940,7 +940,15 @@ Rules:
 
 - The request id holds the time of the question, so an old strip cannot answer a new request after a restart of the bridge.
 - `allow_always` waits for the rules of 6.6.5. Until then, the bridge does not offer it in the game.
-- Each tool call of the agent also becomes a progress line in `Live.lua`: the last 5 lines of each run, for the activity panel.
+- Each tool call of the agent also becomes a progress line in `Live.lua`, for the activity panel. A run shows its level line first, and then its last 4 lines.
+
+**The level in the game** (decided with an advisor on 2026-09-26). The bridge runs a chat at the lower of its level and the `permission` of the config (S6). In the first test in the game, the header said "Claude · auto-edit", but the run was at `ask`. So the game now shows the level that applies:
+
+- When a run starts, the bridge writes its level line as the first progress line of the run: "Level: auto-edit", or "Level: ask (config)" when the config lowered the level. It writes the line at every run, so a raised config also clears an old "(config)".
+- The line stays first while the agent adds steps. `Activity` keeps it and the last 4 lines of the agent, so the proved writer of S20 still gets at most 5 lines, and S9 and S20 do not change.
+- Only the bridge writes a line that starts with "Level:". `Activity::step` is the one place where agent lines come in, and it puts "agent: " in front of such a line.
+- The addon takes the level only from the first line of the progress of a working message, and only when that line is one of the exact texts of the bridge. It keeps the level with the chat, in the saved variables. The header then shows it, for example "Claude · ask (config)". Before the first run, the header shows the level that the chat asks for.
+- A lowered run also starts its reply with "(Ran at ask: the config allows at most ask.)", because a short run can end before the addon loads a slot. The addon does not read this note: after rendering, an agent can write the same text.
 - The run timeout stops while the run waits for a permission answer. A separate `permission_timeout_minutes` applies (default 10). After it, the bridge answers "cancelled".
 - If the game closes or reloads, open requests stay in the next publish until they time out.
 - Stop ends an open request as "cancelled", and the run as "Stopped.".

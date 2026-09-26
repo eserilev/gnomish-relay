@@ -323,6 +323,10 @@ impl RelayLane {
                 events: Events::to_bridge(self.events.clone(), &job),
             };
             self.stops.insert(job.chat.clone(), control.stop.clone());
+            if job.work == Work::Prompt {
+                self.relay.begin(&job);
+                self.files.changed = true;
+            }
             thread::spawn(move || {
                 let run = agent.run(&job, &control);
                 let _ = finished.send(Finished::Run(job, run));

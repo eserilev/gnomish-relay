@@ -49,6 +49,7 @@ fn job(dir: &tempfile::TempDir, permission: Permission, text: &str) -> Job {
         id: MessageId(1),
         agent: "claude".into(),
         permission,
+        asked: permission,
         cwd: dir.path().to_string_lossy().into_owned(),
         session: Session::New,
         resume: None,

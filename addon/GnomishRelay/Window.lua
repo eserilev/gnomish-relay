@@ -161,7 +161,7 @@ end
 
 local function RefreshStatus(chat)
 	if chat then
-		ui.agent:SetText(ns.Relay.AgentName(chat.agent) .. " · " .. chat.mode)
+		ui.agent:SetText(ns.Relay.AgentName(chat.agent) .. " · " .. (chat.level or chat.mode))
 		ui.folder:SetText(chat.cwd ~= "" and ns.Relay.Plain(chat.cwd) or "")
 	else
 		ui.agent:SetText("")

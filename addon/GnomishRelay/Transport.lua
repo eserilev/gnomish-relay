@@ -9,6 +9,16 @@ ns.Transport = Transport
 
 local LIST_CHAT = "relay"
 
+-- The bridge writes one of these as the first line of each run, and no agent line
+-- can start with "Level:" (SPEC.md 9.3). The config can lower the level of the chat.
+local LEVELS = {
+	["Level: ask"] = "ask",
+	["Level: ask (config)"] = "ask (config)",
+	["Level: auto-edit"] = "auto-edit",
+	["Level: auto-edit (config)"] = "auto-edit (config)",
+	["Level: full-auto"] = "full-auto",
+}
+
 local state = {
 	working = {},
 	-- The permission requests of the last live file, and the ones this session answered.
@@ -215,6 +225,10 @@ local function ApplyLive(live)
 		local working = type(p) == "table" and state.working[p.chat]
 		if working and working.id == p.id and type(p.lines) == "table" then
 			working.progress = p.lines
+			local chat = ns.Store.Chat(p.chat)
+			if chat and LEVELS[p.lines[1]] then
+				chat.level = LEVELS[p.lines[1]]
+			end
 		end
 	end
 	local requests = {}
