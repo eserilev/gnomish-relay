@@ -163,3 +163,10 @@ path = "fuzz_targets/model_http.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "sandbox"
+path = "fuzz_targets/sandbox.rs"
+test = false
+doc = false
+bench = false
