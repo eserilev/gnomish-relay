@@ -8318,6 +8318,79 @@ def restore.restore_body
   let s3 ← lift (Array.to_slice restore.TAIL)
   ascii.push_bytes out4 s3
 
+/-- [protocol::sbpl::QUOTE]
+    Source: 'crates/protocol/src/sbpl.rs', lines 6:0-6:23 -/
+@[global_simps, irreducible] def sbpl.QUOTE : Std.U8 := 34#u8
+
+/-- [protocol::sbpl::BACKSLASH]
+    Source: 'crates/protocol/src/sbpl.rs', lines 7:0-7:28 -/
+@[global_simps, irreducible] def sbpl.BACKSLASH : Std.U8 := 92#u8
+
+/-- [protocol::sbpl::needs_backslash]:
+    Source: 'crates/protocol/src/sbpl.rs', lines 9:0-11:1 -/
+def sbpl.needs_backslash (b : Std.U8) : Result Bool := do
+  if b = sbpl.QUOTE
+  then ok true
+  else ok (b = sbpl.BACKSLASH)
+
+/-- [protocol::sbpl::push_escaped]:
+    Source: 'crates/protocol/src/sbpl.rs', lines 14:0-19:1 -/
+def sbpl.push_escaped
+  (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let b1 ← sbpl.needs_backslash b
+  let out1 ← if b1
+               then alloc.vec.Vec.push out sbpl.BACKSLASH
+               else ok out
+  alloc.vec.Vec.push out1 b
+
+/-- [protocol::sbpl::quoted]: loop body 0:
+    Source: 'crates/protocol/src/sbpl.rs', lines 25:4-28:5 -/
+@[rust_loop_body]
+def sbpl.quoted_loop.body
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    let i2 ← Slice.index_usize bytes i
+    let out1 ← sbpl.push_escaped out i2
+    let i3 ← i + 1#usize
+    ok (cont (out1, i3))
+  else ok (done out)
+
+/-- [protocol::sbpl::quoted]: loop 0:
+    Source: 'crates/protocol/src/sbpl.rs', lines 25:4-28:5 -/
+@[rust_loop]
+def sbpl.quoted_loop
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => sbpl.quoted_loop.body bytes out1 i1)
+    (out, i)
+
+/-- [protocol::sbpl::quoted]:
+    Source: 'crates/protocol/src/sbpl.rs', lines 21:0-31:1 -/
+def sbpl.quoted (bytes : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
+  let out ← alloc.vec.Vec.push (alloc.vec.Vec.new Std.U8) sbpl.QUOTE
+  let out1 ← sbpl.quoted_loop bytes out 0#usize
+  alloc.vec.Vec.push out1 sbpl.QUOTE
+
+/-- [protocol::sbpl::sbpl_string]:
+    Source: 'crates/protocol/src/sbpl.rs', lines 36:0-41:1
+    Visibility: public -/
+def sbpl.sbpl_string
+  (bytes : Slice Std.U8) : Result (Option (alloc.vec.Vec Std.U8)) := do
+  let b ← search.has_byte bytes 0#u8
+  if b
+  then ok none
+  else let v ← sbpl.quoted bytes
+       ok (some v)
+
 /-- [protocol::seen::SEEN_CAPACITY]
     Source: 'crates/protocol/src/seen.rs', lines 5:0-5:38
     Visibility: public -/

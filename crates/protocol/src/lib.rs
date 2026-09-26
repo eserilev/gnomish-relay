@@ -34,6 +34,7 @@ pub mod popup;
 pub mod rate;
 pub mod record;
 pub mod restore;
+pub mod sbpl;
 pub(crate) mod search;
 pub mod seen;
 pub mod shell;

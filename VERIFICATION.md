@@ -46,6 +46,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 22 | S16 + S17 + S27 + S28: action classifier | `action`, `shell`, `path_rules`, `command_rules`, `search` | `S16_paths`, `S16_deny`, `S17_ceiling`, `S17_unknown`, `S17_never_always`, `S27_classify`, `S27_ceiling`, `S27_split`, `S28_no_parse`, `S28_substitution`, `S28_desktop`, `S28_capped` | proved |
 | 23 | S29: routing by key | `apps::route` | `S29_route` | proved |
 | 24 | S30: version range | `version::version_fit` | `S30_version_fit` | proved |
+| 25 | S32: Seatbelt escape | `sbpl::sbpl_string` | `S32_sbpl_string`, `S32_reads_back` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |
@@ -135,6 +136,22 @@ app: a version below the range is then never above it too. So `Version.lean` sta
 four constants, and a new range changes only those four facts. The `flags` fuzz target
 checks the same range on the compiled code.
 
+### Item 25: the Seatbelt escape (SPEC 6.6.4)
+
+The profile of the command sandbox on macOS holds each path as an SBPL string literal.
+The statement makes "every path" and "reads back" exact:
+
+- **Every path** is a byte string with no NUL byte. No path of the OS holds one, and the
+  profile is a C string, so a NUL ends it. `sbpl_string` gives `None` for such bytes,
+  and the bridge then refuses the run.
+- **Reads back** uses a model of the string reader of SBPL (`Spec/Sbpl.lean`). SBPL is
+  a Scheme, and the model follows `readstrexp` of TinyScheme 1.41: a backslash before
+  `n`, `t`, or `r` gives a control byte, and before any other byte gives that byte. The
+  model says nothing about the numeric escapes (`\0` to `\7`, `\x`), and
+  `sbpl_string` never writes one. The Apple reader is not open source, so the macOS
+  tests in CI back the model: they run the real `sandbox-exec` with folder names that
+  hold `"`, `\`, a line break, and UTF-8.
+
 ### Item 17: what the fuzz targets check
 
 Each target checks the property of its proof on the compiled code, not only "no crash":
@@ -199,3 +216,5 @@ and the `action` fuzz target run such inputs.
 **S29 approved (2026-09-26).** The user confirmed the exact Lean text of `S29_route` in `proofs/Statements.lean`.
 
 **S30 approved (2026-09-26).** The user approved S30 in words: for every app and every version, `version_fit` never fails, and it gives `Supported` exactly when oldest app ≤ v ≤ newest app, `TooOld` exactly when v < oldest app, and `TooNew` exactly when newest app < v. `S30_version_fit` in `proofs/Statements.lean` states this.
+
+**S32 approved (2026-09-26).** The user approved S32 in words: for every path, the escaped path in the Seatbelt profile reads back as the same path and never ends the string literal early. `S32_sbpl_string` and `S32_reads_back` in `proofs/Statements.lean` state this.

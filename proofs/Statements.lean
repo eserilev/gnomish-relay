@@ -30,6 +30,8 @@ import Protocol.Markdown
 import Protocol.Spec.Action
 import Protocol.Action
 import Protocol.Version
+import Protocol.Spec.Sbpl
+import Protocol.Sbpl
 
 /-!
 # The theorems, stated
@@ -451,6 +453,21 @@ def S28_capped : Prop :=
     (∃ s ∈ script.simples.val, runner (words s) ∨ network (words s)) →
     action.classify (.Command raw cwd) policy rules ⦃ v => rankV v ≤ rankV .Ask ⦄
 
+/-! ## The Seatbelt profile of the command sandbox -/
+
+/-- **S32, writer.** `sbpl_string` writes exactly `sbplLiteral` for a path, and nothing
+for bytes with NUL, which no path holds. -/
+def S32_sbpl_string : Prop :=
+  ∀ s : Slice U8, s.val.length ≤ 2 ^ 20 →
+    sbpl.sbpl_string s ⦃ v =>
+      ((0 : Spec.Byte) ∈ bytes s.val → v = none) ∧
+      ((0 : Spec.Byte) ∉ bytes s.val → ∃ lit, v = some lit ∧ bytes lit.val = sbplLiteral (bytes s.val)) ⦄
+
+/-- **S32, reader.** Seatbelt reads `sbplLiteral s` back as `s`, for every path `s`, and
+the literal ends exactly where it should. Whatever follows is left alone. -/
+def S32_reads_back : Prop :=
+  ∀ s rest : List Spec.Byte, (0 : Spec.Byte) ∉ s → sbplReadString (sbplLiteral s ++ rest) = some (s, rest)
+
 /-! ## Checks: each proved theorem against its approved statement -/
 
 theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
@@ -508,5 +525,8 @@ theorem check_S28_no_parse : S28_no_parse := Protocol.Action.classify_no_parse
 theorem check_S28_substitution : S28_substitution := Protocol.Action.classify_substitution
 theorem check_S28_desktop : S28_desktop := Protocol.Action.classify_desktop
 theorem check_S28_capped : S28_capped := Protocol.Action.classify_capped
+
+theorem check_S32_sbpl_string : S32_sbpl_string := Protocol.Sbpl.sbpl_string_spec
+theorem check_S32_reads_back : S32_reads_back := Protocol.Sbpl.sbpl_reads_back
 
 end Protocol.Statements
