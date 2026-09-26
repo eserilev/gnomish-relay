@@ -37,13 +37,25 @@ fn question(line: &Value) -> &str {
     line["question"].as_str().unwrap_or_default()
 }
 
-/// The journal answers at once, with no model call.
+/// The journal answers at once, with no model call. The asked page is its last page.
 fn journal(line: &Value) {
+    let page = line["page"].as_u64().unwrap_or_default();
     send(&json!({
-        "type": "journal", "id": line["id"], "page": line["page"], "pages": 1,
+        "type": "journal", "id": line["id"], "page": page, "pages": page + 1,
         "places": [{ "name": "Goldshire", "within": "Elwynn Forest", "first_visit": 100 }],
-        "people": [{ "name": "Marshal Dughan", "place": null, "first_met": 101 }],
+        "people": [{
+            "name": "Marshal Dughan", "place": null, "first_met": 101, "trust": 40, "slapped": null,
+        }],
         "deeds": [{ "kind": "level", "from": null, "to": 2, "at": 102, "place": "Goldshire" }],
+        "chapters": [{
+            "number": 1, "began": 100, "zones": ["Elwynn Forest"], "people": ["Marshal Dughan"],
+            "deeds": [
+                { "kind": "level", "from": 1, "to": 2, "at": 102, "place": null },
+                { "kind": "defeated", "foe": "Hogger", "times": 2 },
+                { "kind": "died", "killer": "Hogger" },
+            ],
+            "left_out": 0, "prose": "The road to Goldshire | began.",
+        }],
     }));
 }
 

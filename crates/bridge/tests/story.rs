@@ -403,7 +403,7 @@ fn a_batch_with_a_reply_line_that_is_not_last_is_refused() {
 }
 
 #[test]
-fn a_journal_request_gets_the_journal_at_once() {
+fn a_journal_request_gets_the_journal_with_its_chapters_at_once() {
     let dir = tempfile::tempdir().unwrap();
     let mut story = story("echo", dir.path());
     story.send(message(7, &format!("{EVENTS}\n{JOURNAL}")));
@@ -415,6 +415,12 @@ fn a_journal_request_gets_the_journal_at_once() {
     assert_eq!(reply["page"], 3);
     assert_eq!(reply["places"][0]["within"], "Elwynn Forest");
     assert_eq!(reply["deeds"][0]["kind"], "level");
+    let chapter = &reply["chapters"][0];
+    let kinds: Vec<&str> = (0..3)
+        .map(|n| chapter["deeds"][n]["kind"].as_str().unwrap())
+        .collect();
+    assert_eq!(kinds, ["level", "defeated", "died"]);
+    assert_eq!(chapter["prose"], "The road to Goldshire || began.");
     assert_eq!(seen(dir.path())[2]["id"], 1);
 }
 

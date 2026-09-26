@@ -4,7 +4,7 @@
 #![no_main]
 
 use bridge::addon_lines::{forwarded_line, read_batch};
-use bridge::app_protocol::{FromStory, MAX_ANSWER_LINE, MAX_PROMPT, RequestId, read_line, reply_text};
+use bridge::app_protocol::{Body, FromStory, MAX_ANSWER_LINE, MAX_PROMPT, RequestId, read_line, reply_text};
 use libfuzzer_sys::fuzz_target;
 use protocol::slot::{Reply, Status, prepare_replies};
 
@@ -48,6 +48,9 @@ fuzz_target!(|data: &[u8]| {
             ..
         }) => {
             assert!(data.len() <= MAX_ANSWER_LINE);
+            if let Body::Journal { content, .. } = &answer.body {
+                assert!(!content.contains_key("note"), "the note is the bridge's own");
+            }
             if let Some(reply) = reply_text(&answer, Some("note")) {
                 check_reply(&reply);
             }

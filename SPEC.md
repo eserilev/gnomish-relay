@@ -1038,18 +1038,20 @@ A line that fails a check is dropped and logged. The batch is refused with an er
 
 The bridge sends each batch as soon as the story program is ready. A batch that waits for its answer never holds up the next one: answers match by `id`. The limits of each chat (the queue cap of S14, and 30 records in the body) bound the batches that wait.
 
-**Messages from the story program.** Each line must have one of these shapes, with `deny_unknown_fields`: an unknown type, an unknown field, a missing field, a field twice, or a value of the wrong type refuses the line.
+**Messages from the story program.** Each line must have one of these shapes, with `deny_unknown_fields`: an unknown type, an unknown field, a missing field, a field twice, or a value of the wrong type refuses the line. The `journal` is the one exception: its other fields are bounded JSON (below).
 
 | `type` | Fields | Checks |
 |---|---|---|
 | `hello` | `protocol` | |
 | `lore_answer` | `id`, `text` (a string or `null`), `passages` (a list of `text` and `source`), `companion` (optional) | `text` at most 8 KiB, at most 8 passages, each `text` at most 4 KiB and each `source` at most 512 bytes. No control character but a newline and a tab. |
-| `journal` | `id`, `page`, `pages`, `places` (`name`, `within` or `null`, `first_visit`), `people` (`name`, `place` or `null`, `first_met`), `deeds` (`kind`, which is `level`, `from` or `null`, `to`, `at`, `place` or `null`), `companion` (optional) | Each name and place at most 128 bytes, with no control character. |
+| `journal` | `id`, `page`, `pages`, `companion` (optional), and any other fields | `page` and `pages` are integers from 0 up, and `page` is below `pages` unless `pages` is 0. The other fields are bounded JSON (below). |
 | `talk_answer` | `id`, `npc`, `text` (a string or `null` when no model answered), `companion` (optional) | `npc` at most 64 bytes. `text` at most 1600 bytes (400 characters), on one line, with no control character. |
 | `events_seen` | `id`, `companion` (a string or `null`) | The answer to a batch of game events only |
 | `model_call` | `call`, `prompt` | `prompt` at most 256 KiB. |
 
 **Model calls.** A `model_call` can come at any time, also when no batch waits, for example the call of the bard for a saga after `events_seen`. The bridge ties it to no batch and answers it by its `call`. A call that belongs to no batch gives no reply to the game. At most 2 model calls of the story program are open at once (one of the companion, one of the bard); a third one gets `model_failed` at once. In step 5 every call gets `model_failed` at once, so no call stays open. Step 6 keeps calls open while the model runs, and counts them.
+
+**The journal is bounded JSON.** The journal of the story program grows often, for example with chapters, the trust of a person, and new kinds of deeds. So only `type`, `id`, `page`, `pages`, and `companion` of a `journal` line have a fixed shape, and a new field needs no change in the bridge. The other fields must hold only objects, arrays, strings, integers, `null`, and booleans. The line is depth 1, and the depth is at most 6. Each string is at most 1600 bytes, with no control character. Each key is 1 to 32 bytes of `[a-z_]`. An object holds at most 64 keys, and an array at most 200 items. A `note` key is refused, because the note of a reply is the bridge's own. The bridge writes the journal again from the checked value, with every `|` doubled (S10). A string over its limit is a text error; every other failed check is a shape error. The whole line is at most 24576 bytes, as for every answer.
 
 `companion` is a line of the companion of the player. It is at most 1000 bytes, with no control character. A longer one, or one with a control character, is dropped and logged, and the rest of the answer stays.
 
@@ -1075,7 +1077,7 @@ The bridge sends each batch as soon as the story program is ready. A batch that 
 - **No sandbox.** With no sandbox (6.6.4), the first reply with text after the bridge starts carries the warning: a `note` field in a JSON reply, or a second line in an error reply.
 - **Logs.** Each log line of the story program starts with `timeways:`. The last line of its stderr goes into the log after a crash, with the escapes of 6.2 rule 15.
 
-The tests use a fake story program, `crates/bridge/src/bin/fake-story.rs`, with scripts: echo (a `lore_answer` of "story: <question>", the journal, a `talk_answer`, and `events_seen`), a `null` text, two answers with one `id`, three bard calls after `events_seen`, `events_seen` and answers with a companion line and with one that is too long, a late `events_seen`, a missing `events_seen`, crash, crash once, garbage lines, a flood of bad lines, a huge line, an answer line one byte over the limit, a hang, no hello, a higher and a lower version, answers for unknown ids, an answer for another id, a model call, its environment, a child process, and probes of the sandbox. It writes each line that it gets into `seen.txt` in its folder, and the `id` of each `batch_end` into `ends.txt`.
+The tests use a fake story program, `crates/bridge/src/bin/fake-story.rs`, with scripts: echo (a `lore_answer` of "story: <question>", the journal with a chapter and the three kinds of deeds, a `talk_answer`, and `events_seen`), a `null` text, two answers with one `id`, three bard calls after `events_seen`, `events_seen` and answers with a companion line and with one that is too long, a late `events_seen`, a missing `events_seen`, crash, crash once, garbage lines, a flood of bad lines, a huge line, an answer line one byte over the limit, a hang, no hello, a higher and a lower version, answers for unknown ids, an answer for another id, a model call, its environment, a child process, and probes of the sandbox. It writes each line that it gets into `seen.txt` in its folder, and the `id` of each `batch_end` into `ends.txt`.
 
 ## 10. Pings from terminal sessions
 

@@ -6,6 +6,7 @@
 use protocol::slot::{Reply as SlotReply, Status, prepare_replies};
 use protocol::wow_text::chat_safe;
 use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value};
 
 pub const VERSION: u32 = 1;
 /// The largest line from the story program. A model prompt fits.
@@ -15,7 +16,13 @@ pub const MAX_LINE: usize = 1024 * 1024;
 pub const MAX_ANSWER_LINE: usize = 24_576;
 pub const MAX_PROMPT: usize = 256 * 1024;
 pub const MAX_COMPANION: usize = 1000;
-const MAX_NAME: usize = 128;
+const MAX_JOURNAL_DEPTH: usize = 6;
+const MAX_JOURNAL_STRING: usize = 1600;
+const MAX_JOURNAL_KEY: usize = 32;
+const MAX_JOURNAL_KEYS: usize = 64;
+const MAX_JOURNAL_ITEMS: usize = 200;
+/// The key of the line of the bridge in a reply. The story program never sets it.
+const NOTE: &str = "note";
 const MAX_ANSWER: usize = 8 * 1024;
 const MAX_PASSAGES: usize = 8;
 const MAX_PASSAGE: usize = 4 * 1024;
@@ -106,38 +113,6 @@ pub struct Passage {
     pub source: String,
 }
 
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Place {
-    pub name: String,
-    pub within: Option<String>,
-    pub first_visit: u64,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Person {
-    pub name: String,
-    pub place: Option<String>,
-    pub first_met: u64,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum DeedKind {
-    Level,
-}
-
-#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(deny_unknown_fields)]
-pub struct Deed {
-    pub kind: DeedKind,
-    pub from: Option<u32>,
-    pub to: u32,
-    pub at: u64,
-    pub place: Option<String>,
-}
-
 /// What an answer says, as it goes back to the game.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
@@ -147,12 +122,13 @@ pub enum Body {
         text: Option<String>,
         passages: Vec<Passage>,
     },
+    /// Only `page` and `pages` have a fixed shape. The rest is bounded JSON, so a new
+    /// field of the journal needs no change in the bridge.
     Journal {
         page: u32,
         pages: u32,
-        places: Vec<Place>,
-        people: Vec<Person>,
-        deeds: Vec<Deed>,
+        #[serde(flatten)]
+        content: Map<String, Value>,
     },
     /// What the NPC says. `text` is `None` when no model answered.
     TalkAnswer { npc: String, text: Option<String> },
@@ -191,16 +167,6 @@ enum Wire {
         id: RequestId,
         text: Option<String>,
         passages: Vec<Passage>,
-        #[serde(default)]
-        companion: Option<String>,
-    },
-    Journal {
-        id: RequestId,
-        page: u32,
-        pages: u32,
-        places: Vec<Place>,
-        people: Vec<Person>,
-        deeds: Vec<Deed>,
         #[serde(default)]
         companion: Option<String>,
     },
@@ -246,44 +212,31 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
     if bytes.len() > MAX_LINE {
         return Err(BadLine::TooLong);
     }
-    let wire: Wire = serde_json::from_slice(bytes).map_err(|_| BadLine::Shape)?;
-    let (id, body, companion) = match wire {
-        Wire::Hello { protocol } => return Ok(FromStory::Hello { protocol }),
-        Wire::ModelCall { call, prompt } if prompt.len() <= MAX_PROMPT => {
-            return Ok(FromStory::ModelCall { call, prompt });
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| BadLine::Shape)?;
+    let (id, body, companion) = if is_journal(&value) {
+        read_journal(value)?
+    } else {
+        // From the raw bytes, so a key given twice is an error.
+        match serde_json::from_slice(bytes).map_err(|_| BadLine::Shape)? {
+            Wire::Hello { protocol } => return Ok(FromStory::Hello { protocol }),
+            Wire::ModelCall { call, prompt } if prompt.len() <= MAX_PROMPT => {
+                return Ok(FromStory::ModelCall { call, prompt });
+            }
+            Wire::ModelCall { .. } => return Err(BadLine::TooLong),
+            Wire::LoreAnswer {
+                id,
+                text,
+                passages,
+                companion,
+            } => (id, Body::LoreAnswer { text, passages }, companion),
+            Wire::TalkAnswer {
+                id,
+                npc,
+                text,
+                companion,
+            } => (id, Body::TalkAnswer { npc, text }, companion),
+            Wire::EventsSeen { id, companion } => (id, Body::EventsSeen, companion),
         }
-        Wire::ModelCall { .. } => return Err(BadLine::TooLong),
-        Wire::LoreAnswer {
-            id,
-            text,
-            passages,
-            companion,
-        } => (id, Body::LoreAnswer { text, passages }, companion),
-        Wire::Journal {
-            id,
-            page,
-            pages,
-            places,
-            people,
-            deeds,
-            companion,
-        } => {
-            let journal = Body::Journal {
-                page,
-                pages,
-                places,
-                people,
-                deeds,
-            };
-            (id, journal, companion)
-        }
-        Wire::TalkAnswer {
-            id,
-            npc,
-            text,
-            companion,
-        } => (id, Body::TalkAnswer { npc, text }, companion),
-        Wire::EventsSeen { id, companion } => (id, Body::EventsSeen, companion),
     };
     if !body_fits(&body) {
         return Err(BadLine::Text);
@@ -295,6 +248,88 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
         answer,
         companion: check,
     })
+}
+
+fn is_journal(value: &Value) -> bool {
+    value.get("type").and_then(Value::as_str) == Some("journal")
+}
+
+/// Only `id`, `page`, `pages`, and `companion` have a fixed shape. The rest is bounded
+/// JSON, which the bridge writes again from the checked value.
+fn read_journal(value: Value) -> Result<(RequestId, Body, Option<String>), BadLine> {
+    let Value::Object(mut content) = value else {
+        return Err(BadLine::Shape);
+    };
+    content.remove("type");
+    let id = content.remove("id").and_then(|v| v.as_u64());
+    let page = content.remove("page").as_ref().and_then(as_u32);
+    let pages = content.remove("pages").as_ref().and_then(as_u32);
+    let companion = match content.remove("companion") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(line)) => Some(line),
+        Some(_) => return Err(BadLine::Shape),
+    };
+    let (Some(id), Some(page), Some(pages)) = (id, page, pages) else {
+        return Err(BadLine::Shape);
+    };
+    let page_in_range = page < pages || pages == 0;
+    if !page_in_range || content.contains_key(NOTE) {
+        return Err(BadLine::Shape);
+    }
+    let content = Value::Object(content);
+    if !json_is_bounded(&content, 1) {
+        return Err(BadLine::Shape);
+    }
+    if !journal_strings_fit(&content) {
+        return Err(BadLine::Text);
+    }
+    let Value::Object(content) = content else {
+        return Err(BadLine::Shape);
+    };
+    let body = Body::Journal {
+        page,
+        pages,
+        content,
+    };
+    Ok((RequestId(id), body, companion))
+}
+
+fn as_u32(value: &Value) -> Option<u32> {
+    value.as_u64().and_then(|n| u32::try_from(n).ok())
+}
+
+/// Objects, arrays, strings, integers, null, and bools, within the limits of the
+/// journal. `depth` counts the line itself as 1.
+fn json_is_bounded(value: &Value, depth: usize) -> bool {
+    match value {
+        Value::Object(map) => {
+            depth <= MAX_JOURNAL_DEPTH
+                && map.len() <= MAX_JOURNAL_KEYS
+                && map.keys().all(|k| is_journal_key(k))
+                && map.values().all(|v| json_is_bounded(v, depth + 1))
+        }
+        Value::Array(items) => {
+            depth <= MAX_JOURNAL_DEPTH
+                && items.len() <= MAX_JOURNAL_ITEMS
+                && items.iter().all(|v| json_is_bounded(v, depth + 1))
+        }
+        Value::Number(n) => n.is_i64() || n.is_u64(),
+        Value::String(_) | Value::Bool(_) | Value::Null => true,
+    }
+}
+
+fn is_journal_key(key: &str) -> bool {
+    (1..=MAX_JOURNAL_KEY).contains(&key.len())
+        && key.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+}
+
+fn journal_strings_fit(value: &Value) -> bool {
+    match value {
+        Value::String(text) => is_short(text, MAX_JOURNAL_STRING),
+        Value::Object(map) => map.values().all(journal_strings_fit),
+        Value::Array(items) => items.iter().all(journal_strings_fit),
+        _ => true,
+    }
 }
 
 fn checked_companion(companion: Option<String>) -> (Option<String>, CompanionCheck) {
@@ -311,24 +346,11 @@ fn body_fits(body: &Body) -> bool {
                 && passages.len() <= MAX_PASSAGES
                 && passages.iter().all(passage_fits)
         }
-        Body::Journal {
-            places,
-            people,
-            deeds,
-            ..
-        } => {
-            places.iter().all(|p| {
-                is_short(&p.name, MAX_NAME) && is_short_or_none(p.within.as_deref(), MAX_NAME)
-            }) && people.iter().all(|p| {
-                is_short(&p.name, MAX_NAME) && is_short_or_none(p.place.as_deref(), MAX_NAME)
-            }) && deeds
-                .iter()
-                .all(|d| is_short_or_none(d.place.as_deref(), MAX_NAME))
-        }
         Body::TalkAnswer { npc, text } => {
             is_short(npc, MAX_NPC) && is_short_or_none(text.as_deref(), MAX_TALK_ANSWER)
         }
-        Body::EventsSeen => true,
+        // `read_journal` checks the journal.
+        Body::Journal { .. } | Body::EventsSeen => true,
     }
 }
 
@@ -382,15 +404,14 @@ fn game_safe(body: &Body) -> Body {
         Body::Journal {
             page,
             pages,
-            places,
-            people,
-            deeds,
+            content,
         } => Body::Journal {
             page: *page,
             pages: *pages,
-            places: places.iter().map(safe_place).collect(),
-            people: people.iter().map(safe_person).collect(),
-            deeds: deeds.iter().map(safe_deed).collect(),
+            content: content
+                .iter()
+                .map(|(key, value)| (key.clone(), game_json(value)))
+                .collect(),
         },
         Body::TalkAnswer { npc, text } => Body::TalkAnswer {
             npc: game_text(npc),
@@ -407,26 +428,17 @@ fn safe_passage(passage: &Passage) -> Passage {
     }
 }
 
-fn safe_place(place: &Place) -> Place {
-    Place {
-        name: game_text(&place.name),
-        within: place.within.as_deref().map(game_text),
-        first_visit: place.first_visit,
-    }
-}
-
-fn safe_person(person: &Person) -> Person {
-    Person {
-        name: game_text(&person.name),
-        place: person.place.as_deref().map(game_text),
-        first_met: person.first_met,
-    }
-}
-
-fn safe_deed(deed: &Deed) -> Deed {
-    Deed {
-        place: deed.place.as_deref().map(game_text),
-        ..deed.clone()
+/// Keys are `[a-z_]`, so only the strings need the escape.
+fn game_json(value: &Value) -> Value {
+    match value {
+        Value::String(text) => Value::String(game_text(text)),
+        Value::Array(items) => Value::Array(items.iter().map(game_json).collect()),
+        Value::Object(map) => Value::Object(
+            map.iter()
+                .map(|(key, value)| (key.clone(), game_json(value)))
+                .collect(),
+        ),
+        other => other.clone(),
     }
 }
 
@@ -439,7 +451,22 @@ fn game_text(text: &str) -> String {
 mod tests {
     use super::*;
 
-    const JOURNAL: &str = r#"{"type":"journal","id":4,"page":0,"pages":2,"places":[{"name":"Goldshire","within":"Elwynn Forest","first_visit":100}],"people":[{"name":"Marshal Dughan","place":null,"first_met":101}],"deeds":[{"kind":"level","from":null,"to":2,"at":102,"place":"Goldshire"}]}"#;
+    const JOURNAL: &str = r#"{"type":"journal","id":4,"page":0,"pages":2,"places":[{"name":"Goldshire","within":"Elwynn Forest","first_visit":100}],"people":[{"name":"Marshal Dughan","place":null,"first_met":101,"trust":-20,"slapped":null}],"deeds":[{"kind":"level","from":null,"to":2,"at":102,"place":"Goldshire"}],"chapters":[{"number":1,"began":100,"zones":["Elwynn Forest"],"people":["Marshal Dughan"],"deeds":[{"kind":"defeated","foe":"Hogger","times":2},{"kind":"died","killer":"Hogger"}],"left_out":false,"prose":"It began."}]}"#;
+
+    fn journal_with(key: &str, value: serde_json::Value) -> String {
+        let mut line: Value = serde_json::from_str(JOURNAL).unwrap();
+        line[key] = value;
+        line.to_string()
+    }
+
+    fn two_letters(n: usize) -> String {
+        let letter = |i: usize| char::from(b'a' + u8::try_from(i % 26).unwrap());
+        format!("{}{}", letter(n / 26), letter(n))
+    }
+
+    fn nested(depth: usize) -> Value {
+        (0..depth).fold(Value::from(1), |inner, _| serde_json::json!([inner]))
+    }
 
     fn lore(text: Option<&str>, passages: Vec<Passage>) -> Answer {
         Answer {
@@ -504,26 +531,129 @@ mod tests {
     }
 
     #[test]
-    fn a_journal_reads_with_its_places_people_and_deeds() {
+    fn a_journal_reads_with_its_chapters_and_every_kind_of_deed() {
         let Some(Answer {
             body:
                 Body::Journal {
+                    page,
                     pages,
-                    places,
-                    people,
-                    deeds,
-                    ..
+                    content,
                 },
             ..
         }) = answer_of(JOURNAL.as_bytes())
         else {
             panic!("not a journal");
         };
-        assert_eq!(pages, 2);
-        assert_eq!(places[0].within.as_deref(), Some("Elwynn Forest"));
-        assert_eq!(people[0].place, None);
-        assert_eq!(deeds[0].kind, DeedKind::Level);
-        assert_eq!(deeds[0].from, None);
+        assert_eq!((page, pages), (0, 2));
+        assert_eq!(content["people"][0]["trust"], -20);
+        assert_eq!(content["chapters"][0]["deeds"][1]["killer"], "Hogger");
+        assert!(!content.contains_key("id") && !content.contains_key("type"));
+    }
+
+    #[test]
+    fn a_journal_page_must_be_below_its_count_of_pages_unless_it_has_no_pages() {
+        let page = |page: u32, pages: u32| {
+            let line = journal_with("page", page.into());
+            let mut line: Value = serde_json::from_str(&line).unwrap();
+            line["pages"] = pages.into();
+            read_line(line.to_string().as_bytes())
+        };
+        assert!(page(1, 2).is_ok());
+        assert!(page(0, 0).is_ok());
+        assert_eq!(page(2, 2), Err(BadLine::Shape));
+        assert!(page(3, 0).is_ok());
+    }
+
+    #[test]
+    fn a_journal_with_a_bad_id_page_pages_or_companion_is_refused() {
+        for (key, value) in [
+            ("id", Value::from(-1)),
+            ("id", Value::from("4")),
+            ("page", Value::from(1.5)),
+            ("pages", Value::from(u64::from(u32::MAX) + 1)),
+            ("companion", Value::from(7)),
+        ] {
+            let line = journal_with(key, value);
+            assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
+        }
+        let no_pages = JOURNAL.replace(r#""pages":2,"#, "");
+        assert_eq!(read_line(no_pages.as_bytes()), Err(BadLine::Shape));
+    }
+
+    #[test]
+    fn a_journal_takes_any_new_field_within_the_limits() {
+        let line = journal_with(
+            "weather",
+            serde_json::json!({ "rain": true, "days": [1, 2] }),
+        );
+        let answer = answer_of(line.as_bytes()).unwrap();
+        let reply = reply_text(&answer, None).unwrap();
+        assert!(
+            reply.contains(r#""weather":{"days":[1,2],"rain":true}"#),
+            "{reply}"
+        );
+    }
+
+    #[test]
+    fn a_journal_of_depth_6_passes_and_depth_7_is_refused() {
+        // The line is depth 1, so the value of a key has 5 levels left.
+        assert!(read_line(journal_with("deep", nested(5)).as_bytes()).is_ok());
+        let deeper = journal_with("deep", nested(6));
+        assert_eq!(read_line(deeper.as_bytes()), Err(BadLine::Shape));
+    }
+
+    #[test]
+    fn a_journal_string_of_1600_bytes_passes_and_longer_or_with_a_control_is_refused() {
+        let longest = journal_with("prose", "é".repeat(800).into());
+        assert!(read_line(longest.as_bytes()).is_ok());
+        for bad in ["p".repeat(1601), "a\nb".to_owned(), "a\u{7}b".to_owned()] {
+            let line = journal_with("prose", bad.into());
+            assert_eq!(read_line(line.as_bytes()), Err(BadLine::Text), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_journal_key_must_be_1_to_32_bytes_of_lowercase_letters_and_underscores() {
+        assert!(read_line(journal_with(&"k".repeat(32), 1.into()).as_bytes()).is_ok());
+        for key in [
+            "k".repeat(33),
+            String::new(),
+            "Name".into(),
+            "a-b".into(),
+            "é".into(),
+        ] {
+            let line = journal_with(&key, 1.into());
+            assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{key}");
+        }
+    }
+
+    #[test]
+    fn a_journal_object_holds_at_most_64_keys() {
+        let object = |count: usize| {
+            let map: Map<String, Value> =
+                (0..count).map(|n| (two_letters(n), Value::Null)).collect();
+            journal_with("big", Value::Object(map))
+        };
+        assert!(read_line(object(64).as_bytes()).is_ok());
+        assert_eq!(read_line(object(65).as_bytes()), Err(BadLine::Shape));
+    }
+
+    #[test]
+    fn a_journal_array_holds_at_most_200_items() {
+        let array = |count: usize| journal_with("list", vec![0; count].into());
+        assert!(read_line(array(200).as_bytes()).is_ok());
+        assert_eq!(read_line(array(201).as_bytes()), Err(BadLine::Shape));
+    }
+
+    #[test]
+    fn a_journal_with_a_float_or_a_note_of_its_own_is_refused() {
+        for (key, value) in [
+            ("weight", Value::from(1.5)),
+            ("note", Value::from("no sandbox")),
+        ] {
+            let line = journal_with(key, value);
+            assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
+        }
     }
 
     fn talk_answer(npc: &str, text: Option<&str>) -> String {
@@ -638,9 +768,6 @@ mod tests {
             r#"{"type":"hello","protocol":1,"protocol":2}"#.to_owned(),
             r#"{"type":"events_seen","companion":null}"#.to_owned(),
             r#"{"type":"events_seen","id":5,"companion":7}"#.to_owned(),
-            JOURNAL.replace(r#""kind":"level""#, r#""kind":"murder""#),
-            JOURNAL.replace(r#""first_met":101"#, r#""first_met":101,"secret":1"#),
-            JOURNAL.replace(r#""pages":2,"#, ""),
         ];
         for line in bad {
             assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
@@ -746,7 +873,7 @@ mod tests {
 
         let reply = reply_text(&answer, None).unwrap();
 
-        assert!(reply.starts_with(r#"{"type":"journal","page":0,"pages":2,"places""#));
+        assert!(reply.starts_with(r#"{"type":"journal","page":0,"pages":2,"chapters""#));
         assert!(
             reply.contains(r#""name":"Marshal ||cffff0000Dughan""#),
             "{reply}"
