@@ -56,6 +56,7 @@ const TIMEWAYS_APP: &str = r#"
 local _, ns = ...
 ns.App = {
 	title = "Timeways",
+	version = 1,
 	helloChat = "story",
 	slotPrefix = "Timeways_S%04d",
 	slotData = "Timeways_SlotData",
@@ -70,6 +71,7 @@ const RELAY_APP: &str = r#"
 local _, ns = ...
 ns.App = {
 	title = "Gnomish Relay",
+	version = 1,
 	helloChat = "relay",
 	slotPrefix = "GnomishRelay_S%04d",
 	slotData = "GnomishRelay_SlotData",
@@ -775,6 +777,20 @@ fn the_test_addon_sends_through_the_link_as_a_strip_with_only_transport_flags() 
             .all(|f| f.starts_with("next=") || f.starts_with("build=") || f.starts_with("ver=")),
         "{flags:?}"
     );
+}
+
+/// SPEC.md 7.7: each app reports its own version, not one of the shared transport.
+#[test]
+fn each_app_reports_the_version_of_its_own_app_lua() {
+    let game = Game::new();
+    let timeways = game.timeways();
+    let app: Table = timeways.get("App").unwrap();
+    app.set("version", 7).unwrap();
+
+    let health: Table = timeways.get("Health").unwrap();
+    let flags: Vec<String> = health.get::<Function>("Flags").unwrap().call(()).unwrap();
+
+    assert!(flags.contains(&"ver=7".into()), "{flags:?}");
 }
 
 #[test]

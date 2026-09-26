@@ -5,6 +5,8 @@ local _, ns = ...
 
 ns.App = {
 	title = "Gnomish Relay",
+	-- The bridge checks it against the range of the relay (SPEC.md 7.7).
+	version = 1,
 	-- The bridge reads no chat of a hello.
 	helloChat = "relay",
 	slotPrefix = "GnomishRelay_S%04d",

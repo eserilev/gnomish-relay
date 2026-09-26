@@ -7,9 +7,6 @@ local _, ns = ...
 local Health = {}
 ns.Health = Health
 
--- The protocol version of this addon. The bridge checks it (SPEC.md 7.7).
-Health.VERSION = 1
-
 -- The client functions that the relay cannot work without, read at call time.
 function Health.Required()
 	local addons, timer, bits = C_AddOns or {}, C_Timer or {}, bit or {}
@@ -85,7 +82,8 @@ end
 
 -- `build`, and the last result of each channel, for the report to the bridge.
 function Health.Flags()
-	local flags = { "build=" .. Build(), "ver=" .. Health.VERSION }
+	-- Each app has its own version, because each app changes on its own (SPEC.md 7.7).
+	local flags = { "build=" .. Build(), "ver=" .. ns.App.version }
 	if status.out then
 		table.insert(flags, "out=" .. status.out)
 	end
