@@ -20,6 +20,7 @@ import Protocol.Frame.Codec
 import Protocol.Record
 import Protocol.Seen
 import Protocol.Rate
+import Protocol.Apps
 import Protocol.Slot
 import Protocol.Restore
 import Protocol.Live
@@ -107,6 +108,19 @@ def S2_S11_check : Prop :=
   ∀ (frameTime : U32) (tagOk : Bool) (now : U32),
     frame.check_frame frameTime tagOk now ⦃ r =>
       (r = .Ok () ↔ (tagOk = true ∧ fresh frameTime.val now.val)) ⦄
+
+/-! ## Apps -/
+
+/-- **S29.** A strip goes to the one app whose key verifies its tag. No key gives
+`BadTag`, and both keys give `Ambiguous`. The two tag checks are inputs, so S29 proves
+the choice, not the cryptography: `verify_tag` stays opaque, as in S2. -/
+def S29_route : Prop :=
+  ∀ relayOk timewaysOk : Bool,
+    apps.route relayOk timewaysOk ⦃ r => match relayOk, timewaysOk with
+      | true, false => r = .Ok .Relay
+      | false, true => r = .Ok .Timeways
+      | false, false => r = .Err .BadTag
+      | true, true => r = .Err .Ambiguous ⦄
 
 /-! ## Records -/
 
@@ -430,6 +444,7 @@ def S28_capped : Prop :=
 theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
 theorem check_S11_fresh : S11_fresh := Protocol.Frame.is_fresh_spec
 theorem check_S2_S11_check : S2_S11_check := Protocol.Frame.check_frame_spec
+theorem check_S29_route : S29_route := Protocol.Apps.route_spec
 theorem check_S6_level : S6_level := Protocol.Policy.effective_level_spec
 theorem check_S6_answer : S6_answer := Protocol.Policy.answer_from_game_spec
 theorem check_S15_popup : S15_popup := Protocol.Popup.popup_text_spec

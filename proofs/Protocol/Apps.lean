@@ -1,11 +1,19 @@
 import Protocol.Ascii
 import Protocol.Spec.Apps
 
-/-! # The global names of each app -/
+/-! # The app of a strip (S29), and the global names of each app -/
 
 open Aeneas Aeneas.Std Result protocol Protocol.Spec Protocol.Ascii
 
 namespace Protocol.Apps
+
+theorem route_spec (relayOk timewaysOk : Bool) :
+    apps.route relayOk timewaysOk ⦃ r => match relayOk, timewaysOk with
+      | true, false => r = .Ok .Relay
+      | false, true => r = .Ok .Timeways
+      | false, false => r = .Err .BadTag
+      | true, true => r = .Err .Ambiguous ⦄ := by
+  induction relayOk <;> induction timewaysOk <;> simp [apps.route]
 
 /-- A fixed name goes out as its bytes. -/
 theorem push_name_spec {n : Usize} (out : alloc.vec.Vec U8) (arr : Std.Array U8 n) (s : String)

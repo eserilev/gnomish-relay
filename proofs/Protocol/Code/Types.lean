@@ -145,12 +145,20 @@ structure shell.Lexer where
   depth : Std.Usize
 
 /-- [protocol::apps::App]
-    Source: 'crates/protocol/src/apps.rs', lines 8:0-11:1
+    Source: 'crates/protocol/src/apps.rs', lines 9:0-12:1
     Visibility: public -/
 @[discriminant isize]
 inductive apps.App where
 | Relay : apps.App
 | Timeways : apps.App
+
+/-- [protocol::apps::Unrouted]
+    Source: 'crates/protocol/src/apps.rs', lines 16:0-21:1
+    Visibility: public -/
+@[discriminant isize]
+inductive apps.Unrouted where
+| BadTag : apps.Unrouted
+| Ambiguous : apps.Unrouted
 
 /-- [protocol::frame::Frame]
     Source: 'crates/protocol/src/frame.rs', lines 26:0-31:1

@@ -1,6 +1,7 @@
-//! The apps that share the bridge, and the Lua global that each file of an app sets
-//! (SPEC.md 9.7, decision 5). Each app reads only its own globals, so one app never
-//! overwrites a value that the other app is about to read.
+//! The apps that share the bridge: which app a strip belongs to (SPEC.md 9.7,
+//! decision 2), and the Lua global that each file of an app sets (decision 5). Each app
+//! reads only its own globals, so one app never overwrites a value that the other app is
+//! about to read.
 
 use crate::ascii::push_bytes;
 
@@ -8,6 +9,34 @@ use crate::ascii::push_bytes;
 pub enum App {
     Relay,
     Timeways,
+}
+
+/// Why a strip goes to no app.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Unrouted {
+    /// No key verifies the tag.
+    BadTag,
+    /// Both keys verify the tag. Only equal keys do that, and the bridge refuses them.
+    Ambiguous,
+}
+
+/// The app whose key verifies the tag of a strip (S29). The tag checks come in as
+/// bools, so S29 proves the choice, not the cryptography.
+///
+/// # Errors
+///
+/// `BadTag` when no key verifies the tag, `Ambiguous` when both do.
+pub fn route(relay_tag_ok: bool, timeways_tag_ok: bool) -> Result<App, Unrouted> {
+    if relay_tag_ok {
+        if timeways_tag_ok {
+            return Err(Unrouted::Ambiguous);
+        }
+        return Ok(App::Relay);
+    }
+    if timeways_tag_ok {
+        return Ok(App::Timeways);
+    }
+    Err(Unrouted::BadTag)
 }
 
 const RELAY_SLOT_DATA: [u8; 21] = *b"GnomishRelay_SlotData";
@@ -49,6 +78,26 @@ mod tests {
         let mut out = Vec::new();
         push(&mut out, app);
         out
+    }
+
+    #[test]
+    fn a_strip_that_only_the_relay_key_verifies_goes_to_the_relay() {
+        assert_eq!(route(true, false), Ok(App::Relay));
+    }
+
+    #[test]
+    fn a_strip_that_only_the_timeways_key_verifies_goes_to_timeways() {
+        assert_eq!(route(false, true), Ok(App::Timeways));
+    }
+
+    #[test]
+    fn a_strip_that_no_key_verifies_has_a_bad_tag() {
+        assert_eq!(route(false, false), Err(Unrouted::BadTag));
+    }
+
+    #[test]
+    fn a_strip_that_both_keys_verify_is_ambiguous() {
+        assert_eq!(route(true, true), Err(Unrouted::Ambiguous));
     }
 
     #[test]

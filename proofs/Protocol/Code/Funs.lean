@@ -3187,28 +3187,28 @@ def action.ceiling
   action.verdict call policy s action.Cover.Every
 
 /-- [protocol::apps::{impl core::clone::Clone for protocol::apps::App}::clone]:
-    Source: 'crates/protocol/src/apps.rs', lines 7:9-7:14
+    Source: 'crates/protocol/src/apps.rs', lines 8:9-8:14
     Visibility: public -/
 def apps.App.Insts.CoreCloneClone.clone
   (self : apps.App) : Result apps.App := do
   ok self
 
 /-- Trait implementation: [protocol::apps::{impl core::clone::Clone for protocol::apps::App}]
-    Source: 'crates/protocol/src/apps.rs', lines 7:9-7:14 -/
+    Source: 'crates/protocol/src/apps.rs', lines 8:9-8:14 -/
 @[reducible]
 def apps.App.Insts.CoreCloneClone : core.clone.Clone apps.App := {
   clone := apps.App.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [protocol::apps::{impl core::marker::Copy for protocol::apps::App}]
-    Source: 'crates/protocol/src/apps.rs', lines 7:16-7:20 -/
+    Source: 'crates/protocol/src/apps.rs', lines 8:16-8:20 -/
 @[reducible]
 def apps.App.Insts.CoreMarkerCopy : core.marker.Copy apps.App := {
   cloneInst := apps.App.Insts.CoreCloneClone
 }
 
 /-- [protocol::apps::{impl core::fmt::Debug for protocol::apps::App}::fmt]:
-    Source: 'crates/protocol/src/apps.rs', lines 7:22-7:27
+    Source: 'crates/protocol/src/apps.rs', lines 8:22-8:27
     Visibility: public -/
 def apps.App.Insts.CoreFmtDebug.fmt
   (self : apps.App) (f : core.fmt.Formatter) :
@@ -3219,21 +3219,21 @@ def apps.App.Insts.CoreFmtDebug.fmt
   | apps.App.Timeways => core.fmt.Formatter.write_str f (toStr "Timeways")
 
 /-- Trait implementation: [protocol::apps::{impl core::fmt::Debug for protocol::apps::App}]
-    Source: 'crates/protocol/src/apps.rs', lines 7:22-7:27 -/
+    Source: 'crates/protocol/src/apps.rs', lines 8:22-8:27 -/
 @[reducible]
 def apps.App.Insts.CoreFmtDebug : core.fmt.Debug apps.App := {
   fmt := apps.App.Insts.CoreFmtDebug.fmt
 }
 
 /-- Trait implementation: [protocol::apps::{impl core::marker::StructuralPartialEq for protocol::apps::App}]
-    Source: 'crates/protocol/src/apps.rs', lines 7:29-7:38 -/
+    Source: 'crates/protocol/src/apps.rs', lines 8:29-8:38 -/
 @[reducible]
 def apps.App.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq apps.App := {
 }
 
 /-- [protocol::apps::{impl core::cmp::PartialEq<protocol::apps::App> for protocol::apps::App}::eq]:
-    Source: 'crates/protocol/src/apps.rs', lines 7:29-7:38
+    Source: 'crates/protocol/src/apps.rs', lines 8:29-8:38
     Visibility: public -/
 def apps.App.Insts.CoreCmpPartialEqApp.eq
   (self : apps.App) (other : apps.App) : Result Bool := do
@@ -3242,7 +3242,7 @@ def apps.App.Insts.CoreCmpPartialEqApp.eq
   ok (self1 = other1)
 
 /-- Trait implementation: [protocol::apps::{impl core::cmp::PartialEq<protocol::apps::App> for protocol::apps::App}]
-    Source: 'crates/protocol/src/apps.rs', lines 7:29-7:38 -/
+    Source: 'crates/protocol/src/apps.rs', lines 8:29-8:38 -/
 @[reducible]
 impl_def apps.App.Insts.CoreCmpPartialEqApp : core.cmp.PartialEq apps.App
   apps.App := {
@@ -3251,22 +3251,120 @@ impl_def apps.App.Insts.CoreCmpPartialEqApp : core.cmp.PartialEq apps.App
 }
 
 /-- [protocol::apps::{impl core::cmp::Eq for protocol::apps::App}::assert_fields_are_eq]:
-    Source: 'crates/protocol/src/apps.rs', lines 7:40-7:42
+    Source: 'crates/protocol/src/apps.rs', lines 8:40-8:42
     Visibility: public -/
 def apps.App.Insts.CoreCmpEq.assert_fields_are_eq
   (self : apps.App) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [protocol::apps::{impl core::cmp::Eq for protocol::apps::App}]
-    Source: 'crates/protocol/src/apps.rs', lines 7:40-7:42 -/
+    Source: 'crates/protocol/src/apps.rs', lines 8:40-8:42 -/
 @[reducible]
 def apps.App.Insts.CoreCmpEq : core.cmp.Eq apps.App := {
   partialEqInst := apps.App.Insts.CoreCmpPartialEqApp
   assert_fields_are_eq := apps.App.Insts.CoreCmpEq.assert_fields_are_eq
 }
 
+/-- [protocol::apps::{impl core::clone::Clone for protocol::apps::Unrouted}::clone]:
+    Source: 'crates/protocol/src/apps.rs', lines 15:9-15:14
+    Visibility: public -/
+def apps.Unrouted.Insts.CoreCloneClone.clone
+  (self : apps.Unrouted) : Result apps.Unrouted := do
+  ok self
+
+/-- Trait implementation: [protocol::apps::{impl core::clone::Clone for protocol::apps::Unrouted}]
+    Source: 'crates/protocol/src/apps.rs', lines 15:9-15:14 -/
+@[reducible]
+def apps.Unrouted.Insts.CoreCloneClone : core.clone.Clone apps.Unrouted := {
+  clone := apps.Unrouted.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::apps::{impl core::marker::Copy for protocol::apps::Unrouted}]
+    Source: 'crates/protocol/src/apps.rs', lines 15:16-15:20 -/
+@[reducible]
+def apps.Unrouted.Insts.CoreMarkerCopy : core.marker.Copy apps.Unrouted := {
+  cloneInst := apps.Unrouted.Insts.CoreCloneClone
+}
+
+/-- [protocol::apps::{impl core::fmt::Debug for protocol::apps::Unrouted}::fmt]:
+    Source: 'crates/protocol/src/apps.rs', lines 15:22-15:27
+    Visibility: public -/
+def apps.Unrouted.Insts.CoreFmtDebug.fmt
+  (self : apps.Unrouted) (f : core.fmt.Formatter) :
+  Result ((core.result.Result Unit core.fmt.Error) × core.fmt.Formatter)
+  := do
+  match self with
+  | apps.Unrouted.BadTag => core.fmt.Formatter.write_str f (toStr "BadTag")
+  | apps.Unrouted.Ambiguous =>
+    core.fmt.Formatter.write_str f (toStr "Ambiguous")
+
+/-- Trait implementation: [protocol::apps::{impl core::fmt::Debug for protocol::apps::Unrouted}]
+    Source: 'crates/protocol/src/apps.rs', lines 15:22-15:27 -/
+@[reducible]
+def apps.Unrouted.Insts.CoreFmtDebug : core.fmt.Debug apps.Unrouted := {
+  fmt := apps.Unrouted.Insts.CoreFmtDebug.fmt
+}
+
+/-- Trait implementation: [protocol::apps::{impl core::marker::StructuralPartialEq for protocol::apps::Unrouted}]
+    Source: 'crates/protocol/src/apps.rs', lines 15:29-15:38 -/
+@[reducible]
+def apps.Unrouted.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq apps.Unrouted := {
+}
+
+/-- [protocol::apps::{impl core::cmp::PartialEq<protocol::apps::Unrouted> for protocol::apps::Unrouted}::eq]:
+    Source: 'crates/protocol/src/apps.rs', lines 15:29-15:38
+    Visibility: public -/
+def apps.Unrouted.Insts.CoreCmpPartialEqUnrouted.eq
+  (self : apps.Unrouted) (other : apps.Unrouted) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::apps::{impl core::cmp::PartialEq<protocol::apps::Unrouted> for protocol::apps::Unrouted}]
+    Source: 'crates/protocol/src/apps.rs', lines 15:29-15:38 -/
+@[reducible]
+impl_def apps.Unrouted.Insts.CoreCmpPartialEqUnrouted : core.cmp.PartialEq
+  apps.Unrouted apps.Unrouted := {
+  eq := apps.Unrouted.Insts.CoreCmpPartialEqUnrouted.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    apps.Unrouted.Insts.CoreCmpPartialEqUnrouted
+}
+
+/-- [protocol::apps::{impl core::cmp::Eq for protocol::apps::Unrouted}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/apps.rs', lines 15:40-15:42
+    Visibility: public -/
+def apps.Unrouted.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : apps.Unrouted) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::apps::{impl core::cmp::Eq for protocol::apps::Unrouted}]
+    Source: 'crates/protocol/src/apps.rs', lines 15:40-15:42 -/
+@[reducible]
+def apps.Unrouted.Insts.CoreCmpEq : core.cmp.Eq apps.Unrouted := {
+  partialEqInst := apps.Unrouted.Insts.CoreCmpPartialEqUnrouted
+  assert_fields_are_eq := apps.Unrouted.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::apps::route]:
+    Source: 'crates/protocol/src/apps.rs', lines 29:0-40:1
+    Visibility: public -/
+def apps.route
+  (relay_tag_ok : Bool) (timeways_tag_ok : Bool) :
+  Result (core.result.Result apps.App apps.Unrouted)
+  := do
+  if relay_tag_ok
+  then
+    if timeways_tag_ok
+    then ok (core.result.Result.Err apps.Unrouted.Ambiguous)
+    else ok (core.result.Result.Ok apps.App.Relay)
+  else
+    if timeways_tag_ok
+    then ok (core.result.Result.Ok apps.App.Timeways)
+    else ok (core.result.Result.Err apps.Unrouted.BadTag)
+
 /-- [protocol::apps::RELAY_SLOT_DATA]
-    Source: 'crates/protocol/src/apps.rs', lines 13:0-13:60 -/
+    Source: 'crates/protocol/src/apps.rs', lines 42:0-42:60 -/
 @[global_simps, irreducible]
 def apps.RELAY_SLOT_DATA : Array Std.U8 21#usize :=
   Array.make 21#usize [
@@ -3276,7 +3374,7 @@ def apps.RELAY_SLOT_DATA : Array Std.U8 21#usize :=
     ]
 
 /-- [protocol::apps::TIMEWAYS_SLOT_DATA]
-    Source: 'crates/protocol/src/apps.rs', lines 14:0-14:59 -/
+    Source: 'crates/protocol/src/apps.rs', lines 43:0-43:59 -/
 @[global_simps, irreducible]
 def apps.TIMEWAYS_SLOT_DATA : Array Std.U8 17#usize :=
   Array.make 17#usize [
@@ -3285,7 +3383,7 @@ def apps.TIMEWAYS_SLOT_DATA : Array Std.U8 17#usize :=
     ]
 
 /-- [protocol::apps::RELAY_RESTORE]
-    Source: 'crates/protocol/src/apps.rs', lines 15:0-15:57 -/
+    Source: 'crates/protocol/src/apps.rs', lines 44:0-44:57 -/
 @[global_simps, irreducible]
 def apps.RELAY_RESTORE : Array Std.U8 20#usize :=
   Array.make 20#usize [
@@ -3295,7 +3393,7 @@ def apps.RELAY_RESTORE : Array Std.U8 20#usize :=
     ]
 
 /-- [protocol::apps::TIMEWAYS_RESTORE]
-    Source: 'crates/protocol/src/apps.rs', lines 16:0-16:56 -/
+    Source: 'crates/protocol/src/apps.rs', lines 45:0-45:56 -/
 @[global_simps, irreducible]
 def apps.TIMEWAYS_RESTORE : Array Std.U8 16#usize :=
   Array.make 16#usize [
@@ -3304,7 +3402,7 @@ def apps.TIMEWAYS_RESTORE : Array Std.U8 16#usize :=
     ]
 
 /-- [protocol::apps::RELAY_LIVE]
-    Source: 'crates/protocol/src/apps.rs', lines 17:0-17:51 -/
+    Source: 'crates/protocol/src/apps.rs', lines 46:0-46:51 -/
 @[global_simps, irreducible]
 def apps.RELAY_LIVE : Array Std.U8 17#usize :=
   Array.make 17#usize [
@@ -3313,7 +3411,7 @@ def apps.RELAY_LIVE : Array Std.U8 17#usize :=
     ]
 
 /-- [protocol::apps::TIMEWAYS_LIVE]
-    Source: 'crates/protocol/src/apps.rs', lines 18:0-18:50 -/
+    Source: 'crates/protocol/src/apps.rs', lines 47:0-47:50 -/
 @[global_simps, irreducible]
 def apps.TIMEWAYS_LIVE : Array Std.U8 13#usize :=
   Array.make 13#usize [
@@ -3322,7 +3420,7 @@ def apps.TIMEWAYS_LIVE : Array Std.U8 13#usize :=
     ]
 
 /-- [protocol::apps::push_slot_global]:
-    Source: 'crates/protocol/src/apps.rs', lines 21:0-26:1
+    Source: 'crates/protocol/src/apps.rs', lines 50:0-55:1
     Visibility: public -/
 def apps.push_slot_global
   (out : alloc.vec.Vec Std.U8) (app : apps.App) :
@@ -3337,7 +3435,7 @@ def apps.push_slot_global
     ascii.push_bytes out s
 
 /-- [protocol::apps::push_restore_global]:
-    Source: 'crates/protocol/src/apps.rs', lines 29:0-34:1
+    Source: 'crates/protocol/src/apps.rs', lines 58:0-63:1
     Visibility: public -/
 def apps.push_restore_global
   (out : alloc.vec.Vec Std.U8) (app : apps.App) :
@@ -3352,7 +3450,7 @@ def apps.push_restore_global
     ascii.push_bytes out s
 
 /-- [protocol::apps::push_live_global]:
-    Source: 'crates/protocol/src/apps.rs', lines 37:0-42:1
+    Source: 'crates/protocol/src/apps.rs', lines 66:0-71:1
     Visibility: public -/
 def apps.push_live_global
   (out : alloc.vec.Vec Std.U8) (app : apps.App) :
