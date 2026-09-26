@@ -351,7 +351,9 @@ What each backend and OS enforces:
 - "Always allow" for a command that runs code needs a second step in the game: "No sandbox on this computer. This rule lets the agent run any code that it writes, with your full access. Allow always anyway?" The game has no "always allow" yet (9.3), so this step comes with it.
 - At start the bridge runs `bwrap --version` inside a sandbox of the same kind. A `bwrap` that is missing, or that cannot make namespaces, counts as no sandbox.
 
-**Windows.** A sandbox there needs calls of the Windows API, for example an AppContainer or a restricted token, and these calls need `unsafe` code. Every crate forbids `unsafe` (CLAUDE.md). So the plan is a separate small launcher crate for Windows, with an `unsafe` exception that the user must approve first. Until then, Windows has the fallback. The setup recommends Codex, which has its own Windows sandbox, or Claude under WSL2.
+**Windows.** A sandbox there needs calls of the Windows API, for example an AppContainer, and these calls need `unsafe` code. Every crate of this project forbids `unsafe` (CLAUDE.md). The planned backend is the `rappct` crate (MIT; AppContainer and LPAC), approved by the user on 2026-09-26: the crate holds the calls of the Windows API, so our crates keep no `unsafe`. It has one maintainer, so it gets an exact version pin and our own behavior tests on the Windows runner of CI. Until it lands, Windows has the fallback. The setup recommends Codex, which has its own Windows sandbox, or Claude under WSL2.
+
+**One launch step for every tool.** The wrapper asks `command_sandbox::launch` how to start a command inside the walls of the run. The tools of the sandbox are the variants of `Sandbox` (`bwrap`, `sandbox-exec`, none), and `launch` gives a `Launch` for each one. `bwrap` and `sandbox-exec` are a program with its arguments. A Windows backend adds a variant to `Sandbox` and to `Launch`, one arm in `detect`, `launch`, and the start of the wrapper, and nothing else: the Claude backend, the gate, and the walls stay as they are.
 
 **Processes.** For game messages, the bridge starts one agent process per run. Each run has its own walls and its own temp folder (9.4).
 
@@ -1824,7 +1826,7 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
 ## 17. Open questions
 
-- Can an AppContainer or a restricted token give the commands of Claude a sandbox on native Windows? It needs a launcher crate with an `unsafe` exception that the user approves (6.6.4).
+- Does the AppContainer of `rappct` hold the commands of Claude on native Windows as the table of 6.6.4 asks, with the network off and the hidden paths gone (6.6.4)?
 - What does `permissions.<profile>.filesystem.deny_read` of Codex take, so that Codex can hide the `deny` and `desktop` paths (6.6.4)?
 - Does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
 - Can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?

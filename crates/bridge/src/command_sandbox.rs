@@ -454,20 +454,33 @@ pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
     Ok(out)
 }
 
-/// The program and its arguments that run `command` with `shell` inside the walls.
-pub fn command_line(
-    walls: &Walls,
-    cwd: &Path,
-    shell: &Path,
-    command: &str,
-) -> Result<(PathBuf, Vec<OsString>), String> {
+/// How the wrapper starts one command inside the walls. Each tool of the sandbox is one
+/// arm of `launch`, and the callers see only this step. A tool that starts the command
+/// through calls of its OS, such as an `AppContainer` on Windows, adds a variant here.
+#[derive(Debug, PartialEq)]
+pub enum Launch {
+    /// A program that starts the command inside the walls, such as `bwrap`.
+    Program {
+        program: PathBuf,
+        args: Vec<OsString>,
+    },
+}
+
+/// The launch of `command` with `shell` inside the walls of the run.
+pub fn launch(walls: &Walls, cwd: &Path, shell: &Path, command: &str) -> Result<Launch, String> {
     match &walls.tool {
-        Sandbox::Bwrap(bwrap) => Ok((bwrap.clone(), bwrap_args(walls, cwd, shell, command))),
+        Sandbox::Bwrap(bwrap) => Ok(Launch::Program {
+            program: bwrap.clone(),
+            args: bwrap_args(walls, cwd, shell, command),
+        }),
         Sandbox::Seatbelt => {
             let profile = seatbelt_profile(walls)?;
             let mut args = vec![OsString::from("-p"), bytes_arg(profile)];
             args.extend(["--".into(), shell.into(), "-c".into(), command.into()]);
-            Ok((PathBuf::from(SANDBOX_EXEC), args))
+            Ok(Launch::Program {
+                program: PathBuf::from(SANDBOX_EXEC),
+                args,
+            })
         }
         Sandbox::None => Err("This computer has no sandbox.".into()),
     }
@@ -522,15 +535,16 @@ fn wrapped(command: &str) -> Result<i32, String> {
     let cwd = std::env::current_dir().map_err(|e| format!("no working folder: {e}"))?;
     let path = std::env::var_os("PATH").unwrap_or_default();
     let shell = crate::program::find_program("bash", &path, false).ok_or("bash is not on PATH")?;
-    let (program, args) = command_line(&walls, &cwd, &shell, command)?;
+    let launch = launch(&walls, &cwd, &shell, command)?;
     std::fs::write(walls.temp.join(MARKER), b"").map_err(|e| format!("no marker: {e}"))?;
-    let mut child = std::process::Command::new(program);
-    child
-        .args(args)
-        .current_dir(&cwd)
-        .env_clear()
-        .envs(command_env(&walls, |name| std::env::var_os(name)));
-    run(child)
+    let env = command_env(&walls, |name| std::env::var_os(name));
+    match launch {
+        Launch::Program { program, args } => {
+            let mut child = std::process::Command::new(program);
+            child.args(args).current_dir(&cwd).env_clear().envs(env);
+            run(child)
+        }
+    }
 }
 
 /// The command takes the place of this process, so Claude Code sees its exit status
@@ -854,8 +868,8 @@ mod tests {
         let mut walls = sample();
         walls.tool = Sandbox::Seatbelt;
 
-        let (program, args) =
-            command_line(&walls, Path::new("/"), Path::new("/bin/bash"), "make").unwrap();
+        let Launch::Program { program, args } =
+            launch(&walls, Path::new("/"), Path::new("/bin/bash"), "make").unwrap();
 
         let args = strings(&args);
         assert_eq!(program, PathBuf::from(SANDBOX_EXEC));
@@ -865,11 +879,25 @@ mod tests {
     }
 
     #[test]
-    fn with_no_sandbox_there_is_no_command_line() {
+    fn with_no_sandbox_there_is_no_launch() {
         let mut walls = sample();
         walls.tool = Sandbox::None;
 
-        assert!(command_line(&walls, Path::new("/"), Path::new("/bin/bash"), "make").is_err());
+        assert!(launch(&walls, Path::new("/"), Path::new("/bin/bash"), "make").is_err());
+    }
+
+    #[test]
+    fn bwrap_runs_its_own_arguments() {
+        let walls = sample();
+
+        let Launch::Program { program, args } =
+            launch(&walls, Path::new("/"), Path::new("/bin/bash"), "make").unwrap();
+
+        assert_eq!(program, PathBuf::from("/usr/bin/bwrap"));
+        assert_eq!(
+            args,
+            bwrap_args(&walls, Path::new("/"), Path::new("/bin/bash"), "make")
+        );
     }
 
     #[test]
