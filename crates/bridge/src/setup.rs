@@ -292,7 +292,7 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         fs::create_dir_all(home.path().join("Code")).unwrap();
         let text = format!(
-            "allowed_roots = [\"~/Code\"]\ndefault_agent = \"claude\"\n[wow]\npath = \"/wow\"\n\
+            "allowed_roots = [\"~/Code\"]\ndefault_agent = \"claude\"\n[wow]\npath = \"~/wow\"\n\
              [agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\npermission = \"{permission}\"\n"
         );
         let config = config::parse(&text, home.path()).unwrap();

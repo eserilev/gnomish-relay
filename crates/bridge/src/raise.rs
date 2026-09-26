@@ -170,7 +170,7 @@ mod tests {
     use crate::relay::{ChatId, MessageId, Session, Work};
 
     const CONFIG: &str = "allowed_roots = [\"~/Code\"]\ndefault_agent = \"claude\"\n\
-        [wow]\npath = \"/wow\"\n\
+        [wow]\npath = \"~/wow\"\n\
         [agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\npermission = \"ask\"\n";
 
     struct Home {

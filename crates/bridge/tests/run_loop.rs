@@ -419,7 +419,7 @@ impl Agent for LevelOf {
 }
 
 const ASK_CONFIG: &str = "allowed_roots = [\"~/Code\"]\ndefault_agent = \"claude\"\n\
-    [wow]\npath = \"/wow\"\n\
+    [wow]\npath = \"~/wow\"\n\
     [agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\npermission = \"ask\"\n";
 
 /// A bridge whose config allows `ask`, and whose raises answer through `approvals`.

@@ -93,7 +93,7 @@ mod tests {
     const CONFIG: &str = "allowed_roots = [\"~/Code\"]\n\
         default_agent = \"claude\"\n\
         # my own comment\n\
-        [wow]\npath = \"/wow\"\n\
+        [wow]\npath = \"~/wow\"\n\
         \n[agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\n\
         permission = \"ask\"   # set by me\n\
         \n[agents.codex]\nkind = \"codex\"\ncommand = [\"codex\"]\npermission = \"ask\"\n";
