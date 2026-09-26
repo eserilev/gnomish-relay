@@ -45,6 +45,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 21 | S22 to S25: reply blocks | `markdown`, `inline` | `S22_total`, `S23_shape`, `S24_escape`, `S25_bound` | proved |
 | 22 | S16 + S17 + S27 + S28: action classifier | `action`, `shell`, `path_rules`, `command_rules`, `search` | `S16_paths`, `S16_deny`, `S17_ceiling`, `S17_unknown`, `S17_never_always`, `S27_classify`, `S27_ceiling`, `S27_split`, `S28_no_parse`, `S28_substitution`, `S28_desktop`, `S28_capped` | proved |
 | 23 | S29: routing by key | `apps::route` | `S29_route` | proved |
+| 24 | S30: version range | `version::version_fit` | `S30_version_fit` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |
@@ -125,6 +126,15 @@ as in S2. The statement lists all four inputs, and `induction` on each bool prov
 The bridge keeps the keys in `KeySet { relay, timeways }`, and the fuzz target `frame`
 checks the same choice with two real keys.
 
+### Item 24: the version range (SPEC 7.7 and 9.7, decision 17)
+
+`version_fit` gives `Supported`, `TooOld`, or `TooNew` for the version that an addon
+reports. The statement names `lo` and `hi` as the values that `oldest` and `newest`
+return, so it holds for the constants of `version.rs`. The proof needs `lo ≤ hi` for each
+app: a version below the range is then never above it too. So `Version.lean` states the
+four constants, and a new range changes only those four facts. The `flags` fuzz target
+checks the same range on the compiled code.
+
 ### Item 17: what the fuzz targets check
 
 Each target checks the property of its proof on the compiled code, not only "no crash":
@@ -187,3 +197,5 @@ and the `action` fuzz target run such inputs.
 **S12, S19, and S21 for each app (2026-09-25, approved by the user).** The three size bounds now hold for the file of each app (`slotBodyOf`, `restoreOf`, `liveOf`), the same files that S9, S18, and S20 fix. Their `check_` theorems point at `slot_body_of_bound`, `restore_of_bound`, and `live_of_bound`. No Rust code and no proof changed.
 
 **S29 approved (2026-09-26).** The user confirmed the exact Lean text of `S29_route` in `proofs/Statements.lean`.
+
+**S30 approved (2026-09-26).** The user approved S30 in words: for every app and every version, `version_fit` never fails, and it gives `Supported` exactly when oldest app ≤ v ≤ newest app, `TooOld` exactly when v < oldest app, and `TooNew` exactly when newest app < v. `S30_version_fit` in `proofs/Statements.lean` states this.

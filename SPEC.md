@@ -621,7 +621,7 @@ The bridge keeps this history in `state.json`. The full transcripts come later (
 
 - The strip has a version byte. The bridge drops frames with an unknown version and logs it.
 - Each slot body carries `proto` and the pool sizes. Each report carries the protocol version of the addon (`ver=<n>`).
-- The bridge keeps a range of addon versions for each app: `version_fit` in `crates/protocol/src/version.rs` says `Supported`, `TooOld`, or `TooNew`. Today both ranges are 1 to 1. The bridge logs each new version that an addon reports.
+- The bridge keeps a range of addon versions for each app: `version_fit` in `crates/protocol/src/version.rs` says `Supported`, `TooOld`, or `TooNew`, and S30 proves that it never fails and matches the range exactly (14.1). Today both ranges are 1 to 1. The bridge logs each new version that an addon reports.
 - While the last version of an app is out of its range, each message of that app counts as seen, gets one error reply in that app's body, and never reaches an agent or the story program:
 
 | App | Too old | Too new |
@@ -1031,7 +1031,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
     - **An existing config.** Setup adds `[story]` to a config that has none when the `Timeways` folder exists, for a relay user who installs Timeways later. It checks every new text with the config loader before it writes. It never changes a key that exists.
     - **`## Group:`** is in neither app's slots. Nothing shows yet that the Forever client reads it. After a test in the game, both apps get it in one commit.
 16. **Life cycle.** `restart` and `update` also stop and start the story program. The bridge kills its process group when it exits. A story program that crashes starts again after a backoff.
-17. **Versions.** The hello carries the version of each app. A version out of range gets the reply "update the addon". (Step 8, decided with an advisor on 2026-09-26: each message of an app out of range gets one error reply with the text of 7.7. A newer addon of either app gets "Update the desktop program: gnomish-relay update.", an older Timeways gets "Update Timeways.", and an older relay gets the reload text, because the bridge writes the relay addon at each start. The range check is the pure function `version_fit` in `protocol`, with unit tests for every edge and a check in the `flags` fuzz target. It has no Lean statement yet: that needs the approval of the user. Each app sends its own number through `ns.App.version`, because the batch lines of Timeways and the coding flags of the relay change on their own.)
+17. **Versions.** The hello carries the version of each app. A version out of range gets the reply "update the addon". (Step 8, decided with an advisor on 2026-09-26: each message of an app out of range gets one error reply with the text of 7.7. A newer addon of either app gets "Update the desktop program: gnomish-relay update.", an older Timeways gets "Update Timeways.", and an older relay gets the reload text, because the bridge writes the relay addon at each start. The range check is the pure function `version_fit` in `protocol`, with unit tests for every edge and a check in the `flags` fuzz target. S30 proves it (14.1), approved by the user on 2026-09-26. Each app sends its own number through `ns.App.version`, because the batch lines of Timeways and the coding flags of the relay change on their own.)
 18. **What the key split protects.** It stops a bug or a hacked story program from reaching the agents through the bridge. It does not stop a hostile addon that loads first from reading either key (6.5).
 19. **Paths from game input.** Realm and character names map to safe ids, as S13 does for chat ids. They never become file names directly.
 
@@ -1041,7 +1041,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
 |---|---|---|---|---|
 | Routing by key | S29 | | the `frame` and `relay` targets with two keys | all 4 key results, the `KeySet` swap |
 | Names for each app | S9, S18, S20 restated | | the `lua`, `restore`, and `live` targets for each app | both apps in one fake game |
-| Version range | a small pure function in `protocol` (`version_fit`; the statement waits for approval) | | the `flags` target | the update reply of each app, too old and too new |
+| Version range | a small pure function in `protocol` (`version_fit`, S30) | | the `flags` target | the update reply of each app, too old and too new |
 | Budget | S14 | | | a hostile addon at full rate |
 | Lanes | | | the `relay` target with two lanes | no job from a Timeways strip; no shared seen store, body, or restore |
 | App protocol | | | new target `app_protocol` | a fake `timeways-story`: crash, garbage, huge line, hang |
@@ -1547,6 +1547,7 @@ So most theorems are security properties. Each one closes a named attack.
 | S25 | **Reply size bound:** the output of `render_markdown` is at most 16 bytes for each input byte, plus 4. | Rendering makes a reply grow without a bound. With the cut of S12, the body stays within 1 MB. |
 | S27 | **Totality:** `classify`, `ceiling`, and the shell splitter `split` return an answer for every input. They never panic. | A crafted command or path crashes the bridge. |
 | S29 | **Routing by key:** `route(relay_ok, timeways_ok)` gives the one app whose key verifies the tag of a strip. No key gives `BadTag`, and both keys give `Ambiguous`. The two tag checks are inputs, so S29 proves the choice, not the cryptography: `verify_tag` stays opaque, as in S2. | A strip of one app reaches the other app, for example a story strip reaches the coding agents. |
+| S30 | **Version range:** for every app and every version, `version_fit` never fails. It gives `Supported` exactly when `oldest app ≤ v ≤ newest app`, `TooOld` exactly when `v < oldest app`, and `TooNew` exactly when `newest app < v`. | A message of an addon whose version the bridge does not speak reaches an agent or the story program, or a good version gets the update text. |
 | S28 | **Command floor:** a command that does not parse (the grammar of `split`, 6.6.3) is `desktop`. A command with `$(` or a backtick outside single quotes, by the quote state of the splitter, is `desktop`. `eval`, `sudo`, `cmd.exe`, PowerShell, or a shell after a `\|` make a command at most `desktop`. Commands that run other commands and network tools make it at most `ask`. | A prompt injection runs code through `eval`, a pipe into a shell, or `sudo`, or reaches the network with no question. |
 
 **Correctness theorems:**

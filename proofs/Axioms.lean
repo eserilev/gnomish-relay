@@ -6,6 +6,7 @@ import Statements
 #print axioms Protocol.Statements.check_S11_fresh
 #print axioms Protocol.Statements.check_S2_S11_check
 #print axioms Protocol.Statements.check_S29_route
+#print axioms Protocol.Statements.check_S30_version_fit
 #print axioms Protocol.Statements.check_S6_level
 #print axioms Protocol.Statements.check_S6_answer
 #print axioms Protocol.Statements.check_S15_popup

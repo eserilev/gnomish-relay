@@ -29,6 +29,7 @@ import Protocol.Spec.Markdown
 import Protocol.Markdown
 import Protocol.Spec.Action
 import Protocol.Action
+import Protocol.Version
 
 /-!
 # The theorems, stated
@@ -121,6 +122,17 @@ def S29_route : Prop :=
       | false, true => r = .Ok .Timeways
       | false, false => r = .Err .BadTag
       | true, true => r = .Err .Ambiguous ⦄
+
+/-- **S30.** For every app and every version, `version_fit` never fails. It gives
+`Supported` exactly when the version is in the range of the app, `TooOld` exactly below
+it, and `TooNew` exactly above it. `lo` and `hi` are what `oldest` and `newest` return. -/
+def S30_version_fit : Prop :=
+  ∀ (app : apps.App) (v : U32),
+    version.version_fit app v ⦃ r => ∃ lo hi : U32,
+      version.oldest app = ok lo ∧ version.newest app = ok hi ∧
+      (r = .Supported ↔ lo.val ≤ v.val ∧ v.val ≤ hi.val) ∧
+      (r = .TooOld ↔ v.val < lo.val) ∧
+      (r = .TooNew ↔ hi.val < v.val) ⦄
 
 /-! ## Records -/
 
@@ -445,6 +457,7 @@ theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
 theorem check_S11_fresh : S11_fresh := Protocol.Frame.is_fresh_spec
 theorem check_S2_S11_check : S2_S11_check := Protocol.Frame.check_frame_spec
 theorem check_S29_route : S29_route := Protocol.Apps.route_spec
+theorem check_S30_version_fit : S30_version_fit := Protocol.Version.version_fit_spec
 theorem check_S6_level : S6_level := Protocol.Policy.effective_level_spec
 theorem check_S6_answer : S6_answer := Protocol.Policy.answer_from_game_spec
 theorem check_S15_popup : S15_popup := Protocol.Popup.popup_text_spec
