@@ -234,7 +234,7 @@ fn each_command_and_change_becomes_a_progress_line() {
         .into_iter()
         .filter_map(|e| match e {
             Event::Progress(line) => Some(line),
-            Event::Question(_) => None,
+            Event::Question(_) | Event::Raised { .. } => None,
         })
         .collect();
     assert_eq!(lines, ["$ cargo test", "edit src/main.rs"]);
@@ -252,7 +252,7 @@ fn an_approval_goes_to_the_game_with_the_honest_text_and_no_always() {
         .into_iter()
         .filter_map(|e| match e {
             Event::Question(q) => Some(q.text),
-            Event::Progress(_) => None,
+            Event::Progress(_) | Event::Raised { .. } => None,
         })
         .collect();
     assert_eq!(

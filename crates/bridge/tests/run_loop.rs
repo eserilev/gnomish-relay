@@ -14,8 +14,9 @@ use bridge::acp::AcpAgent;
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy, path_bytes};
-use bridge::desktop::{Approvals, Prompt};
+use bridge::desktop::{Approvals, Prompt, Verdict};
 use bridge::gate::Gate;
+use bridge::raise::Raiser;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
 use bridge::relay::Job;
@@ -23,7 +24,7 @@ use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, slot_name};
 use common::{hex, screenshot_png, signed_frame, strip_rows};
 use protocol::apps::App;
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 
@@ -403,4 +404,145 @@ fn a_list_that_fails_in_every_agent_is_an_error() {
     assert!(step_until(&mut bridge, || slot_body(&addons)
         .contains("claude: not logged in")));
     assert!(slot_body(&f.addons).contains(r#"status = "error""#));
+}
+
+/// An agent that answers with the level of its run.
+struct LevelOf;
+
+impl Agent for LevelOf {
+    fn run(&self, job: &Job, _control: &Control) -> Run {
+        Run {
+            reply: Ok(format!("ran at {}", job.permission.word())),
+            session: None,
+        }
+    }
+}
+
+const ASK_CONFIG: &str = "allowed_roots = [\"~/Code\"]\ndefault_agent = \"claude\"\n\
+    [wow]\npath = \"/wow\"\n\
+    [agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\npermission = \"ask\"\n";
+
+/// A bridge whose config allows `ask`, and whose raises answer through `approvals`.
+fn raising_bridge(f: &Dirs, approvals: &Approvals) -> (Bridge, std::path::PathBuf) {
+    let home = f.state.parent().unwrap().to_owned();
+    fs::create_dir_all(home.join("Code")).unwrap();
+    let config_dir = home.join("config");
+    fs::create_dir_all(&config_dir).unwrap();
+    bridge::fs_safe::write_private(&config_dir, "config.toml", ASK_CONFIG).unwrap();
+    let mut policy = policy();
+    policy.agents.insert("claude".into(), Permission::Ask);
+    let raiser = Raiser {
+        approvals: approvals.clone(),
+        config_dir: config_dir.clone(),
+        home,
+        permission_timeout: Duration::from_secs(20),
+    };
+    let bridge = bridge_in(f, policy, Arc::new(LevelOf)).with_raises(raiser);
+    (bridge, config_dir.join("config.toml"))
+}
+
+fn chat_strip(chat: &str, id: u32, flags: &str, text: &str) -> Vec<u8> {
+    let payload = format!("tok\x1f{chat}\x1f{id}\x1f\x1f{flags}\x1f\x1f{text}");
+    screenshot_png(&strip_rows(&signed_frame(now(), payload.as_bytes(), KEY)))
+}
+
+/// Answers every raise with `verdict`, and returns how many it saw.
+fn answer_raises(
+    approvals: &Approvals,
+    verdict: Verdict,
+    stop: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<usize> {
+    let approvals = approvals.clone();
+    std::thread::spawn(move || {
+        let mut seen = std::collections::BTreeSet::new();
+        while !stop.load(Ordering::SeqCst) {
+            for open in approvals.list() {
+                if seen.insert(open.id.clone()) {
+                    let _ = approvals.answer(&open.id, verdict);
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        seen.len()
+    })
+}
+
+#[test]
+fn an_approved_raise_writes_the_config_and_the_run_uses_the_new_level() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let (mut bridge, config) = raising_bridge(&f, &approvals);
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_raises(&approvals, Verdict::Approve, stop.clone());
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "level=auto-edit", "edit it"),
+    )
+    .unwrap();
+
+    let done = step_until(&mut bridge, || slot_body(&f.addons).contains("ran at"));
+    stop.store(true, Ordering::SeqCst);
+    assert!(done);
+    assert_eq!(answering.join().unwrap(), 1);
+    assert!(
+        slot_body(&f.addons).contains("ran at auto-edit"),
+        "{}",
+        slot_body(&f.addons)
+    );
+    assert!(
+        fs::read_to_string(config)
+            .unwrap()
+            .contains("permission = \"auto-edit\"")
+    );
+}
+
+#[test]
+fn a_denied_raise_keeps_the_config_and_the_run_goes_on_at_its_level() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let (mut bridge, config) = raising_bridge(&f, &approvals);
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_raises(&approvals, Verdict::Deny, stop.clone());
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "level=auto-edit", "edit it"),
+    )
+    .unwrap();
+
+    let done = step_until(&mut bridge, || slot_body(&f.addons).contains("ran at"));
+    stop.store(true, Ordering::SeqCst);
+    assert!(done);
+    assert_eq!(answering.join().unwrap(), 1);
+    assert!(
+        slot_body(&f.addons).contains("ran at ask"),
+        "{}",
+        slot_body(&f.addons)
+    );
+    assert_eq!(fs::read_to_string(config).unwrap(), ASK_CONFIG);
+}
+
+#[test]
+fn two_chats_that_ask_for_more_at_once_get_one_dialog() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let (mut bridge, _config) = raising_bridge(&f, &approvals);
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_raises(&approvals, Verdict::Deny, stop.clone());
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "level=auto-edit", "one"),
+    )
+    .unwrap();
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        chat_strip("c2", 8, "level=auto-edit", "two"),
+    )
+    .unwrap();
+
+    let done = step_until(&mut bridge, || {
+        slot_body(&f.addons).matches("ran at ask").count() == 2
+    });
+    stop.store(true, Ordering::SeqCst);
+    assert!(done, "{}", slot_body(&f.addons));
+    assert_eq!(answering.join().unwrap(), 1);
 }

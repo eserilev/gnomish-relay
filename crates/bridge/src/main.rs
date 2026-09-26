@@ -14,6 +14,7 @@ use bridge::install;
 use bridge::lock::{self, Bridge};
 use bridge::model::ModelChoice;
 use bridge::model_setup;
+use bridge::raise::Raiser;
 use bridge::receive::{KeySet, RELAY_KEY_FILE};
 use bridge::run::{Paths, now, run};
 use bridge::setup::{self, KeyChoice};
@@ -594,7 +595,7 @@ fn start() -> Result<()> {
 }
 
 /// An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
-fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents)> {
+fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents, Raiser)> {
     let hex = std::fs::read_to_string(config_dir()?.join(RELAY_KEY_FILE))?;
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
         println!("wrote the addon files again: type /reload in the game");
@@ -602,7 +603,13 @@ fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents)> {
     let gate = Gate::new(&relay, &config_dir()?, &paths.state, Prompt::Dialog);
     gate.approvals.clear();
     let agents = agent::from_config(&relay, &gate);
-    Ok((relay.policy, agents))
+    let raiser = Raiser {
+        approvals: gate.approvals.clone(),
+        config_dir: config_dir()?,
+        home: home_dir()?,
+        permission_timeout: relay.permission_timeout,
+    };
+    Ok((relay.policy, agents, raiser))
 }
 
 fn story_spec(story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {

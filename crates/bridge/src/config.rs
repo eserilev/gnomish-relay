@@ -600,6 +600,13 @@ fn others_can_write(_meta: &fs::Metadata) -> bool {
 }
 
 pub fn load(dir: &Path, home: &Path) -> Result<Config> {
+    let text = read_text(dir)?;
+    let path = dir.join(FILE);
+    parse(&text, home).with_context(|| format!("{} is not valid", path.display()))
+}
+
+/// The text of `config.toml`, only from a plain file that no other user can write.
+pub fn read_text(dir: &Path) -> Result<String> {
     let path = dir.join(FILE);
     let meta = fs::symlink_metadata(&path).with_context(|| {
         format!(
@@ -618,8 +625,7 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
             path.display()
         );
     }
-    let text = fs::read_to_string(&path)?;
-    parse(&text, home).with_context(|| format!("{} is not valid", path.display()))
+    Ok(fs::read_to_string(&path)?)
 }
 
 /// An agent that setup found: its entry name, its kind, and its command.

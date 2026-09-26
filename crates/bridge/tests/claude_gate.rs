@@ -418,6 +418,7 @@ fn live_the_hook_of_claude_fires_for_a_read() {
         .map(|(_, _, e)| match e {
             Event::Progress(line) => line,
             Event::Question(q) => String::from_utf8_lossy(&q.text).into_owned(),
+            Event::Raised { .. } => String::new(),
         })
         .collect();
     println!("{steps:#?}\n{:?}", run.reply);

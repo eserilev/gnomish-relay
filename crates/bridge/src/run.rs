@@ -10,8 +10,10 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result};
 
 use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopSignal};
-use crate::config::Policy;
+use crate::config::{Permission, Policy};
+use crate::raise::{RaiseGuard, Raised, Raiser};
 use crate::receive::{KeySet, receive, receive_for};
+use crate::turn::STOPPED;
 use protocol::apps::App;
 use protocol::record::Record;
 use protocol::version::version_fit;
@@ -112,6 +114,9 @@ struct RelayLane {
     answers: BTreeMap<String, Sender<Option<usize>>>,
     finished: Sender<Finished>,
     results: Receiver<Finished>,
+    /// With no raiser, a chat never raises the level of the config (SPEC.md 9.3).
+    raiser: Option<Raiser>,
+    raises: RaiseGuard,
 }
 
 /// The Timeways app: its lane and its files. Its messages go to the story program, and
@@ -148,6 +153,15 @@ impl Bridge {
             addons: paths.addons,
             keys,
         })
+    }
+
+    /// A chat that asks for more than the config allows then gets one desktop dialog.
+    #[must_use]
+    pub fn with_raises(mut self, raiser: Raiser) -> Bridge {
+        if let Some(relay) = &mut self.relay {
+            relay.raiser = Some(raiser);
+        }
+        self
     }
 
     /// The story program runs only in the Timeways lane, so with no Timeways key it
@@ -234,6 +248,8 @@ impl RelayLane {
             answers: BTreeMap::new(),
             finished,
             results,
+            raiser: None,
+            raises: RaiseGuard::default(),
         })
     }
 
@@ -327,11 +343,47 @@ impl RelayLane {
                 self.relay.begin(&job);
                 self.files.changed = true;
             }
+            let raise = self.raise_for(&job);
             thread::spawn(move || {
-                let run = agent.run(&job, &control);
+                let mut job = job;
+                if let Some((raiser, level)) = raise {
+                    job.permission = raise_level(&raiser, &job, level, &control);
+                }
+                let run = if control.stop.requested() {
+                    Run {
+                        reply: Err(STOPPED.into()),
+                        session: job.resume.clone(),
+                    }
+                } else {
+                    agent.run(&job, &control)
+                };
                 let _ = finished.send(Finished::Run(job, run));
             });
         }
+    }
+
+    /// The raise that a job carries, if any. The config is checked first, so the
+    /// user never approves a change that the bridge cannot write.
+    fn raise_for(&mut self, job: &Job) -> Option<(Raiser, Permission)> {
+        let raiser = self.raiser.as_ref()?;
+        if job.work != Work::Prompt || job.permission >= job.asked {
+            return None;
+        }
+        if !self.raises.may_ask(&job.agent, Instant::now()) {
+            log(&format!("raise {}: no dialog now", job.agent));
+            return None;
+        }
+        if let Err(e) = raiser.can_raise(&job.agent, job.asked) {
+            log(&format!(
+                "raise {}: config.toml cannot change: {e:#}",
+                job.agent
+            ));
+            self.raises
+                .answered(&job.agent, Raised::NotRaised, Instant::now());
+            return None;
+        }
+        self.raises.asked();
+        Some((raiser.clone(), job.asked))
     }
 
     fn start_list(&self, job: Job) {
@@ -363,6 +415,18 @@ impl RelayLane {
                         .ask(&chat, id, question.text, question.choices, now());
                     log(&format!("ask {} #{} as {request}", chat.0, id.0));
                     self.answers.insert(request, question.answer);
+                }
+                Event::Raised {
+                    agent,
+                    level,
+                    raised,
+                } => {
+                    self.raises.answered(&agent, raised, Instant::now());
+                    // An approved raise gives the run the level that it asked for.
+                    if raised == Raised::Approved {
+                        self.relay.set_level(&agent, level);
+                        self.relay.show_level(&chat, id, level, level);
+                    }
                 }
             }
             self.files.changed = true;
@@ -412,6 +476,22 @@ impl RelayLane {
         }
         self.files.changed = false;
     }
+}
+
+/// Runs in the thread of the run. Returns the level of the run after the raise.
+fn raise_level(asker: &Raiser, job: &Job, level: Permission, control: &Control) -> Permission {
+    let raised = asker.ask(job, level, control);
+    let now_level = if raised == Raised::Approved {
+        level
+    } else {
+        job.permission
+    };
+    control.events.send(Event::Raised {
+        agent: job.agent.clone(),
+        level: now_level,
+        raised,
+    });
+    now_level
 }
 
 fn log_version(app: App, reported: u32) {
@@ -568,13 +648,15 @@ fn list_sessions(agents: &Agents, cwd: &str) -> Found {
 /// With no relay part, `relay` is `None`, and the bridge serves Timeways alone.
 pub fn run(
     paths: Paths,
-    relay: Option<(Policy, Agents)>,
+    relay: Option<(Policy, Agents, Raiser)>,
     keys: KeySet,
     story: Option<StorySpec>,
 ) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
     let mut bridge = match relay {
-        Some((policy, agents)) => Bridge::new(paths, policy, keys, agents)?,
+        Some((policy, agents, raiser)) => {
+            Bridge::new(paths, policy, keys, agents)?.with_raises(raiser)
+        }
         None => Bridge::without_relay(paths, keys)?,
     };
     if let Some(spec) = story {

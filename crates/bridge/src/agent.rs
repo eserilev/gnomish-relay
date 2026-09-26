@@ -13,8 +13,9 @@ use crate::acp::AcpAgent;
 use crate::claude::ClaudeAgent;
 use crate::claude_sessions;
 use crate::codex::CodexAgent;
-use crate::config::{AgentSpec, Kind, RelayConfig};
+use crate::config::{AgentSpec, Kind, Permission, RelayConfig};
 use crate::gate::Gate;
+use crate::raise::Raised;
 use crate::relay::{ChatId, Job, MessageId};
 
 /// The slot body cuts a reply at 32 KiB anyway.
@@ -67,6 +68,13 @@ pub enum Event {
     /// One step of the agent, for the activity panel.
     Progress(String),
     Question(Question),
+    /// The end of a raise of the level in the config (SPEC.md 9.3). `level` is the
+    /// level of the run after it.
+    Raised {
+        agent: String,
+        level: Permission,
+        raised: Raised,
+    },
 }
 
 /// The channel from the runs to the bridge. Each event names its chat and message.

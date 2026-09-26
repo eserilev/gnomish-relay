@@ -218,7 +218,7 @@ impl Gate {
     }
 }
 
-fn deny_choice() -> Choice {
+pub fn deny_choice() -> Choice {
     Choice {
         kind: OptionKind::RejectOnce,
         label: "Deny".into(),

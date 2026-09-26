@@ -481,8 +481,25 @@ impl Relay {
     /// The first progress line of a run says its level, so the game shows the level
     /// that applies, not the one that the chat asked for (SPEC.md 9.3).
     pub fn begin(&mut self, job: &Job) {
-        let line = activity::level_line(job.permission, job.asked);
-        self.activity.begin(&job.chat, job.id, line);
+        self.show_level(&job.chat, job.id, job.permission, job.asked);
+    }
+
+    pub fn show_level(
+        &mut self,
+        chat: &ChatId,
+        id: MessageId,
+        level: Permission,
+        asked: Permission,
+    ) {
+        let line = activity::level_line(level, asked);
+        self.activity.begin(chat, id, line);
+    }
+
+    /// The level of the config for `agent`, after a raise on the desktop wrote it.
+    pub fn set_level(&mut self, agent: &str, level: Permission) {
+        if let Some(known) = self.policy.agents.get_mut(agent) {
+            *known = level;
+        }
     }
 
     pub fn step(&mut self, chat: &ChatId, id: MessageId, line: String) {

@@ -167,7 +167,7 @@ No WoW mechanism lets an addon prove that the user typed a message. So layers 2 
 
 #### 6.6.2 Game ceiling
 
-Every message from the game (a strip or the reload outbox) runs under one ceiling from `config.toml`. No message from the game can raise it (S6).
+Every message from the game (a strip or the reload outbox) runs under one ceiling from `config.toml`. No message from the game can raise it. Only a click on the desktop changes the config (9.3, "Raise the level"), and no addon can make that click (S6).
 
 | Setting | Default |
 |---|---|
@@ -255,7 +255,7 @@ There are four answers, in this order from strict to open:
 
 - **Unknown tools are `desktop`.** The classifier knows file reads, file writes, and shell commands. Every other tool is `desktop`: web fetch, web search, MCP tools, and subagents.
 - **Inside:** a path is inside a folder when the parts of the folder start the parts of the path (S5). A write outside the chat folder is `desktop`. A read outside `allowed_roots` is `desktop`.
-- **`deny` paths:** the strip key, `timeways.key`, `config.toml`, and everything else in the config folder of the bridge (12). An approved access would let the agent sign fake strips or raise its own ceiling.
+- **`deny` paths:** the strip key, `timeways.key`, `config.toml`, and everything else in the config folder of the bridge (12). An approved access would let the agent sign fake strips or raise its own ceiling. The bridge writes `config.toml` itself after a raise on the desktop (9.3), never through the classifier.
 - **`deny` paths in the data folder** (12, and 9.7 decision 12): `state.json`, `approvals/`, `timeways/`, `bridge.lock`, `bridge.pid`, `bridge.log`, and everything else there. An approved access would let the agent clear the replay store, answer its own desktop request, or change the story state. The bridge writes these files itself, never through the classifier.
 - **`desktop` patterns** are whole parts that match anywhere in a path, for example `.git/hooks`. A last `*` in a part matches the rest of a part, so `.env.*` matches `.env.local`.
 - **`desktop` paths, for reads and writes:** `.ssh`, `.aws`, `.gnupg`, `.env` files, other credential files (`.netrc`, `.git-credentials`, `.config/gh`, `.docker/config.json`, `.kube`), keychains, and browser profiles. `action_input.rs` has the full list.
@@ -914,6 +914,21 @@ Each agent in the config has one permission level:
 - For an ACP agent that picks its questions (6.6.3), `ask` and `allow` both ask in the game, at every level.
 - A refusal names its reason to the agent: "It touches the config folder of Gnomish Relay, which the agent never reaches.", "Denied on the desktop.", "No answer on the desktop.", "Denied in the game.", "No answer from the game.", or "Not allowed from the game." when nobody in the game listens.
 - The game gets Allow and Deny for a game question, and only Deny for a desktop question (6.6.3).
+
+**Raise the level** (asked for by the user, decided with an advisor on 2026-09-26). A chat that asks for more than the config allows, for example `auto-edit` with `permission = "ask"`, gets one desktop dialog. The code is in `crates/bridge/src/raise.rs` and `config_edit.rs`.
+
+- The dialog is a desktop request of 6.6.3 of its own kind. So it has the same dialog, the same `gnomish-relay approve` fallback, the same 0600 request file, and the first answer wins. Its text is fixed text of the bridge and the name of the agent from the config, never text from the game:
+  - `auto-edit`: "A chat from WoW asks for more access. Allow <agent> to edit files in the chat folder with no question, in every chat from WoW? Commands still ask in the game. This writes permission = "auto-edit" to config.toml. Approve only if you just sent a message from WoW."
+  - `full-auto` gets a stronger warning: "A chat from WoW asks for full access. Allow <agent> to edit files AND run commands with no question, in every chat from WoW? Any addon that can send a chat message can then run code on this computer, inside the sandbox. The Gnomish Relay addon never asks for this by itself. This writes permission = "full-auto" to config.toml." The addon never asks for `full-auto` today, so this dialog means that another addon made the message. The bridge still offers it, because the user asked for a stronger warning, not for no dialog.
+- The run waits for the answer before the agent starts, so an approved run uses the new level. The game popup says "Approve on your desktop: let <agent> work at <level> in chats from WoW. No prompt? Run: gnomish-relay approve <id>", with only Deny. A Deny in the game ends the wait at once. The run timeout stops during the wait, as for any question.
+- On Approve, the bridge reads `config.toml` again with the checks of config load, changes the one line `permission = "..."` of the `[agents.<name>]` table, and keeps the comments and every other line. It then parses the new text: it must load, the agent must have the new level, and every other level must be the same. Else it writes nothing. It writes the file with an atomic rename and mode 0600. Then it sets the new level of that agent in the policy of the running bridge. It reloads nothing else.
+- The bridge checks the edit before it shows the dialog, so the user never approves a change that it cannot write. It refuses a quoted table name, an inline table, dotted keys, a missing or double `permission` line, a value that is not a plain `"..."` string, and a config that does not load. Then there is no dialog, and a log line says what to fix.
+- On Deny, a closed dialog, no answer, Stop, or a write that fails, the run goes on at the level of the config, and the level line of the game shows it (9.3, "The level in the game").
+- At most one raise waits at a time. A second chat that needs a raise meanwhile runs at once at the level of the config, with no dialog. So one answer never goes to many runs.
+- Every answer that is not Approve starts 10 quiet minutes with no raise dialog, for every agent. A hostile addon that sends messages then gets at most one dialog in 10 minutes. A Deny on the desktop (or a closed dialog) also ends the raise dialogs for that agent until the bridge starts again: a user who set `ask` on purpose then sees the dialog once, not every 10 minutes.
+- Only a message with work for the agent can raise. A list of sessions and an attach never do.
+- The bridge writes a log line for each raise, its request id, its answer, and whether it wrote the config.
+- S6 does not change: at the start of the agent, the level of the run is at most the level of the config. The config changes only through the desktop.
 
 Each backend maps the level differently:
 

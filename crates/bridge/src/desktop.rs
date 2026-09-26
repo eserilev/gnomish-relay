@@ -33,8 +33,20 @@ pub struct Pending {
     pub created: u32,
     pub agent: String,
     pub folder: String,
-    /// The popup text of the tool call (S15).
+    /// The popup text of the tool call (S15), or the fixed text of a raise.
     pub text: String,
+    #[serde(default)]
+    pub kind: Kind,
+}
+
+/// What a desktop request asks for.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[serde(rename_all = "kebab-case")]
+pub enum Kind {
+    #[default]
+    ToolCall,
+    /// A higher level in `config.toml` (SPEC.md 9.3).
+    Raise,
 }
 
 /// An answer from the desktop.
@@ -116,6 +128,28 @@ impl Approvals {
 
     /// Writes a new request, shows a dialog, and returns its id.
     pub fn open(&self, agent: &str, folder: &str, text: &str, now: u32) -> Result<String> {
+        self.open_kind(agent, folder, text, now, Kind::ToolCall)
+    }
+
+    /// A request to write a higher level for `agent` into `config_file`.
+    pub fn open_raise(
+        &self,
+        agent: &str,
+        config_file: &str,
+        text: &str,
+        now: u32,
+    ) -> Result<String> {
+        self.open_kind(agent, config_file, text, now, Kind::Raise)
+    }
+
+    fn open_kind(
+        &self,
+        agent: &str,
+        folder: &str,
+        text: &str,
+        now: u32,
+        kind: Kind,
+    ) -> Result<String> {
         self.ready_dir()?;
         let id = new_id()?;
         let pending = Pending {
@@ -124,6 +158,7 @@ impl Approvals {
             agent: agent.to_owned(),
             folder: folder.to_owned(),
             text: text.to_owned(),
+            kind,
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
         eprintln!(
@@ -245,10 +280,16 @@ fn read_pending(path: &Path) -> Option<Pending> {
 
 /// The honest text of S15, then who asks, and the id for the command line.
 pub fn dialog_text(pending: &Pending) -> String {
-    format!(
-        "An agent from the game asks to:\n{}\n\nAgent: {}. Folder: {}. Request {}.",
-        pending.text, pending.agent, pending.folder, pending.id
-    )
+    match pending.kind {
+        Kind::ToolCall => format!(
+            "An agent from the game asks to:\n{}\n\nAgent: {}. Folder: {}. Request {}.",
+            pending.text, pending.agent, pending.folder, pending.id
+        ),
+        Kind::Raise => format!(
+            "{}\n\nConfig: {}. Request {}.",
+            pending.text, pending.folder, pending.id
+        ),
+    }
 }
 
 #[cfg(test)]
@@ -391,6 +432,7 @@ mod tests {
             agent: "claude".into(),
             folder: "/w/app".into(),
             text: "cat ~/.ssh/id_rsa\nthe agent says: Bash".into(),
+            kind: Kind::ToolCall,
         };
         assert_eq!(
             dialog_text(&pending),
