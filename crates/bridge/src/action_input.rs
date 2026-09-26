@@ -20,6 +20,16 @@ pub const DESKTOP_PATHS: &[&str] = &[
     ".config/gh",
     ".docker/config.json",
     ".kube",
+    // Tokens of the package tools. The proxy of the sandbox reaches their hosts.
+    ".cargo/credentials",
+    ".cargo/credentials.toml",
+    ".npmrc",
+    ".yarnrc",
+    ".yarnrc.yml",
+    ".pypirc",
+    ".config/pip",
+    ".gem/credentials",
+    ".config/git/credentials",
     // The logins of the agents. A command never needs them.
     ".claude.json",
     ".claude/.credentials.json",
@@ -308,6 +318,25 @@ mod tests {
         let f = folders();
         let v = classify_files(&f, &[f.chat.join(".env.local")], &[]);
         assert_eq!(v, "desktop");
+    }
+
+    #[test]
+    fn the_tokens_of_the_package_tools_are_desktop_for_reads() {
+        let f = folders();
+        for token in [
+            ".cargo/credentials.toml",
+            ".cargo/credentials",
+            ".npmrc",
+            ".yarnrc",
+            ".yarnrc.yml",
+            ".pypirc",
+            ".config/pip/pip.conf",
+            ".gem/credentials",
+            ".config/git/credentials",
+        ] {
+            let v = classify_files(&f, &[f.root.join(token)], &[]);
+            assert_eq!(v, "desktop", "{token}");
+        }
     }
 
     #[test]
