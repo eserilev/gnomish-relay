@@ -1,8 +1,11 @@
-"""Writes the WoW Forever API that an addon uses, for the fake game and the lint check.
+"""Writes the WoW Forever API that an addon uses as two Lua tables.
 
 Usage: wow-api.py --ui <wow-ui-source> --bir <BlizzardInterfaceResources> --build <build>
        --addon <folder> [--addon <folder>]... [--lint <wow.yml>] [--fake <wow.lua>]
-       --api <api.lua>
+       --api <api.lua> --signatures <api-signatures.lua>
+
+The api file is for the fake game and the lint check. The signatures file keeps the
+documented arguments, returns, payloads, and flags of each used function and event.
 
 Sources:
 - BlizzardInterfaceResources: the global functions, frames, and widget methods that
@@ -12,6 +15,7 @@ Sources:
 
 It checks every WoW name that the addon, wow.yml, or the fake game uses. A name that
 the client does not have, or has only in a Blizzard_Deprecated addon, is an error.
+So is an event that the client does not have.
 Only the used names, the widget types, and the used templates go into the output.
 """
 
@@ -20,6 +24,8 @@ import re
 import sys
 import xml.etree.ElementTree as ET
 from pathlib import Path
+
+import wow_api_docs
 
 
 def arguments():
@@ -31,6 +37,7 @@ def arguments():
     parser.add_argument("--lint", type=Path)
     parser.add_argument("--fake", type=Path)
     parser.add_argument("--api", type=Path, required=True)
+    parser.add_argument("--signatures", type=Path, required=True)
     return parser.parse_args()
 
 
@@ -245,13 +252,30 @@ def fake_globals(path):
     return names
 
 
+def used_events():
+    names = set()
+    for path in addon_files():
+        text = path.read_text(encoding="utf-8")
+        names.update(re.findall(r'Register(?:Unit)?Event\("(\w+)"', text))
+    return names
+
+
+def used_methods():
+    """Every `:Name(` call. Most are widget methods. The rest match no doc and drop out."""
+    names = set()
+    for path in addon_files():
+        names.update(re.findall(r":([A-Za-z_]\w*)\s*\(", path.read_text(encoding="utf-8")))
+    return names
+
+
 def lua_list(names, indent):
     return "".join(f'{indent}"{n}",\n' for n in sorted(names))
 
 
-def check_names(used, known):
+def check_names(used, known, events, known_events):
     errors = [f"{name} is not in the WoW Forever {build} client" for name in sorted(used - known)]
     errors += [f"{name} is deprecated in WoW Forever {build}" for name in sorted(used & deprecated())]
+    errors += [f"event {name} is not in the WoW Forever {build} client" for name in sorted(events - known_events)]
     for error in errors:
         print(f"error: {error}", file=sys.stderr)
     if errors:
@@ -290,15 +314,48 @@ def api_text(used):
     return "".join(out)
 
 
+def lua_entries(table, keys):
+    return "".join(wow_api_docs.lua_entry(key, table[key], "\t\t") for key in sorted(keys))
+
+
+def signatures_text(used, events, docs, global_api):
+    functions = {n for n in used if n in docs.functions}
+    undocumented = {n for n in used if n in global_api or n.startswith("C_") and "." in n} - functions
+    methods = {key for name in used_methods() for key in docs.methods_named(name)}
+    documented_events = events & set(docs.events)
+    return "".join([
+        f"-- The documented WoW Forever {build} API that {', '.join(addon_names())} uses.\n",
+        "-- Written by scripts/wow-api.sh from Blizzard_APIDocumentationGenerated. Do not edit.\n",
+        "-- A patch can change the arguments, returns, or secret flags and keep the name. The diff shows it.\n",
+        "-- The scan does not know the type of each object, so methods has each widget type with a called name.\n",
+        "return {\n",
+        f'\tbuild = "{build}",\n',
+        "\tfunctions = {\n",
+        lua_entries(docs.functions, functions),
+        "\t},\n\tmethods = {\n",
+        lua_entries(docs.functions, methods),
+        "\t},\n\tevents = {\n",
+        lua_entries(docs.events, documented_events),
+        "\t},\n\tundocumented = {\n",
+        lua_list(undocumented | (events - documented_events), "\t\t"),
+        "\t},\n}\n",
+    ])
+
+
 def main():
-    known = set(quoted(resources / "GlobalAPI.lua"))
-    known |= set(quoted(resources / "FrameXML.lua"))
+    global_api = set(quoted(resources / "GlobalAPI.lua"))
+    known = global_api | set(quoted(resources / "FrameXML.lua"))
     known |= set(quoted(resources / "Frames.lua"))
     known |= ui_globals()
     known |= {n.split(".")[0] for n in known if "." in n}
+    docs = wow_api_docs.read_docs(ui / "Blizzard_APIDocumentationGenerated")
     used = referenced()
-    check_names(used, known)
-    args.api.write_text(api_text(used), encoding="utf-8")
+    events = used_events()
+    check_names(used, known, events, set(quoted(resources / "Events.lua")) | set(docs.events))
+    api = api_text(used)
+    signatures = signatures_text(used, events, docs, global_api)
+    args.api.write_text(api, encoding="utf-8")
+    args.signatures.write_text(signatures, encoding="utf-8")
 
 
 main()

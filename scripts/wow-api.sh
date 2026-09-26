@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-# Writes addon/tests/api.lua, the API of the WoW Forever client that the addon uses
-# (SPEC.md 7.8). The tests and the lint check use it, so a call to a function that
-# the client does not have fails here, not in the game.
+# Writes addon/tests/api.lua and addon/tests/api-signatures.lua, the API of the WoW
+# Forever client that the addon uses (SPEC.md 7.8). The tests and the lint check use
+# them, so a call to a function that the client does not have fails here, not in the game.
 #
 # With no argument it uses the pinned commits below. `--latest` uses the newest
 # commit of each `forever` branch: the nightly job does this to find client patches.
 #
 # Another addon repo runs this script from its own root with its own paths:
 #   wow-api.sh [--latest] --addon <folder> [--addon <folder>]... [--lint <wow.yml>]
-#              [--fake <wow.lua>] --api <api.lua>
+#              [--fake <wow.lua>] --api <api.lua> --signatures <api-signatures.lua>
 # Each `--addon` folder with a TOC is an addon. A folder without one is shared code.
 # `--lint` and `--fake` are optional there. Paths are relative to the repo root.
 set -euo pipefail
@@ -27,6 +27,7 @@ addons=()
 lint=""
 fake=""
 api=""
+signatures=""
 custom=no
 while [ $# -gt 0 ]; do
   case $1 in
@@ -35,6 +36,7 @@ while [ $# -gt 0 ]; do
     --lint) lint=$2; custom=yes; shift ;;
     --fake) fake=$2; custom=yes; shift ;;
     --api) api=$2; custom=yes; shift ;;
+    --signatures) signatures=$2; custom=yes; shift ;;
     *) echo "error: unknown argument $1" >&2; exit 2 ;;
   esac
   shift
@@ -44,9 +46,10 @@ if [ "$custom" = no ]; then
   lint=wow.yml
   fake=addon/tests/wow.lua
   api=addon/tests/api.lua
+  signatures=addon/tests/api-signatures.lua
 fi
-if [ ${#addons[@]} -eq 0 ] || [ -z "$api" ]; then
-  echo "error: give --addon and --api, or no path at all" >&2
+if [ ${#addons[@]} -eq 0 ] || [ -z "$api" ] || [ -z "$signatures" ]; then
+  echo "error: give --addon, --api, and --signatures, or no path at all" >&2
   exit 2
 fi
 
@@ -86,7 +89,7 @@ for folder in "${addons[@]}"; do
 done
 [ -z "$lint" ] || options+=(--lint "$lint")
 [ -z "$fake" ] || options+=(--fake "$fake")
-# The script writes the file only when every check passes.
+# The script writes both files only when every check passes.
 python3 "$scripts/wow-api.py" --ui "$work/ui" --bir "$work/bir" --build "$build" \
-  "${options[@]}" --api "$api"
-echo "wrote $api for $build"
+  "${options[@]}" --api "$api" --signatures "$signatures"
+echo "wrote $api and $signatures for $build"

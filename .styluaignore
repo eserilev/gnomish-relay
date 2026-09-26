@@ -1,1 +1,2 @@
 addon/tests/api.lua
+addon/tests/api-signatures.lua

@@ -41,7 +41,7 @@ jobs:
         with:
           toolchain: stable
       - run: scripts/wow-api.sh --latest
-      - run: git diff --exit-code -- addon/tests/api.lua
+      - run: git diff --exit-code -- addon/tests/api.lua addon/tests/api-signatures.lua
       - run: cargo test -p bridge --test addon_flow
       - name: Open an issue
         if: failure()
@@ -51,5 +51,5 @@ jobs:
         run: |
           title="The WoW Forever API changed"
           if [ -z "$(gh issue list --state open --search "\"$title\" in:title" --json number -q '.[].number')" ]; then
-            gh issue create --title "$title" --body "The nightly API check failed: $RUN. Update the pinned commits in scripts/wow-api.sh, run it, and fix what breaks."
+            gh issue create --title "$title" --body "The nightly API check failed: $RUN. Update the pinned commits in scripts/wow-api.sh, run it, and fix what breaks. The diff of addon/tests/api-signatures.lua names each changed argument, return, or secret flag."
           fi

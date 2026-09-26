@@ -64,9 +64,11 @@ jobs:
           tool: stylua,selene
       - run: stylua --check addon
       - run: selene addon/GnomishRelay addon/transport
+      - run: python3 -m unittest discover -s scripts -p 'test_*.py'
       # Every WoW name that the addon uses must be in the pinned client, and not deprecated.
+      # The documented signature and secret flags of each used function and event must not change.
       - run: scripts/wow-api.sh
-      - run: git diff --exit-code -- addon/tests/api.lua
+      - run: git diff --exit-code -- addon/tests/api.lua addon/tests/api-signatures.lua
 
   coverage:
     runs-on: ubuntu-latest
