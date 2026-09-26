@@ -8972,6 +8972,140 @@ def slot.slot_body
   let s2 ← lift (Array.to_slice slot.TAIL)
   ascii.push_bytes out4 s2
 
+/-- [protocol::version::RELAY_OLDEST]
+    Source: 'crates/protocol/src/version.rs', lines 6:0-6:28 -/
+@[global_simps, irreducible] def version.RELAY_OLDEST : Std.U32 := 1#u32
+
+/-- [protocol::version::RELAY_NEWEST]
+    Source: 'crates/protocol/src/version.rs', lines 7:0-7:28 -/
+@[global_simps, irreducible] def version.RELAY_NEWEST : Std.U32 := 1#u32
+
+/-- [protocol::version::TIMEWAYS_OLDEST]
+    Source: 'crates/protocol/src/version.rs', lines 8:0-8:31 -/
+@[global_simps, irreducible] def version.TIMEWAYS_OLDEST : Std.U32 := 1#u32
+
+/-- [protocol::version::TIMEWAYS_NEWEST]
+    Source: 'crates/protocol/src/version.rs', lines 9:0-9:31 -/
+@[global_simps, irreducible] def version.TIMEWAYS_NEWEST : Std.U32 := 1#u32
+
+/-- [protocol::version::{impl core::clone::Clone for protocol::version::VersionFit}::clone]:
+    Source: 'crates/protocol/src/version.rs', lines 12:9-12:14
+    Visibility: public -/
+def version.VersionFit.Insts.CoreCloneClone.clone
+  (self : version.VersionFit) : Result version.VersionFit := do
+  ok self
+
+/-- Trait implementation: [protocol::version::{impl core::clone::Clone for protocol::version::VersionFit}]
+    Source: 'crates/protocol/src/version.rs', lines 12:9-12:14 -/
+@[reducible]
+def version.VersionFit.Insts.CoreCloneClone : core.clone.Clone
+  version.VersionFit := {
+  clone := version.VersionFit.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::version::{impl core::marker::Copy for protocol::version::VersionFit}]
+    Source: 'crates/protocol/src/version.rs', lines 12:16-12:20 -/
+@[reducible]
+def version.VersionFit.Insts.CoreMarkerCopy : core.marker.Copy
+  version.VersionFit := {
+  cloneInst := version.VersionFit.Insts.CoreCloneClone
+}
+
+/-- [protocol::version::{impl core::fmt::Debug for protocol::version::VersionFit}::fmt]:
+    Source: 'crates/protocol/src/version.rs', lines 12:22-12:27
+    Visibility: public -/
+def version.VersionFit.Insts.CoreFmtDebug.fmt
+  (self : version.VersionFit) (f : core.fmt.Formatter) :
+  Result ((core.result.Result Unit core.fmt.Error) × core.fmt.Formatter)
+  := do
+  match self with
+  | version.VersionFit.Supported =>
+    core.fmt.Formatter.write_str f (toStr "Supported")
+  | version.VersionFit.TooOld =>
+    core.fmt.Formatter.write_str f (toStr "TooOld")
+  | version.VersionFit.TooNew =>
+    core.fmt.Formatter.write_str f (toStr "TooNew")
+
+/-- Trait implementation: [protocol::version::{impl core::fmt::Debug for protocol::version::VersionFit}]
+    Source: 'crates/protocol/src/version.rs', lines 12:22-12:27 -/
+@[reducible]
+def version.VersionFit.Insts.CoreFmtDebug : core.fmt.Debug version.VersionFit
+  := {
+  fmt := version.VersionFit.Insts.CoreFmtDebug.fmt
+}
+
+/-- Trait implementation: [protocol::version::{impl core::marker::StructuralPartialEq for protocol::version::VersionFit}]
+    Source: 'crates/protocol/src/version.rs', lines 12:29-12:38 -/
+@[reducible]
+def version.VersionFit.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq version.VersionFit := {
+}
+
+/-- [protocol::version::{impl core::cmp::PartialEq<protocol::version::VersionFit> for protocol::version::VersionFit}::eq]:
+    Source: 'crates/protocol/src/version.rs', lines 12:29-12:38
+    Visibility: public -/
+def version.VersionFit.Insts.CoreCmpPartialEqVersionFit.eq
+  (self : version.VersionFit) (other : version.VersionFit) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::version::{impl core::cmp::PartialEq<protocol::version::VersionFit> for protocol::version::VersionFit}]
+    Source: 'crates/protocol/src/version.rs', lines 12:29-12:38 -/
+@[reducible]
+impl_def version.VersionFit.Insts.CoreCmpPartialEqVersionFit :
+  core.cmp.PartialEq version.VersionFit version.VersionFit := {
+  eq := version.VersionFit.Insts.CoreCmpPartialEqVersionFit.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    version.VersionFit.Insts.CoreCmpPartialEqVersionFit
+}
+
+/-- [protocol::version::{impl core::cmp::Eq for protocol::version::VersionFit}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/version.rs', lines 12:40-12:42
+    Visibility: public -/
+def version.VersionFit.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : version.VersionFit) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::version::{impl core::cmp::Eq for protocol::version::VersionFit}]
+    Source: 'crates/protocol/src/version.rs', lines 12:40-12:42 -/
+@[reducible]
+def version.VersionFit.Insts.CoreCmpEq : core.cmp.Eq version.VersionFit := {
+  partialEqInst := version.VersionFit.Insts.CoreCmpPartialEqVersionFit
+  assert_fields_are_eq :=
+    version.VersionFit.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::version::oldest]:
+    Source: 'crates/protocol/src/version.rs', lines 22:0-27:1
+    Visibility: public -/
+def version.oldest (app : apps.App) : Result Std.U32 := do
+  match app with
+  | apps.App.Relay => ok version.RELAY_OLDEST
+  | apps.App.Timeways => ok version.TIMEWAYS_OLDEST
+
+/-- [protocol::version::newest]:
+    Source: 'crates/protocol/src/version.rs', lines 30:0-35:1
+    Visibility: public -/
+def version.newest (app : apps.App) : Result Std.U32 := do
+  match app with
+  | apps.App.Relay => ok version.RELAY_NEWEST
+  | apps.App.Timeways => ok version.TIMEWAYS_NEWEST
+
+/-- [protocol::version::version_fit]:
+    Source: 'crates/protocol/src/version.rs', lines 39:0-47:1
+    Visibility: public -/
+def version.version_fit
+  (app : apps.App) (reported : Std.U32) : Result version.VersionFit := do
+  let i ← version.oldest app
+  if reported < i
+  then ok version.VersionFit.TooOld
+  else
+    let i1 ← version.newest app
+    if reported > i1
+    then ok version.VersionFit.TooNew
+    else ok version.VersionFit.Supported
+
 /-- [protocol::wow_text::push_safe]:
     Source: 'crates/protocol/src/wow_text.rs', lines 4:0-9:1 -/
 def wow_text.push_safe

@@ -38,4 +38,5 @@ pub(crate) mod search;
 pub mod seen;
 pub mod shell;
 pub mod slot;
+pub mod version;
 pub mod wow_text;

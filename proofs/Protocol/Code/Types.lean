@@ -382,4 +382,13 @@ structure slot.Reply where
   status : slot.Status
   text : alloc.vec.Vec Std.U8
 
+/-- [protocol::version::VersionFit]
+    Source: 'crates/protocol/src/version.rs', lines 13:0-19:1
+    Visibility: public -/
+@[discriminant isize]
+inductive version.VersionFit where
+| Supported : version.VersionFit
+| TooOld : version.VersionFit
+| TooNew : version.VersionFit
+
 end protocol

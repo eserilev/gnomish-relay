@@ -42,3 +42,4 @@ pub mod strip;
 pub mod timeways;
 pub mod turn;
 pub mod update;
+pub mod versions;

@@ -6,9 +6,11 @@ use protocol::apps::App;
 use protocol::rate::{RateLimiter, admit_message};
 use protocol::seen::{self, Seen, admit, new_seen};
 use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
+use protocol::version::version_fit;
 use serde::{Deserialize, Serialize};
 
 use crate::flags::{Channel, TransportFlags};
+use crate::versions::update_text;
 
 /// More tokens than this means many wipes. The oldest ones then go.
 const MAX_TOKENS: usize = 16;
@@ -143,6 +145,13 @@ impl Lane {
 
     pub fn next_slot(&self) -> usize {
         self.next_slot
+    }
+
+    /// The reply to each message while the addon reports a version out of range. With no
+    /// report yet, the version counts as supported, so a restart refuses no good message.
+    pub fn update_text(&self) -> Option<&'static str> {
+        let reported = self.addon_version?;
+        update_text(self.app, version_fit(self.app, reported))
     }
 
     /// A `/reload` frees every slot, so the next body starts at slot 1 (SPEC.md 7.3).

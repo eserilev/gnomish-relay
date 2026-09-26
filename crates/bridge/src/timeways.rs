@@ -62,6 +62,10 @@ impl Timeways {
         self.lane.next_slot()
     }
 
+    pub fn addon_version(&self) -> Option<u32> {
+        self.lane.addon_version()
+    }
+
     pub fn reset_window(&mut self) {
         self.lane.reset_window();
     }
@@ -110,6 +114,10 @@ impl Timeways {
         if !r.cwd.is_empty() {
             self.set_reply(&message, Status::Error, NO_FOLDER.into());
             return Outcome::BadFolder;
+        }
+        if let Some(update) = self.lane.update_text() {
+            self.set_reply(&message, Status::Error, update.into());
+            return Outcome::WrongVersion;
         }
         self.set_reply(&message, Status::Working, String::new());
         self.story.push(message);
@@ -213,6 +221,32 @@ mod tests {
         assert_eq!(timeways.on_frame(&[with_folder], NOW), [Outcome::BadFolder]);
         assert!(timeways.take_messages().is_empty());
         assert!(body(&timeways).contains(NO_FOLDER));
+    }
+
+    #[test]
+    fn a_timeways_addon_older_than_the_bridge_is_asked_to_update_and_never_reaches_the_story() {
+        let mut timeways = Timeways::new();
+        let frame = [record("story", 0, "h;ver=0", ""), record("c1", 1, "", "hi")];
+        let outcomes = timeways.on_frame(&frame, NOW);
+        assert_eq!(outcomes, [Outcome::Control, Outcome::WrongVersion]);
+        assert!(timeways.take_messages().is_empty());
+        assert!(body(&timeways).contains(crate::story::UPDATE_TIMEWAYS));
+    }
+
+    #[test]
+    fn a_timeways_addon_newer_than_the_bridge_asks_to_update_the_desktop_program() {
+        let mut timeways = Timeways::new();
+        let frame = [record("story", 0, "h;ver=2", ""), record("c1", 1, "", "hi")];
+        assert_eq!(timeways.on_frame(&frame, NOW)[1], Outcome::WrongVersion);
+        assert!(body(&timeways).contains(crate::story::UPDATE_BRIDGE));
+    }
+
+    #[test]
+    fn a_timeways_addon_with_a_supported_version_reaches_the_story() {
+        let mut timeways = Timeways::new();
+        let frame = [record("story", 0, "h;ver=1", ""), record("c1", 1, "", "hi")];
+        assert_eq!(timeways.on_frame(&frame, NOW)[1], Outcome::Accepted);
+        assert_eq!(timeways.take_messages().len(), 1);
     }
 
     #[test]

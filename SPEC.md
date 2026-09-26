@@ -620,7 +620,17 @@ The bridge keeps this history in `state.json`. The full transcripts come later (
 ### 7.7 Versioning
 
 - The strip has a version byte. The bridge drops frames with an unknown version and logs it.
-- Each slot body carries `proto` and the pool sizes. Each report carries the protocol version of the addon (`ver=<n>`). The bridge logs a version that it does not speak.
+- Each slot body carries `proto` and the pool sizes. Each report carries the protocol version of the addon (`ver=<n>`).
+- The bridge keeps a range of addon versions for each app: `version_fit` in `crates/protocol/src/version.rs` says `Supported`, `TooOld`, or `TooNew`. Today both ranges are 1 to 1. The bridge logs each new version that an addon reports.
+- While the last version of an app is out of its range, each message of that app counts as seen, gets one error reply in that app's body, and never reaches an agent or the story program:
+
+| App | Too old | Too new |
+|---|---|---|
+| Relay | "Type /reload in the game to load the new Gnomish Relay." (the bridge writes the relay addon again at each start, so an old relay addon only needs a reload) | "Update the desktop program: gnomish-relay update." |
+| Timeways | "Update Timeways." | "Update the desktop program: gnomish-relay update." |
+
+- With no `ver=` yet, for example just after a bridge restart, the version counts as supported, so a restart refuses no good message.
+- Today `ver=` comes from `Health.VERSION` of the shared transport, so both apps send the same number. A number for each app (`ns.App.version`) waits until step 7 of 9.7 lands, because it changes the Lua tests (9.7, decision 17).
 - On a mismatch, the addon shows "bridge and addon versions do not match" and stops sending.
 - Pool sizes live in one place: the `protocol` crate. The setup step writes them into the addon.
 
@@ -1014,7 +1024,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
 14. **Shared Lua transport.** `Codec.lua`, `Sha256.lua`, `Strip.lua`, the slot poll, `Health.lua`, and `Messages.lua` move into one source folder with parameters: the app name, the slot prefix, the global names, and the saved variables. The relay repo copies the folder at package time and never commits a copy. The Timeways repo checks its copy with a plain diff against the pinned relay tag.
 15. **Setup.** A player with only Timeways gets no folder question and no coding agents, only a `[story]` section in the config for the model. The bridge makes the Timeways slots only when the Timeways addon folder exists. It writes only `Key.lua` into the Timeways folder, and writes it again at start if it is missing. It never writes other Timeways files.
 16. **Life cycle.** `restart` and `update` also stop and start the story program. The bridge kills its process group when it exits. A story program that crashes starts again after a backoff.
-17. **Versions.** The hello carries the version of each app. A version out of range gets the reply "update the addon".
+17. **Versions.** The hello carries the version of each app. A version out of range gets the reply "update the addon". (Step 8, decided with an advisor on 2026-09-26: each message of an app out of range gets one error reply with the text of 7.7. A newer addon of either app gets "Update the desktop program: gnomish-relay update.", an older Timeways gets "Update Timeways.", and an older relay gets the reload text, because the bridge writes the relay addon at each start. The range check is the pure function `version_fit` in `protocol`, with unit tests for every edge and a check in the `flags` fuzz target. It has no Lean statement yet: that needs the approval of the user. Each app is to send its own number through `ns.App.version`, because the batch lines of Timeways and the coding flags of the relay change on their own. That change waits for step 7, because it touches the Lua tests.)
 18. **What the key split protects.** It stops a bug or a hacked story program from reaching the agents through the bridge. It does not stop a hostile addon that loads first from reading either key (6.5).
 19. **Paths from game input.** Realm and character names map to safe ids, as S13 does for chat ids. They never become file names directly.
 
@@ -1024,7 +1034,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
 |---|---|---|---|---|
 | Routing by key | S29 | | the `frame` and `relay` targets with two keys | all 4 key results, the `KeySet` swap |
 | Names for each app | S9, S18, S20 restated | | the `lua`, `restore`, and `live` targets for each app | both apps in one fake game |
-| Version range | a small pure function in `protocol` | | the `flags` target | the "update the addon" reply |
+| Version range | a small pure function in `protocol` (`version_fit`; the statement waits for approval) | | the `flags` target | the update reply of each app, too old and too new |
 | Budget | S14 | | | a hostile addon at full rate |
 | Lanes | | | the `relay` target with two lanes | no job from a Timeways strip; no shared seen store, body, or restore |
 | App protocol | | | new target `app_protocol` | a fake `timeways-story`: crash, garbage, huge line, hang |
@@ -1588,7 +1598,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | UI escape and popup text | Backs up S10 and S15. |
 | `config.toml` parser | A broken or hostile config gives an error, never a wider permission. |
 | Restore and live files, loaded in a real Lua 5.1 VM | Back up S18 to S21: every field loads back as the prepared bytes, and each file stays under its bound. |
-| Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape. A coding flag never changes the transport flags, which are all that the Timeways lane reads. |
+| Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape. A coding flag never changes the transport flags, which are all that the Timeways lane reads. Any `ver=` gets an update text exactly when it is out of the range of its app. |
 | Messages from an ACP agent | The agent is untrusted. A progress line stays short, a popup text is printable (S15), and the game never gets "allow always". |
 | The Markdown renderer (7.3.1) | Agent text reaches the game window. Each block has its shape, no agent byte starts a WoW code or HTML markup, and the size stays within its bound. |
 | Messages of `codex app-server` | The agent is untrusted. A progress line stays short, and a popup text is printable (S15). |

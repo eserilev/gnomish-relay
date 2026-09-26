@@ -14,6 +14,7 @@ use crate::config::Policy;
 use crate::receive::{KeySet, receive, receive_for};
 use protocol::apps::App;
 use protocol::record::Record;
+use protocol::version::version_fit;
 
 use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
@@ -22,10 +23,9 @@ use crate::slots::{self, Files};
 use crate::state;
 use crate::story::{Story, StorySpec};
 use crate::timeways::{NO_STORY, Timeways};
+use crate::versions::update_text;
 
 const TICK: Duration = Duration::from_millis(250);
-/// The protocol versions of the addon that this bridge speaks (SPEC.md 7.7).
-const ADDON_VERSIONS: std::ops::RangeInclusive<u32> = 1..=1;
 /// The addon calls the bridge offline after 12 minutes without a new body.
 const HEARTBEAT: Duration = Duration::from_mins(1);
 /// The folder of the Timeways state, inside the data folder (SPEC.md 9.7, decision 4).
@@ -268,13 +268,7 @@ impl RelayLane {
             log(&format!("game build {new}: screenshots and slots work"));
         }
         if let Some(new) = self.relay.addon_version().filter(|v| Some(*v) != version) {
-            if ADDON_VERSIONS.contains(&new) {
-                log(&format!("addon version {new}"));
-            } else {
-                log(&format!(
-                    "addon version {new} is not supported: update the addon or the bridge"
-                ));
-            }
+            log_version(App::Relay, new);
         }
         let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
         log(&format!(
@@ -396,6 +390,16 @@ impl RelayLane {
     }
 }
 
+fn log_version(app: App, reported: u32) {
+    let fit = version_fit(app, reported);
+    match update_text(app, fit) {
+        None => log(&format!("{app:?} addon version {reported}")),
+        Some(update) => log(&format!(
+            "{app:?} addon version {reported} is not supported: {update}"
+        )),
+    }
+}
+
 /// The records of each outbox frame that the key of `app` signed. Any other frame is
 /// refused (SPEC.md 9.7, decision 3).
 fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<Vec<Record>> {
@@ -451,7 +455,15 @@ impl TimewaysLane {
     }
 
     fn take_records(&mut self, records: &[Record], source: &str) {
+        let version = self.timeways.addon_version();
         let outcomes = self.timeways.on_frame(records, now());
+        if let Some(new) = self
+            .timeways
+            .addon_version()
+            .filter(|v| Some(*v) != version)
+        {
+            log_version(App::Timeways, new);
+        }
         let accepted = outcomes.iter().filter(|o| **o == Outcome::Accepted).count();
         log(&format!(
             "timeways {source}: {} records, {accepted} new",

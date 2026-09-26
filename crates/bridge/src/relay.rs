@@ -118,6 +118,8 @@ pub enum Outcome {
     BadAgent,
     /// Seen, and answered with an error: the last list had no such session.
     BadSession,
+    /// Seen, and answered with the update text of its app (SPEC.md 7.7).
+    WrongVersion,
     Control,
 }
 
@@ -248,6 +250,11 @@ impl Relay {
         }
         if let Err(outcome) = self.admit(r, &chat, now) {
             return outcome;
+        }
+        if let Some(update) = self.lane.update_text() {
+            let (token, id) = (text(&r.token), MessageId(r.id));
+            self.set_record(&token, &chat, id, Status::Error, update.into());
+            return Outcome::WrongVersion;
         }
         if flags.list {
             return self.enqueue_list(r, chat);
@@ -1057,6 +1064,38 @@ mod tests {
             Some(1),
             "a report with no version keeps the last one"
         );
+    }
+
+    #[test]
+    fn a_relay_addon_newer_than_the_bridge_gets_the_update_text_and_never_runs() {
+        let mut relay = relay();
+        let frame = [record("relay", 0, "h;ver=2", ""), record("c1", 1, "", "hi")];
+        let outcomes = relay.on_frame(&frame, NOW);
+        assert_eq!(outcomes, [Outcome::Control, Outcome::WrongVersion]);
+        assert!(relay.next_job().is_none());
+        let body = String::from_utf8(relay.body(NOW)).unwrap();
+        assert!(body.contains(crate::story::UPDATE_BRIDGE), "{body}");
+    }
+
+    #[test]
+    fn a_relay_addon_older_than_the_bridge_is_asked_to_reload() {
+        let mut relay = relay();
+        let frame = [record("relay", 0, "h;ver=0", ""), record("c1", 1, "", "hi")];
+        assert_eq!(relay.on_frame(&frame, NOW)[1], Outcome::WrongVersion);
+        let body = String::from_utf8(relay.body(NOW)).unwrap();
+        assert!(body.contains(crate::versions::RELOAD_RELAY), "{body}");
+    }
+
+    #[test]
+    fn a_relay_addon_with_a_supported_or_no_version_runs() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "no version yet")], NOW);
+        relay.on_frame(
+            &[record("relay", 0, "h;ver=1", ""), record("c2", 2, "", "hi")],
+            NOW,
+        );
+        assert!(relay.next_job().is_some());
+        assert!(relay.next_job().is_some());
     }
 
     fn restart(relay: &Relay) -> Relay {
