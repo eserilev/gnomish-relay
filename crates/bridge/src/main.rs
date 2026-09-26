@@ -4,7 +4,8 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 use bridge::agent;
-use bridge::config::{self, Config};
+use bridge::agent::Agents;
+use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::desktop::{self, Approvals, Notice};
 use bridge::fs_safe::write_atomic;
 use bridge::gate::Gate;
@@ -406,7 +407,7 @@ fn setup(args: &[&str]) -> Result<()> {
         )?;
     }
     let config = load_config()?;
-    println!("{}", agent_line(&config));
+    println!("{}", agent_line(config.require_relay()?));
     if args.contains(&"--autostart") {
         match autostart() {
             Ok(()) => println!("Bridge: on, starts at login"),
@@ -439,7 +440,9 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
             .context("GNOMISH_NEXT_SLOT is not a slot number")?,
         Err(_) => 1,
     };
-    let addons = addons_dir(&load_config()?.wow);
+    let config = load_config()?;
+    config.require_relay()?;
+    let addons = addons_dir(&config.wow);
     let files = Files {
         body: body(&[reply]),
         ..Files::empty(App::Relay, now())
@@ -472,30 +475,40 @@ fn start() -> Result<()> {
     };
     // Equal keys, or a `timeways.key` that does not load, stop the bridge here.
     let keys = KeySet::load(&config_dir()?)?;
-    let key_path = config_dir()?.join(RELAY_KEY_FILE);
-    // An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
-    let hex = std::fs::read_to_string(&key_path)?;
+    let relay = match config.relay {
+        Some(relay) => Some(start_relay(relay, &paths)?),
+        None => None,
+    };
+    let story = match &config.story {
+        Some(story) => story_spec(story, &paths)?,
+        None => None,
+    };
+    run(paths, relay, keys, story)
+}
+
+/// An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
+fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents)> {
+    let hex = std::fs::read_to_string(config_dir()?.join(RELAY_KEY_FILE))?;
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
         println!("wrote the addon files again: type /reload in the game");
     }
-    let gate = Gate::new(&config, &config_dir()?, &paths.state, Notice::System);
+    let gate = Gate::new(&relay, &config_dir()?, &paths.state, Notice::System);
     gate.approvals.clear();
-    let agents = agent::from_config(&config, &gate);
-    let story = match &config.story {
-        Some(story) => Some(StorySpec::from_config(
-            story,
-            &config_dir()?,
-            &paths.state,
-            &home_dir()?,
-        )?),
-        None => None,
-    };
-    run(paths, config.policy, keys, agents, story)
+    let agents = agent::from_config(&relay, &gate);
+    Ok((relay.policy, agents))
+}
+
+fn story_spec(story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
+    let spec = StorySpec::from_config(story, &config_dir()?, &paths.state, &home_dir()?)?;
+    if spec.is_none() {
+        eprintln!("timeways: [story] has no program, so the story program does not start");
+    }
+    Ok(spec)
 }
 
 /// The default agent, started once with no prompt, so a missing login shows here and
 /// not as the first reply in the game.
-fn agent_line(config: &Config) -> String {
+fn agent_line(config: &RelayConfig) -> String {
     let name = &config.policy.default_agent;
     let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
     let Ok(gate) = check_gate(config) else {
@@ -519,7 +532,7 @@ fn agent_line(config: &Config) -> String {
 }
 
 /// A check sends no prompt, so no tool call reaches this gate.
-fn check_gate(config: &Config) -> Result<Gate> {
+fn check_gate(config: &RelayConfig) -> Result<Gate> {
     Ok(Gate::new(config, &config_dir()?, &data_dir()?, Notice::Off))
 }
 
@@ -553,12 +566,13 @@ fn answer_approval(id: &str, verdict: desktop::Verdict) -> Result<()> {
 /// no prompt. It shows that a new `[agents.<name>]` entry works.
 fn check_agent(name: &str) -> Result<()> {
     let config = load_config()?;
+    let config = config.require_relay()?;
     let spec = config
         .agents
         .get(name)
         .with_context(|| format!("the config has no [agents.{name}]"))?;
     let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    let report = agent::check(spec, &cwd, &check_gate(&config)?)
+    let report = agent::check(spec, &cwd, &check_gate(config)?)
         .with_context(|| format!("[agents.{name}] is the echo agent: it starts nothing"))?
         .map_err(anyhow::Error::msg)?;
     println!("{name}: {} {}", report.name, report.version);

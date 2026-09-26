@@ -54,26 +54,30 @@ pub struct StorySpec {
 impl StorySpec {
     /// Makes the folder of the story program and finds the sandbox of this computer. The
     /// command line is `<program> <lore pack> <story folder>`. The lore pack is the one
-    /// file that the sandbox shows even inside a hidden folder.
+    /// file that the sandbox shows even inside a hidden folder. With no program in the
+    /// config, there is nothing to start.
     pub fn from_config(
         config: &StoryConfig,
         config_dir: &Path,
         data: &Path,
         home: &Path,
-    ) -> anyhow::Result<StorySpec> {
+    ) -> anyhow::Result<Option<StorySpec>> {
+        let Some(story) = &config.program else {
+            return Ok(None);
+        };
         let folder = data.join(crate::run::TIMEWAYS_DIR).join(STORY_DIR);
         make_story_folder(&folder)?;
-        let pack = &config.lore_pack;
+        let pack = &story.lore_pack;
         let walls = story_sandbox::walls(&folder, config_dir, data, home, &[pack]);
         let args = [pack, &walls.folder].map(|p| p.to_string_lossy().into_owned());
-        Ok(StorySpec {
-            program: config.program.clone(),
+        Ok(Some(StorySpec {
+            program: story.program.clone(),
             args: args.to_vec(),
             walls,
             sandbox: story_sandbox::detect(),
             timeout: config.timeout,
             model: config.model.clone(),
-        })
+        }))
     }
 }
 
@@ -686,6 +690,20 @@ fn quiet(command: &mut Command) -> std::io::Result<std::process::ExitStatus> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::config::StoryProgram;
+
+    #[test]
+    fn a_story_section_with_no_program_gives_nothing_to_start() {
+        let root = tempfile::tempdir().unwrap();
+        let config = StoryConfig {
+            program: None,
+            timeout: Duration::from_secs(9),
+            model: crate::model::ModelSpec::none(),
+        };
+        let spec = StorySpec::from_config(&config, root.path(), root.path(), root.path());
+        assert!(spec.unwrap().is_none());
+        assert!(!root.path().join("timeways").exists(), "no story folder");
+    }
 
     #[test]
     fn the_spec_of_the_config_passes_the_lore_pack_and_hides_the_config_and_data() {
@@ -695,13 +713,17 @@ mod tests {
         let pack = root.path().join("lore.sqlite");
         std::fs::write(&pack, "").unwrap();
         let config = StoryConfig {
-            program: PathBuf::from("/opt/timeways-story"),
-            lore_pack: pack.clone(),
+            program: Some(StoryProgram {
+                program: PathBuf::from("/opt/timeways-story"),
+                lore_pack: pack.clone(),
+            }),
             timeout: Duration::from_secs(9),
             model: crate::model::ModelSpec::none(),
         };
 
-        let spec = StorySpec::from_config(&config, &config_dir, &data, root.path()).unwrap();
+        let spec = StorySpec::from_config(&config, &config_dir, &data, root.path())
+            .unwrap()
+            .unwrap();
 
         let real = |p: &Path| p.canonicalize().unwrap();
         let folder = real(&data.join("timeways/story"));
@@ -709,7 +731,7 @@ mod tests {
         assert!(spec.walls.hidden.contains(&real(&config_dir)));
         assert!(spec.walls.hidden.contains(&real(&data)));
         assert_eq!(spec.walls.readable, [real(&pack)]);
-        assert_eq!(spec.program, config.program);
+        assert_eq!(spec.program, PathBuf::from("/opt/timeways-story"));
         assert_eq!(
             spec.args,
             [pack.to_string_lossy(), folder.to_string_lossy()]

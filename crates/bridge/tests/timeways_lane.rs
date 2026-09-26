@@ -485,3 +485,37 @@ fn a_batch_of_game_events_gets_the_events_seen_reply() {
     assert_eq!(seen.len(), 2);
     assert_eq!(seen[1]["level"], 12);
 }
+
+/// SPEC.md 9.7, decision 15: a player with only Timeways gets a bridge with no relay.
+#[test]
+fn a_bridge_with_no_relay_serves_timeways_and_drops_a_relay_strip() {
+    let f = folders(true);
+    let paths = Paths {
+        addons: f.addons.clone(),
+        screenshots: f.screenshots.clone(),
+        accounts: f.accounts.clone(),
+        state: f.state.clone(),
+    };
+    let mut bridge = Bridge::without_relay(paths, both_keys())
+        .unwrap()
+        .with_story(echo_story(&f));
+    let relay = show_strip(
+        &f,
+        "WoWScrnShot_1.png",
+        &frame(RELAY_KEY, "tok", 1, "", "hi"),
+    );
+    show_strip(
+        &f,
+        "WoWScrnShot_2.png",
+        &frame(TIMEWAYS_KEY, "tok", 7, "", &question("who rules here")),
+    );
+
+    let answered = step_until(&mut bridge, || {
+        slot_file(&f.addons, App::Timeways, BODY_FILE).contains("story: who rules here")
+    });
+
+    assert!(answered);
+    assert!(relay.exists(), "a strip of a lane that is off stays");
+    assert!(!slot_file(&f.addons, App::Relay, BODY_FILE).contains("hi"));
+    assert!(!f.state.join("state.json").exists(), "no relay state");
+}

@@ -10,7 +10,7 @@ use protocol::live::OptionKind;
 use crate::action_input::{self, resolve};
 use crate::agent::Choice;
 use crate::allow::AllowTable;
-use crate::config::{Config, Permission};
+use crate::config::{Permission, RelayConfig};
 use crate::desktop::{self, Approvals, Notice};
 use crate::turn::{Answer, Turn};
 
@@ -150,7 +150,7 @@ pub struct Gate {
 impl Gate {
     /// The gate of the bridge: `config_dir` holds `config.toml`, and `data_dir` holds the
     /// desktop requests.
-    pub fn new(config: &Config, config_dir: &Path, data_dir: &Path, notice: Notice) -> Gate {
+    pub fn new(config: &RelayConfig, config_dir: &Path, data_dir: &Path, notice: Notice) -> Gate {
         let roots = config
             .policy
             .folders

@@ -1061,7 +1061,7 @@ The relay tests use a small second test addon built from the shared transport, n
 
 The bridge and the story program of Timeways talk in JSON lines: one JSON object on each line, over the stdin and stdout of the story program. The story program is untrusted, like an agent, and so is the addon. `crates/bridge/src/addon_lines.rs` checks the lines of the addon, `crates/bridge/src/app_protocol.rs` has the other messages, and `crates/bridge/src/story.rs` has the life cycle.
 
-**Start.** The bridge starts the story program only when the Timeways lane is on (`timeways.key` exists) and the config has a `[story]` section (12). The command line is `<program> <lore pack> <story folder>`. The program path is absolute: the bridge never looks it up on `PATH`. The lore pack is the SQLite file of the lore. The story folder is `<data>/timeways/story/`, which the bridge makes with mode 0700. The bridge starts the program with no shell, with the environment allowlist of 6.2 rule 12, with the story folder as its working folder, and in the sandbox of 6.6.4. On Linux and macOS the story program leads its own process group. On Windows, `taskkill /T` stops its process tree.
+**Start.** The bridge starts the story program only when the Timeways lane is on (`timeways.key` exists) and the config has a `[story]` section with a `program` (12). The command line is `<program> <lore pack> <story folder>`. The program path is absolute: the bridge never looks it up on `PATH`. The lore pack is the SQLite file of the lore. The story folder is `<data>/timeways/story/`, which the bridge makes with mode 0700. The bridge starts the program with no shell, with the environment allowlist of 6.2 rule 12, with the story folder as its working folder, and in the sandbox of 6.6.4. On Linux and macOS the story program leads its own process group. On Windows, `taskkill /T` stops its process tree.
 
 **What the story program writes.** Only files below its story folder, for example `worlds/<realm id>/<character id>.jsonl`. Each id is a safe encoding of a name from the game: `[A-Za-z0-9]` stays, and every other byte becomes `_XX` in hex (9.7, decision 19). The bridge writes every file that the game reads, with the proved writers (S9, S12). The story program never writes a slot file. Problems go to its stderr.
 
@@ -1289,13 +1289,26 @@ local_model = "llama3.2"
 ```
 
 - The bridge never looks up `program` on `PATH`. A name with no folder is an error, for `program` and for `lore_pack`.
-- `program` and `lore_pack` are both needed.
+- `program` and `lore_pack` go together: both, or neither. With neither, the story program does not start, the bridge logs one line at start, and each Timeways message gets "Timeways story program not running.". Setup cannot know them before Timeways ships its program, so it writes them as commented lines (11.3).
 - With no `[story]`, each Timeways message gets the answer "Timeways story program not running.".
 - With `[story]` and no `timeways.key`, the bridge logs one line and starts no story program.
 - `local_url` is only `http://127.0.0.1:<port>` or `http://[::1]:<port>`, with nothing after the port. Config load refuses `localhost`, any other host, `https`, and a path, because `localhost` can resolve to another host.
 - `model = "local"` needs `local_url` and `local_model`. A key of one model with the other model, or with no `model`, is an error, so a typo never leaves a model that the user did not mean.
 - A model name has no space and does not start with `-`, because `claude_model` goes into an argument of `claude`.
 - The model route takes nothing from `[agents.*]`: `model = "claude"` always runs `claude` from `PATH`, with the environment allowlist of 6.2 and no `env` list (9.7, decision 10).
+
+**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `[agents]`, and `[allow]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
+
+```toml
+[wow]
+path = "~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_"
+
+[story]
+model = "claude"
+claude_model = "haiku"
+```
+
+With no relay part, the bridge has no relay lane. It does not write the relay addon, and it logs and drops a strip signed with `strip.key`. `say` and `check-agent` stop with "the relay is off. Run: gnomish-relay setup --relay". Setup still makes `strip.key`, so the key check of 9.7, decision 1, stays the same.
 
 **The allow table** lists the commands that run from the game with no question at `auto-edit` and `full-auto` (9.3):
 

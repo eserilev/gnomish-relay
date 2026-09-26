@@ -67,7 +67,8 @@ pub struct Bridge {
     addons: PathBuf,
     keys: KeySet,
     watcher: Watcher,
-    relay: RelayLane,
+    /// Only with the relay part in the config (SPEC.md 9.7, decision 15).
+    relay: Option<RelayLane>,
     /// Only with a Timeways key. It holds no agents.
     timeways: Option<TimewaysLane>,
 }
@@ -125,31 +126,25 @@ struct TimewaysLane {
 impl Bridge {
     /// With no Timeways key there is no Timeways lane, and the bridge works as before.
     pub fn new(paths: Paths, policy: Policy, keys: KeySet, agents: Agents) -> Result<Bridge> {
+        let relay = RelayLane::open(&paths, policy, agents)?;
+        Bridge::with_lanes(paths, keys, Some(relay))
+    }
+
+    /// A player with only Timeways: the bridge serves the Timeways lane alone.
+    pub fn without_relay(paths: Paths, keys: KeySet) -> Result<Bridge> {
+        Bridge::with_lanes(paths, keys, None)
+    }
+
+    fn with_lanes(paths: Paths, keys: KeySet, relay: Option<RelayLane>) -> Result<Bridge> {
         let timeways = if keys.has_timeways() {
             Some(TimewaysLane::open(&paths)?)
         } else {
             None
         };
-        let relay = match state::load(&paths.state)? {
-            Some(saved) => Relay::from_state(policy, saved),
-            None => Relay::new(policy),
-        };
-        let (finished, results) = channel();
-        let (events, run_events) = channel();
         Ok(Bridge {
             watcher: Watcher::new(&paths.screenshots),
             timeways,
-            relay: RelayLane {
-                relay,
-                files: LaneFiles::new(paths.state, &paths.accounts, App::Relay),
-                agents,
-                stops: BTreeMap::new(),
-                events,
-                run_events,
-                answers: BTreeMap::new(),
-                finished,
-                results,
-            },
+            relay,
             addons: paths.addons,
             keys,
         })
@@ -168,7 +163,9 @@ impl Bridge {
 
     pub fn step(&mut self) {
         self.take_screenshots();
-        self.relay.step(&self.keys, &self.addons);
+        if let Some(relay) = &mut self.relay {
+            relay.step(&self.keys, &self.addons);
+        }
         if let Some(timeways) = &mut self.timeways {
             timeways.step(&self.keys, &self.addons);
         }
@@ -206,17 +203,40 @@ impl Bridge {
                 return false;
             }
         };
-        match (app, &mut self.timeways) {
-            (App::Relay, _) => self.relay.take_records(&records, "strip"),
-            (App::Timeways, Some(timeways)) => timeways.take_records(&records, "strip"),
+        match (app, &mut self.relay, &mut self.timeways) {
+            (App::Relay, Some(relay), _) => relay.take_records(&records, "strip"),
+            (App::Timeways, _, Some(timeways)) => timeways.take_records(&records, "strip"),
             // `KeySet` routes to Timeways only with a Timeways key, and that key makes the lane.
-            (App::Timeways, None) => return false,
+            (App::Relay, None, _) | (App::Timeways, _, None) => {
+                log(&format!("strip of {app:?}, which is off"));
+                return false;
+            }
         }
         true
     }
 }
 
 impl RelayLane {
+    fn open(paths: &Paths, policy: Policy, agents: Agents) -> Result<RelayLane> {
+        let relay = match state::load(&paths.state)? {
+            Some(saved) => Relay::from_state(policy, saved),
+            None => Relay::new(policy),
+        };
+        let (finished, results) = channel();
+        let (events, run_events) = channel();
+        Ok(RelayLane {
+            relay,
+            files: LaneFiles::new(paths.state.clone(), &paths.accounts, App::Relay),
+            agents,
+            stops: BTreeMap::new(),
+            events,
+            run_events,
+            answers: BTreeMap::new(),
+            finished,
+            results,
+        })
+    }
+
     fn step(&mut self, keys: &KeySet, addons: &Path) {
         self.take_saved_variables(keys);
         self.signal_stops();
@@ -541,15 +561,18 @@ fn list_sessions(agents: &Agents, cwd: &str) -> Found {
     Ok(found)
 }
 
+/// With no relay part, `relay` is `None`, and the bridge serves Timeways alone.
 pub fn run(
     paths: Paths,
-    policy: Policy,
+    relay: Option<(Policy, Agents)>,
     keys: KeySet,
-    agents: Agents,
     story: Option<StorySpec>,
 ) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
-    let mut bridge = Bridge::new(paths, policy, keys, agents)?;
+    let mut bridge = match relay {
+        Some((policy, agents)) => Bridge::new(paths, policy, keys, agents)?,
+        None => Bridge::without_relay(paths, keys)?,
+    };
     if let Some(spec) = story {
         bridge = bridge.with_story(spec);
     }

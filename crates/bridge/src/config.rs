@@ -78,26 +78,46 @@ pub struct Policy {
 pub struct Config {
     /// The game folder that holds `Interface`, `Screenshots`, and `WTF`.
     pub wow: PathBuf,
+    /// A player with only Timeways has no relay part (SPEC.md 9.7, decision 15).
+    pub relay: Option<RelayConfig>,
+    /// With no `[story]`, Timeways answers each message with a fixed error.
+    pub story: Option<StoryConfig>,
+}
+
+impl Config {
+    pub fn require_relay(&self) -> Result<&RelayConfig> {
+        self.relay
+            .as_ref()
+            .context("the relay is off. Run: gnomish-relay setup --relay")
+    }
+}
+
+/// The coding agents of the relay and the ceiling of each message to them.
+pub struct RelayConfig {
     pub policy: Policy,
     pub agents: BTreeMap<String, AgentSpec>,
     pub timeout: Duration,
     pub permission_timeout: Duration,
     /// Commands that run from the game with no question (SPEC.md 12).
     pub allow: AllowTable,
-    /// With no `[story]`, Timeways answers each message with a fixed error.
-    pub story: Option<StoryConfig>,
 }
 
 /// The story program of Timeways (SPEC.md 9.8).
 #[derive(Debug, PartialEq, Eq)]
 pub struct StoryConfig {
+    /// Setup cannot know it before Timeways ships its program, so it can be missing.
+    pub program: Option<StoryProgram>,
+    /// The longest wait for the reply to one message.
+    pub timeout: Duration,
+    pub model: ModelSpec,
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub struct StoryProgram {
     /// An absolute path, never a name to look up on `PATH`.
     pub program: PathBuf,
     /// The `SQLite` file of the lore. The story program gets it as its first argument.
     pub lore_pack: PathBuf,
-    /// The longest wait for the reply to one message.
-    pub timeout: Duration,
-    pub model: ModelSpec,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -139,15 +159,14 @@ pub struct AgentSpec {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct File {
-    allowed_roots: Vec<String>,
+    allowed_roots: Option<Vec<String>>,
     default_cwd: Option<String>,
-    default_agent: String,
+    default_agent: Option<String>,
     timeout_minutes: Option<u64>,
     permission_timeout_minutes: Option<u64>,
     wow: Wow,
-    agents: BTreeMap<String, Agent>,
-    #[serde(default)]
-    allow: AllowFile,
+    agents: Option<BTreeMap<String, Agent>>,
+    allow: Option<AllowFile>,
     story: Option<Story>,
 }
 
@@ -160,8 +179,8 @@ struct Wow {
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Story {
-    program: String,
-    lore_pack: String,
+    program: Option<String>,
+    lore_pack: Option<String>,
     timeout_seconds: Option<u64>,
     model: Option<ModelName>,
     claude_model: Option<String>,
@@ -191,17 +210,26 @@ fn story(file: Option<&Story>, home: &Path) -> Result<Option<StoryConfig>> {
     let Some(story) = file else {
         return Ok(None);
     };
-    let program = expand(&story.program, home).context("[story] program")?;
-    let lore_pack = expand(&story.lore_pack, home).context("[story] lore_pack")?;
     let seconds = story.timeout_seconds.unwrap_or(DEFAULT_STORY_SECONDS);
     if !(1..=MAX_STORY_SECONDS).contains(&seconds) {
         bail!("[story] timeout_seconds must be 1 to {MAX_STORY_SECONDS}");
     }
     Ok(Some(StoryConfig {
-        program,
-        lore_pack,
+        program: story_program(story, home)?,
         timeout: Duration::from_secs(seconds),
         model: model_spec(story)?,
+    }))
+}
+
+fn story_program(story: &Story, home: &Path) -> Result<Option<StoryProgram>> {
+    let (program, lore_pack) = match (&story.program, &story.lore_pack) {
+        (None, None) => return Ok(None),
+        (Some(program), Some(lore_pack)) => (program, lore_pack),
+        _ => bail!("[story] program and lore_pack go together"),
+    };
+    Ok(Some(StoryProgram {
+        program: expand(program, home).context("[story] program")?,
+        lore_pack: expand(lore_pack, home).context("[story] lore_pack")?,
     }))
 }
 
@@ -441,8 +469,40 @@ fn real_root(path: &str, home: &Path) -> Result<Vec<u8>> {
 
 pub fn parse(text: &str, home: &Path) -> Result<Config> {
     let file: File = toml::from_str(text)?;
-    let roots = file
-        .allowed_roots
+    let story = story(file.story.as_ref(), home)?;
+    let wow = expand(&file.wow.path, home)?;
+    Ok(Config {
+        wow,
+        relay: relay(file, home)?,
+        story,
+    })
+}
+
+fn no_relay_keys(file: &File) -> Result<()> {
+    let keys = [
+        ("default_agent", file.default_agent.is_some()),
+        ("default_cwd", file.default_cwd.is_some()),
+        ("timeout_minutes", file.timeout_minutes.is_some()),
+        (
+            "permission_timeout_minutes",
+            file.permission_timeout_minutes.is_some(),
+        ),
+        ("[agents]", file.agents.is_some()),
+        ("[allow]", file.allow.is_some()),
+    ];
+    match keys.iter().find(|(_, given)| *given) {
+        Some((key, _)) => bail!("{key} needs allowed_roots"),
+        None => Ok(()),
+    }
+}
+
+/// `allowed_roots` alone turns the relay on. A relay key with no roots is an error, so
+/// a typo never leaves a relay half set up.
+fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
+    let Some(allowed_roots) = file.allowed_roots.as_ref() else {
+        return no_relay_keys(&file).map(|()| None);
+    };
+    let roots = allowed_roots
         .iter()
         .map(|root| real_root(root, home))
         .collect::<Result<Vec<_>>>()?;
@@ -453,7 +513,8 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
     if resolve_folder(&roots, &base, b"").is_none() {
         bail!("default_cwd is outside allowed_roots");
     }
-    for (name, agent) in &file.agents {
+    let file_agents = file.agents.unwrap_or_default();
+    for (name, agent) in &file_agents {
         check_agent(name, agent)?;
     }
     let timeout = minutes(
@@ -468,19 +529,17 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
         MAX_PERMISSION_MINUTES,
         "permission_timeout_minutes",
     )?;
-    if !file.agents.contains_key(&file.default_agent) {
-        bail!(
-            "default_agent {:?} has no [agents] entry",
-            file.default_agent
-        );
+    let default_agent = file
+        .default_agent
+        .context("allowed_roots needs default_agent")?;
+    if !file_agents.contains_key(&default_agent) {
+        bail!("default_agent {default_agent:?} has no [agents] entry");
     }
-    let levels = file
-        .agents
+    let levels = file_agents
         .iter()
         .map(|(name, agent)| (name.clone(), agent.permission))
         .collect();
-    let agents = file
-        .agents
+    let agents = file_agents
         .into_iter()
         .map(|(name, agent)| {
             let spec = AgentSpec {
@@ -492,21 +551,18 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
             (name, spec)
         })
         .collect();
-    let allow = allow::parse(&file.allow, home)?;
-    let story = story(file.story.as_ref(), home)?;
-    Ok(Config {
-        wow: expand(&file.wow.path, home)?,
+    let allow = allow::parse(&file.allow.unwrap_or_default(), home)?;
+    Ok(Some(RelayConfig {
         policy: Policy {
             folders: Folders { roots, base },
             agents: levels,
-            default_agent: file.default_agent,
+            default_agent,
         },
         agents,
         timeout,
         permission_timeout,
         allow,
-        story,
-    })
+    }))
 }
 
 #[cfg(unix)]
@@ -651,9 +707,18 @@ mod tests {
         let home = Home::new();
         let config = home.parse(GOOD).unwrap();
         let root = home.path().join("Code").canonicalize().unwrap();
-        assert_eq!(config.policy.folders.roots, [path_bytes(&root)]);
-        assert_eq!(config.policy.folders.base, path_bytes(&root));
-        assert_eq!(config.policy.agents["claude"], Permission::AutoEdit);
+        assert_eq!(
+            config.require_relay().unwrap().policy.folders.roots,
+            [path_bytes(&root)]
+        );
+        assert_eq!(
+            config.require_relay().unwrap().policy.folders.base,
+            path_bytes(&root)
+        );
+        assert_eq!(
+            config.require_relay().unwrap().policy.agents["claude"],
+            Permission::AutoEdit
+        );
         assert_eq!(config.wow, home.path().join("wow"));
     }
 
@@ -675,12 +740,15 @@ mod tests {
             "{GOOD}\nenv = [\"ANTHROPIC_API_KEY\"]\nmodes = {{ ask = \"plan\", auto-edit = \"default\" }}\n"
         );
         let config = home.parse(&text).unwrap();
-        let claude = &config.agents["claude"];
+        let claude = &config.require_relay().unwrap().agents["claude"];
         assert_eq!(claude.kind, Kind::Acp);
         assert_eq!(claude.command, ["claude-agent-acp"]);
         assert_eq!(claude.env, ["ANTHROPIC_API_KEY"]);
         assert_eq!(claude.modes[&Permission::Ask], "plan");
-        assert_eq!(config.timeout, Duration::from_mins(30));
+        assert_eq!(
+            config.require_relay().unwrap().timeout,
+            Duration::from_mins(30)
+        );
     }
 
     #[test]
@@ -714,8 +782,14 @@ mod tests {
         let home = Home::new();
         let text = format!("{CLAUDE}\nmodes = {{ ask = \"manual\", full-auto = \"auto\" }}\n");
         let config = home.parse(&text).unwrap();
-        assert_eq!(config.agents["claude"].kind, Kind::Claude);
-        assert_eq!(config.agents["claude"].modes[&Permission::Ask], "manual");
+        assert_eq!(
+            config.require_relay().unwrap().agents["claude"].kind,
+            Kind::Claude
+        );
+        assert_eq!(
+            config.require_relay().unwrap().agents["claude"].modes[&Permission::Ask],
+            "manual"
+        );
     }
 
     #[test]
@@ -735,7 +809,7 @@ mod tests {
         let text = format!("{GOOD}\n[allow]\ncommands = [\"cargo test *\"]\n");
         let config = home.parse(&text).unwrap();
         let chat = home.path().join("Code/lighthouse");
-        let rules = config.allow.rules_for(&chat);
+        let rules = config.require_relay().unwrap().allow.rules_for(&chat);
         assert_eq!(rules, [vec!["cargo".to_owned(), "test".to_owned()]]);
         let bad = format!("{GOOD}\n[allow]\ncommands = [\"rm -rf ~\"]\n");
         assert!(home.parse(&bad).is_err());
@@ -745,7 +819,14 @@ mod tests {
     fn a_config_with_no_allow_table_has_an_empty_one() {
         let home = Home::new();
         let config = home.parse(GOOD).unwrap();
-        assert!(config.allow.rules_for(home.path()).is_empty());
+        assert!(
+            config
+                .require_relay()
+                .unwrap()
+                .allow
+                .rules_for(home.path())
+                .is_empty()
+        );
     }
 
     #[test]
@@ -753,7 +834,7 @@ mod tests {
         let home = Home::new();
         let codex = CLAUDE.replace("kind = \"claude\"", "kind = \"codex\"");
         assert_eq!(
-            home.parse(&codex).unwrap().agents["claude"].kind,
+            home.parse(&codex).unwrap().require_relay().unwrap().agents["claude"].kind,
             Kind::Codex
         );
         let with_modes = format!("{codex}\nmodes = {{ ask = \"plan\" }}\n");
@@ -764,8 +845,14 @@ mod tests {
     fn an_old_entry_with_the_acp_adapter_of_claude_still_works() {
         let home = Home::new();
         let config = home.parse(GOOD).unwrap();
-        assert_eq!(config.agents["claude"].kind, Kind::Acp);
-        assert_eq!(config.agents["claude"].command, ["claude-agent-acp"]);
+        assert_eq!(
+            config.require_relay().unwrap().agents["claude"].kind,
+            Kind::Acp
+        );
+        assert_eq!(
+            config.require_relay().unwrap().agents["claude"].command,
+            ["claude-agent-acp"]
+        );
     }
 
     #[test]
@@ -778,7 +865,11 @@ mod tests {
             )
         };
         assert_eq!(
-            home.parse(&with(5)).unwrap().timeout,
+            home.parse(&with(5))
+                .unwrap()
+                .require_relay()
+                .unwrap()
+                .timeout,
             Duration::from_mins(5)
         );
         assert!(home.parse(&with(0)).is_err());
@@ -798,8 +889,9 @@ mod tests {
             "{GOOD}\n[story]\nprogram = \"~/bin/timeways-story\"\nlore_pack = \"~/lore.sqlite\"\n"
         );
         let story = home.parse(&text).unwrap().story.unwrap();
-        assert_eq!(story.program, home.path().join("bin/timeways-story"));
-        assert_eq!(story.lore_pack, home.path().join("lore.sqlite"));
+        let program = story.program.unwrap();
+        assert_eq!(program.program, home.path().join("bin/timeways-story"));
+        assert_eq!(program.lore_pack, home.path().join("lore.sqlite"));
         assert_eq!(story.timeout, Duration::from_mins(2));
         let text = format!("{text}timeout_seconds = 5\n");
         assert_eq!(
@@ -850,11 +942,16 @@ mod tests {
         );
         let text = format!("{agent}\n{STORY}model = \"claude\"\n");
         let config = home.parse(&text).unwrap();
-        let ModelChoice::Claude { command, .. } = config.story.unwrap().model.choice else {
+        let ModelChoice::Claude { command, .. } =
+            config.story.as_ref().unwrap().model.choice.clone()
+        else {
             panic!("not claude");
         };
         assert_eq!(command, ["claude"]);
-        assert_eq!(config.agents["claude"].command, ["/opt/relay-claude"]);
+        assert_eq!(
+            config.require_relay().unwrap().agents["claude"].command,
+            ["/opt/relay-claude"]
+        );
     }
 
     #[test]
@@ -880,7 +977,7 @@ mod tests {
             "http://example.com:80",
         ] {
             let keys = format!("model = \"local\"\nlocal_url = \"{url}\"\nlocal_model = \"m\"\n");
-            let error = format!("{:#}", model_of(&home, &keys).unwrap_err());
+            let error = format!("{:#}", model_of(&home, &keys).err().unwrap());
             assert!(error.contains("local_url must be"), "{error}");
         }
     }
@@ -922,8 +1019,8 @@ mod tests {
     fn a_bad_story_section_is_an_error() {
         let home = Home::new();
         let bad = [
-            "[story]\n",
             "[story]\nprogram = \"~/x\"\n",
+            "[story]\nlore_pack = \"~/l\"\n",
             "[story]\nprogram = \"~/x\"\nlore_pack = \"lore.sqlite\"\n",
             "[story]\nprogram = \"~/x\"\nlore_pack = \"~/l\"\ntimeout_seconds = 0\n",
             "[story]\nprogram = \"~/x\"\nlore_pack = \"~/l\"\ntimeout_seconds = 601\n",
@@ -932,6 +1029,64 @@ mod tests {
         for story in bad {
             assert!(home.parse(&format!("{GOOD}\n{story}")).is_err(), "{story}");
         }
+    }
+
+    const TIMEWAYS_ONLY: &str = "[wow]\npath = \"~/wow\"\n\n[story]\nmodel = \"claude\"\n";
+
+    #[test]
+    fn a_config_with_no_allowed_roots_has_no_relay_and_keeps_its_story() {
+        let home = Home::new();
+        let config = home.parse(TIMEWAYS_ONLY).unwrap();
+        assert!(config.relay.is_none());
+        assert!(config.require_relay().is_err());
+        let story = config.story.unwrap();
+        assert_eq!(story.program, None);
+        assert!(matches!(story.model.choice, ModelChoice::Claude { .. }));
+    }
+
+    #[test]
+    fn a_relay_key_with_no_allowed_roots_is_an_error() {
+        let home = Home::new();
+        let keys = [
+            "default_agent = \"echo\"\n",
+            "default_cwd = \"~/Code\"\n",
+            "timeout_minutes = 5\n",
+            "permission_timeout_minutes = 5\n",
+        ];
+        for key in keys {
+            let error = format!(
+                "{:#}",
+                home.parse(&format!("{key}{TIMEWAYS_ONLY}")).err().unwrap()
+            );
+            assert!(error.contains("needs allowed_roots"), "{error}");
+        }
+        for table in [
+            "[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n",
+            "[allow]\n",
+        ] {
+            let error = format!(
+                "{:#}",
+                home.parse(&format!("{TIMEWAYS_ONLY}{table}"))
+                    .err()
+                    .unwrap()
+            );
+            assert!(error.contains("needs allowed_roots"), "{error}");
+        }
+    }
+
+    #[test]
+    fn allowed_roots_with_no_default_agent_is_an_error() {
+        let home = Home::new();
+        let text = GOOD.replace("default_agent = \"claude\"", "");
+        assert!(home.parse(&text).is_err());
+    }
+
+    #[test]
+    fn a_story_program_and_its_lore_pack_go_together() {
+        let home = Home::new();
+        let text = format!("{GOOD}\n[story]\nprogram = \"~/x\"\n");
+        let error = format!("{:#}", home.parse(&text).err().unwrap());
+        assert!(error.contains("go together"), "{error}");
     }
 
     #[test]
@@ -986,10 +1141,22 @@ mod tests {
         let config = home
             .parse(&default_text(Path::new(wow), &agents, &roots))
             .unwrap();
-        assert_eq!(config.policy.agents["claude"], Permission::Ask);
-        assert_eq!(config.policy.default_agent, "claude");
-        assert_eq!(config.agents["gemini"].command, ["gemini", "--acp"]);
-        assert_eq!(config.agents["claude"].kind, Kind::Claude);
+        assert_eq!(
+            config.require_relay().unwrap().policy.agents["claude"],
+            Permission::Ask
+        );
+        assert_eq!(
+            config.require_relay().unwrap().policy.default_agent,
+            "claude"
+        );
+        assert_eq!(
+            config.require_relay().unwrap().agents["gemini"].command,
+            ["gemini", "--acp"]
+        );
+        assert_eq!(
+            config.require_relay().unwrap().agents["claude"].kind,
+            Kind::Claude
+        );
         assert_eq!(config.wow, PathBuf::from(wow));
     }
 
@@ -1023,8 +1190,11 @@ mod tests {
         let config = home
             .parse(&default_text(&home.path().join("wow"), &[], &roots))
             .unwrap();
-        assert_eq!(config.policy.default_agent, "echo");
-        assert_eq!(config.agents["echo"].kind, Kind::Echo);
+        assert_eq!(config.require_relay().unwrap().policy.default_agent, "echo");
+        assert_eq!(
+            config.require_relay().unwrap().agents["echo"].kind,
+            Kind::Echo
+        );
     }
 
     #[test]

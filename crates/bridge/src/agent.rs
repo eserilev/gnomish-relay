@@ -13,7 +13,7 @@ use crate::acp::AcpAgent;
 use crate::claude::ClaudeAgent;
 use crate::claude_sessions;
 use crate::codex::CodexAgent;
-use crate::config::{AgentSpec, Config, Kind};
+use crate::config::{AgentSpec, Kind, RelayConfig};
 use crate::gate::Gate;
 use crate::relay::{ChatId, Job, MessageId};
 
@@ -209,7 +209,7 @@ fn codex(spec: &AgentSpec, limits: Limits, gate: &Gate) -> CodexAgent {
     }
 }
 
-pub fn from_config(config: &Config, gate: &Gate) -> Agents {
+pub fn from_config(config: &RelayConfig, gate: &Gate) -> Agents {
     let limits = Limits {
         timeout: config.timeout,
         permission_timeout: config.permission_timeout,
@@ -312,7 +312,7 @@ mod tests {
             permission = "ask"
         "#;
         let config = crate::config::parse(text, home.path()).unwrap();
-        let agents = from_config(&config, &gate());
+        let agents = from_config(config.require_relay().unwrap(), &gate());
         let names: Vec<&str> = agents.keys().map(String::as_str).collect();
         assert_eq!(names, ["claude", "codex", "echo", "gemini"]);
         let job = Job {
