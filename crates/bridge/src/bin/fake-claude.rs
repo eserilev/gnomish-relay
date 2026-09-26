@@ -119,8 +119,11 @@ fn run_command(command: &str) -> Option<bool> {
         shlex::try_quote(program).ok()?,
         shlex::try_quote(command).ok()?
     );
+    // Claude Code keeps the output of a command for the model, never on its stdout.
     let status = std::process::Command::new("bash")
         .args(["-c", &line])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
         .status();
     Some(status.is_ok_and(|s| s.success()))
 }

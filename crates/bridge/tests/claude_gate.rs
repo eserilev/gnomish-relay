@@ -312,6 +312,25 @@ fn real_sandbox() -> Option<CommandSandbox> {
 
 #[cfg(unix)]
 #[test]
+fn the_output_of_a_command_stays_out_of_the_messages_of_claude() {
+    let mut home = home("");
+    let Some(sandbox) = real_sandbox() else {
+        return;
+    };
+    home.gate.sandbox = sandbox;
+
+    let reply = call(
+        &home,
+        "Bash",
+        &json!({ "command": "echo printed; echo also >&2" }),
+        Permission::FullAuto,
+    );
+
+    assert_eq!(reply, "allow: Allowed by Gnomish Relay.");
+}
+
+#[cfg(unix)]
+#[test]
 fn a_command_from_the_game_writes_its_chat_folder_and_nothing_outside() {
     let mut home = home("");
     let Some(sandbox) = real_sandbox() else {
