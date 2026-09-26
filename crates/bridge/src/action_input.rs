@@ -285,8 +285,9 @@ mod tests {
     fn a_command_that_redirects_into_the_data_folder_is_denied() {
         let f = folders();
         let policy = policy(std::slice::from_ref(&f.root), &f.chat, &deny(&f), &[]);
-        let state = f.data.join("state.json");
-        let call = command_call(&format!("echo x > {}", state.display()), &f.chat);
+        // A relative target has the same form on every OS. A Windows path such as
+        // `C:\x` does not resolve in a shell command, so it is `desktop` there.
+        let call = command_call("echo x > ../../data/gnomish-relay/state.json", &f.chat);
         assert_eq!(answer(classify(&call, &policy, &[])), "deny");
     }
 
