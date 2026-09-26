@@ -1,7 +1,6 @@
 //! `config.toml`: the ceiling for every message from the game (SPEC.md 6.6.2, 12).
 
 use std::collections::BTreeMap;
-use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::Duration;
@@ -296,14 +295,17 @@ fn model_choice(story: &Story) -> Result<ModelChoice> {
     }
 }
 
+pub fn is_model_name(name: &str) -> bool {
+    !name.is_empty()
+        && name.len() <= MAX_MODEL_NAME
+        && !name.starts_with('-')
+        && !name.chars().any(|c| c.is_control() || c.is_whitespace())
+}
+
 /// A model name goes into an argument of `claude` or into a JSON body. One that starts
 /// with `-` would read as a flag.
 fn model_name(name: &str) -> Result<&str> {
-    let plain = !name.is_empty()
-        && name.len() <= MAX_MODEL_NAME
-        && !name.starts_with('-')
-        && !name.chars().any(|c| c.is_control() || c.is_whitespace());
-    if !plain {
+    if !is_model_name(name) {
         bail!(
             "[story] a model name must be 1 to {MAX_MODEL_NAME} bytes with no space, and must not start with -"
         );
@@ -602,47 +604,6 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
 
 /// An agent that setup found: its entry name, its kind, and its command.
 pub type Found<'a> = (&'a str, Kind, &'a [&'a str]);
-
-/// The first config: every agent asks, and agents work only in `roots`. It names the
-/// agents that setup found; with none, the echo agent.
-pub fn default_text(wow: &Path, agents: &[Found], roots: &[String]) -> String {
-    let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
-    let mut text = format!(
-        "allowed_roots = [{}]\ndefault_agent = {}\n\n[wow]\npath = {}\n",
-        roots
-            .iter()
-            .map(|r| quote(r))
-            .collect::<Vec<_>>()
-            .join(", "),
-        quote(agents.first().map_or("echo", |(name, _, _)| name)),
-        quote(&wow.to_string_lossy()),
-    );
-    for (name, kind, command) in agents {
-        let command: Vec<String> = command.iter().map(|word| quote(word)).collect();
-        let _ = write!(
-            text,
-            "\n[agents.{name}]\nkind = \"{}\"\ncommand = [{}]\npermission = \"ask\"\n",
-            kind.word(),
-            command.join(", ")
-        );
-    }
-    text.push_str(
-        "\n# Commands that run from the game with no question, at auto-edit and full-auto.\n\
-         # A pattern covers more words after it. It never allows a command that the\n\
-         # classifier refuses or sends to the desktop (SPEC.md 6.6.3).\n\
-         # [allow]\n# commands = [\"cargo test *\", \"cargo fmt --check\"]\n\
-         # [allow.folders]\n# \"~/Code/lighthouse\" = [\"npm test *\"]\n",
-    );
-    if agents.is_empty() {
-        text.push_str("\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n");
-    }
-    text.push_str(
-        "\n# Any ACP agent is one entry. Run `gnomish-relay check-agent <name>` to test it.\n\
-         # [agents.gemini]\n# kind = \"acp\"\n# command = [\"gemini\", \"--acp\"]\n\
-         # permission = \"ask\"\n# env = [\"GEMINI_API_KEY\"]\n",
-    );
-    text
-}
 
 #[cfg(test)]
 mod tests {
@@ -1124,43 +1085,6 @@ mod tests {
     }
 
     #[test]
-    fn the_default_config_parses_and_every_agent_asks() {
-        let home = Home::new();
-        fs::create_dir_all(home.path().join("Documents/Code")).unwrap();
-        // A quote and a backslash in the folder name must not break the TOML string.
-        let wow = if cfg!(windows) {
-            r#"C:\Games\"wow""#
-        } else {
-            r#"/games/"wow"\x"#
-        };
-        let agents: [Found; 2] = [
-            ("claude", Kind::Claude, &["claude"]),
-            ("gemini", Kind::Acp, &["gemini", "--acp"]),
-        ];
-        let roots = ["~/Documents/Code".to_owned()];
-        let config = home
-            .parse(&default_text(Path::new(wow), &agents, &roots))
-            .unwrap();
-        assert_eq!(
-            config.require_relay().unwrap().policy.agents["claude"],
-            Permission::Ask
-        );
-        assert_eq!(
-            config.require_relay().unwrap().policy.default_agent,
-            "claude"
-        );
-        assert_eq!(
-            config.require_relay().unwrap().agents["gemini"].command,
-            ["gemini", "--acp"]
-        );
-        assert_eq!(
-            config.require_relay().unwrap().agents["claude"].kind,
-            Kind::Claude
-        );
-        assert_eq!(config.wow, PathBuf::from(wow));
-    }
-
-    #[test]
     fn a_windows_request_splits_at_backslashes_and_never_names_a_drive() {
         assert_eq!(folder_request(br"..\..\x", true).unwrap(), b"../../x");
         assert_eq!(folder_request(br"sub\dir", true).unwrap(), b"sub/dir");
@@ -1180,21 +1104,6 @@ mod tests {
     fn a_windows_root_loses_its_prefix_and_uses_slashes() {
         assert_eq!(portable(r"\\?\C:\Users\x\Code", true), b"C:/Users/x/Code");
         assert_eq!(portable(r"/home/x\y", false), br"/home/x\y");
-    }
-
-    #[test]
-    fn with_no_agent_found_the_default_config_uses_echo() {
-        let home = Home::new();
-        fs::create_dir_all(home.path().join("Documents/Code")).unwrap();
-        let roots = ["~/Documents/Code".to_owned()];
-        let config = home
-            .parse(&default_text(&home.path().join("wow"), &[], &roots))
-            .unwrap();
-        assert_eq!(config.require_relay().unwrap().policy.default_agent, "echo");
-        assert_eq!(
-            config.require_relay().unwrap().agents["echo"].kind,
-            Kind::Echo
-        );
     }
 
     #[test]

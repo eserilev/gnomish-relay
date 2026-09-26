@@ -25,6 +25,14 @@ The installer downloads the program, checks its SHA-256 sum, and runs `gnomish-r
 Setup finds the game, installs the addon with a key that only this computer has, writes
 `config.toml`, and starts the bridge at each login. A second run changes nothing that works.
 
+## Timeways
+
+Timeways is a story addon that uses this program as its desktop half.
+When the `Timeways` addon is installed, setup finds it: it writes the Timeways key,
+makes its slot addons, and adds a `[story]` section with the model that it finds
+(`claude`, Ollama, or LM Studio) to `config.toml`. With only Timeways, setup asks no
+folder question and sets up no coding agent. `gnomish-relay setup --relay` adds them later.
+
 ## Add an agent
 
 Claude Code needs only the `claude` program, and Codex only the `codex` program:

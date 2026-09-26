@@ -12,7 +12,8 @@ use crate::config::{Found, Kind};
 use crate::fs_safe::write_atomic_unsynced;
 
 pub const ADDON: &str = "GnomishRelay";
-const KEY_FILE: &str = "Key.lua";
+pub const TIMEWAYS: &str = "Timeways";
+pub const KEY_FILE: &str = "Key.lua";
 
 /// The addon, built into the program, so one download installs everything. The files of
 /// `addon/transport` are shared with other apps (SPEC.md 9.7, decision 14). They go into
@@ -289,14 +290,7 @@ pub fn install_addon(addons: &Path, key_hex: &str) -> Result<Installed> {
     let key = key_lua(key_hex);
     let meta = fs::symlink_metadata(&dir);
     if meta.as_ref().is_ok_and(|m| m.file_type().is_symlink()) {
-        let real = dir
-            .canonicalize()
-            .with_context(|| format!("{} is a broken link", dir.display()))?;
-        if same(&real.join(KEY_FILE), key.as_bytes()) {
-            return Ok(Installed::Unchanged);
-        }
-        write_atomic_unsynced(&real, KEY_FILE, key.as_bytes())?;
-        return Ok(Installed::Updated);
+        return write_key_file(&dir, key_hex);
     }
     let new = meta.is_err();
     fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
@@ -316,6 +310,26 @@ pub fn install_addon(addons: &Path, key_hex: &str) -> Result<Installed> {
         (false, true) => Installed::Updated,
         (false, false) => Installed::Unchanged,
     })
+}
+
+/// Writes only `Key.lua`, into the real folder of `dir`: a link stays a link. The
+/// Timeways addon owns every other file of its folder (SPEC.md 9.7, decision 15).
+pub fn write_key_file(dir: &Path, key_hex: &str) -> Result<Installed> {
+    let real = dir
+        .canonicalize()
+        .with_context(|| format!("{} is missing or a broken link", dir.display()))?;
+    let key = key_lua(key_hex);
+    if same(&real.join(KEY_FILE), key.as_bytes()) {
+        return Ok(Installed::Unchanged);
+    }
+    write_atomic_unsynced(&real, KEY_FILE, key.as_bytes())?;
+    Ok(Installed::Updated)
+}
+
+/// The folder of the Timeways addon, in any case. Setup never makes it: only a player
+/// who installed Timeways gets its key and slots.
+pub fn timeways_dir(addons: &Path) -> Option<PathBuf> {
+    child_any_case(addons, TIMEWAYS).filter(|dir| dir.is_dir())
 }
 
 /// The agents that setup knows: the config entry name, the kind, and the command. Each
@@ -603,6 +617,39 @@ mod tests {
             .map(|e| e.file_name())
             .collect();
         assert_eq!(names, [KEY_FILE]);
+    }
+
+    #[test]
+    fn the_timeways_folder_is_found_in_any_case_and_only_when_it_exists() {
+        let addons = tempfile::tempdir().unwrap();
+        assert_eq!(timeways_dir(addons.path()), None);
+        fs::create_dir(addons.path().join("timeways")).unwrap();
+        let found = timeways_dir(addons.path()).unwrap();
+        assert!(same_folder(&found, &addons.path().join("timeways")));
+    }
+
+    #[test]
+    fn the_key_file_goes_into_a_folder_alone_and_again_when_it_is_missing() {
+        let addons = tempfile::tempdir().unwrap();
+        let dir = addons.path().join(TIMEWAYS);
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("Core.lua"), "-- Timeways").unwrap();
+        let key = "cd".repeat(32);
+
+        assert_eq!(write_key_file(&dir, &key).unwrap(), Installed::Updated);
+        assert_eq!(write_key_file(&dir, &key).unwrap(), Installed::Unchanged);
+        fs::remove_file(dir.join(KEY_FILE)).unwrap();
+        assert_eq!(write_key_file(&dir, &key).unwrap(), Installed::Updated);
+
+        assert_eq!(
+            fs::read_to_string(dir.join(KEY_FILE)).unwrap(),
+            key_lua(&key)
+        );
+        assert_eq!(
+            fs::read_to_string(dir.join("Core.lua")).unwrap(),
+            "-- Timeways"
+        );
+        assert_eq!(fs::read_dir(&dir).unwrap().count(), 2);
     }
 
     #[test]

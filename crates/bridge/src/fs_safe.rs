@@ -35,6 +35,17 @@ pub fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<()> {
     write(dir, name, bytes, Durability::Synced)
 }
 
+/// Mode 0600: a key signs strips, and the config sets the ceiling of every game message.
+pub fn write_private(dir: &Path, name: &str, text: &str) -> Result<()> {
+    write_atomic(dir, name, text.as_bytes())?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(dir.join(name), fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(())
+}
+
 /// `write_atomic` with no sync. A sync costs milliseconds on Windows, so this is for
 /// many files that a second run of the same command writes again.
 pub fn write_atomic_unsynced(dir: &Path, name: &str, bytes: &[u8]) -> Result<()> {

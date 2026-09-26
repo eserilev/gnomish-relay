@@ -6,13 +6,17 @@ use anyhow::{Context, Result, bail};
 use bridge::agent;
 use bridge::agent::Agents;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
+use bridge::config_text::RelayPart;
 use bridge::desktop::{self, Approvals, Notice};
 use bridge::fs_safe::write_atomic;
 use bridge::gate::Gate;
 use bridge::install;
 use bridge::lock::{self, Bridge};
+use bridge::model::ModelChoice;
+use bridge::model_setup;
 use bridge::receive::{KeySet, RELAY_KEY_FILE};
 use bridge::run::{Paths, now, run};
+use bridge::setup::{self, KeyChoice};
 use bridge::slots::{self, Files};
 use bridge::story::StorySpec;
 use bridge::update::{self, Replaced};
@@ -21,8 +25,8 @@ use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const USAGE: &str = "\
 usage:
-  gnomish-relay setup [folder] [--roots a,b] [--new-key] [--autostart]
-                                     install the addon, the key, the config, and the slots
+  gnomish-relay setup [folder] [--roots a,b] [--relay] [--new-key] [--autostart]
+                                     install the addons, the keys, the config, and the slots
   gnomish-relay install              make the slot addons (game closed)
   gnomish-relay run                  read strips, run the agents, publish the replies
   gnomish-relay restart              stop the bridge and start it again, for example after a config edit
@@ -83,17 +87,6 @@ fn addons_dir(wow: &Path) -> PathBuf {
     install::addons_dir(wow)
 }
 
-/// Mode 0600: the key signs strips, and the config sets the ceiling of every game message.
-fn write_private(dir: &Path, name: &str, text: &str) -> Result<()> {
-    write_atomic(dir, name, text.as_bytes())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(dir.join(name), std::fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
-}
-
 /// The game folder: the one given, the one found, or the answer to a question.
 fn pick_game(given: Option<&str>) -> Result<PathBuf> {
     if let Some(folder) = given {
@@ -117,17 +110,6 @@ fn pick_game(given: Option<&str>) -> Result<PathBuf> {
     Ok(chosen
         .cloned()
         .unwrap_or_else(|| install::game_folder(&answer)))
-}
-
-/// The key of this computer, made once. `--new-key` replaces it.
-fn strip_key(dir: &Path, new: bool) -> Result<String> {
-    let path = dir.join(RELAY_KEY_FILE);
-    if !new && let Ok(hex) = std::fs::read_to_string(&path) {
-        return Ok(hex.trim().to_owned());
-    }
-    let hex = install::new_key()?;
-    write_private(dir, RELAY_KEY_FILE, &hex)?;
-    Ok(hex)
 }
 
 fn command(program: &str, args: &[&str]) -> Result<()> {
@@ -372,7 +354,11 @@ fn option<'a>(args: &[&'a str], name: &str) -> Option<&'a str> {
 
 /// Every step leaves alone what works, so a second run is safe (SPEC.md 11.3).
 fn setup(args: &[&str]) -> Result<()> {
-    let new_key = args.contains(&"--new-key");
+    let keys = if args.contains(&"--new-key") {
+        KeyChoice::New
+    } else {
+        KeyChoice::Keep
+    };
     let roots_given = option(args, "--roots");
     let folder = args
         .iter()
@@ -388,38 +374,135 @@ fn setup(args: &[&str]) -> Result<()> {
         .with_context(|| format!("cannot make {}", addons.display()))?;
     println!("WoW: {}", wow.display());
     let dir = config_dir()?;
-    std::fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
-    let key = strip_key(&dir, new_key)?;
+    let existing = match std::fs::read_to_string(dir.join(config::FILE)) {
+        Ok(text) => Some((text, load_config()?)),
+        Err(_) => None,
+    };
+    let timeways = install::timeways_dir(&addons).is_some();
+    let found = setup::Found {
+        relay_asked: args.contains(&"--relay") || roots_given.is_some(),
+        config_has_relay: existing.as_ref().map(|(_, c)| c.relay.is_some()),
+        relay_folder: addons.join(install::ADDON).exists(),
+        timeways_folder: timeways,
+    };
+    let relay = match setup::relay_choice(&found) {
+        setup::RelayChoice::Decided(relay) => relay,
+        setup::RelayChoice::Ask => ask_relay()?,
+    };
+    let folders = setup::Folders {
+        config: dir.clone(),
+        addons,
+    };
     // The addon and the slots first: they need nothing else, and a later step can fail.
-    let addon = install::install_addon(&addons, &key)?;
-    let slots_new = !addons.join(slots::slot_name(App::Relay, 1)).is_dir();
-    slots::install(&addons, App::Relay, &Files::empty(App::Relay, now()))?;
-    // A first setup can stop at the folder question after the addon and the slots, so
-    // the first config also means that WoW has not seen them yet.
-    let first = !dir.join(config::FILE).exists();
-    if first {
-        let agents = install::find_agents(&std::env::var_os("PATH").unwrap_or_default());
-        let roots = choose_roots(&home_dir()?, roots_given)?;
-        write_private(
-            &dir,
-            config::FILE,
-            &config::default_text(&wow, &agents, &roots),
-        )?;
-    }
-    let config = load_config()?;
-    println!("{}", agent_line(config.require_relay()?));
+    let changed = setup::install_files(&folders, relay, keys)?;
+    let config = setup_config(&dir, &wow, existing.as_ref(), relay, timeways, roots_given)?;
+    print_setup(&config, relay, timeways);
     if args.contains(&"--autostart") {
         match autostart() {
             Ok(()) => println!("Bridge: on, starts at login"),
             Err(e) => println!("Bridge: not started at login ({e:#}). Run: gnomish-relay run"),
         }
     }
-    match (addon, slots_new || first) {
-        (install::Installed::New, _) | (_, true) => println!("Restart WoW, then type /relay"),
-        (install::Installed::Updated, false) => println!("Type /reload in WoW"),
-        (install::Installed::Unchanged, false) => println!("Ready"),
-    }
+    println!("{}", last_line(&changed, relay, keys));
     Ok(())
+}
+
+/// A player who came for Timeways says no, so no is the answer with no terminal.
+fn ask_relay() -> Result<setup::Relay> {
+    let answer = ask(
+        "Also set up Gnomish Relay, coding agents in the game? (y/N)",
+        "n",
+    )?;
+    Ok(if answer.eq_ignore_ascii_case("y") {
+        setup::Relay::On
+    } else {
+        setup::Relay::Off
+    })
+}
+
+/// Writes the first config, or adds the part that it lacks: the relay with `--relay`,
+/// and `[story]` when the Timeways addon is there.
+fn setup_config(
+    dir: &Path,
+    wow: &Path,
+    existing: Option<&(String, Config)>,
+    relay: setup::Relay,
+    timeways: bool,
+    roots_given: Option<&str>,
+) -> Result<Config> {
+    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    let lacks_relay = existing.is_none_or(|(_, c)| c.relay.is_none());
+    let lacks_story = existing.is_none_or(|(_, c)| c.story.is_none());
+    let agents = install::find_agents(&path_var);
+    let roots = if relay == setup::Relay::On && lacks_relay {
+        choose_roots(&home_dir()?, roots_given)?
+    } else {
+        Vec::new()
+    };
+    let wants_story = timeways && lacks_story;
+    let models = if wants_story {
+        model_setup::find_models(&path_var)
+    } else {
+        Vec::new()
+    };
+    let parts = setup::ConfigParts {
+        wow,
+        relay: (!roots.is_empty()).then_some(RelayPart {
+            agents: &agents,
+            roots: &roots,
+        }),
+        story: wants_story.then_some(models.as_slice()),
+    };
+    let text = existing.map(|(text, _)| text.as_str());
+    match setup::config_text(text, &parts) {
+        Some(new) => setup::write_config(dir, &new, &home_dir()?),
+        None => load_config(),
+    }
+}
+
+fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {
+    match &config.relay {
+        Some(relay_config) => println!("{}", agent_line(relay_config)),
+        None if relay == setup::Relay::Off => {
+            println!("Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay");
+        }
+        None => {}
+    }
+    if timeways {
+        println!("{}", story_line(config));
+    }
+}
+
+fn story_line(config: &Config) -> String {
+    let model = config.story.as_ref().map(|story| &story.model.choice);
+    match model {
+        Some(ModelChoice::Claude { model, .. }) => format!(
+            "Story model: claude ({})",
+            model.as_deref().unwrap_or("default")
+        ),
+        Some(ModelChoice::Local(local)) => format!("Story model: local {}", local.model),
+        _ => {
+            "Story model: none. Set model in [story] of the config, then run: gnomish-relay restart"
+                .into()
+        }
+    }
+}
+
+/// WoW finds a new addon folder only at launch, and a new key only after a `/reload`.
+fn last_line(changed: &setup::Changed, relay: setup::Relay, keys: KeyChoice) -> &'static str {
+    let new_relay = changed.relay_addon == Some(install::Installed::New);
+    if changed.new_slots || new_relay {
+        return match relay {
+            setup::Relay::On => "Restart WoW, then type /relay",
+            setup::Relay::Off => "Restart WoW, then log in",
+        };
+    }
+    let updated = [changed.relay_addon.as_ref(), changed.timeways_key.as_ref()]
+        .contains(&Some(&install::Installed::Updated));
+    if updated || keys == KeyChoice::New {
+        return "Type /reload in WoW";
+    }
+    "Ready"
 }
 
 fn body(replies: &[Reply]) -> Vec<u8> {
@@ -456,9 +539,19 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
 }
 
 fn install() -> Result<()> {
-    let dir = addons_dir(&load_config()?.wow);
-    slots::install(&dir, App::Relay, &Files::empty(App::Relay, now()))?;
-    println!("made {} slots in {}", protocol::slot::SLOTS, dir.display());
+    let config = load_config()?;
+    let dir = addons_dir(&config.wow);
+    let relay = match config.relay {
+        Some(_) => setup::Relay::On,
+        None => setup::Relay::Off,
+    };
+    for app in setup::install_all_slots(&dir, relay)? {
+        println!(
+            "made {} slots of {app:?} in {}",
+            protocol::slot::SLOTS,
+            dir.display()
+        );
+    }
     Ok(())
 }
 
@@ -475,6 +568,12 @@ fn start() -> Result<()> {
     };
     // Equal keys, or a `timeways.key` that does not load, stop the bridge here.
     let keys = KeySet::load(&config_dir()?)?;
+    // Only `Key.lua`, never another file of the Timeways addon (SPEC.md 9.7, decision 15).
+    if setup::repair_timeways_key(&config_dir()?, &paths.addons)?
+        == Some(install::Installed::Updated)
+    {
+        println!("wrote the Timeways key again: type /reload in the game");
+    }
     let relay = match config.relay {
         Some(relay) => Some(start_relay(relay, &paths)?),
         None => None,
