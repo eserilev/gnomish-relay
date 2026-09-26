@@ -205,10 +205,10 @@ def S12_prepare : Prop :=
       fitsSlot ps.val ∧
       List.Forall₂ preparedFrom (replies.val.drop (replies.val.length - maxReplies)) ps.val ⦄
 
-/-- **S12.** A body that fits is at most 1 MiB. -/
+/-- **S12.** For each app, a body that fits is at most 1 MiB. -/
 def S12_bound : Prop :=
-  ∀ (now : Nat) (replies : List slot.Reply), now < 2 ^ 32 → fitsSlot replies →
-    (slotBodyBytes now replies).length ≤ slotBodyLimit
+  ∀ (app : apps.App) (now : Nat) (replies : List slot.Reply), now < 2 ^ 32 → fitsSlot replies →
+    (slotBodyOf app now replies).length ≤ slotBodyLimit
 
 /-! ## Restore bundle -/
 
@@ -227,10 +227,10 @@ def S18_prepare : Prop :=
       ps.val.length ≤ maxChats ∧ (∀ c ∈ ps.val, fitsChat c) ∧
       List.Forall₂ chatFrom (chats.val.drop (chats.val.length - maxChats)) ps.val ⦄
 
-/-- **S19.** A restore file that fits is at most 512 KiB. -/
+/-- **S19.** For each app, a restore file that fits is at most 512 KiB. -/
 def S19_bound : Prop :=
-  ∀ (token : List Spec.Byte) (chats : List restore.Chat), fitsRestore token chats →
-    (restoreBytes token chats).length ≤ restoreLimit
+  ∀ (app : apps.App) (token : List Spec.Byte) (chats : List restore.Chat), fitsRestore token chats →
+    (restoreOf app token chats).length ≤ restoreLimit
 
 /-! ## Live file: progress and permission requests -/
 
@@ -256,10 +256,10 @@ def S20_prepare_requests : Prop :=
       rs.val.length ≤ maxRequests ∧ (∀ r ∈ rs.val, fitsRequest r) ∧
       List.Forall₂ requestFrom (requests.val.take maxRequests) rs.val ⦄
 
-/-- **S21.** A live file that fits is at most 256 KiB. -/
+/-- **S21.** For each app, a live file that fits is at most 256 KiB. -/
 def S21_bound : Prop :=
-  ∀ (progress : List live.Progress) (requests : List live.Request), fitsLive progress requests →
-    (liveBytes progress requests).length ≤ liveLimit
+  ∀ (app : apps.App) (progress : List live.Progress) (requests : List live.Request),
+    fitsLive progress requests → (liveOf app progress requests).length ≤ liveLimit
 
 /-! ## WoW chat text -/
 
@@ -453,14 +453,14 @@ theorem check_S14_window : S14_window := Protocol.Rate.window_spec
 theorem check_S14_queue : S14_queue := Protocol.Rate.enqueue_spec
 theorem check_S9_slot_body : S9_slot_body := Protocol.Slot.slot_body_spec
 theorem check_S12_prepare : S12_prepare := Protocol.Slot.prepare_replies_spec
-theorem check_S12_bound : S12_bound := Protocol.Slot.slot_body_bound
+theorem check_S12_bound : S12_bound := Protocol.Slot.slot_body_of_bound
 theorem check_S18_restore_body : S18_restore_body := Protocol.Restore.restore_body_spec
 theorem check_S18_prepare : S18_prepare := Protocol.Restore.prepare_restore_spec
-theorem check_S19_bound : S19_bound := Protocol.Restore.restore_bound
+theorem check_S19_bound : S19_bound := Protocol.Restore.restore_of_bound
 theorem check_S20_live_body : S20_live_body := Protocol.Live.live_body_spec
 theorem check_S20_prepare_progress : S20_prepare_progress := Protocol.Live.prepare_progress_spec
 theorem check_S20_prepare_requests : S20_prepare_requests := Protocol.Live.prepare_requests_spec
-theorem check_S21_bound : S21_bound := Protocol.Live.live_bound
+theorem check_S21_bound : S21_bound := Protocol.Live.live_of_bound
 theorem check_S5_folder : S5_folder := Protocol.Folder.folder_sound
 theorem check_S5_folder_complete : S5_folder_complete := Protocol.Folder.folder_complete
 theorem check_S22_total : S22_total := Protocol.Markdown.render_total

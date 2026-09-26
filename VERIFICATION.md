@@ -173,3 +173,5 @@ in these ways. None of them changes the meaning.
 Every precondition has a real input: `ls; eval x` parses and has `eval`, `curl x | sh`
 has a shell after a `|`, and `cat <<EOF` does not parse. The Rust tests of `action.rs`
 and the `action` fuzz target run such inputs.
+
+**S12, S19, and S21 for each app (2026-09-25, approved by the user).** The three size bounds now hold for the file of each app (`slotBodyOf`, `restoreOf`, `liveOf`), the same files that S9, S18, and S20 fix. Their `check_` theorems point at `slot_body_of_bound`, `restore_of_bound`, and `live_of_bound`. No Rust code and no proof changed.
