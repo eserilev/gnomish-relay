@@ -290,6 +290,7 @@ fn with_no_sandbox_a_command_of_the_allow_table_asks_the_game_and_the_reply_says
 }
 
 /// `None` skips the test on a computer with no working sandbox.
+#[cfg(unix)]
 fn real_sandbox() -> Option<CommandSandbox> {
     let sandbox = CommandSandbox::detect();
     if sandbox.is_on() {
