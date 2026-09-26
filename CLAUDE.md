@@ -88,7 +88,7 @@ Before every commit, run `scripts/check-all.sh`. It runs fmt, clippy, the tests,
 
 - `cargo fmt` and `cargo clippy --all-targets -- -D warnings` pass before every commit.
 - `stylua` and `selene` pass for the addon. `wow.yml` lists the WoW globals that the addon uses; add a new one there.
-- The addon uses only the API of the Forever client. After a change to the WoW calls, `wow.yml`, or `addon/tests/wow.lua`, run `scripts/wow-api.sh`. It refuses a missing or deprecated name. Never edit `addon/tests/api.lua` by hand.
+- The addon uses only the API of the Forever client. After a change to the WoW calls, `wow.yml`, or `addon/tests/wow.lua`, run `scripts/wow-api.sh`. It refuses a missing or deprecated name, and a change to the documented arguments, returns, or secret flags. Never edit `addon/tests/api.lua` or `addon/tests/api-signatures.lua` by hand.
 - `#![forbid(unsafe_code)]` in every crate, through the workspace lints. The planned `capture` crate is the one exception: each `unsafe` block there has a `// SAFETY:` comment.
 
 ## Commits
