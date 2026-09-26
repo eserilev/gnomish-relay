@@ -260,12 +260,15 @@ impl Game {
 
     /// The cells of each screenshot of one strip frame, calibration rows first.
     fn shots(&self, strip: &str) -> Vec<Vec<Vec<u8>>> {
-        let shots: Table = self
+        let shots: Option<Table> = self
             .wow
             .get::<Table>("shotsOf")
             .unwrap()
             .get(strip)
             .unwrap();
+        let Some(shots) = shots else {
+            return Vec::new();
+        };
         (1..=shots.raw_len())
             .map(|n| {
                 let rows: Table = shots.get(n).unwrap();
@@ -924,10 +927,273 @@ fn two_addons_in_one_game_send_and_get_replies_through_their_own_messages() {
     answer_story(&game, game.first_id(), "story answer");
     game.advance(6.0);
 
-    // One screenshot can catch the strips of both addons, so a strip can be in two shots.
     assert!(game.shows_of(&RELAY, b"from the relay") > 0);
     assert!(game.shows_of(&TIMEWAYS, b"from timeways") > 0);
     assert_eq!(replies(&timeways), ["done: story answer"]);
     let last: Table = history.get(history.raw_len()).unwrap();
     assert_eq!(last.get::<String>("text").unwrap(), "relay answer");
+}
+
+// The shared strip corner (SPEC.md 7.1 and 9.7, decision 13). Both addons tick at the
+// same whole seconds, and a strip takes 0.5 s, so each timeline below is exact. The
+// hellos of both addons at login are done after 7 s: a strip, a tail of 2 s, and a strip.
+
+/// Past the login hellos of both addons and their tails.
+const AFTER_HELLOS: f64 = 7.0;
+
+const BLOCKED_LINE: &str = "Gnomish Relay: screenshots are blocked by another addon.";
+const HOSTILE_HOLDER: &str = "GnomishStripCorner = { holder = 'HostileStrip', endsAt = math.huge }";
+
+fn relay_send(ns: &Table, text: &str) {
+    let send: Function = ns.get::<Table>("Window").unwrap().get("Send").unwrap();
+    send.call::<()>(text).unwrap();
+}
+
+fn call<R: mlua::FromLuaMulti>(ns: &Table, module: &str, function: &str) -> R {
+    let module: Table = ns.get(module).unwrap();
+    module.get::<Function>(function).unwrap().call(()).unwrap()
+}
+
+impl Game {
+    fn run(&self, code: &str) {
+        self.lua.load(code).exec().unwrap();
+    }
+
+    fn overlaps(&self) -> u32 {
+        self.wow.get("overlaps").unwrap()
+    }
+
+    fn printed(&self, line: &str) -> usize {
+        let printed: Vec<String> = self.wow.get("printed").unwrap();
+        printed.iter().filter(|l| *l == line).count()
+    }
+
+    fn reloads(&self) -> u32 {
+        self.wow.get("reloads").unwrap()
+    }
+}
+
+#[test]
+fn two_addons_take_turns_and_never_show_their_strips_at_once() {
+    let game = Game::new();
+    let relay = game.relay();
+    let timeways = game.timeways();
+
+    for n in 0..4 {
+        relay_send(&relay, &format!("relay {n}"));
+        link_send(&timeways, &format!("story {n}"));
+        game.advance(0.3);
+    }
+    game.advance(40.0);
+
+    assert_eq!(game.overlaps(), 0);
+    for n in 0..4 {
+        let relay_text = format!("relay {n}");
+        let story_text = format!("story {n}");
+        assert!(
+            game.shows_of(&RELAY, relay_text.as_bytes()) > 0,
+            "{relay_text}"
+        );
+        assert!(
+            game.shows_of(&TIMEWAYS, story_text.as_bytes()) > 0,
+            "{story_text}"
+        );
+    }
+    assert_eq!(game.printed(BLOCKED_LINE), 0);
+}
+
+#[test]
+fn the_relay_strip_goes_out_within_four_seconds_while_the_test_addon_sends() {
+    let game = Game::new();
+    let relay = game.relay();
+    let timeways = game.timeways();
+
+    link_send(&timeways, "story first");
+    relay_send(&relay, "relay second");
+    game.advance(4.0);
+
+    assert_eq!(game.shows_of(&TIMEWAYS, b"story first"), 1);
+    assert_eq!(game.shows_of(&RELAY, b"relay second"), 1);
+    assert_eq!(game.overlaps(), 0);
+}
+
+#[test]
+fn an_app_that_waits_longer_gets_the_next_turn() {
+    let game = Game::new();
+    let relay = game.relay();
+    let timeways = game.timeways();
+
+    relay_send(&relay, "relay a");
+    link_send(&timeways, "story x");
+    game.advance(0.6);
+    // The strip of "relay a" has ended, and the relay holds the corner for its tail.
+    relay_send(&relay, "relay b");
+    game.advance(3.4);
+    let story_at_4 = game.shows_of(&TIMEWAYS, b"story x");
+    let relay_b_at_4 = game.shows_of(&RELAY, b"relay b");
+    game.advance(3.0);
+
+    assert_eq!(game.shows_of(&RELAY, b"relay a"), 1);
+    assert_eq!(story_at_4, 1);
+    assert_eq!(relay_b_at_4, 0);
+    assert_eq!(game.shows_of(&RELAY, b"relay b"), 1);
+}
+
+#[test]
+fn a_late_failed_event_of_one_app_never_ends_the_strip_of_the_other_or_its_health() {
+    let game = Game::new();
+    let relay = game.relay();
+    let timeways = game.timeways();
+    game.advance(AFTER_HELLOS);
+    // The event of the next shot comes after the 10 s timeout of its strip, and fails.
+    game.wow.set("shotDelay", 10.5).unwrap();
+    game.wow.set("shotsBlocked", true).unwrap();
+    link_send(&timeways, "story slow");
+    game.advance(0.2);
+    game.wow.set("shotDelay", 0.4).unwrap();
+    game.wow.set("shotsBlocked", false).unwrap();
+
+    relay_send(&relay, "relay waits");
+    game.advance(10.5);
+    let relay_shows_during_the_hold = game.shows_of(&RELAY, b"relay waits");
+    game.advance(3.0);
+
+    assert_eq!(relay_shows_during_the_hold, 0);
+    assert_eq!(game.shows_of(&RELAY, b"relay waits"), 1);
+    let flags: Vec<String> = call(&relay, "Health", "Flags");
+    assert!(flags.contains(&"out=shot".into()), "{flags:?}");
+    let flags: Vec<String> = call(&timeways, "Health", "Flags");
+    assert!(flags.contains(&"out=fail".into()), "{flags:?}");
+    assert_eq!(game.overlaps(), 0);
+}
+
+#[test]
+fn a_hostile_holder_gives_one_blocked_line_before_the_frame_is_stale_and_no_reload() {
+    let game = Game::new();
+    let relay = game.relay();
+    game.run(HOSTILE_HOLDER);
+
+    relay_send(&relay, "held back");
+    game.advance(29.5);
+    let early = game.printed(BLOCKED_LINE);
+    game.advance(1.0);
+    let at_30 = game.printed(BLOCKED_LINE);
+    game.advance(260.0);
+
+    assert_eq!(early, 0);
+    assert_eq!(at_30, 1);
+    assert_eq!(game.printed(BLOCKED_LINE), 1);
+    assert!(game.shots(RELAY.strip).is_empty());
+    assert_eq!(game.reloads(), 0);
+    let db: Table = game.lua.globals().get("GnomishRelayDB").unwrap();
+    assert_eq!(db.get::<Table>("outbox").unwrap().raw_len(), 0);
+    assert!(!call::<bool>(&relay, "Transport", "NeedsReload"));
+    assert_eq!(call::<String>(&relay, "Transport", "Problem"), "blocked");
+}
+
+#[test]
+fn the_blocked_line_shows_again_only_after_the_corner_was_free_between() {
+    let game = Game::new();
+    let timeways = game.timeways();
+    let line = "Timeways: screenshots are blocked by another addon.";
+    game.run(HOSTILE_HOLDER);
+    link_send(&timeways, "first");
+    game.advance(100.0);
+    let first_episode = game.printed(line);
+
+    game.run("GnomishStripCorner = nil");
+    game.advance(2.0);
+    let blocked_when_free: bool = call(&timeways, "Health", "Blocked");
+    game.run(HOSTILE_HOLDER);
+    link_send(&timeways, "second");
+    game.advance(40.0);
+
+    assert_eq!(first_episode, 1);
+    assert!(!blocked_when_free);
+    assert_eq!(game.printed(line), 2);
+}
+
+#[test]
+fn the_retry_count_does_not_grow_while_the_test_addon_waits_for_the_corner() {
+    let game = Game::new();
+    let timeways = game.timeways();
+    link_send(&timeways, "look around");
+    game.advance(2.0);
+    game.run("GnomishStripCorner = { holder = 'HostileStrip', endsAt = GetTime() + 120 }");
+
+    game.advance(118.0);
+    let shows_while_held = game.shows_of(&TIMEWAYS, b"look around");
+    let outbox_while_held = game.timeways_db().get::<Table>("outbox").unwrap().raw_len();
+    game.advance(3.0);
+
+    assert_eq!(shows_while_held, 1);
+    assert_eq!(outbox_while_held, 0);
+    assert_eq!(game.shows_of(&TIMEWAYS, b"look around"), 2);
+}
+
+#[test]
+fn a_holder_that_stopped_with_an_error_frees_the_corner_after_its_hold() {
+    let game = Game::new();
+    let relay = game.relay();
+    game.run("GnomishStripCorner = { holder = 'TimewaysStrip', endsAt = GetTime() + 12 }");
+
+    relay_send(&relay, "after the hold");
+    game.advance(11.5);
+    let during = game.shows_of(&RELAY, b"after the hold");
+    game.advance(1.5);
+
+    assert_eq!(during, 0);
+    assert_eq!(game.shows_of(&RELAY, b"after the hold"), 1);
+    assert_eq!(game.printed(BLOCKED_LINE), 0);
+}
+
+#[test]
+fn a_login_hello_that_waits_for_the_corner_goes_out_after_the_wait() {
+    let game = Game::new();
+    game.run("GnomishStripCorner = { holder = 'TimewaysStrip', endsAt = GetTime() + 5 }");
+
+    game.relay();
+    game.advance(7.0);
+
+    let strips = game.strips(&RELAY);
+    assert_eq!(strips.len(), 1);
+    assert!(flags_of(&strips[0][0]).contains(&"h".into()));
+}
+
+#[test]
+fn a_corner_value_of_a_wrong_type_or_with_a_metatable_counts_as_free() {
+    for junk in [
+        "GnomishStripCorner = 'junk'",
+        "GnomishStripCorner = { holder = 'HostileStrip', endsAt = 'never', waits = 7 }",
+        "GnomishStripCorner = { waits = { HostileStrip = { since = 'old', at = {} } } }",
+        "GnomishStripCorner = setmetatable({}, { __index = function() error('read') end, \
+         __newindex = function() error('write') end })",
+    ] {
+        let game = Game::new();
+        let relay = game.relay();
+        game.run(junk);
+
+        relay_send(&relay, "through");
+        game.advance(1.0);
+
+        assert_eq!(game.shows_of(&RELAY, b"through"), 1, "{junk}");
+    }
+}
+
+#[test]
+fn a_player_screenshot_does_not_end_a_strip_while_both_addons_run() {
+    let game = Game::new();
+    let relay = game.relay();
+    let timeways = game.timeways();
+    game.advance(AFTER_HELLOS);
+
+    link_send(&timeways, "story kept");
+    // The player's own screenshot finishes before the strip of the test addon is taken.
+    game.fire("SCREENSHOT_SUCCEEDED", ());
+    relay_send(&relay, "relay next");
+    game.advance(4.0);
+
+    assert_eq!(game.shows_of(&TIMEWAYS, b"story kept"), 1);
+    assert_eq!(game.shows_of(&RELAY, b"relay next"), 1);
+    assert_eq!(game.overlaps(), 0);
 }

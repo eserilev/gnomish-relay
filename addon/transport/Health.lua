@@ -56,6 +56,15 @@ function Health.Shot(ok)
 	end
 end
 
+-- `free` is false after a long wait for the strip corner (SPEC.md 7.1). No flag tells
+-- the bridge: while the corner is blocked, no strip reaches it.
+function Health.Corner(free)
+	if not free and not status.cornerBlocked then
+		print(ns.App.title .. ": screenshots are blocked by another addon.")
+	end
+	status.cornerBlocked = not free
+end
+
 function Health.Slot(ok)
 	if ok then
 		status.inbound, status.inAt = "slots", time()
@@ -66,7 +75,7 @@ function Health.Slot(ok)
 end
 
 function Health.Blocked()
-	return status.out == "fail"
+	return status.out == "fail" or status.cornerBlocked == true
 end
 
 local function Build()

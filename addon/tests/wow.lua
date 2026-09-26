@@ -18,10 +18,14 @@ local wow = {
 	live = nil,
 	slotsInstalled = true,
 	shotsBlocked = false,
+	-- Seconds from Screenshot() to its SCREENSHOT_* event.
+	shotDelay = 0.4,
 	shots = {},
-	-- Every screenshot again, by the name of each strip frame in `strips`.
+	-- Every screenshot again, by the name of each strip frame in `strips` that it shows.
 	strips = { "GnomishRelayStrip" },
 	shotsOf = {},
+	-- How often a strip frame showed while another one showed. Both sit in one corner.
+	overlaps = 0,
 	-- The slot files of an app other than the relay, by the slot prefix before `_S`.
 	files = {},
 	reloads = 0,
@@ -109,7 +113,29 @@ local function New(kind, name, parent, template)
 	return o
 end
 
+local function IsStrip(o)
+	for _, name in ipairs(wow.strips) do
+		if o.name == name then
+			return true
+		end
+	end
+	return false
+end
+
+local function AnotherStripShown(o)
+	for _, name in ipairs(wow.strips) do
+		local other = _G[name]
+		if other and other ~= o and other.shown then
+			return true
+		end
+	end
+	return false
+end
+
 function methods:Show()
+	if IsStrip(self) and AnotherStripShown(self) then
+		wow.overlaps = wow.overlaps + 1
+	end
 	self.shown = true
 	if self.scripts.OnShow then
 		self.scripts.OnShow(self)
@@ -469,7 +495,7 @@ end
 
 function Screenshot()
 	if wow.shotsBlocked then
-		C_Timer.After(0.4, function()
+		C_Timer.After(wow.shotDelay, function()
 			wow.Fire("SCREENSHOT_FAILED")
 		end)
 		return
@@ -477,9 +503,11 @@ function Screenshot()
 	table.insert(wow.shots, StripCells("GnomishRelayStrip"))
 	for _, frameName in ipairs(wow.strips) do
 		wow.shotsOf[frameName] = wow.shotsOf[frameName] or {}
-		table.insert(wow.shotsOf[frameName], StripCells(frameName))
+		if _G[frameName] and _G[frameName].shown then
+			table.insert(wow.shotsOf[frameName], StripCells(frameName))
+		end
 	end
-	C_Timer.After(0.4, function()
+	C_Timer.After(wow.shotDelay, function()
 		wow.Fire("SCREENSHOT_SUCCEEDED")
 	end)
 end

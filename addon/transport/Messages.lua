@@ -314,12 +314,17 @@ function Messages.ShowNextStrip()
 		return
 	end
 	local due, stored = Due(GetTime())
+	if #stored == 0 and #due == 0 and #state.controls == 0 and not state.helloDue then
+		return
+	end
+	-- While another app holds the corner, nothing is signed and no show counts. So the
+	-- retry timer and the shows wait too (SPEC.md 7.1).
+	if not ns.Strip.TakeTurn() then
+		return
+	end
 	if #stored > 0 then
 		local message = stored[1].message
 		ShowFrame(ns.Codec.FromHex(message.frame), { message.id }, 0, nil)
-		return
-	end
-	if #due == 0 and #state.controls == 0 and not state.helloDue then
 		return
 	end
 	local records, ids, riders = Records(due)
