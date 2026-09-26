@@ -1237,6 +1237,13 @@ folder \t folder name
 3. **No age in the reply.** The picker shows none, and the order already shows it.
 4. **The classifier is the filter.** The walk uses the rules that guard the tool calls, so the list and the calls never disagree about a folder.
 5. **No cap on the repositories found.** The walk does not go into a repository, so the repositories are never more than the folders that it reads.
+6. **The picker is the center of an empty chat.** "New Chat" still makes a chat in the default folder with one click. A repository takes one more click, and no new tile or control is needed. A picker that opens first would cost the common case a second click.
+7. **One flat list.** Resume groups its sessions by folder because many sessions share a folder. Each repository is one row, so headings would only take rows.
+8. **The request goes out when "New Chat" is clicked.** Each request costs a strip. A request each time an empty chat is selected would send strips for nothing.
+9. **The addon keeps the last list** in its saved variables (`folders`), as it keeps the session list, so the picker shows at once. A newer list replaces it.
+10. **A chosen folder names the chat**, as a resumed chat takes the title of its session.
+
+**The picker** is in 13.1.
 
 ## 10. Pings from terminal sessions
 
@@ -1478,7 +1485,7 @@ The mockup is the reference for the layout.
 
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
-- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tiles are "Start a New Chat" and "Resume". Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
+- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tiles are "Start a New Chat" and "Resume". A new chat starts in the default folder. While it has no message, its center shows the folder list of 9.9 in place of the transcript, and the input stays: one row per folder, with its name, and its parent folder in grey at the right. The row of the folder of the chat is green. A click moves the chat to that folder and gives the chat the name of the folder. The first message fixes the folder (9.5). Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
 - **Center:** a dropdown for the agent and the permission mode, the folder, and the bridge light. Below them, the transcript on a black background: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. The mouse wheel scrolls it, and a new entry scrolls it to the bottom.
 - **Replies:** a rendered reply (7.3.1) shows its blocks below the name.
   - Headings, paragraphs, list items, and quotes go into one SimpleHTML frame, with real sizes for `h1` to `h3`, and a bullet or the number before each item.
@@ -1511,7 +1518,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Strip.lua` (shared) | Takes the shared strip corner in turn with the other apps (7.1.2), draws a frame, and takes one screenshot of it. |
 | `Slots.lua` (shared) | Loads one slot, and takes the three globals of the app. |
 | `Messages.lua` (shared) | The send queue, the signed outbox, retries and give-up, the hello, the report flags (`next`, `read`, `restored`, and the health flags), and the slot poll with the replies. It follows `models/transport.qnt`. It keeps the token and the message ids. An app sets its hooks: the store of its messages, the fields of a record, and the calls for each reply. |
-| `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
+| `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, the folder list, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
 | `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
 | `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks. |
 | `Window.lua` | The window of 13.1. |

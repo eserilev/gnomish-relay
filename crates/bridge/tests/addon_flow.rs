@@ -1390,6 +1390,173 @@ fn a_failed_list_shows_its_error() {
     assert!(text_of(&game, "GnomishRelayPickNote:GetText()").contains("not logged in"));
 }
 
+const FOLDERS: &str = "\tCode\nwork/app\tapp\nbroken line\nold\told";
+
+/// Opens the window, clicks New Chat, and answers the folder list request with `list`.
+fn open_new_chat(game: &Game, list: &str) -> u32 {
+    game.run("local ns = ... ns.Window.Open()");
+    let new_chat_tile = format!("GnomishRelayTile{}", chat_count(game) + 1);
+    let before = game.shots();
+    game.run(&format!("{new_chat_tile}:Click()"));
+    game.advance(2.0);
+    let request = (before + 1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .find(|r| flags(r).contains(&"list=folders".into()))
+        .expect("a folder list request");
+    assert_eq!(request.chat, b"folders");
+    game.publish(&[reply("folders", request.id, Status::Done, list)]);
+    game.advance(5.0);
+    request.id
+}
+
+fn folder_rows(game: &Game, count: usize) -> Vec<(String, String)> {
+    (1..=count)
+        .map(|i| {
+            let row = format!("GnomishRelayFolder{i}");
+            (
+                text_of(
+                    game,
+                    &format!("{row}:IsShown() and {row}.text:GetText() or ''"),
+                ),
+                text_of(game, &format!("{row}.right:GetText() or ''")),
+            )
+        })
+        .collect()
+}
+
+fn sent_by_chat(game: &Game, text: &[u8]) -> Record {
+    game.last_strip()
+        .into_iter()
+        .find(|r| r.text == text)
+        .expect("the message in the last strip")
+}
+
+#[test]
+fn new_chat_lists_the_folders_in_its_empty_center_and_marks_the_default() {
+    let game = Game::start();
+    open_new_chat(&game, FOLDERS);
+
+    assert_eq!(
+        folder_rows(&game, 4),
+        [
+            ("|cff1eff00Code|r".into(), String::new()),
+            ("app".into(), "work".into()),
+            ("old".into(), String::new()),
+            (String::new(), String::new()),
+        ],
+        "a broken line is skipped"
+    );
+    assert_eq!(
+        text_of(&game, "GnomishRelayInput:IsShown() and 'shown' or 'hidden'"),
+        "shown"
+    );
+}
+
+#[test]
+fn a_click_on_a_folder_makes_a_chat_whose_next_message_carries_it() {
+    let game = Game::start();
+    open_new_chat(&game, FOLDERS);
+
+    game.run("GnomishRelayFolder2:Click()");
+    assert_eq!(text_of(&game, "GnomishRelayDB.chats[1].name"), "app");
+    assert_eq!(folder_rows(&game, 2)[1].0, "|cff1eff00app|r");
+    game.send("hi");
+    game.advance(1.0);
+
+    let record = sent_by_chat(&game, b"hi");
+    assert_eq!(record.cwd, b"work/app");
+    assert!(flags(&record).contains(&"n".into()));
+    assert_eq!(
+        text_of(
+            &game,
+            "GnomishRelayFolder1:IsVisible() and 'shown' or 'hidden'"
+        ),
+        "hidden",
+        "the folder is fixed after the first message"
+    );
+}
+
+#[test]
+fn the_default_new_chat_sends_from_the_default_folder_with_no_list() {
+    let game = Game::start();
+    open_new_chat(&game, "");
+    game.send("hi");
+    game.advance(1.0);
+
+    let record = sent_by_chat(&game, b"hi");
+    assert!(record.cwd.is_empty());
+    assert_eq!(text_of(&game, "GnomishRelayDB.chats[1].name"), "Chat 1");
+}
+
+#[test]
+fn the_folder_list_is_kept_so_the_next_new_chat_shows_it_at_once() {
+    let game = Game::start();
+    let id = open_new_chat(&game, FOLDERS);
+    game.send("hi");
+    game.advance(1.0);
+    assert!(flags(&game.last_strip()[0]).contains(&format!("read={id}")));
+
+    let game = game.reload();
+    game.run("local ns = ... ns.Window.Open() ns.Window.NewChat()");
+
+    assert_eq!(folder_rows(&game, 2)[1].0, "app");
+}
+
+#[test]
+fn a_failed_folder_list_shows_its_error() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.run("GnomishRelayTile1:Click()");
+    game.advance(2.0);
+    let request = game
+        .last_strip()
+        .into_iter()
+        .find(|r| r.chat == b"folders")
+        .unwrap();
+    game.publish(&[reply("folders", request.id, Status::Error, "no roots")]);
+    game.advance(5.0);
+
+    assert!(text_of(&game, "GnomishRelayFolderNote:GetText()").contains("no roots"));
+}
+
+/// A tiny xorshift, so the test needs no crate and each run is the same.
+fn next_random(seed: &mut u64) -> u64 {
+    *seed ^= *seed << 13;
+    *seed ^= *seed >> 7;
+    *seed ^= *seed << 17;
+    *seed
+}
+
+#[test]
+fn the_folder_parser_gives_clean_rows_for_any_bytes() {
+    let game = Game::start();
+    let parse: Function = game
+        .ns
+        .get::<Table>("Transport")
+        .unwrap()
+        .get("ParseFolders")
+        .unwrap();
+    let mut seed = 0x9e37_79b9_7f4a_7c15;
+    let alphabet = b"\t\n\ra/.\x1f\x00|\xff";
+    for len in 0..400 {
+        let bytes: Vec<u8> = (0..len)
+            .map(|_| {
+                alphabet[usize::try_from(next_random(&mut seed) % 256).unwrap() % alphabet.len()]
+            })
+            .collect();
+        let rows: Table = parse.call(game.lua.create_string(&bytes).unwrap()).unwrap();
+        for row in rows.sequence_values::<Table>() {
+            let row = row.unwrap();
+            let folder: mlua::String = row.get("folder").unwrap();
+            let name: mlua::String = row.get("name").unwrap();
+            assert!(!name.as_bytes().is_empty());
+            for field in [folder.as_bytes(), name.as_bytes()] {
+                assert!(!field.contains(&b'\t') && !field.contains(&b'\n'));
+            }
+        }
+    }
+}
+
 const MONO: &str = "Interface\\AddOns\\GnomishRelay\\JetBrainsMono-Regular.ttf";
 
 /// Sends one message and answers it with `markdown`, rendered as the bridge does.

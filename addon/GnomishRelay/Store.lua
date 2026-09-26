@@ -46,6 +46,12 @@ function Store.NewChat(agent)
 	return chat
 end
 
+-- A row of the folder list (SPEC.md 9.9). The chat takes the name of its folder.
+function Store.SetFolder(chat, row)
+	chat.cwd = row.folder
+	chat.name = row.name
+end
+
 -- A chat that continues a saved session of an agent. Its first message asks the
 -- bridge to attach it, and the reply brings the last exchange.
 function Store.ResumeChat(row)

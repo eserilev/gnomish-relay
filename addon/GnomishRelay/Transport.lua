@@ -1,5 +1,5 @@
--- The relay on top of the shared Messages.lua: chats, sessions, deletes, the restore
--- bundle, the live file, and the permission answers (SPEC.md 7, 9.3, and 9.6).
+-- The relay on top of the shared Messages.lua: chats, sessions, folders, deletes, the
+-- restore bundle, the live file, and the permission answers (SPEC.md 7, 9.3, 9.6, and 9.9).
 
 local _, ns = ...
 
@@ -8,6 +8,7 @@ local Transport = {}
 ns.Transport = Transport
 
 local LIST_CHAT = "relay"
+local FOLDER_CHAT = "folders"
 
 -- The bridge writes one of these as the first line of each run, and no agent line
 -- can start with "Level:" (SPEC.md 9.3). The config can lower the level of the chat.
@@ -21,6 +22,8 @@ local LEVELS = {
 
 local state = {
 	working = {},
+	-- The id of the open request of each list, by its chat.
+	listing = {},
 	-- The permission requests of the last live file, and the ones this session answered.
 	requests = {},
 	answered = {},
@@ -53,9 +56,9 @@ local function Fields(chat, message)
 	return chat.cwd, table.concat(flags, ";"), chat.name
 end
 
--- The list chat has no messages: its records are the replies to a list control.
+-- The list chats have no messages: their records are the replies to a list control.
 local function Find(chatId, id)
-	if chatId == LIST_CHAT then
+	if chatId == LIST_CHAT or chatId == FOLDER_CHAT then
 		return nil
 	end
 	local chat = ns.Store.Chat(chatId)
@@ -70,15 +73,32 @@ function Transport.Attach(chat)
 	return Messages.Queue(chat, message)
 end
 
--- The list is the reply to a message of the chat "relay", one session per line.
-function Transport.ListSessions()
-	state.listing = Messages.NewId()
-	Messages.Control(LIST_CHAT, state.listing, "list")
+local function List(chat, flags)
+	state.listing[chat] = Messages.NewId()
+	Messages.Control(chat, state.listing[chat], flags)
 	Messages.StartPolls()
 end
 
-function Transport.Listing()
-	return state.listing ~= nil
+-- The list is the reply to a message of the chat "relay", one session per line.
+function Transport.ListSessions()
+	List(LIST_CHAT, "list")
+end
+
+-- The list is the reply to a message of the chat "folders", one folder per line.
+function Transport.ListFolders()
+	List(FOLDER_CHAT, "list=folders")
+end
+
+function Transport.ListingSessions()
+	return state.listing[LIST_CHAT] ~= nil
+end
+
+function Transport.ListingFolders()
+	return state.listing[FOLDER_CHAT] ~= nil
+end
+
+local function Listing()
+	return next(state.listing) ~= nil
 end
 
 function Transport.Delete(chat)
@@ -121,14 +141,23 @@ local function Field(text)
 	return text ~= nil and text or ""
 end
 
+local function Cells(line)
+	local f = {}
+	for part in (line .. "\t"):gmatch("([^\t]*)\t") do
+		table.insert(f, part)
+	end
+	return f
+end
+
+local function Lines(text)
+	return (tostring(text) .. "\n"):gmatch("([^\n]*)\n")
+end
+
 -- Agent, session, age, active, chat, folder, folder name, title (SPEC.md 9.6).
 local function ParseSessions(text)
 	local rows = {}
-	for line in (tostring(text) .. "\n"):gmatch("([^\n]*)\n") do
-		local f = {}
-		for part in (line .. "\t"):gmatch("([^\t]*)\t") do
-			table.insert(f, part)
-		end
+	for line in Lines(text) do
+		local f = Cells(line)
 		local session, age = f[2], tonumber(f[3])
 		local valid = ns.Codec.IsValidId(f[1]) and age and type(session) == "string"
 		if valid and #session <= 64 and not session:find("[^%w_-]") then
@@ -147,24 +176,44 @@ local function ParseSessions(text)
 	return rows
 end
 
+-- Folder, name (SPEC.md 9.9). The first line is the default folder, with no folder.
+function Transport.ParseFolders(text)
+	local rows = {}
+	for line in Lines(text) do
+		local f = Cells(line)
+		if #f == 2 and f[2] ~= "" then
+			table.insert(rows, { folder = f[1], name = f[2] })
+		end
+	end
+	return rows
+end
+
+-- The saved variables key and the parser of the reply of each list chat.
+local LISTS = {
+	[LIST_CHAT] = { key = "sessions", Parse = ParseSessions },
+	[FOLDER_CHAT] = { key = "folders", Parse = Transport.ParseFolders },
+}
+
 -- An older list that comes after a newer one changes nothing. Returns whether the
 -- record is final, so the addon reports it as read.
 local function ApplyList(r)
-	if r.chat ~= LIST_CHAT or r.status == "working" then
+	local list = LISTS[r.chat]
+	if not list or r.status == "working" then
 		return false
 	end
 	local db = ns.Store.db
-	if db.sessions and db.sessions.id and db.sessions.id >= r.id then
+	local last = db[list.key]
+	if last and last.id and last.id >= r.id then
 		return true
 	end
-	if r.id == state.listing then
-		state.listing = nil
+	if r.id == state.listing[r.chat] then
+		state.listing[r.chat] = nil
 	end
 	if r.status == "error" then
-		db.sessions = { id = r.id, at = time(), rows = db.sessions and db.sessions.rows or {}, error = r.text }
+		db[list.key] = { id = r.id, at = time(), rows = last and last.rows or {}, error = r.text }
 		return true
 	end
-	db.sessions = { id = r.id, at = time(), rows = ParseSessions(r.text) }
+	db[list.key] = { id = r.id, at = time(), rows = list.Parse(r.text) }
 	return true
 end
 
@@ -276,4 +325,4 @@ Messages.OnOther = ApplyList
 Messages.Riders = Forgets
 Messages.OnRidersShown = Forgotten
 Messages.OnPoll = ApplySlot
-Messages.Awaits = Transport.Listing
+Messages.Awaits = Listing

@@ -80,7 +80,7 @@ local function Tile(index)
 		elseif self.chatId then
 			Select(self.chatId)
 		else
-			Select(ns.Store.NewChat().id)
+			Window.NewChat()
 		end
 	end)
 	tiles[index] = tile
@@ -244,7 +244,7 @@ local function RefreshPicker()
 	local note = ""
 	if sessions and sessions.error then
 		note = "|cffff2020" .. ns.Relay.Plain(sessions.error) .. "|r"
-	elseif #lines == 0 and ns.Transport.Listing() then
+	elseif #lines == 0 and ns.Transport.ListingSessions() then
 		note = "Loading..."
 	elseif #lines == 0 then
 		note = "No sessions"
@@ -252,22 +252,83 @@ local function RefreshPicker()
 	ui.pickNote:SetText(note)
 end
 
+-- The parent of a folder, to tell two repositories with one name apart.
+local function Parent(folder)
+	return folder:match("^(.*)/[^/]*$") or ""
+end
+
+local function ShowFolderRow(button, row, chat)
+	button.row = row
+	if not row then
+		button:Hide()
+		return
+	end
+	local name = ns.Relay.Plain(row.name)
+	if row.folder == chat.cwd then
+		name = "|cff" .. GREEN .. name .. "|r"
+	end
+	button.text:SetText(name)
+	button.right:SetText(ns.Relay.Plain(Parent(row.folder)))
+	button:Show()
+end
+
+local function RefreshFolders(chat)
+	local folders = ns.Store.db.folders
+	local rows = folders and folders.rows or {}
+	ui.folderOffset = math.max(0, math.min(ui.folderOffset or 0, #rows - PICK_ROWS))
+	for i, button in ipairs(ui.folderRows) do
+		ShowFolderRow(button, rows[ui.folderOffset + i], chat)
+	end
+	local note = ""
+	if folders and folders.error then
+		note = "|cffff2020" .. ns.Relay.Plain(folders.error) .. "|r"
+	elseif #rows == 0 and ns.Transport.ListingFolders() then
+		note = "Loading..."
+	end
+	ui.folderNote:SetText(note)
+end
+
+-- A chat with no message yet can still change its folder (SPEC.md 9.9).
+local function ChoosingFolder(chat)
+	return not ui.picking and chat ~= nil and #chat.history == 0
+end
+
 function Window.Refresh()
 	if not frame or not frame:IsShown() then
 		return
 	end
 	local chat = Selected()
+	local choosing = ChoosingFolder(chat)
 	RefreshTiles(chat)
-	ui.log:SetShown(not ui.picking)
+	ui.log:SetShown(not ui.picking and not choosing)
+	ui.folders:SetShown(choosing)
 	ui.input:SetShown(not ui.picking)
 	ui.picker:SetShown(ui.picking == true)
 	if ui.picking then
 		RefreshPicker()
+	elseif choosing then
+		RefreshFolders(chat)
 	else
 		ns.Transcript.Show(chat)
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
+end
+
+-- The chat starts in the default folder. Its empty center lists the other folders.
+function Window.NewChat()
+	local chat = ns.Store.NewChat()
+	ui.folderOffset = 0
+	ns.Transport.ListFolders()
+	Select(chat.id)
+end
+
+function Window.ChooseFolder(row)
+	local chat = Selected()
+	if ChoosingFolder(chat) then
+		ns.Store.SetFolder(chat, row)
+	end
+	Window.Refresh()
 end
 
 function Window.ShowSessions()
@@ -305,6 +366,30 @@ function Window.Send(text)
 	return true
 end
 
+-- Rows of a picker: a click calls `choose` with the row that the button shows.
+local function PickRows(parent, name, width, choose)
+	local rows = {}
+	for i = 1, PICK_ROWS do
+		local row = CreateFrame("Button", name .. i, parent)
+		row:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -8 - (i - 1) * PICK_ROW_HEIGHT)
+		row:SetSize(width - 16, PICK_ROW_HEIGHT)
+		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+		row.text = Label(row, "GameFontHighlight", "LEFT", 4, 0)
+		row.text:SetWidth(width - 150)
+		row.text:SetWordWrap(false)
+		row.right = Label(row, "GameFontHighlightSmall", "RIGHT", -4, 0)
+		row.right:SetJustifyH("RIGHT")
+		row:SetScript("OnClick", function(self)
+			if self.row then
+				choose(self.row)
+			end
+		end)
+		row:Hide()
+		rows[i] = row
+	end
+	return rows
+end
+
 local function BuildCenter()
 	local left = SIDE + 14
 	local width = WIDTH - 2 * SIDE - 28
@@ -321,31 +406,24 @@ local function BuildCenter()
 	ui.picker = Inset(frame, left, -84, width, 16)
 	ui.pickNote = ui.picker:CreateFontString("GnomishRelayPickNote", "OVERLAY", "GameFontDisable")
 	ui.pickNote:SetPoint("TOPLEFT", ui.picker, "TOPLEFT", 12, -12)
-	ui.pickRows = {}
-	for i = 1, PICK_ROWS do
-		local row = CreateFrame("Button", "GnomishRelayPick" .. i, ui.picker)
-		row:SetPoint("TOPLEFT", ui.picker, "TOPLEFT", 8, -8 - (i - 1) * PICK_ROW_HEIGHT)
-		row:SetSize(width - 16, PICK_ROW_HEIGHT)
-		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-		row.text = Label(row, "GameFontHighlight", "LEFT", 4, 0)
-		row.text:SetWidth(width - 150)
-		row.text:SetWordWrap(false)
-		row.right = Label(row, "GameFontHighlightSmall", "RIGHT", -4, 0)
-		row.right:SetJustifyH("RIGHT")
-		row:SetScript("OnClick", function(self)
-			if self.row then
-				Window.Resume(self.row)
-			end
-		end)
-		row:Hide()
-		ui.pickRows[i] = row
-	end
+	ui.pickRows = PickRows(ui.picker, "GnomishRelayPick", width, Window.Resume)
 	ui.picker:EnableMouseWheel(true)
 	ui.picker:SetScript("OnMouseWheel", function(_, delta)
 		ui.pickOffset = (ui.pickOffset or 0) - delta * 3
 		RefreshPicker()
 	end)
 	ui.picker:Hide()
+
+	ui.folders = Inset(frame, left, -84, width, 72)
+	ui.folderNote = ui.folders:CreateFontString("GnomishRelayFolderNote", "OVERLAY", "GameFontDisable")
+	ui.folderNote:SetPoint("TOPLEFT", ui.folders, "TOPLEFT", 12, -12)
+	ui.folderRows = PickRows(ui.folders, "GnomishRelayFolder", width, Window.ChooseFolder)
+	ui.folders:EnableMouseWheel(true)
+	ui.folders:SetScript("OnMouseWheel", function(_, delta)
+		ui.folderOffset = (ui.folderOffset or 0) - delta * 3
+		Window.Refresh()
+	end)
+	ui.folders:Hide()
 
 	ui.banner = CreateFrame("Frame", nil, frame)
 	ui.banner:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left, 44)
