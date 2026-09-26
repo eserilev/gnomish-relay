@@ -22,6 +22,7 @@ use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, slot_name};
 use common::{hex, screenshot_png, signed_frame, strip_rows};
+use protocol::apps::App;
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
@@ -44,7 +45,7 @@ fn folders() -> Dirs {
     fs::create_dir_all(&state).unwrap();
     fs::create_dir_all(&screenshots).unwrap();
     fs::create_dir_all(&accounts).unwrap();
-    slots::install(&addons, &Files::empty(0)).unwrap();
+    slots::install(&addons, App::Relay, &Files::empty(App::Relay, 0)).unwrap();
     Dirs {
         _root: root,
         addons,
@@ -110,7 +111,7 @@ fn write_saved_variables(f: &Dirs, frame: &[u8]) {
 }
 
 fn slot_body(addons: &Path) -> String {
-    fs::read_to_string(addons.join(slot_name(1)).join(BODY_FILE)).unwrap()
+    fs::read_to_string(addons.join(slot_name(App::Relay, 1)).join(BODY_FILE)).unwrap()
 }
 
 /// Steps until `done` holds. A publish syncs 60 files, which is slow on Windows.
@@ -280,7 +281,7 @@ fn a_strip_comes_back_with_the_reply_of_an_acp_agent() {
 
 /// The first request in `Live.lua`, read the way the addon reads it.
 fn live_request(addons: &Path) -> Option<(String, Vec<u8>)> {
-    let code = fs::read(addons.join(slot_name(1)).join(LIVE_FILE)).ok()?;
+    let code = fs::read(addons.join(slot_name(App::Relay, 1)).join(LIVE_FILE)).ok()?;
     let lua = mlua::Lua::new();
     lua.load(&code[..]).exec().ok()?;
     let live: mlua::Table = lua.globals().get("GnomishRelay_Live").ok()?;

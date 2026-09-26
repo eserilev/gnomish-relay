@@ -5,7 +5,10 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 
-const FILE: &str = "GnomishRelay.lua";
+use protocol::apps::App;
+
+use crate::app_files::saved_variables_file;
+
 /// Saved variables hold at most 200 messages per chat, far below this.
 const MAX_FILE: u64 = 16 * 1024 * 1024;
 const KEY: &str = "[\"frame\"] = \"";
@@ -32,16 +35,18 @@ fn from_hex(hex: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// Watches the saved variables file of every account.
+/// Watches the saved variables file of one app in every account.
 pub struct Watcher {
     accounts: PathBuf,
+    file: String,
     seen: HashMap<PathBuf, SystemTime>,
 }
 
 impl Watcher {
-    pub fn new(accounts: &Path) -> Watcher {
+    pub fn new(accounts: &Path, app: App) -> Watcher {
         Watcher {
             accounts: accounts.to_owned(),
+            file: saved_variables_file(app),
             seen: HashMap::new(),
         }
     }
@@ -54,7 +59,7 @@ impl Watcher {
         };
         let mut texts = Vec::new();
         for account in accounts.flatten() {
-            let path = account.path().join("SavedVariables").join(FILE);
+            let path = account.path().join("SavedVariables").join(&self.file);
             // `symlink_metadata` does not follow a link, so a link is skipped.
             let Ok(meta) = fs::symlink_metadata(&path) else {
                 continue;
@@ -94,7 +99,7 @@ mod tests {
     fn account_file(root: &Path) -> PathBuf {
         let dir = root.join("ACCOUNT1").join("SavedVariables");
         fs::create_dir_all(&dir).unwrap();
-        dir.join(FILE)
+        dir.join("GnomishRelay.lua")
     }
 
     #[test]
@@ -102,7 +107,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let file = account_file(root.path());
         fs::write(&file, "one").unwrap();
-        let mut watcher = Watcher::new(root.path());
+        let mut watcher = Watcher::new(root.path(), App::Relay);
         assert_eq!(watcher.changed(), ["one"]);
         assert!(watcher.changed().is_empty());
         let later = SystemTime::now() + std::time::Duration::from_secs(5);
@@ -116,6 +121,19 @@ mod tests {
         assert_eq!(watcher.changed(), ["two"]);
     }
 
+    #[test]
+    fn each_app_watches_only_its_own_saved_variables_file() {
+        let root = tempfile::tempdir().unwrap();
+        let relay = account_file(root.path());
+        fs::write(&relay, "relay").unwrap();
+        fs::write(relay.with_file_name("Timeways.lua"), "story").unwrap();
+        assert_eq!(Watcher::new(root.path(), App::Relay).changed(), ["relay"]);
+        assert_eq!(
+            Watcher::new(root.path(), App::Timeways).changed(),
+            ["story"]
+        );
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_saved_variables_file_that_is_a_link_is_skipped() {
@@ -124,6 +142,6 @@ mod tests {
         let target = root.path().join("elsewhere.lua");
         fs::write(&target, "[\"frame\"] = \"00\"").unwrap();
         std::os::unix::fs::symlink(&target, &file).unwrap();
-        assert!(Watcher::new(root.path()).changed().is_empty());
+        assert!(Watcher::new(root.path(), App::Relay).changed().is_empty());
     }
 }

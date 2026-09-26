@@ -391,8 +391,8 @@ fn setup(args: &[&str]) -> Result<()> {
     let key = strip_key(&dir, new_key)?;
     // The addon and the slots first: they need nothing else, and a later step can fail.
     let addon = install::install_addon(&addons, &key)?;
-    let slots_new = !addons.join(slots::slot_name(1)).is_dir();
-    slots::install(&addons, &Files::empty(now()))?;
+    let slots_new = !addons.join(slots::slot_name(App::Relay, 1)).is_dir();
+    slots::install(&addons, App::Relay, &Files::empty(App::Relay, now()))?;
     // A first setup can stop at the folder question after the addon and the slots, so
     // the first config also means that WoW has not seen them yet.
     let first = !dir.join(config::FILE).exists();
@@ -442,9 +442,9 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
     let addons = addons_dir(&load_config()?.wow);
     let files = Files {
         body: body(&[reply]),
-        ..Files::empty(now())
+        ..Files::empty(App::Relay, now())
     };
-    slots::publish(&addons, &files, next)?;
+    slots::publish(&addons, App::Relay, &files, next)?;
     println!(
         "published to {} slots from slot {next}",
         protocol::slot::SLOT_WINDOW
@@ -454,7 +454,7 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
 
 fn install() -> Result<()> {
     let dir = addons_dir(&load_config()?.wow);
-    slots::install(&dir, &Files::empty(now()))?;
+    slots::install(&dir, App::Relay, &Files::empty(App::Relay, now()))?;
     println!("made {} slots in {}", protocol::slot::SLOTS, dir.display());
     Ok(())
 }

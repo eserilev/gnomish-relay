@@ -12,6 +12,7 @@ use anyhow::Result;
 use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopSignal};
 use crate::config::Policy;
 use crate::receive::{StripKey, receive};
+use protocol::apps::App;
 use protocol::record::Record;
 
 use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
@@ -78,7 +79,7 @@ impl LaneFiles {
     fn new(state: PathBuf, accounts: &Path) -> LaneFiles {
         LaneFiles {
             state,
-            saved: saved::Watcher::new(accounts),
+            saved: saved::Watcher::new(accounts, App::Relay),
             changed: true,
             stored: false,
             last_publish: Instant::now(),
@@ -346,7 +347,7 @@ impl RelayLane {
             restore: self.relay.restore_file(),
             live: self.relay.live_file(),
         };
-        if let Err(e) = slots::publish(addons, &files, self.relay.next_slot()) {
+        if let Err(e) = slots::publish(addons, App::Relay, &files, self.relay.next_slot()) {
             log(&format!("publish failed: {e:#}"));
         }
         self.files.changed = false;
