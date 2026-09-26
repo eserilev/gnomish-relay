@@ -1405,7 +1405,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, or the relay part with `--relay` (11.3).
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`, `[allow]` with `commands` and `[allow.folders]`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts` and `default_hosts`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -1437,7 +1437,7 @@ local_model = "llama3.2"
 - A model name has no space and does not start with `-`, because `claude_model` goes into an argument of `claude`.
 - The model route takes nothing from `[agents.*]`: `model = "claude"` always runs `claude` from `PATH`, with the environment allowlist of 6.2 and no `env` list (9.7, decision 10).
 
-**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `[agents]`, and `[allow]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
+**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `[agents]`, `[allow]`, and `[sandbox]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
 
 ```toml
 [wow]
@@ -1465,6 +1465,20 @@ commands = ["cargo test *", "cargo fmt --check"]
 - `commands` applies to every chat. A folder of `[allow.folders]` must exist, and its patterns apply to each chat inside it.
 - A pattern never allows a `deny`, `desktop`, or "never always" command (6.6.3, S17). A config with no `[allow]` has an empty table.
 - A dialog of the OS, `gnomish-relay approve`, and `gnomish-relay deny` answer the desktop requests of 6.6.3. They live in `approvals` in the data folder.
+
+**The hosts of the sandbox** are the only hosts that a command of a game run reaches, through the proxy of the bridge (6.6.4):
+
+```toml
+[sandbox]
+allow_hosts = ["nodejs.org"]   # added to the default hosts of 6.6.4
+default_hosts = true           # false leaves only allow_hosts
+```
+
+- A host is an exact name, compared without ASCII case. It has at least one dot, and its last label starts with a letter. A `*`, a port, a scheme, an IP address in any form, and `localhost` are errors, so a typo never opens more than one name.
+- With `default_hosts = false` and no `allow_hosts`, the proxy does not start, and commands have no network at all.
+- Hosts that a user can add: `nodejs.org` (headers for native modules of npm), `proxy.golang.org` and `sum.golang.org` (Go modules).
+- Only the desktop changes `config.toml` (6.6.2), so no message from the game adds a host.
+
 The other keys below come with their features.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 

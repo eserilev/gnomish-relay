@@ -12,6 +12,7 @@ use protocol::record::is_valid_id;
 use serde::{Deserialize, Serialize};
 
 use crate::allow::{self, AllowFile, AllowTable};
+use crate::allow_hosts::{Defaults, HostList};
 use crate::claude;
 use crate::model::{ModelChoice, ModelSpec};
 use crate::model_local::{self, LocalModel};
@@ -119,6 +120,8 @@ pub struct RelayConfig {
     pub permission_timeout: Duration,
     /// Commands that run from the game with no question (SPEC.md 12).
     pub allow: AllowTable,
+    /// The hosts that commands reach through the proxy of the sandbox (SPEC.md 6.6.4).
+    pub hosts: HostList,
 }
 
 /// The story program of Timeways (SPEC.md 9.8).
@@ -186,7 +189,31 @@ struct File {
     wow: Wow,
     agents: Option<BTreeMap<String, Agent>>,
     allow: Option<AllowFile>,
+    sandbox: Option<SandboxFile>,
     story: Option<Story>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct SandboxFile {
+    #[serde(default)]
+    allow_hosts: Vec<String>,
+    /// `false` leaves only `allow_hosts`. No host at all turns the proxy off.
+    #[serde(default = "keep_defaults")]
+    default_hosts: bool,
+}
+
+fn keep_defaults() -> bool {
+    true
+}
+
+fn hosts(file: Option<&SandboxFile>) -> Result<HostList> {
+    let (defaults, more) = match file {
+        Some(file) if !file.default_hosts => (Defaults::Off, file.allow_hosts.as_slice()),
+        Some(file) => (Defaults::Keep, file.allow_hosts.as_slice()),
+        None => (Defaults::Keep, [].as_slice()),
+    };
+    HostList::new(defaults, more).map_err(|e| anyhow::anyhow!("[sandbox] allow_hosts: {e}"))
 }
 
 #[derive(Deserialize)]
@@ -511,6 +538,7 @@ fn no_relay_keys(file: &File) -> Result<()> {
         ),
         ("[agents]", file.agents.is_some()),
         ("[allow]", file.allow.is_some()),
+        ("[sandbox]", file.sandbox.is_some()),
     ];
     match keys.iter().find(|(_, given)| *given) {
         Some((key, _)) => bail!("{key} needs allowed_roots"),
@@ -574,6 +602,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         })
         .collect();
     let allow = allow::parse(&file.allow.unwrap_or_default(), home)?;
+    let hosts = hosts(file.sandbox.as_ref())?;
     Ok(Some(RelayConfig {
         policy: Policy {
             folders: Folders { roots, base },
@@ -584,6 +613,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         timeout,
         permission_timeout,
         allow,
+        hosts,
     }))
 }
 
@@ -800,6 +830,47 @@ mod tests {
         assert_eq!(rules, [vec!["cargo".to_owned(), "test".to_owned()]]);
         let bad = format!("{GOOD}\n[allow]\ncommands = [\"rm -rf ~\"]\n");
         assert!(home.parse(&bad).is_err());
+    }
+
+    #[test]
+    fn a_config_with_no_sandbox_section_allows_the_default_hosts() {
+        let home = Home::new();
+
+        let config = home.parse(GOOD).unwrap();
+
+        let hosts = &config.require_relay().unwrap().hosts;
+        assert!(hosts.allows("index.crates.io"));
+        assert!(!hosts.allows("nodejs.org"));
+    }
+
+    #[test]
+    fn the_sandbox_section_adds_hosts_or_turns_the_defaults_off() {
+        let home = Home::new();
+        let more = format!("{GOOD}\n[sandbox]\nallow_hosts = [\"nodejs.org\"]\n");
+        let only = format!("{more}default_hosts = false\n");
+
+        let more = home.parse(&more).unwrap();
+        let only = home.parse(&only).unwrap();
+
+        let more = &more.require_relay().unwrap().hosts;
+        assert!(more.allows("nodejs.org") && more.allows("github.com"));
+        let only = &only.require_relay().unwrap().hosts;
+        assert!(only.allows("nodejs.org") && !only.allows("github.com"));
+    }
+
+    #[test]
+    fn a_bad_host_or_key_in_the_sandbox_section_is_an_error() {
+        let home = Home::new();
+        for section in [
+            "allow_hosts = [\"127.0.0.1\"]",
+            "allow_hosts = [\"localhost\"]",
+            "allow_hosts = [\"*.github.com\"]",
+            "allow_hosts = [\"https://nodejs.org\"]",
+            "allow_host = [\"nodejs.org\"]",
+        ] {
+            let text = format!("{GOOD}\n[sandbox]\n{section}\n");
+            assert!(home.parse(&text).is_err(), "{section}");
+        }
     }
 
     #[test]
@@ -1050,6 +1121,7 @@ mod tests {
         for table in [
             "[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n",
             "[allow]\n",
+            "[sandbox]\n",
         ] {
             let error = format!(
                 "{:#}",
