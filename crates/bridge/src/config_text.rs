@@ -32,14 +32,15 @@ fn wow_table(wow: &Path) -> String {
     format!("[wow]\npath = {}\n", quote(&wow.to_string_lossy()))
 }
 
-/// Every agent asks. With no agent found, the echo agent.
+/// Every agent edits the chat folder with no question, and asks before each command.
+/// With no agent found, the echo agent.
 fn relay_tables(relay: &RelayPart) -> String {
     let mut text = String::new();
     for (name, kind, command) in relay.agents {
         let command: Vec<String> = command.iter().map(|word| quote(word)).collect();
         let _ = write!(
             text,
-            "\n[agents.{name}]\nkind = \"{}\"\ncommand = [{}]\npermission = \"ask\"\n",
+            "\n[agents.{name}]\nkind = \"{}\"\ncommand = [{}]\npermission = \"auto-edit\"\n",
             kind.word(),
             command.join(", ")
         );
@@ -52,12 +53,12 @@ fn relay_tables(relay: &RelayPart) -> String {
          # [allow.folders]\n# \"~/Code/lighthouse\" = [\"npm test *\"]\n",
     );
     if relay.agents.is_empty() {
-        text.push_str("\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n");
+        text.push_str("\n[agents.echo]\nkind = \"echo\"\npermission = \"auto-edit\"\n");
     }
     text.push_str(
         "\n# Any ACP agent is one entry. Run `gnomish-relay check-agent <name>` to test it.\n\
          # [agents.gemini]\n# kind = \"acp\"\n# command = [\"gemini\", \"--acp\"]\n\
-         # permission = \"ask\"\n# env = [\"GEMINI_API_KEY\"]\n",
+         # permission = \"auto-edit\"\n# env = [\"GEMINI_API_KEY\"]\n",
     );
     text
 }
@@ -148,7 +149,7 @@ mod tests {
     }
 
     #[test]
-    fn the_relay_config_parses_and_every_agent_asks() {
+    fn the_relay_config_parses_and_every_agent_edits_the_chat_folder_with_no_question() {
         let home = home();
         // A quote and a backslash in the folder name must not break the TOML string.
         let wow = if cfg!(windows) {
@@ -167,7 +168,8 @@ mod tests {
         };
         let config = parsed(&relay_config(Path::new(wow), &relay), &home);
         let relay = config.require_relay().unwrap();
-        assert_eq!(relay.policy.agents["claude"], Permission::Ask);
+        assert_eq!(relay.policy.agents["claude"], Permission::AutoEdit);
+        assert_eq!(relay.policy.agents["gemini"], Permission::AutoEdit);
         assert_eq!(relay.policy.default_agent, "claude");
         assert_eq!(relay.agents["gemini"].command, ["gemini", "--acp"]);
         assert_eq!(relay.agents["claude"].kind, Kind::Claude);

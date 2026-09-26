@@ -39,6 +39,26 @@ impl Permission {
         }
     }
 
+    /// The word of the config and of the game.
+    pub fn word(self) -> &'static str {
+        match self {
+            Permission::Ask => "ask",
+            Permission::AutoEdit => "auto-edit",
+            Permission::FullAuto => "full-auto",
+        }
+    }
+
+    /// What the level lets an agent do in a chat from the game (SPEC.md 9.3).
+    pub fn meaning(self) -> &'static str {
+        match self {
+            Permission::Ask => "It asks in the game before each edit and each command.",
+            Permission::AutoEdit => {
+                "It edits files in the chat folder with no question, and asks in the game before each command."
+            }
+            Permission::FullAuto => "It edits files and runs commands with no question.",
+        }
+    }
+
     fn level(self) -> Level {
         match self {
             Permission::Ask => Level::Ask,

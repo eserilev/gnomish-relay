@@ -462,7 +462,15 @@ fn setup_config(
 
 fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {
     match &config.relay {
-        Some(relay_config) => println!("{}", agent_line(relay_config)),
+        Some(relay_config) => {
+            println!("{}", agent_line(relay_config));
+            if let Ok(dir) = config_dir() {
+                println!(
+                    "{}",
+                    setup::level_line(relay_config, &dir.join(config::FILE))
+                );
+            }
+        }
         None if relay == setup::Relay::Off => {
             println!("Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay");
         }

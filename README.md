@@ -41,12 +41,12 @@ Claude Code needs only the `claude` program, and Codex only the `codex` program:
 [agents.claude]
 kind = "claude"
 command = ["claude"]
-permission = "ask"
+permission = "auto-edit"
 
 [agents.codex]
 kind = "codex"
 command = ["codex"]
-permission = "ask"
+permission = "auto-edit"
 ```
 
 Any ACP agent is one entry in `config.toml`:
@@ -55,10 +55,14 @@ Any ACP agent is one entry in `config.toml`:
 [agents.gemini]
 kind = "acp"
 command = ["gemini", "--acp"]
-permission = "ask"
+permission = "auto-edit"
 ```
 
 Then run `gnomish-relay check-agent gemini`, and `gnomish-relay restart` to load the change.
+
+`permission` is the most that a chat from the game can do. At `auto-edit`, the agent
+edits files in the chat folder with no question, and asks in the game before each
+command. At `ask`, it also asks before each edit.
 
 ## What an agent can do from the game
 

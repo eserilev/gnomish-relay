@@ -207,6 +207,19 @@ pub fn write_config(dir: &Path, text: &str, home: &Path) -> Result<Config> {
     Ok(config)
 }
 
+/// The level that the config gives the default agent, and how to change it. The
+/// config is the ceiling of every chat (S6), so the player needs to see it.
+pub fn level_line(relay: &config::RelayConfig, config_file: &Path) -> String {
+    let name = &relay.policy.default_agent;
+    let level = relay.policy.agents.get(name).copied().unwrap_or_default();
+    format!(
+        "Level: {}. {} To change it, edit permission in {}",
+        level.word(),
+        level.meaning(),
+        config_file.display()
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -273,5 +286,28 @@ mod tests {
             story: None,
         };
         assert_eq!(config_text(Some("anything"), &parts), None);
+    }
+
+    fn level_line_of(permission: &str) -> String {
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("Code")).unwrap();
+        let text = format!(
+            "allowed_roots = [\"~/Code\"]\ndefault_agent = \"claude\"\n[wow]\npath = \"/wow\"\n\
+             [agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\npermission = \"{permission}\"\n"
+        );
+        let config = config::parse(&text, home.path()).unwrap();
+        level_line(config.require_relay().unwrap(), Path::new("/c/config.toml"))
+    }
+
+    #[test]
+    fn setup_says_the_level_of_the_default_agent_and_where_to_change_it() {
+        assert_eq!(
+            level_line_of("auto-edit"),
+            "Level: auto-edit. It edits files in the chat folder with no question, and asks in \
+             the game before each command. To change it, edit permission in /c/config.toml"
+        );
+        assert!(
+            level_line_of("ask").starts_with("Level: ask. It asks in the game before each edit")
+        );
     }
 }
