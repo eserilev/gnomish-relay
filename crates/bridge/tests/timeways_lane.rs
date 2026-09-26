@@ -519,3 +519,40 @@ fn a_bridge_with_no_relay_serves_timeways_and_drops_a_relay_strip() {
     assert!(!slot_file(&f.addons, App::Relay, BODY_FILE).contains("hi"));
     assert!(!f.state.join("state.json").exists(), "no relay state");
 }
+
+/// SPEC.md 9.7, decision 16: `restart` and `update` start a new bridge, and the new
+/// bridge starts the story program again.
+#[test]
+fn a_new_bridge_starts_the_story_program_again() {
+    let f = folders(true);
+    let runs = runs();
+    let mut first = bridge(&f, both_keys(), &runs).with_story(echo_story(&f));
+    show_strip(
+        &f,
+        "WoWScrnShot_1.png",
+        &frame(TIMEWAYS_KEY, "tok", 1, "", &question("before")),
+    );
+    assert!(step_until(&mut first, || {
+        slot_file(&f.addons, App::Timeways, BODY_FILE).contains("story: before")
+    }));
+    drop(first);
+
+    let mut second = bridge(&f, both_keys(), &runs).with_story(echo_story(&f));
+    show_strip(
+        &f,
+        "WoWScrnShot_2.png",
+        &frame(TIMEWAYS_KEY, "tok", 2, "", &question("after")),
+    );
+    let answered = step_until(&mut second, || {
+        slot_file(&f.addons, App::Timeways, BODY_FILE).contains("story: after")
+    });
+
+    assert!(answered);
+    let seen = seen_by_story(&f);
+    let questions: Vec<_> = seen.iter().map(|l| (&l["question"], &l["id"])).collect();
+    // Each story program numbers its batches from 1, so each bridge started its own.
+    assert_eq!(
+        questions,
+        [(&"before".into(), &1.into()), (&"after".into(), &1.into())]
+    );
+}
