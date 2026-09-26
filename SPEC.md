@@ -1392,6 +1392,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | Lines of `claude -p` and Claude Code session files | The agent and its files are untrusted. A progress line stays short, a popup text is printable (S15), and a copy of a session keeps no old id. |
 | The bridge state machine (`relay`) | The promises of the transport model (14.2) on the real code, with a Timeways lane next to the relay lane: no Timeways record becomes a job. |
 | The action classifier and the shell splitter (6.6.3) | Backs up S16, S17, S27, and S28 on the compiled code: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor holds. |
+| Lines of the story program and batches of the addon (`app_protocol`, 9.8) | Both are untrusted. No line panics a reader. A batch that passes has at most one line with a reply, and each line that goes on is JSON with the `id` of the bridge. An answer that passes is at most 24576 bytes, and its reply for the game is one JSON line with every `\|` doubled (S10) that the slot writer keeps whole (S12). |
 
 ### 14.5 Security tests
 
