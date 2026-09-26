@@ -39,6 +39,7 @@ fn home(allow_toml: &str) -> Home {
     let gate = Gate {
         roots: vec![path.join("Code")],
         config_dir: config,
+        data_dir: path.join("data"),
         allow: Arc::new(allow::parse(&file, &path).unwrap()),
         approvals: Approvals::new(&path.join("data"), Notice::Off),
     };
@@ -142,7 +143,7 @@ fn a_read_of_the_strip_key_is_denied_at_every_level() {
     for level in LEVELS {
         let reply = call(&home, "Read", &json!({ "file_path": key }), level);
         assert!(
-            reply.starts_with("deny: It touches the config folder"),
+            reply.starts_with("deny: It touches the config or data folder"),
             "{reply}"
         );
     }

@@ -29,6 +29,7 @@ fn gate() -> Gate {
     Gate {
         roots: vec![tmp.clone()],
         config_dir: tmp.join("gnomish-relay-test-config"),
+        data_dir: tmp.join("gnomish-relay-test-data"),
         allow: std::sync::Arc::default(),
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Notice::Off),
     }
@@ -279,6 +280,7 @@ fn gate_in(root: &std::path::Path, allow: &str) -> Gate {
     Gate {
         roots: vec![root.to_owned()],
         config_dir: root.join("config"),
+        data_dir: root.join("data"),
         allow: std::sync::Arc::new(bridge::allow::parse(&file, root).unwrap()),
         approvals: Approvals::new(&root.join("data"), Notice::Off),
     }

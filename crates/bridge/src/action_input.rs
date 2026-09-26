@@ -87,13 +87,14 @@ fn patterns(list: &[&str]) -> Vec<Vec<u8>> {
     list.iter().map(|p| p.as_bytes().to_vec()).collect()
 }
 
-/// `roots`, `chat`, and `config_dir` are resolved. `allow` is the allow table of the
-/// config: each rule is the first words of a command.
-pub fn policy(roots: &[PathBuf], chat: &Path, config_dir: &Path, allow: &[Vec<String>]) -> Policy {
+/// `roots`, `chat`, and `deny` are resolved. `deny` holds the config folder and the data
+/// folder of the bridge. `allow` is the allow table of the config: each rule is the first
+/// words of a command.
+pub fn policy(roots: &[PathBuf], chat: &Path, deny: &[PathBuf], allow: &[Vec<String>]) -> Policy {
     Policy {
         roots: roots.iter().map(|r| resolved_bytes(r)).collect(),
         chat: resolved_bytes(chat),
-        deny_folders: vec![resolved_bytes(config_dir)],
+        deny_folders: deny.iter().map(|d| resolved_bytes(d)).collect(),
         desktop_paths: patterns(DESKTOP_PATHS),
         desktop_writes: patterns(DESKTOP_WRITES),
         allow: allow
@@ -136,6 +137,7 @@ mod tests {
         root: PathBuf,
         chat: PathBuf,
         config: PathBuf,
+        data: PathBuf,
     }
 
     fn folders() -> Folders {
@@ -144,14 +146,21 @@ mod tests {
         let root = base.join("Code");
         let chat = root.join("app");
         let config = base.join("config").join("gnomish-relay");
+        let data = base.join("data").join("gnomish-relay");
         std::fs::create_dir_all(&chat).unwrap();
         std::fs::create_dir_all(&config).unwrap();
+        std::fs::create_dir_all(&data).unwrap();
         Folders {
             _tmp: tmp,
             root,
             chat,
             config,
+            data,
         }
+    }
+
+    fn deny(f: &Folders) -> [PathBuf; 2] {
+        [f.config.clone(), f.data.clone()]
     }
 
     /// `Verdict` has no `Debug` outside the tests of `protocol`.
@@ -165,7 +174,7 @@ mod tests {
     }
 
     fn classify_files(f: &Folders, reads: &[PathBuf], writes: &[PathBuf]) -> &'static str {
-        let policy = policy(std::slice::from_ref(&f.root), &f.chat, &f.config, &[]);
+        let policy = policy(std::slice::from_ref(&f.root), &f.chat, &deny(f), &[]);
         answer(classify(&file_call(reads, writes), &policy, &[]))
     }
 
@@ -220,6 +229,68 @@ mod tests {
     }
 
     #[test]
+    fn a_read_of_the_timeways_key_in_the_config_folder_is_denied() {
+        let f = folders();
+        let v = classify_files(&f, &[f.config.join("timeways.key")], &[]);
+        assert_eq!(v, "deny");
+    }
+
+    /// The bridge writes these files itself. An agent that changed one could clear the
+    /// replay store, answer its own desktop request, or change the story state.
+    fn data_file_is_denied_for_reads_and_writes(f: &Folders, file: &Path) {
+        assert_eq!(classify_files(f, &[file.to_owned()], &[]), "deny");
+        assert_eq!(classify_files(f, &[], &[file.to_owned()]), "deny");
+    }
+
+    #[test]
+    fn an_agent_access_to_the_state_file_is_denied() {
+        let f = folders();
+        data_file_is_denied_for_reads_and_writes(&f, &f.data.join("state.json"));
+    }
+
+    #[test]
+    fn an_agent_access_to_a_desktop_approval_is_denied() {
+        let f = folders();
+        let approvals = f.data.join("approvals");
+        std::fs::create_dir_all(&approvals).unwrap();
+        data_file_is_denied_for_reads_and_writes(&f, &approvals.join("a1b2c3d4e5f6.json"));
+        data_file_is_denied_for_reads_and_writes(&f, &approvals.join("a1b2c3d4e5f6.answer"));
+    }
+
+    #[test]
+    fn an_agent_access_to_the_timeways_state_is_denied() {
+        let f = folders();
+        data_file_is_denied_for_reads_and_writes(&f, &f.data.join("timeways").join("state.json"));
+    }
+
+    #[test]
+    fn an_agent_access_to_the_bridge_lock_is_denied() {
+        let f = folders();
+        data_file_is_denied_for_reads_and_writes(&f, &f.data.join("bridge.lock"));
+    }
+
+    #[test]
+    fn an_agent_access_to_the_bridge_pid_is_denied() {
+        let f = folders();
+        data_file_is_denied_for_reads_and_writes(&f, &f.data.join("bridge.pid"));
+    }
+
+    #[test]
+    fn an_agent_access_to_the_bridge_log_is_denied() {
+        let f = folders();
+        data_file_is_denied_for_reads_and_writes(&f, &f.data.join("bridge.log"));
+    }
+
+    #[test]
+    fn a_command_that_redirects_into_the_data_folder_is_denied() {
+        let f = folders();
+        let policy = policy(std::slice::from_ref(&f.root), &f.chat, &deny(&f), &[]);
+        let state = f.data.join("state.json");
+        let call = command_call(&format!("echo x > {}", state.display()), &f.chat);
+        assert_eq!(answer(classify(&call, &policy, &[])), "deny");
+    }
+
+    #[test]
     fn a_git_hook_write_is_desktop() {
         let f = folders();
         std::fs::create_dir_all(f.chat.join(".git").join("hooks")).unwrap();
@@ -256,7 +327,7 @@ mod tests {
     fn the_allow_table_of_the_config_covers_a_command() {
         let f = folders();
         let allow = [vec!["cargo".to_owned(), "test".to_owned()]];
-        let policy = policy(std::slice::from_ref(&f.root), &f.chat, &f.config, &allow);
+        let policy = policy(std::slice::from_ref(&f.root), &f.chat, &deny(&f), &allow);
         let call = command_call("cargo test -q", &f.chat);
         assert_eq!(answer(classify(&call, &policy, &[])), "allow");
         let call = command_call("cargo build", &f.chat);

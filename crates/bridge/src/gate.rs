@@ -140,6 +140,9 @@ pub struct Gate {
     pub roots: Vec<PathBuf>,
     /// The config folder of the bridge. Every path in it is `deny`.
     pub config_dir: PathBuf,
+    /// The data folder of the bridge: its state, locks, log, and desktop requests. Every
+    /// path in it is `deny`, and the bridge writes them itself, never through this gate.
+    pub data_dir: PathBuf,
     pub allow: std::sync::Arc<AllowTable>,
     pub approvals: Approvals,
 }
@@ -158,15 +161,17 @@ impl Gate {
         Gate {
             roots,
             config_dir: config_dir.to_owned(),
+            data_dir: data_dir.to_owned(),
             allow: std::sync::Arc::new(config.allow.clone()),
             approvals: Approvals::new(data_dir, notice),
         }
     }
 
     fn verdict(&self, call: &Call, chat: &Path) -> Verdict {
-        let config_dir = resolve(&self.config_dir).unwrap_or_else(|| self.config_dir.clone());
+        let deny =
+            [&self.config_dir, &self.data_dir].map(|d| resolve(d).unwrap_or_else(|| d.clone()));
         let rules = self.allow.rules_for(chat);
-        let policy = action_input::policy(&self.roots, chat, &config_dir, &rules);
+        let policy = action_input::policy(&self.roots, chat, &deny, &rules);
         classify(&call.tool, &policy, &[])
     }
 
@@ -177,7 +182,7 @@ impl Gate {
         match decide(job.level, verdict, call.effect, job.coverage) {
             Step::Run => Ok(()),
             Step::Refuse => Err(Refusal::by_rule(
-                "It touches the config folder of Gnomish Relay, which the agent never reaches.",
+                "It touches the config or data folder of Gnomish Relay, which the agent never reaches.",
             )),
             Step::AskGame => ask_game(call, turn),
             Step::AskDesktop => self.ask_desktop(call, job, turn),
@@ -334,6 +339,7 @@ mod tests {
         let gate = Gate {
             roots: vec![root],
             config_dir: config.clone(),
+            data_dir: home.join("data"),
             allow: std::sync::Arc::new(allow),
             approvals: Approvals::new(&home.join("data"), desktop::Notice::Off),
         };
@@ -374,7 +380,10 @@ mod tests {
         let s = setup();
         for level in LEVELS {
             let refusal = check(&s, &read(s.config.join("strip.key")), level, SHORT).unwrap_err();
-            assert!(refusal.reason().contains("config folder"), "{refusal:?}");
+            assert!(
+                refusal.reason().contains("config or data folder"),
+                "{refusal:?}"
+            );
         }
     }
 
@@ -426,6 +435,19 @@ mod tests {
     fn approve_on_the_desktop_runs_the_call() {
         let s = setup();
         assert_eq!(answer_on_the_desktop(&s, desktop::Verdict::Approve), Ok(()));
+    }
+
+    #[test]
+    fn the_bridge_writes_desktop_requests_in_the_data_folder_that_no_agent_reaches() {
+        let s = setup();
+        assert_eq!(answer_on_the_desktop(&s, desktop::Verdict::Approve), Ok(()));
+        let approval = s
+            .gate
+            .data_dir
+            .join("approvals")
+            .join("a1b2c3d4e5f6.answer");
+        let refusal = check(&s, &read(approval), Permission::FullAuto, SHORT).unwrap_err();
+        assert!(refusal.reason().contains("data folder"), "{refusal:?}");
     }
 
     #[test]

@@ -36,6 +36,7 @@ fn gate() -> Gate {
     Gate {
         roots: vec![tmp.clone()],
         config_dir: tmp.join("gnomish-relay-test-config"),
+        data_dir: tmp.join("gnomish-relay-test-data"),
         allow: std::sync::Arc::default(),
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Notice::Off),
     }

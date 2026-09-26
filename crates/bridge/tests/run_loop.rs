@@ -253,6 +253,7 @@ fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {
         gate: Gate {
             roots: vec![root.path().canonicalize().unwrap()],
             config_dir: f.state.join("config"),
+            data_dir: f.state.clone(),
             allow: Arc::default(),
             approvals: Approvals::new(&f.state, Notice::Off),
         },

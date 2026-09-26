@@ -260,8 +260,12 @@ mod tests {
         Gate {
             roots: vec![dir.clone()],
             config_dir: dir.join("gnomish-relay-config"),
+            data_dir: dir.join("gnomish-relay-data"),
             allow: Arc::default(),
-            approvals: crate::desktop::Approvals::new(&dir, crate::desktop::Notice::Off),
+            approvals: crate::desktop::Approvals::new(
+                &dir.join("gnomish-relay-data"),
+                crate::desktop::Notice::Off,
+            ),
         }
     }
 
