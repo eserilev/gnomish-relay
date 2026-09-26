@@ -8,7 +8,7 @@ use protocol::seen::{self, Seen, admit, new_seen};
 use protocol::slot::{MAX_REPLIES, Reply, Status, prepare_replies, slot_body};
 use serde::{Deserialize, Serialize};
 
-use crate::flags::{Channel, Flags};
+use crate::flags::{Channel, TransportFlags};
 
 /// More tokens than this means many wipes. The oldest ones then go.
 const MAX_TOKENS: usize = 16;
@@ -156,7 +156,7 @@ impl Lane {
     }
 
     /// The transport part of the report on the first record of a frame (SPEC.md 7.1.1).
-    pub fn take_report(&mut self, token: &str, flags: &Flags) {
+    pub fn take_report(&mut self, token: &str, flags: &TransportFlags) {
         if let Some(next) = flags.next {
             self.next_slot = next.max(1);
         }
@@ -340,7 +340,7 @@ mod tests {
         let read: Vec<String> = (0..30).map(|id| id.to_string()).collect();
         lane.take_report(
             "tok",
-            &flags::parse(format!("read={}", read.join(",")).as_bytes()),
+            &flags::transport(format!("read={}", read.join(",")).as_bytes()),
         );
         assert_eq!(lane.admit(b"tok", 99, NOW), Ok(()));
     }
@@ -372,7 +372,10 @@ mod tests {
         lane.admit(b"tok", 7, NOW).unwrap();
         lane.add_token("tok");
         lane.set_record("tok", &chat(), MessageId(7), Status::Working, String::new());
-        lane.take_report("tok", &flags::parse(b"next=9;build=7;out=shot;in=slots"));
+        lane.take_report(
+            "tok",
+            &flags::transport(b"next=9;build=7;out=shot;in=slots"),
+        );
         let state = lane.to_state();
         assert_eq!(
             Lane::from_state(App::Relay, lane.to_state()).to_state(),

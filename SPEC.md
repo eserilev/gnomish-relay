@@ -387,6 +387,8 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 
 #### 7.1.1 Flags
 
+The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
+
 | Flag | Meaning |
 |---|---|
 | `n` | Start a new agent session for this chat. |
@@ -927,7 +929,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
 3. **Outbox frames.** A frame in the saved variables of one app counts only if it verifies under that app's key. Any other frame is refused.
 4. **One lane for each app.** Each lane has its own replay store, state file, rate limit, slot window, saved-variables watch, reload inbox, tokens, and restore. The Timeways lane holds no agents in its type, so a Timeways strip can never start a coding agent. Its state lives in `<data>/timeways/`. The relay state stays where it is.
 5. **Names for each app.** The slot, restore, and live files set a Lua global whose name depends on the app, for example `GnomishRelay_SlotData` and `Timeways_SlotData`. The strip frame, the slot addon names, and the saved-variables name also differ for each app. S9, S18, and S20 are restated over an `App` enum in `protocol` (approved). One app can then never overwrite a value that the other app is about to read.
-6. **Flags.** The flags split into transport flags (`h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, `restored`) and coding flags (`perm=`, `level=`, `agent=`, `attach=`, `list`, `d`, `n`). The Timeways lane parses the transport flags only. A Timeways record with a non-empty `cwd` is refused.
+6. **Flags.** The flags split into transport flags (`h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, `restored`) and coding flags (`perm=`, `level=`, `agent=`, `attach=`, `list`, `d`, `n`, `stop`). The Timeways lane parses the transport flags only. A Timeways record with a non-empty `cwd` is refused.
 7. **Restore.** Timeways has no restore bundle. The story state lives on the desktop, so the addon rebuilds from there. A Timeways hello never starts a relay restore and never retires a relay token.
 8. **The story program.** The bridge starts `timeways-story` when the Timeways key exists, from a path in the config (never a `PATH` lookup), with no shell and the environment allowlist of 6.2. It talks JSON lines over stdin and stdout, with a size limit on each line, a version handshake, and a timeout for each request. The bridge checks each message against a fixed shape. The bridge writes all files that the game reads.
 9. **The story sandbox.** The story program reads hostile text: records from any addon, other players' names and messages, and model answers. So it runs in the sandbox of 6.6.4. It writes only `<data>/timeways/`, has no network, and cannot read the `deny` and `desktop` paths. On Windows there is no sandbox yet: Timeways runs, and the bridge shows a one-time warning.
@@ -1380,7 +1382,7 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | UI escape and popup text | Backs up S10 and S15. |
 | `config.toml` parser | A broken or hostile config gives an error, never a wider permission. |
 | Restore and live files, loaded in a real Lua 5.1 VM | Back up S18 to S21: every field loads back as the prepared bytes, and each file stays under its bound. |
-| Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape. |
+| Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape. A coding flag never changes the transport flags, which are all that the Timeways lane reads. |
 | Messages from an ACP agent | The agent is untrusted. A progress line stays short, a popup text is printable (S15), and the game never gets "allow always". |
 | The Markdown renderer (7.3.1) | Agent text reaches the game window. Each block has its shape, no agent byte starts a WoW code or HTML markup, and the size stays within its bound. |
 | Messages of `codex app-server` | The agent is untrusted. A progress line stays short, and a popup text is printable (S15). |

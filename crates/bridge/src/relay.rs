@@ -18,7 +18,7 @@ use crate::agent::{Choice, SessionInfo};
 use crate::config::{
     Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
 };
-use crate::flags::{self, Flags};
+use crate::flags::{self, TransportFlags};
 use crate::history::{ChatLog, History, Speaker};
 pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
@@ -201,19 +201,19 @@ impl Relay {
     /// Takes one frame. The flags of its first record carry the report of the addon.
     pub fn on_frame(&mut self, records: &[Record], now: u32) -> Vec<Outcome> {
         if let Some(first) = records.first() {
-            self.take_report(&text(&first.token), &flags::parse(&first.flags));
+            self.take_report(&text(&first.token), &flags::transport(&first.flags));
         }
         records.iter().map(|r| self.on_record(r, now)).collect()
     }
 
-    fn take_report(&mut self, token: &str, flags: &Flags) {
+    fn take_report(&mut self, token: &str, flags: &TransportFlags) {
         self.lane.take_report(token, flags);
         self.take_restore_report(token, flags);
     }
 
     /// A hello from a new token after a saved-data wipe starts a restore. The
     /// `restored` flag of that token ends it, and the older tokens retire (SPEC.md 7.6).
-    fn take_restore_report(&mut self, token: &str, flags: &Flags) {
+    fn take_restore_report(&mut self, token: &str, flags: &TransportFlags) {
         if flags.restored && self.restore_for.as_deref() == Some(token) {
             self.restore_for = None;
             self.lane.retire_all_but(token);
@@ -229,11 +229,11 @@ impl Relay {
     }
 
     fn on_record(&mut self, r: &Record, now: u32) -> Outcome {
-        let flags = flags::parse(&r.flags);
         let chat = ChatId(text(&r.chat));
-        if flags.hello {
+        if flags::transport(&r.flags).hello {
             return Outcome::Control;
         }
+        let flags = flags::coding(&r.flags);
         if flags.stop {
             self.stop(&chat);
             return Outcome::Control;
