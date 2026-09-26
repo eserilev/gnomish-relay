@@ -14,7 +14,7 @@ use bridge::acp::AcpAgent;
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy, path_bytes};
-use bridge::desktop::{Approvals, Notice};
+use bridge::desktop::{Approvals, Prompt};
 use bridge::gate::Gate;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
@@ -253,7 +253,7 @@ fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {
             config_dir: f.state.join("config"),
             data_dir: f.state.clone(),
             allow: Arc::default(),
-            approvals: Approvals::new(&f.state, Notice::Off),
+            approvals: Approvals::new(&f.state, Prompt::Off),
         },
     };
     bridge_in(f, policy, Arc::new(fake))

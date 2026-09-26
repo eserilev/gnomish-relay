@@ -11,11 +11,10 @@ use crate::action_input::{self, resolve};
 use crate::agent::Choice;
 use crate::allow::AllowTable;
 use crate::config::{Permission, RelayConfig};
-use crate::desktop::{self, Approvals, Notice};
+use crate::desktop::{self, Approvals, Prompt};
 use crate::turn::{Answer, Turn};
 
 pub const NOT_FROM_THE_GAME: &str = "Not allowed from the game.";
-const DESKTOP_LINE: &str = "Approve on your desktop: gnomish-relay approve\n";
 
 /// What a tool call does, for the level `ask`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -150,7 +149,7 @@ pub struct Gate {
 impl Gate {
     /// The gate of the bridge: `config_dir` holds `config.toml`, and `data_dir` holds the
     /// desktop requests.
-    pub fn new(config: &RelayConfig, config_dir: &Path, data_dir: &Path, notice: Notice) -> Gate {
+    pub fn new(config: &RelayConfig, config_dir: &Path, data_dir: &Path, prompt: Prompt) -> Gate {
         let roots = config
             .policy
             .folders
@@ -163,7 +162,7 @@ impl Gate {
             config_dir: config_dir.to_owned(),
             data_dir: data_dir.to_owned(),
             allow: std::sync::Arc::new(config.allow.clone()),
-            approvals: Approvals::new(data_dir, notice),
+            approvals: Approvals::new(data_dir, prompt),
         }
     }
 
@@ -203,7 +202,10 @@ impl Gate {
                 .answer_of(&answer_id)
                 .map(|v| v == desktop::Verdict::Approve)
         };
-        let mut shown = DESKTOP_LINE.as_bytes().to_vec();
+        // The id comes from the bridge, so the agent cannot put text in this line.
+        let mut shown =
+            format!("Approve on your desktop. No prompt? Run: gnomish-relay approve {id}\n")
+                .into_bytes();
         shown.extend_from_slice(&call.text);
         let answer = turn.ask(shown, vec![deny_choice()], Some(&desktop));
         self.approvals.close(&id);
@@ -341,7 +343,7 @@ mod tests {
             config_dir: config.clone(),
             data_dir: home.join("data"),
             allow: std::sync::Arc::new(allow),
-            approvals: Approvals::new(&home.join("data"), desktop::Notice::Off),
+            approvals: Approvals::new(&home.join("data"), desktop::Prompt::Off),
         };
         Setup {
             _tmp: tmp,

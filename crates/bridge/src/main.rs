@@ -7,7 +7,7 @@ use bridge::agent;
 use bridge::agent::Agents;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::config_text::RelayPart;
-use bridge::desktop::{self, Approvals, Notice};
+use bridge::desktop::{self, Approvals, Prompt};
 use bridge::fs_safe::write_atomic;
 use bridge::gate::Gate;
 use bridge::install;
@@ -599,7 +599,7 @@ fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents)> {
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
         println!("wrote the addon files again: type /reload in the game");
     }
-    let gate = Gate::new(&relay, &config_dir()?, &paths.state, Notice::System);
+    let gate = Gate::new(&relay, &config_dir()?, &paths.state, Prompt::Dialog);
     gate.approvals.clear();
     let agents = agent::from_config(&relay, &gate);
     Ok((relay.policy, agents))
@@ -640,11 +640,11 @@ fn agent_line(config: &RelayConfig) -> String {
 
 /// A check sends no prompt, so no tool call reaches this gate.
 fn check_gate(config: &RelayConfig) -> Result<Gate> {
-    Ok(Gate::new(config, &config_dir()?, &data_dir()?, Notice::Off))
+    Ok(Gate::new(config, &config_dir()?, &data_dir()?, Prompt::Off))
 }
 
 fn approvals() -> Result<Approvals> {
-    Ok(Approvals::new(&data_dir()?, Notice::Off))
+    Ok(Approvals::new(&data_dir()?, Prompt::Off))
 }
 
 /// Lists the tool calls that wait for the desktop (SPEC.md 6.6.3).

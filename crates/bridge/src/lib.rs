@@ -17,6 +17,7 @@ pub mod codex;
 pub mod config;
 pub mod config_text;
 pub mod desktop;
+pub mod dialog;
 pub mod flags;
 pub mod fs_safe;
 pub mod gate;

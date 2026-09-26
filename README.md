@@ -68,7 +68,8 @@ command. At `ask`, it also asks before each edit.
 
 Every tool call of a message from the game gets one answer: it runs, it asks in the
 game, it asks on your desktop, or it never runs (`SPEC.md` 6.6.3). A read of `~/.ssh`
-or a write outside the chat folder asks on the desktop. Answer it in a terminal:
+or a write outside the chat folder asks on the desktop: a dialog with Approve and Deny
+opens. With no dialog tool, answer it in a terminal:
 
 ```sh
 gnomish-relay approve          # list the calls that wait

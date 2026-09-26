@@ -9,7 +9,7 @@ use std::time::{Duration, Instant};
 use bridge::acp::{AcpAgent, unix_time};
 use bridge::agent::{Agent, Control, Event, Events, StopSignal};
 use bridge::config::Permission;
-use bridge::desktop::{Approvals, Notice};
+use bridge::desktop::{Approvals, Prompt};
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 
@@ -32,7 +32,7 @@ fn gate() -> Gate {
         config_dir: tmp.join("gnomish-relay-test-config"),
         data_dir: tmp.join("gnomish-relay-test-data"),
         allow: std::sync::Arc::default(),
-        approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Notice::Off),
+        approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
     }
 }
 

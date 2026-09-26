@@ -13,7 +13,7 @@ use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
 use bridge::allow::{self, AllowFile};
 use bridge::claude::ClaudeAgent;
 use bridge::config::Permission;
-use bridge::desktop::{self, Approvals, Notice};
+use bridge::desktop::{self, Approvals, Prompt};
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 use serde_json::json;
@@ -41,7 +41,7 @@ fn home(allow_toml: &str) -> Home {
         config_dir: config,
         data_dir: path.join("data"),
         allow: Arc::new(allow::parse(&file, &path).unwrap()),
-        approvals: Approvals::new(&path.join("data"), Notice::Off),
+        approvals: Approvals::new(&path.join("data"), Prompt::Off),
     };
     Home {
         _tmp: tmp,
@@ -192,7 +192,7 @@ fn a_read_of_an_ssh_key_from_the_game_never_runs_and_asks_on_the_desktop() {
     assert!(
         questions[0]
             .text
-            .starts_with(b"Approve on your desktop: gnomish-relay approve\n")
+            .starts_with(b"Approve on your desktop. No prompt? Run: gnomish-relay approve ")
     );
 }
 

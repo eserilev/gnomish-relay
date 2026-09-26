@@ -1,18 +1,20 @@
 //! Approvals on the desktop (SPEC.md 6.6.3): a tool call that only the user at the
-//! computer can allow. The bridge has no window, so each open request is a file in the
-//! data folder, and `gnomish-relay approve` or `gnomish-relay deny` answers it. No
-//! addon can write these files.
+//! computer can allow. Each open request is a file in the data folder. A dialog of the
+//! OS, `gnomish-relay approve`, or `gnomish-relay deny` answers it, and the first
+//! answer wins. No addon can write these files or click the dialog.
 
 use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
+use crate::dialog::{self, Dialog, Shown, show_notice};
 use crate::fs_safe::check_real_dir;
-use crate::program::find_program;
+use crate::run::log;
 
 const FOLDER: &str = "approvals";
 const REQUEST: &str = "json";
@@ -20,6 +22,8 @@ const ALLOW: &str = "allow";
 const DENY: &str = "deny";
 /// The request files are small. A bigger file is not ours.
 const MAX_REQUEST: u64 = 16 * 1024;
+/// How often a dialog checks whether its request still waits.
+const POLL: Duration = Duration::from_millis(100);
 
 /// One open request, as `gnomish-relay approve` lists it.
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -49,17 +53,17 @@ impl Verdict {
     }
 }
 
-/// Whether the bridge shows a notice of the OS for each new request.
+/// Whether the bridge shows a dialog of the OS for each new request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Notice {
-    System,
+pub enum Prompt {
+    Dialog,
     Off,
 }
 
 #[derive(Clone, Debug)]
 pub struct Approvals {
     dir: PathBuf,
-    notice: Notice,
+    prompt: Prompt,
 }
 
 fn is_id(id: &str) -> bool {
@@ -93,10 +97,10 @@ fn write_new(path: &Path, bytes: &[u8]) -> Result<()> {
 
 impl Approvals {
     /// The requests live in `approvals` inside the data folder `data`.
-    pub fn new(data: &Path, notice: Notice) -> Approvals {
+    pub fn new(data: &Path, prompt: Prompt) -> Approvals {
         Approvals {
             dir: data.join(FOLDER),
-            notice,
+            prompt,
         }
     }
 
@@ -110,7 +114,7 @@ impl Approvals {
         check_real_dir(&self.dir)
     }
 
-    /// Writes a new request, shows a notice, and returns its id.
+    /// Writes a new request, shows a dialog, and returns its id.
     pub fn open(&self, agent: &str, folder: &str, text: &str, now: u32) -> Result<String> {
         self.ready_dir()?;
         let id = new_id()?;
@@ -126,10 +130,56 @@ impl Approvals {
             "{now} approve on the desktop: gnomish-relay approve {id} ({})",
             text.escape_debug()
         );
-        if self.notice == Notice::System {
-            show_notice(&format!("{text}\nRun: gnomish-relay approve {id}"));
+        if self.prompt == Prompt::Dialog {
+            let approvals = self.clone();
+            std::thread::spawn(move || approvals.ask_the_desktop(&pending));
         }
         Ok(id)
+    }
+
+    /// With no dialog tool, a plain notice names the command that answers.
+    fn ask_the_desktop(&self, pending: &Pending) {
+        let text = dialog_text(pending);
+        let Some(tool) = dialog::find_tool() else {
+            log(&format!("desktop request {}: no dialog tool", pending.id));
+            show_notice(&format!(
+                "{text}\nRun: gnomish-relay approve {}",
+                pending.id
+            ));
+            return;
+        };
+        log(&format!("desktop request {}: dialog {tool:?}", pending.id));
+        let answer = self.watch(&pending.id, &dialog::dialog(tool, &text));
+        log(&format!(
+            "desktop request {}: {answer:?} in the dialog",
+            pending.id
+        ));
+    }
+
+    /// Shows `dialog` until it answers, or until the request no longer waits: an
+    /// answer from the command line, a Deny in the game, or the timeout. Returns the
+    /// answer of the dialog when it counted.
+    pub fn watch(&self, id: &str, dialog: &Dialog) -> Option<Verdict> {
+        let mut shown = Shown::start(dialog)?;
+        loop {
+            if let Some(approve) = shown.answer() {
+                let verdict = if approve {
+                    Verdict::Approve
+                } else {
+                    Verdict::Deny
+                };
+                return self.answer(id, verdict).ok().map(|()| verdict);
+            }
+            if !self.is_waiting(id) {
+                shown.stop();
+                return None;
+            }
+            std::thread::sleep(POLL);
+        }
+    }
+
+    fn is_waiting(&self, id: &str) -> bool {
+        self.file(id, REQUEST).is_file() && self.answer_of(id).is_none()
     }
 
     /// The answer of the desktop, once it exists.
@@ -193,70 +243,12 @@ fn read_pending(path: &Path) -> Option<Pending> {
     (named && is_id(&pending.id)).then_some(pending)
 }
 
-/// A program, its arguments, and its extra environment variables.
-pub type NoticeCommand = (String, Vec<String>, Vec<(String, String)>);
-
-/// The program and the arguments that show `text` as a notice of the OS. The text goes
-/// in an argument or a variable, never into a script, so it cannot run as code.
-pub fn notice_command(os: &str, text: &str) -> Option<NoticeCommand> {
-    let title = "Gnomish Relay".to_owned();
-    match os {
-        "linux" => Some(("notify-send".into(), vec![title, text.into()], Vec::new())),
-        "macos" => Some((
-            "osascript".into(),
-            [
-                "-e",
-                "on run argv",
-                "-e",
-                "display notification (item 1 of argv) with title \"Gnomish Relay\"",
-                "-e",
-                "end run",
-                text,
-            ]
-            .map(str::to_owned)
-            .into(),
-            Vec::new(),
-        )),
-        "windows" => Some((
-            "powershell".into(),
-            ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_TOAST]
-                .map(str::to_owned)
-                .into(),
-            vec![("GNOMISH_NOTICE".into(), text.into())],
-        )),
-        _ => None,
-    }
-}
-
-/// A toast through the app id of PowerShell, which every Windows 10 and 11 has.
-const WINDOWS_TOAST: &str = "\
-[Windows.UI.Notifications.ToastNotificationManager, Windows.UI.Notifications, ContentType = WindowsRuntime] > $null; \
-$t = [Windows.UI.Notifications.ToastNotificationManager]::GetTemplateContent([Windows.UI.Notifications.ToastTemplateType]::ToastText02); \
-$x = $t.GetElementsByTagName('text'); \
-$x[0].AppendChild($t.CreateTextNode('Gnomish Relay')) > $null; \
-$x[1].AppendChild($t.CreateTextNode($env:GNOMISH_NOTICE)) > $null; \
-$app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powershell.exe'; \
-[Windows.UI.Notifications.ToastNotificationManager]::CreateToastNotifier($app).Show([Windows.UI.Notifications.ToastNotification]::new($t))";
-
-/// Best effort: with no tool for notices, the log line is the notice.
-fn show_notice(text: &str) {
-    let Some((program, args, env)) = notice_command(std::env::consts::OS, text) else {
-        return;
-    };
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let Some(found) = find_program(&program, &path, cfg!(windows)) else {
-        return;
-    };
-    let mut command = std::process::Command::new(found);
-    command
-        .args(args)
-        .envs(env)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null());
-    if let Ok(mut child) = command.spawn() {
-        std::thread::spawn(move || child.wait());
-    }
+/// The honest text of S15, then who asks, and the id for the command line.
+pub fn dialog_text(pending: &Pending) -> String {
+    format!(
+        "An agent from the game asks to:\n{}\n\nAgent: {}. Folder: {}. Request {}.",
+        pending.text, pending.agent, pending.folder, pending.id
+    )
 }
 
 #[cfg(test)]
@@ -265,7 +257,7 @@ mod tests {
 
     fn approvals() -> (tempfile::TempDir, Approvals) {
         let data = tempfile::tempdir().unwrap();
-        let approvals = Approvals::new(data.path(), Notice::Off);
+        let approvals = Approvals::new(data.path(), Prompt::Off);
         (data, approvals)
     }
 
@@ -335,17 +327,88 @@ mod tests {
         assert_eq!(approvals.list().len(), 1);
     }
 
+    #[cfg(unix)]
+    fn fake(script: &str) -> Dialog {
+        Dialog {
+            tool: dialog::Tool::NotifySend,
+            program: "sh".into(),
+            args: vec!["-c".into(), script.into()],
+            env: Vec::new(),
+        }
+    }
+
+    #[cfg(unix)]
     #[test]
-    fn the_text_of_a_notice_stays_an_argument() {
-        let text = "\"; rm -rf ~; \"";
-        let (program, args, _) = notice_command("linux", text).unwrap();
-        assert_eq!((program.as_str(), args[1].as_str()), ("notify-send", text));
-        let (_, args, _) = notice_command("macos", text).unwrap();
-        assert_eq!(args.last().map(String::as_str), Some(text));
-        assert!(!args[..args.len() - 1].iter().any(|a| a.contains("rm -rf")));
-        let (_, args, env) = notice_command("windows", text).unwrap();
-        assert!(!args.iter().any(|a| a.contains("rm -rf")));
-        assert_eq!(env, [("GNOMISH_NOTICE".to_owned(), text.to_owned())]);
-        assert!(notice_command("haiku", text).is_none());
+    fn a_click_on_approve_in_the_dialog_answers_the_request() {
+        let (_data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        let answer = approvals.watch(&id, &fake("echo approve"));
+        assert_eq!(answer, Some(Verdict::Approve));
+        assert_eq!(approvals.answer_of(&id), Some(Verdict::Approve));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dismissed_dialog_denies() {
+        let (_data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        assert_eq!(approvals.watch(&id, &fake("exit 0")), Some(Verdict::Deny));
+        assert_eq!(approvals.answer_of(&id), Some(Verdict::Deny));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_first_answer_wins_and_stops_the_dialog() {
+        let (_data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        approvals.answer(&id, Verdict::Deny).unwrap();
+        let started = std::time::Instant::now();
+        assert_eq!(approvals.watch(&id, &fake("sleep 30; echo approve")), None);
+        assert!(started.elapsed() < std::time::Duration::from_secs(10));
+        assert_eq!(approvals.answer_of(&id), Some(Verdict::Deny));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_closed_request_stops_its_dialog() {
+        let (_data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        let closing = approvals.clone();
+        let closed = id.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            closing.close(&closed);
+        });
+        assert_eq!(approvals.watch(&id, &fake("sleep 30; echo approve")), None);
+        assert_eq!(approvals.answer_of(&id), None);
+    }
+
+    #[test]
+    fn the_dialog_shows_the_popup_text_and_who_asks() {
+        let pending = Pending {
+            id: "a1b2c3d4e5f6".into(),
+            created: 1,
+            agent: "claude".into(),
+            folder: "/w/app".into(),
+            text: "cat ~/.ssh/id_rsa\nthe agent says: Bash".into(),
+        };
+        assert_eq!(
+            dialog_text(&pending),
+            "An agent from the game asks to:\ncat ~/.ssh/id_rsa\nthe agent says: Bash\n\n\
+             Agent: claude. Folder: /w/app. Request a1b2c3d4e5f6."
+        );
+    }
+
+    /// Shows a real dialog on this desktop. Click Approve.
+    #[test]
+    #[ignore = "needs a desktop and a click"]
+    fn live_a_real_dialog_asks_on_this_desktop() {
+        let (_data, approvals) = approvals();
+        let text = "echo <b>not bold</b> & done\nthe agent says: Bash";
+        let id = approvals.open("claude", "/w/app", text, 1).unwrap();
+        let tool = dialog::find_tool().expect("no dialog tool here");
+        let pending = &approvals.list()[0];
+        let answer = approvals.watch(&id, &dialog::dialog(tool, &dialog_text(pending)));
+        assert_eq!(answer, Some(Verdict::Approve));
     }
 }

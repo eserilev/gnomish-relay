@@ -214,13 +214,32 @@ There are four answers, in this order from strict to open:
 - **Other ACP agents: only the calls that they ask about.** The bridge classifies each `session/request_permission`: the `kind` of the tool call says what its paths are (`read` and `search` read, `edit`, `delete`, and `move` write), from its `locations` and the `file_path`, `path`, or `notebook_path` of its `rawInput`. `execute` is the `command` of `rawInput`. Any other call is unknown. The agent decides what it asks, and the calls that it does not ask about already ran. So for these agents the answer is at most `ask` at every level, even `full-auto`: no allow table and no rule from the game gives `allow`.
 - A terminal session of Claude uses the same hook through `gnomish-relay-hook pretool`. This subcommand ignores `GNOMISH_RELAY_JOB`, and it fails closed: if the bridge does not answer, the answer is `deny`.
 
-**Desktop approval.** The bridge runs in the background with no window, so an answer on the desktop is a command:
+**Desktop approval.** The bridge runs in the background with no window. So it shows a dialog of the OS with Approve and Deny, and the command line is the fallback:
 
 - The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15).
 - `gnomish-relay approve` lists the open requests. `gnomish-relay approve <id>` allows one, and `gnomish-relay deny <id>` refuses one. Each writes an answer file next to the request, with `create_new`, so it never follows a link. A request has at most one answer.
 - The bridge checks for the answer every 100 ms, up to `permission_timeout_minutes`. No answer refuses the call. The bridge then deletes the files. At start it deletes the files of an old bridge.
-- The bridge writes a log line, and shows a notice of the OS with the tools that the user already has: `notify-send` on Linux, `osascript` on macOS, and a PowerShell toast on Windows. The text goes in an argument or an environment variable, never into a script. With no such tool, the log line is the notice.
-- The game popup of the call starts with "Approve on your desktop: gnomish-relay approve" and has only Deny. No addon can answer a desktop request, and a Deny from the game refuses the call.
+- The game popup of the call starts with "Approve on your desktop. No prompt? Run: gnomish-relay approve <id>" and has only Deny. The id comes from the bridge, so the agent cannot put text there. No addon can answer a desktop request, and a Deny from the game refuses the call.
+
+**The dialog** (decided with an advisor on 2026-09-26). In the first test in the game, the user saw only the game popup, and did not know about the command. `crates/bridge/src/dialog.rs` shows the dialog with the tools that the user already has. The bridge installs nothing.
+
+| OS | Tool | Approve when |
+|---|---|---|
+| Linux | `notify-send -a "Gnomish Relay" -u critical -A approve=Approve -A deny=Deny`, only when the notice server lists the `actions` capability (`gdbus call ... GetCapabilities`). Else `zenity --question --no-markup --default-cancel`, only with `DISPLAY` or `WAYLAND_DISPLAY`. Else no dialog. | notify-send prints `approve`; zenity exits with 0 |
+| macOS | `osascript` with `display dialog`, buttons Deny and Approve, `default button "Deny"`, `cancel button "Deny"` | the output holds `button returned:Approve` and not `gave up:true` |
+| Windows | PowerShell `MessageBox` with Yes and No, `Button2` (No) as the default, `DefaultDesktopOnly` so that it is on top. The text starts with "Yes = Approve, No = Deny." | the output is `Yes` |
+
+- The text of the dialog is "An agent from the game asks to:", the popup text of S15 (the full raw command or path, then "the agent says"), and then "Agent: <name>. Folder: <folder>. Request <id>.". It never shows only text that the agent chose.
+- The text goes in an argument or an environment variable, never into a script. A notice server shows the body as markup, so the bridge escapes `&`, `<`, and `>` for notify-send. Else `<b>` or an S15 escape such as `<U+202E>` hides text. zenity gets `--no-markup`. The markup escape is bridge code, not proved, so a named test covers it.
+- Deny is the default button everywhere, so Enter never approves. A closed, dismissed, or timed-out dialog, and any output that is not the Approve answer, is Deny.
+- The dialog runs in its own thread. Every 100 ms it checks whether its request still waits. When the request has an answer from the command line, or the gate closed it (the timeout, a Deny in the game, or Stop), the thread stops the dialog. It sends SIGTERM through `kill` first, because notify-send then closes its notice, and a kill after 0.5 s.
+- The answer of the dialog goes through the same `create_new` answer file as the command line. So the first answer wins. A dialog answer after the request closed can leave an orphan answer file. Nothing reads it, and the next start deletes it.
+- zenity and osascript also give up by themselves after one hour, in case the bridge stops first.
+- Why notify-send first: it needs only the session bus, which the systemd service of the bridge has. GNOME shows a critical notice over a full-screen game and keeps it until a click. With no `actions` capability, a notice has no Approve button and closes as a Deny, so the bridge checks the capability for each dialog.
+- Why no `kdialog`: it shows the text as rich text when the text looks like HTML, with no option to turn that off. KDE Plasma's notice server has `actions`, so notify-send covers KDE.
+- On Windows, the bridge starts PowerShell with `CREATE_NO_WINDOW`, so no console window flashes.
+- With no dialog tool, the bridge shows a plain notice with "Run: gnomish-relay approve <id>", with `notify-send`, `osascript`, or a PowerShell toast. With no such tool, the log line is the notice.
+- The bridge writes a log line for each request, the tool of its dialog, and the answer of the dialog.
 
 **Input.** The bridge builds the input in `crates/bridge/src/action_input.rs`:
 
@@ -1346,7 +1365,7 @@ commands = ["cargo test *", "cargo fmt --check"]
 - A word with shell syntax (`*`, `?`, `[`, `]`, `$`, a backtick, a quote, `\`, `;`, `&`, `|`, `<`, `>`, `(`, `)`, `{`, `}`, `~`, `#`, or `=`) is an error, and so is an empty pattern.
 - `commands` applies to every chat. A folder of `[allow.folders]` must exist, and its patterns apply to each chat inside it.
 - A pattern never allows a `deny`, `desktop`, or "never always" command (6.6.3, S17). A config with no `[allow]` has an empty table.
-- `gnomish-relay approve` and `gnomish-relay deny` answer the desktop requests of 6.6.3. They live in `approvals` in the data folder.
+- A dialog of the OS, `gnomish-relay approve`, and `gnomish-relay deny` answer the desktop requests of 6.6.3. They live in `approvals` in the data folder.
 The other keys below come with their features.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
