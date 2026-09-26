@@ -1310,15 +1310,16 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | File | Job |
 |---|---|
 | `Key.lua` | The strip key. `scripts/dev-link.sh` writes it, and git ignores it. |
-| `App.lua` | The names of the app: its title, the slot prefix, the three slot globals, the strip frame, and the saved variables. |
+| `App.lua` | The names of the app: its title, the chat of a hello, the slot prefix, the three slot globals, the strip frame, and the saved variables. |
 | `Sha256.lua` (shared) | SHA-256 and HMAC-SHA256 for the strip tag. |
 | `Codec.lua` (shared) | Records, frames, and cells: the Lua side of `crates/protocol`. |
 | `Saved.lua` (shared) | The saved variables table of the app. |
-| `Store.lua` | The saved data: token, chats, and the outbox. |
+| `Store.lua` | The saved data of the relay: chats, deletes, and settings. |
 | `Health.lua` (shared) | The login self-test and the health of each channel (7.8). Its lines start with the title of the app. |
 | `Strip.lua` (shared) | Draws a frame and takes one screenshot of it. |
 | `Slots.lua` (shared) | Loads one slot, and takes the three globals of the app. |
-| `Transport.lua` | The strip retries, the poll schedule, and the flags. It follows `models/transport.qnt`. |
+| `Messages.lua` (shared) | The send queue, the signed outbox, retries and give-up, the hello, the report flags (`next`, `read`, `restored`, and the health flags), and the slot poll with the replies. It follows `models/transport.qnt`. It keeps the token and the message ids. An app sets its hooks: the store of its messages, the fields of a record, and the calls for each reply. |
+| `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
 | `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
 | `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks. |
 | `Window.lua` | The window of 13.1. |

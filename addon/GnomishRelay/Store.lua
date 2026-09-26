@@ -1,4 +1,4 @@
--- The saved data: token, chats, and the outbox. It survives /reload, and a
+-- The saved data: chats, deletes, and settings. Messages.lua keeps the token and the outbox. It survives /reload, and a
 -- saved-data wipe loses it (SPEC.md 7.6).
 
 local _, ns = ...
@@ -9,26 +9,10 @@ ns.Store = Store
 local HISTORY_LIMIT = 200
 local DEFAULT_AGENT = "claude"
 local DEFAULT_MODE = "auto-edit"
-local ID_CHARS = "abcdefghijklmnopqrstuvwxyz0123456789"
-
-local function RandomId(length)
-	local out = {}
-	for i = 1, length do
-		local n = math.random(#ID_CHARS)
-		out[i] = ID_CHARS:sub(n, n)
-	end
-	return table.concat(out)
-end
 
 function Store.Load()
-	local db = ns.Saved()
-	if not ns.Codec.IsValidId(db.token) then
-		db.token = RandomId(16)
-	end
-	-- Ids start from the clock, so ids after a wipe never repeat older ones.
-	db.nextId = db.nextId or (time() - 1700000000)
+	local db = ns.Messages.Db()
 	db.chats = db.chats or {}
-	db.outbox = db.outbox or {}
 	-- Deleted chats that the bridge has not heard of yet.
 	db.forget = db.forget or {}
 	db.restored = db.restored or false
@@ -50,7 +34,7 @@ end
 
 function Store.NewChat(agent)
 	local chat = {
-		id = RandomId(10),
+		id = ns.Messages.RandomId(10),
 		name = "Chat " .. (#Store.db.chats + 1),
 		agent = agent or DEFAULT_AGENT,
 		mode = DEFAULT_MODE,
@@ -66,7 +50,7 @@ end
 -- bridge to attach it, and the reply brings the last exchange.
 function Store.ResumeChat(row)
 	local chat = {
-		id = RandomId(10),
+		id = ns.Messages.RandomId(10),
 		name = row.title ~= "" and row.title or row.repo,
 		agent = row.agent,
 		mode = DEFAULT_MODE,
@@ -146,19 +130,14 @@ local function AddExchange(chat, id, text)
 	end
 end
 
--- Returns false for a reply that is already in the history.
+-- Messages.lua marks the message as answered, and calls this once for each message.
 function Store.AddReply(chat, id, text, status)
 	local message = Store.Message(chat, id)
-	if not message or message.answered then
-		return false
-	end
-	message.answered = true
 	if message.attach and status ~= "error" then
 		AddExchange(chat, id, text)
-		return true
+		return
 	end
 	Append(chat, { role = status == "error" and "error" or "agent", id = id, text = text, agent = chat.agent })
-	return true
 end
 
 local ROLES = { user = true, agent = true, error = true }

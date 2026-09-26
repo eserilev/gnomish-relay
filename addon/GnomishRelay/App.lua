@@ -5,6 +5,8 @@ local _, ns = ...
 
 ns.App = {
 	title = "Gnomish Relay",
+	-- The bridge reads no chat of a hello.
+	helloChat = "relay",
 	slotPrefix = "GnomishRelay_S%04d",
 	slotData = "GnomishRelay_SlotData",
 	restore = "GnomishRelay_Restore",

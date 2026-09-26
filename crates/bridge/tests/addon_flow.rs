@@ -39,6 +39,7 @@ const FILES: &[&str] = &[
     "Health.lua",
     "Strip.lua",
     "Slots.lua",
+    "Messages.lua",
     "Transport.lua",
     "Blocks.lua",
     "Transcript.lua",

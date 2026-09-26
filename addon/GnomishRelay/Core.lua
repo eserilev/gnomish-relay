@@ -130,7 +130,7 @@ events:SetScript("OnEvent", function(_, event, name)
 			return
 		end
 		SetCVarValue("screenshotFormat", "png")
-		ns.Transport.OnChange = function()
+		ns.Messages.OnChange = function()
 			ns.Window.Refresh()
 			ns.Popup.Refresh()
 		end
