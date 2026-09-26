@@ -560,7 +560,7 @@ fn the_real_story_program_answers_real_batches_through_the_real_bridge_with_no_m
 
     let events = &outcome.events;
     assert_eq!(events["type"], "events_seen");
-    assert!(events["companion"].is_null(), "{events}");
+    assert!(events["narrator"].is_null(), "{events}");
 
     let worlds = files_below(&outcome.machine.story_folder());
     assert!(worlds.iter().any(|p| p.starts_with("worlds")), "{worlds:?}");
@@ -591,7 +591,7 @@ fn the_real_story_program_gets_words_from_claude_through_the_real_bridge() {
     let words = [
         &outcome.lore["text"],
         &outcome.talk["text"],
-        &outcome.events["companion"],
+        &outcome.events["narrator"],
     ];
     assert!(
         words.iter().any(|text| text.is_string()),

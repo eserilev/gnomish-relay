@@ -18,7 +18,7 @@ use crate::{model_claude, model_local};
 
 /// The text of one answer for the story program. Its longest reply text is 8 KiB.
 pub const MAX_ANSWER: usize = 16 * 1024;
-/// One call of the companion and one of the bard.
+/// One call of the narrator and one of the bard.
 pub const MAX_OPEN: usize = 2;
 
 /// Which model answers, from `[story] model` in the config.

@@ -15,8 +15,8 @@ use anyhow::Context;
 
 use crate::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
 use crate::app_protocol::{
-    self, Answer, BadLine, CallId, CompanionCheck, FromStory, RequestId, batch_end_line,
-    hello_line, model_answered_line, model_failed_line, reply_text,
+    self, Answer, BadLine, CallId, FromStory, NarratorCheck, RequestId, batch_end_line, hello_line,
+    model_answered_line, model_failed_line, reply_text,
 };
 use crate::config::StoryConfig;
 use crate::model::{ModelCalls, ModelSpec};
@@ -367,8 +367,8 @@ impl Story {
                 Ok(FromStory::Answer {
                     id,
                     answer,
-                    companion,
-                }) => self.take_answer(id, answer.as_ref(), companion),
+                    narrator,
+                }) => self.take_answer(id, answer.as_ref(), narrator),
                 Ok(FromStory::ModelCall { call, prompt }) => {
                     self.start_model_call(&process, call, prompt);
                 }
@@ -395,12 +395,9 @@ impl Story {
     /// `None` is an answer line over its limit: an error, never a cut line. An answer for
     /// an id that already ended is late, and goes. An id that the bridge never gave is a
     /// bad line.
-    fn take_answer(&mut self, id: RequestId, answer: Option<&Answer>, companion: CompanionCheck) {
-        if companion == CompanionCheck::Dropped {
-            log(&format!(
-                "timeways: dropped the companion line of #{}",
-                id.0
-            ));
+    fn take_answer(&mut self, id: RequestId, answer: Option<&Answer>, narrator: NarratorCheck) {
+        if narrator == NarratorCheck::Dropped {
+            log(&format!("timeways: dropped the narrator line of #{}", id.0));
         }
         let Some(waiting) = self.sent.remove(&id) else {
             if id.0 < self.next_id {

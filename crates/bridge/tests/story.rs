@@ -204,7 +204,7 @@ fn a_batch_of_game_events_only_gets_the_events_seen_of_the_story_program() {
     let answers = answers(&mut story, 1);
 
     assert_events_seen(&answers[0]);
-    assert_eq!(reply(&answers[0])["companion"], Value::Null);
+    assert_eq!(reply(&answers[0])["narrator"], Value::Null);
     assert_eq!(seen(dir.path()).len(), 2);
 }
 
@@ -279,32 +279,32 @@ fn with_no_model_calls_with_no_waiting_batch_each_fail_at_once_and_give_no_reply
 }
 
 #[test]
-fn events_seen_with_a_companion_line_shows_the_line() {
+fn events_seen_with_a_narrator_line_shows_the_line() {
     let dir = tempfile::tempdir().unwrap();
-    let mut story = story("companion", dir.path());
+    let mut story = story("narrator", dir.path());
     story.send(message(7, EVENTS));
     story.send(message(8, &question("x")));
 
     let answers = answers(&mut story, 2);
 
-    assert_eq!(reply(&answers[0])["companion"], "A wolf howls.");
-    assert_eq!(reply(&answers[1])["companion"], "A wolf howls.");
+    assert_eq!(reply(&answers[0])["narrator"], "A wolf howls.");
+    assert_eq!(reply(&answers[1])["narrator"], "A wolf howls.");
     assert_eq!(reply(&answers[1])["type"], "lore_answer");
 }
 
 #[test]
-fn a_companion_line_that_is_too_long_is_dropped_and_the_rest_stays() {
+fn a_narrator_line_that_is_too_long_is_dropped_and_the_rest_stays() {
     let dir = tempfile::tempdir().unwrap();
-    let mut story = story("long-companion", dir.path());
+    let mut story = story("long-narrator", dir.path());
     story.send(message(7, EVENTS));
     story.send(message(8, &question("x")));
 
     let answers = answers(&mut story, 2);
 
     assert_events_seen(&answers[0]);
-    assert_eq!(reply(&answers[0])["companion"], Value::Null);
+    assert_eq!(reply(&answers[0])["narrator"], Value::Null);
     assert_eq!(reply(&answers[1])["text"], "story");
-    assert_eq!(reply(&answers[1])["companion"], Value::Null);
+    assert_eq!(reply(&answers[1])["narrator"], Value::Null);
 }
 
 #[test]

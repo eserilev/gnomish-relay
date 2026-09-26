@@ -145,11 +145,11 @@ pub enum Body {
     EventsSeen,
 }
 
-/// A checked answer. `companion` is a line of the companion of the player, if any.
+/// A checked answer. `narrator` is a line of the narrator, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Answer {
     pub body: Body,
-    pub companion: Option<String>,
+    pub narrator: Option<String>,
 }
 
 impl Answer {
@@ -158,9 +158,9 @@ impl Answer {
     }
 }
 
-/// A companion line over its limit loses only that line; the rest of the answer stays.
+/// A narrator line over its limit loses only that line; the rest of the answer stays.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum CompanionCheck {
+pub enum NarratorCheck {
     Kept,
     Dropped,
 }
@@ -176,20 +176,23 @@ enum Wire {
         id: RequestId,
         text: Option<String>,
         passages: Vec<Passage>,
-        #[serde(default)]
-        companion: Option<String>,
+        // TODO: drop the alias when the Timeways story program writes `narrator`.
+        #[serde(default, alias = "companion")]
+        narrator: Option<String>,
     },
     TalkAnswer {
         id: RequestId,
         npc: String,
         text: Option<String>,
-        #[serde(default)]
-        companion: Option<String>,
+        // TODO: drop the alias when the Timeways story program writes `narrator`.
+        #[serde(default, alias = "companion")]
+        narrator: Option<String>,
     },
     EventsSeen {
         id: RequestId,
-        #[serde(default)]
-        companion: Option<String>,
+        // TODO: drop the alias when the Timeways story program writes `narrator`.
+        #[serde(default, alias = "companion")]
+        narrator: Option<String>,
     },
     ModelCall {
         call: CallId,
@@ -208,7 +211,7 @@ pub enum FromStory {
     Answer {
         id: RequestId,
         answer: Option<Answer>,
-        companion: CompanionCheck,
+        narrator: NarratorCheck,
     },
     /// The bridge runs the model and answers by `call`, with `model_answered` or
     /// `model_failed`.
@@ -223,7 +226,7 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
         return Err(BadLine::TooLong);
     }
     let value: Value = serde_json::from_slice(bytes).map_err(|_| BadLine::Shape)?;
-    let (id, body, companion) = if is_journal(&value) {
+    let (id, body, narrator) = if is_journal(&value) {
         read_journal(value)?
     } else {
         // From the raw bytes, so a key given twice is an error.
@@ -237,26 +240,26 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
                 id,
                 text,
                 passages,
-                companion,
-            } => (id, Body::LoreAnswer { text, passages }, companion),
+                narrator,
+            } => (id, Body::LoreAnswer { text, passages }, narrator),
             Wire::TalkAnswer {
                 id,
                 npc,
                 text,
-                companion,
-            } => (id, Body::TalkAnswer { npc, text }, companion),
-            Wire::EventsSeen { id, companion } => (id, Body::EventsSeen, companion),
+                narrator,
+            } => (id, Body::TalkAnswer { npc, text }, narrator),
+            Wire::EventsSeen { id, narrator } => (id, Body::EventsSeen, narrator),
         }
     };
     if !body_fits(&body) {
         return Err(BadLine::Text);
     }
-    let (companion, check) = checked_companion(companion);
-    let answer = (bytes.len() <= MAX_ANSWER_LINE).then_some(Answer { body, companion });
+    let (narrator, check) = checked_narrator(narrator);
+    let answer = (bytes.len() <= MAX_ANSWER_LINE).then_some(Answer { body, narrator });
     Ok(FromStory::Answer {
         id,
         answer,
-        companion: check,
+        narrator: check,
     })
 }
 
@@ -264,7 +267,7 @@ fn is_journal(value: &Value) -> bool {
     value.get("type").and_then(Value::as_str) == Some("journal")
 }
 
-/// Only `id`, `page`, `pages`, and `companion` have a fixed shape. The rest is bounded
+/// Only `id`, `page`, `pages`, and `narrator` have a fixed shape. The rest is bounded
 /// JSON, which the bridge writes again from the checked value.
 fn read_journal(value: Value) -> Result<(RequestId, Body, Option<String>), BadLine> {
     let Value::Object(mut content) = value else {
@@ -274,7 +277,9 @@ fn read_journal(value: Value) -> Result<(RequestId, Body, Option<String>), BadLi
     let id = content.remove("id").and_then(|v| v.as_u64());
     let page = content.remove("page").as_ref().and_then(as_u32);
     let pages = content.remove("pages").as_ref().and_then(as_u32);
-    let companion = match content.remove("companion") {
+    // TODO: drop `companion` when the Timeways story program writes `narrator`.
+    let old_name = content.remove("companion");
+    let narrator = match content.remove("narrator").or(old_name) {
         None | Some(Value::Null) => None,
         Some(Value::String(line)) => Some(line),
         Some(_) => return Err(BadLine::Shape),
@@ -301,7 +306,7 @@ fn read_journal(value: Value) -> Result<(RequestId, Body, Option<String>), BadLi
         pages,
         content,
     };
-    Ok((RequestId(id), body, companion))
+    Ok((RequestId(id), body, narrator))
 }
 
 fn as_u32(value: &Value) -> Option<u32> {
@@ -342,10 +347,10 @@ fn journal_strings_fit(value: &Value) -> bool {
     }
 }
 
-fn checked_companion(companion: Option<String>) -> (Option<String>, CompanionCheck) {
-    match companion {
-        Some(line) if !is_short(&line, MAX_COMPANION) => (None, CompanionCheck::Dropped),
-        kept => (kept, CompanionCheck::Kept),
+fn checked_narrator(narrator: Option<String>) -> (Option<String>, NarratorCheck) {
+    match narrator {
+        Some(line) if !is_short(&line, MAX_COMPANION) => (None, NarratorCheck::Dropped),
+        kept => (kept, NarratorCheck::Kept),
     }
 }
 
@@ -375,7 +380,7 @@ fn passage_fits(passage: &Passage) -> bool {
 struct Reply<'a> {
     #[serde(flatten)]
     body: Body,
-    companion: Option<String>,
+    narrator: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<&'a str>,
 }
@@ -386,7 +391,7 @@ struct Reply<'a> {
 pub fn reply_text(answer: &Answer, note: Option<&str>) -> Option<String> {
     let reply = Reply {
         body: game_safe(&answer.body),
-        companion: answer.companion.as_deref().map(game_text),
+        narrator: answer.narrator.as_deref().map(game_text),
         note,
     };
     let line = serde_json::to_string(&reply).ok()?;
@@ -484,15 +489,15 @@ mod tests {
                 text: text.map(str::to_owned),
                 passages,
             },
-            companion: None,
+            narrator: None,
         }
     }
 
-    fn read_answer(line: &[u8]) -> (Option<Answer>, CompanionCheck) {
+    fn read_answer(line: &[u8]) -> (Option<Answer>, NarratorCheck) {
         match read_line(line) {
             Ok(FromStory::Answer {
-                answer, companion, ..
-            }) => (answer, companion),
+                answer, narrator, ..
+            }) => (answer, narrator),
             other => panic!("not an answer: {other:?}"),
         }
     }
@@ -544,7 +549,7 @@ mod tests {
             Ok(FromStory::Answer {
                 id: RequestId(3),
                 answer: Some(lore(Some("Goblins [1]."), vec![passage])),
-                companion: CompanionCheck::Kept,
+                narrator: NarratorCheck::Kept,
             })
         );
         let null = br#"{"type":"lore_answer","id":3,"text":null,"passages":[]}"#;
@@ -586,13 +591,13 @@ mod tests {
     }
 
     #[test]
-    fn a_journal_with_a_bad_id_page_pages_or_companion_is_refused() {
+    fn a_journal_with_a_bad_id_page_pages_or_narrator_is_refused() {
         for (key, value) in [
             ("id", Value::from(-1)),
             ("id", Value::from("4")),
             ("page", Value::from(1.5)),
             ("pages", Value::from(u64::from(u32::MAX) + 1)),
-            ("companion", Value::from(7)),
+            ("narrator", Value::from(7)),
         ] {
             let line = journal_with(key, value);
             assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
@@ -688,7 +693,7 @@ mod tests {
                 .unwrap();
         assert_eq!(
             reply_text(&answer, None).unwrap(),
-            r#"{"type":"talk_answer","npc":"Marshal Dughan","text":"Kill ||cff00ff00wolves.","companion":null}"#
+            r#"{"type":"talk_answer","npc":"Marshal Dughan","text":"Kill ||cff00ff00wolves.","narrator":null}"#
         );
         let silent = answer_of(talk_answer("Marshal Dughan", None).as_bytes()).unwrap();
         assert_eq!(
@@ -714,50 +719,60 @@ mod tests {
     }
 
     #[test]
-    fn events_seen_reads_with_or_without_a_companion() {
-        let quiet = answer_of(br#"{"type":"events_seen","id":5,"companion":null}"#).unwrap();
-        assert!(quiet.is_events_seen());
-        assert_eq!(quiet.companion, None);
-        let talk = br#"{"type":"events_seen","id":5,"companion":"A wolf howls."}"#;
+    fn the_old_name_companion_still_reads_as_the_narrator() {
+        let seen = answer_of(br#"{"type":"events_seen","id":5,"companion":"A wolf howls."}"#);
+        assert_eq!(seen.unwrap().narrator.as_deref(), Some("A wolf howls."));
+        let journal = JOURNAL.replace(r#""id":4,"#, r#""id":4,"companion":"Hm.","#);
         assert_eq!(
-            answer_of(talk).unwrap().companion.as_deref(),
+            answer_of(journal.as_bytes()).unwrap().narrator.as_deref(),
+            Some("Hm.")
+        );
+    }
+
+    #[test]
+    fn events_seen_reads_with_or_without_a_narrator() {
+        let quiet = answer_of(br#"{"type":"events_seen","id":5,"narrator":null}"#).unwrap();
+        assert!(quiet.is_events_seen());
+        assert_eq!(quiet.narrator, None);
+        let talk = br#"{"type":"events_seen","id":5,"narrator":"A wolf howls."}"#;
+        assert_eq!(
+            answer_of(talk).unwrap().narrator.as_deref(),
             Some("A wolf howls.")
         );
         assert!(answer_of(br#"{"type":"events_seen","id":5}"#).is_some());
     }
 
     #[test]
-    fn a_lore_answer_and_a_journal_take_a_companion_too() {
-        let lore = br#"{"type":"lore_answer","id":3,"text":null,"passages":[],"companion":"Hm."}"#;
-        assert_eq!(answer_of(lore).unwrap().companion.as_deref(), Some("Hm."));
-        let journal = JOURNAL.replace(r#""id":4,"#, r#""id":4,"companion":"Hm.","#);
+    fn a_lore_answer_and_a_journal_take_a_narrator_too() {
+        let lore = br#"{"type":"lore_answer","id":3,"text":null,"passages":[],"narrator":"Hm."}"#;
+        assert_eq!(answer_of(lore).unwrap().narrator.as_deref(), Some("Hm."));
+        let journal = JOURNAL.replace(r#""id":4,"#, r#""id":4,"narrator":"Hm.","#);
         assert_eq!(
-            answer_of(journal.as_bytes()).unwrap().companion.as_deref(),
+            answer_of(journal.as_bytes()).unwrap().narrator.as_deref(),
             Some("Hm.")
         );
     }
 
     #[test]
-    fn a_companion_of_1000_bytes_stays_and_a_longer_one_is_dropped_alone() {
-        let line = |companion: &str| {
-            serde_json::json!({ "type": "events_seen", "id": 5, "companion": companion })
-                .to_string()
+    fn a_narrator_of_1000_bytes_stays_and_a_longer_one_is_dropped_alone() {
+        let line = |narrator: &str| {
+            serde_json::json!({ "type": "events_seen", "id": 5, "narrator": narrator }).to_string()
         };
         let (kept, check) = read_answer(line(&"c".repeat(1000)).as_bytes());
-        assert_eq!(check, CompanionCheck::Kept);
-        assert_eq!(kept.unwrap().companion.map(|c| c.len()), Some(1000));
+        assert_eq!(check, NarratorCheck::Kept);
+        assert_eq!(kept.unwrap().narrator.map(|c| c.len()), Some(1000));
 
         let (dropped, check) = read_answer(line(&"c".repeat(1001)).as_bytes());
-        assert_eq!(check, CompanionCheck::Dropped);
+        assert_eq!(check, NarratorCheck::Dropped);
         assert_eq!(
             dropped.unwrap(),
             Answer {
                 body: Body::EventsSeen,
-                companion: None
+                narrator: None
             }
         );
         let (_, check) = read_answer(line("a\nb").as_bytes());
-        assert_eq!(check, CompanionCheck::Dropped);
+        assert_eq!(check, NarratorCheck::Dropped);
     }
 
     #[test]
@@ -787,8 +802,8 @@ mod tests {
             r#"{"type":"lore_answer","id":3,"text":"x","passages":[{"text":"a","source":"b","links":[]}]}"#.to_owned(),
             r#"{"type":"lore_answer","id":3.5,"text":"x","passages":[]}"#.to_owned(),
             r#"{"type":"hello","protocol":1,"protocol":2}"#.to_owned(),
-            r#"{"type":"events_seen","companion":null}"#.to_owned(),
-            r#"{"type":"events_seen","id":5,"companion":7}"#.to_owned(),
+            r#"{"type":"events_seen","narrator":null}"#.to_owned(),
+            r#"{"type":"events_seen","id":5,"narrator":7}"#.to_owned(),
         ];
         for line in bad {
             assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
@@ -864,26 +879,26 @@ mod tests {
             source: "https://x/|".into(),
         };
         let mut answer = lore(Some("see |Hitem:1|h[x]|h\nnow"), vec![passage]);
-        answer.companion = Some("|cffff0000red".into());
+        answer.narrator = Some("|cffff0000red".into());
         assert_eq!(
             reply_text(&answer, None).unwrap(),
-            r#"{"type":"lore_answer","text":"see ||Hitem:1||h[x]||h\nnow","passages":[{"text":"a||b","source":"https://x/||"}],"companion":"||cffff0000red"}"#
+            r#"{"type":"lore_answer","text":"see ||Hitem:1||h[x]||h\nnow","passages":[{"text":"a||b","source":"https://x/||"}],"narrator":"||cffff0000red"}"#
         );
         assert_eq!(
             reply_text(&lore(None, Vec::new()), None).unwrap(),
-            r#"{"type":"lore_answer","text":null,"passages":[],"companion":null}"#
+            r#"{"type":"lore_answer","text":null,"passages":[],"narrator":null}"#
         );
     }
 
     #[test]
-    fn the_reply_to_events_seen_has_only_the_companion() {
+    fn the_reply_to_events_seen_has_only_the_narrator() {
         let answer = Answer {
             body: Body::EventsSeen,
-            companion: Some("A wolf howls.".into()),
+            narrator: Some("A wolf howls.".into()),
         };
         assert_eq!(
             reply_text(&answer, None).unwrap(),
-            r#"{"type":"events_seen","companion":"A wolf howls."}"#
+            r#"{"type":"events_seen","narrator":"A wolf howls."}"#
         );
     }
 
@@ -906,7 +921,7 @@ mod tests {
     fn a_note_of_the_bridge_goes_last_in_the_reply() {
         assert_eq!(
             reply_text(&lore(None, Vec::new()), Some("no sandbox")).unwrap(),
-            r#"{"type":"lore_answer","text":null,"passages":[],"companion":null,"note":"no sandbox"}"#
+            r#"{"type":"lore_answer","text":null,"passages":[],"narrator":null,"note":"no sandbox"}"#
         );
     }
 

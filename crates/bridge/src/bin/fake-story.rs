@@ -172,9 +172,9 @@ fn on_reply_line(script: &str, line: &Value) {
             answer(line, "first");
             answer(line, "second");
         }
-        "companion" | "long-companion" => send(&json!({
+        "narrator" | "long-narrator" => send(&json!({
             "type": "lore_answer", "id": line["id"], "text": "story", "passages": [],
-            "companion": companion(script),
+            "narrator": narrator(script),
         })),
         "model" => send(&json!({ "type": "model_call", "call": 1, "prompt": "tell a story" })),
         "model-crash" => {
@@ -191,10 +191,10 @@ fn on_reply_line(script: &str, line: &Value) {
     }
 }
 
-fn companion(script: &str) -> Value {
+fn narrator(script: &str) -> Value {
     match script {
-        "companion" => json!("A wolf howls."),
-        "long-companion" => json!("c".repeat(1001)),
+        "narrator" => json!("A wolf howls."),
+        "long-narrator" => json!("c".repeat(1001)),
         _ => Value::Null,
     }
 }
@@ -214,7 +214,7 @@ fn on_batch_end(script: &str, end: &Value) {
         "late" => std::thread::sleep(Duration::from_secs(2)),
         _ => {}
     }
-    send(&json!({ "type": "events_seen", "id": end["id"], "companion": companion(script) }));
+    send(&json!({ "type": "events_seen", "id": end["id"], "narrator": narrator(script) }));
     if script == "bard" {
         // A bard call belongs to no batch. The third one finds two calls open.
         (1..=3).for_each(|call| {
