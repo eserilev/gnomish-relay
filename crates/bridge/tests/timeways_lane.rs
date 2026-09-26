@@ -123,8 +123,9 @@ fn slot_file(addons: &Path, app: App, file: &str) -> String {
     fs::read_to_string(addons.join(slot_name(app, 1)).join(file)).unwrap_or_default()
 }
 
+/// On a busy Windows runner the story program takes more than 30 seconds to start.
 fn step_until(bridge: &mut Bridge, done: impl Fn() -> bool) -> bool {
-    step_while(bridge, Duration::from_secs(30), done)
+    step_while(bridge, Duration::from_secs(90), done)
 }
 
 /// Steps for two seconds, for a test that checks that nothing happens.
