@@ -1,6 +1,7 @@
 //! The shared Lua transport (`addon/transport`) with the names of each app, and two
-//! addons in one fake game (SPEC.md 9.7, decisions 5 and 14). The second addon is a
-//! small test addon, not the real Timeways addon.
+//! addons in one fake game (SPEC.md 9.7, decisions 5 and 14, and step 5b). The second
+//! addon is a small test addon, not the real Timeways addon. It sends and polls through
+//! `Messages.lua`, behind the seam of the Timeways addon.
 
 // Clippy sees helper functions outside `#[test]` as normal code, so its test exceptions miss them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -28,8 +29,10 @@ const SHARED: &[&str] = &[
     "Sha256.lua",
     "Codec.lua",
     "Saved.lua",
+    "Health.lua",
     "Strip.lua",
     "Slots.lua",
+    "Messages.lua",
 ];
 const RELAY_FILES: &[&str] = &[
     "App.lua",
@@ -53,6 +56,7 @@ const TIMEWAYS_APP: &str = r#"
 local _, ns = ...
 ns.App = {
 	title = "Timeways",
+	helloChat = "story",
 	slotPrefix = "Timeways_S%04d",
 	slotData = "Timeways_SlotData",
 	restore = "Timeways_Restore",
@@ -66,6 +70,7 @@ const RELAY_APP: &str = r#"
 local _, ns = ...
 ns.App = {
 	title = "Gnomish Relay",
+	helloChat = "relay",
 	slotPrefix = "GnomishRelay_S%04d",
 	slotData = "GnomishRelay_SlotData",
 	restore = "GnomishRelay_Restore",
@@ -73,6 +78,26 @@ ns.App = {
 	strip = "GnomishRelayStrip",
 	saved = "GnomishRelayDB",
 }
+"#;
+/// The Link.lua of the test addon: the seam `ns.Link` of the Timeways addon, as a thin
+/// wrapper of `Messages.lua`. It keeps each final reply in `ns.replies`.
+const TIMEWAYS_LINK: &str = r#"
+local _, ns = ...
+local CHAT = { id = "story" }
+ns.replies = {}
+ns.Link = {
+	Fits = function(text)
+		return ns.Messages.Fits(CHAT, text)
+	end,
+	Send = function(text)
+		return ns.Messages.Send(CHAT, text) ~= nil
+	end,
+}
+ns.Messages.OnReply = function(_, _, status, text)
+	table.insert(ns.replies, status .. ": " .. text)
+end
+ns.Messages.Init()
+C_Timer.NewTicker(1, ns.Messages.Tick)
 "#;
 
 /// The parameters of one app for the shared transport.
@@ -131,6 +156,54 @@ impl Game {
             .unwrap();
         load_addon(&self.lua, names.addon, &ns, SHARED);
         ns
+    }
+
+    /// Loads the test addon: the shared transport and its Link.lua, and logs in.
+    fn timeways(&self) -> Table {
+        let ns = self.shared(&TIMEWAYS);
+        self.lua
+            .load(TIMEWAYS_LINK)
+            .call::<()>((TIMEWAYS.addon, ns.clone()))
+            .unwrap();
+        ns
+    }
+
+    /// `/reload`: WoW saves `TimewaysDB` as Lua text, and a new UI session loads it.
+    /// The clock of the game goes on.
+    fn reload(&self) -> Game {
+        let save: Function = self.wow.get("Save").unwrap();
+        let saved: String = save.call("TimewaysDB").unwrap();
+        let game = Game::new();
+        game.set_time(self.now());
+        game.lua.load(saved).exec().unwrap();
+        game
+    }
+
+    fn timeways_db(&self) -> Table {
+        self.lua.globals().get("TimewaysDB").unwrap()
+    }
+
+    /// The id of the first message that the test addon sent.
+    fn first_id(&self) -> u32 {
+        let sent: Table = self.timeways_db().get("sent").unwrap();
+        sent.get::<Table>(1).unwrap().get("id").unwrap()
+    }
+
+    /// The records of each screenshot of the strip of `names`, oldest first.
+    fn strips(&self, names: &Names) -> Vec<Vec<Record>> {
+        self.shots(names.strip)
+            .iter()
+            .map(|rows| receive_png(rows, names.key, self.now()).expect("a valid strip"))
+            .collect()
+    }
+
+    /// How many strips of `names` carried a message with `text`.
+    fn shows_of(&self, names: &Names, text: &[u8]) -> usize {
+        let strips = self.strips(names);
+        strips
+            .iter()
+            .filter(|records| records.iter().any(|r| r.text == text))
+            .count()
     }
 
     /// Loads the whole relay addon and logs in.
@@ -243,6 +316,29 @@ fn load_slot(ns: &Table) -> (bool, Value, Value, Value) {
         .unwrap()
 }
 
+fn link_send(ns: &Table, text: &str) -> bool {
+    let link: Table = ns.get("Link").unwrap();
+    link.get::<Function>("Send").unwrap().call(text).unwrap()
+}
+
+fn replies(ns: &Table) -> Vec<String> {
+    ns.get("replies").unwrap()
+}
+
+fn flags_of(record: &Record) -> Vec<String> {
+    String::from_utf8_lossy(&record.flags)
+        .split(';')
+        .map(str::to_owned)
+        .collect()
+}
+
+fn unhex(text: &str) -> Vec<u8> {
+    (0..text.len())
+        .step_by(2)
+        .map(|i| u8::from_str_radix(&text[i..i + 2], 16).unwrap())
+        .collect()
+}
+
 fn key(bytes: &[u8]) -> StripKey {
     StripKey::from_hex(&hex(bytes)).unwrap()
 }
@@ -275,6 +371,26 @@ fn body(app: App, text: &[u8]) -> Vec<u8> {
         text: text.to_vec(),
     };
     slot_body(app, 1_790_211_079, &prepare_replies(&[reply]))
+}
+
+fn reply_body(app: App, chat: &str, id: u32, text: &str) -> Vec<u8> {
+    let reply = Reply {
+        chat: chat.as_bytes().to_vec(),
+        id,
+        status: Status::Done,
+        text: text.as_bytes().to_vec(),
+    };
+    slot_body(app, 1_790_211_079, &prepare_replies(&[reply]))
+}
+
+/// Puts a body with one done reply into the Timeways slots.
+fn answer_story(game: &Game, id: u32, text: &str) {
+    game.put_slot_files(
+        App::Timeways,
+        reply_body(App::Timeways, "story", id, text),
+        restore(App::Timeways, b"", b""),
+        live(App::Timeways, b""),
+    );
 }
 
 fn restore(app: App, token: &[u8], text: &[u8]) -> Vec<u8> {
@@ -537,8 +653,9 @@ fn a_lua_timeways_strip_comes_back_as_the_fixed_reply_in_a_timeways_slot() {
     let mut bridge = Bridge::new(paths, policy, keys, std::collections::BTreeMap::new()).unwrap();
     let game = Game::new();
     game.set_time(now());
-    let timeways = game.shared(&TIMEWAYS);
-    game.show(&timeways, "open the portal");
+    let timeways = game.timeways();
+    assert!(link_send(&timeways, "open the portal"));
+    game.advance(1.0);
     std::fs::write(&screenshot, screenshot_png(&game.last_shot(TIMEWAYS.strip))).unwrap();
 
     let start = std::time::Instant::now();
@@ -556,10 +673,9 @@ fn a_lua_timeways_strip_comes_back_as_the_fixed_reply_in_a_timeways_slot() {
         slot_bytes(&addons, RESTORE_FILE),
         slot_bytes(&addons, LIVE_FILE),
     );
-    let (loaded, data, _, _) = load_slot(&timeways);
+    game.advance(5.0);
 
-    assert!(loaded);
-    assert_eq!(text_of(&data), NO_STORY.as_bytes());
+    assert_eq!(replies(&timeways), [format!("error: {NO_STORY}")]);
     assert!(!screenshot.exists());
 }
 
@@ -595,11 +711,12 @@ fn a_lua_timeways_strip_comes_back_from_the_fake_story_program_through_the_slot_
         .with_story(story);
     let game = Game::new();
     game.set_time(now());
-    let timeways = game.shared(&TIMEWAYS);
+    let timeways = game.timeways();
     let batch = "{\"type\":\"character_entered\",\"realm\":\"Stormrage\",\"name\":\"Anduin\"}\n\
                  {\"type\":\"zone_entered\",\"at\":1,\"zone\":\"Elwynn Forest\"}\n\
                  {\"type\":\"lore_asked\",\"at\":2,\"question\":\"open the portal\"}";
-    game.show(&timeways, batch);
+    assert!(link_send(&timeways, batch));
+    game.advance(1.0);
     std::fs::write(&screenshot, screenshot_png(&game.last_shot(TIMEWAYS.strip))).unwrap();
 
     let start = std::time::Instant::now();
@@ -617,11 +734,199 @@ fn a_lua_timeways_strip_comes_back_from_the_fake_story_program_through_the_slot_
         slot_bytes(&addons, RESTORE_FILE),
         slot_bytes(&addons, LIVE_FILE),
     );
-    let (loaded, data, _, _) = load_slot(&timeways);
+    game.advance(5.0);
 
-    assert!(loaded);
-    let reply: serde_json::Value = serde_json::from_slice(&text_of(&data)).unwrap();
+    let got = replies(&timeways);
+    assert_eq!(got.len(), 1);
+    let json = got[0].strip_prefix("done: ").unwrap();
+    let reply: serde_json::Value = serde_json::from_str(json).unwrap();
     assert_eq!(reply["type"], "lore_answer");
     assert_eq!(reply["text"], "story: open the portal");
     assert!(!screenshot.exists());
+}
+
+#[test]
+fn the_test_addon_sends_through_the_link_as_a_strip_with_only_transport_flags() {
+    let game = Game::new();
+    let timeways = game.timeways();
+
+    assert!(link_send(&timeways, "look around"));
+    game.advance(2.0);
+
+    let records = game.strips(&TIMEWAYS).remove(0);
+    assert_eq!(records.len(), 1);
+    let r = &records[0];
+    assert_eq!(r.chat, b"story");
+    assert_eq!(r.id, game.first_id());
+    assert_eq!(r.text, b"look around");
+    assert!(r.cwd.is_empty() && r.name.is_empty());
+    let flags = flags_of(r);
+    assert!(
+        flags.contains(&"next=1".into()) && flags.contains(&"ver=1".into()),
+        "{flags:?}"
+    );
+    assert!(
+        flags
+            .iter()
+            .all(|f| f.starts_with("next=") || f.starts_with("build=") || f.starts_with("ver=")),
+        "{flags:?}"
+    );
+}
+
+#[test]
+fn the_link_refuses_a_text_too_long_for_one_strip_and_stores_nothing() {
+    let game = Game::new();
+    let timeways = game.timeways();
+    let link: Table = timeways.get("Link").unwrap();
+    let long = "x".repeat(3000);
+
+    let fits: bool = link
+        .get::<Function>("Fits")
+        .unwrap()
+        .call(long.as_str())
+        .unwrap();
+    let sent = link_send(&timeways, &long);
+    game.advance(2.0);
+
+    assert!(!fits);
+    assert!(!sent);
+    assert_eq!(game.shows_of(&TIMEWAYS, long.as_bytes()), 0);
+    let sent: Table = game.timeways_db().get("sent").unwrap();
+    assert_eq!(sent.raw_len(), 0);
+}
+
+#[test]
+fn a_message_of_the_test_addon_with_no_answer_shows_three_times_then_goes_to_the_outbox() {
+    let game = Game::new();
+    let timeways = game.timeways();
+
+    link_send(&timeways, "look around");
+    game.advance(200.0);
+
+    assert_eq!(game.shows_of(&TIMEWAYS, b"look around"), 3);
+    let outbox: Table = game.timeways_db().get("outbox").unwrap();
+    assert_eq!(outbox.raw_len(), 1);
+    let messages: Table = timeways.get("Messages").unwrap();
+    assert!(
+        messages
+            .get::<Function>("NeedsReload")
+            .unwrap()
+            .call::<bool>(())
+            .unwrap()
+    );
+    assert!(replies(&timeways).is_empty());
+}
+
+#[test]
+fn an_outbox_frame_of_the_test_addon_that_the_bridge_never_takes_gives_up_through_on_reply() {
+    let game = Game::new();
+    let timeways = game.timeways();
+
+    link_send(&timeways, "look around");
+    game.advance(400.0);
+
+    assert_eq!(replies(&timeways), ["error: Not sent. Send it again."]);
+    let outbox: Table = game.timeways_db().get("outbox").unwrap();
+    assert_eq!(outbox.raw_len(), 0);
+}
+
+#[test]
+fn after_a_reload_the_outbox_frame_of_the_test_addon_verifies_as_timeways_and_its_reply_clears_it()
+{
+    let game = Game::new();
+    link_send(&game.timeways(), "look around");
+    game.advance(130.0);
+    let id = game.first_id();
+
+    let game = game.reload();
+    let timeways = game.timeways();
+    let outbox: Table = game.timeways_db().get("outbox").unwrap();
+    let frame: String = outbox.get::<Table>(1).unwrap().get("frame").unwrap();
+    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let (app, records) = receive(&unhex(&frame), &keys, game.now()).unwrap();
+    answer_story(&game, id, "answer");
+    game.advance(6.0);
+
+    assert_eq!(app, App::Timeways);
+    assert_eq!(records[0].text, b"look around");
+    assert_eq!(replies(&timeways), ["done: answer"]);
+    let outbox: Table = game.timeways_db().get("outbox").unwrap();
+    assert_eq!(outbox.raw_len(), 0);
+}
+
+#[test]
+fn after_a_reload_the_test_addon_shows_the_stored_frame_of_an_open_message_as_it_is() {
+    let game = Game::new();
+    link_send(&game.timeways(), "look around");
+    game.advance(2.0);
+
+    let game = game.reload();
+    game.timeways();
+    game.advance(2.0);
+
+    let sent: Table = game.timeways_db().get("sent").unwrap();
+    let frame: String = sent.get::<Table>(1).unwrap().get("frame").unwrap();
+    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let (_, stored) = receive(&unhex(&frame), &keys, game.now()).unwrap();
+    let first = game.strips(&TIMEWAYS).remove(0);
+    assert_eq!(first.len(), 1);
+    assert_eq!(first[0].id, stored[0].id);
+    assert_eq!(first[0].text, b"look around");
+    // A stored frame goes out as it is, so it carries no new report.
+    assert_eq!(first[0].flags, stored[0].flags);
+    assert!(first[0].flags.is_empty());
+}
+
+#[test]
+fn a_reply_reaches_on_reply_once_and_the_next_strip_reports_it_read() {
+    let game = Game::new();
+    let timeways = game.timeways();
+    link_send(&timeways, "look around");
+    game.advance(1.0);
+    let id = game.first_id();
+
+    answer_story(&game, id, "answer");
+    game.advance(30.0);
+    link_send(&timeways, "next");
+    game.advance(1.0);
+
+    assert_eq!(replies(&timeways), ["done: answer"]);
+    let last = game.strips(&TIMEWAYS).pop().unwrap();
+    assert!(
+        flags_of(&last[0]).contains(&format!("read={id}")),
+        "{:?}",
+        flags_of(&last[0])
+    );
+}
+
+#[test]
+fn two_addons_in_one_game_send_and_get_replies_through_their_own_messages() {
+    let game = Game::new();
+    let relay = game.relay();
+    let timeways = game.timeways();
+
+    let send: Function = relay.get::<Table>("Window").unwrap().get("Send").unwrap();
+    send.call::<()>("from the relay").unwrap();
+    link_send(&timeways, "from timeways");
+    game.advance(2.0);
+    let relay_db: Table = game.lua.globals().get("GnomishRelayDB").unwrap();
+    let chat: Table = relay_db.get::<Table>("chats").unwrap().get(1).unwrap();
+    let chat_id: String = chat.get("id").unwrap();
+    let history: Table = chat.get("history").unwrap();
+    let relay_id: u32 = history.get::<Table>(1).unwrap().get("id").unwrap();
+    game.put_slot_files(
+        App::Relay,
+        reply_body(App::Relay, &chat_id, relay_id, "relay answer"),
+        restore(App::Relay, b"", b""),
+        live(App::Relay, b""),
+    );
+    answer_story(&game, game.first_id(), "story answer");
+    game.advance(6.0);
+
+    // One screenshot can catch the strips of both addons, so a strip can be in two shots.
+    assert!(game.shows_of(&RELAY, b"from the relay") > 0);
+    assert!(game.shows_of(&TIMEWAYS, b"from timeways") > 0);
+    assert_eq!(replies(&timeways), ["done: story answer"]);
+    let last: Table = history.get(history.raw_len()).unwrap();
+    assert_eq!(last.get::<String>("text").unwrap(), "relay answer");
 }
