@@ -43,6 +43,14 @@ jobs:
           components: rustfmt, clippy
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
+      # The story sandbox tests need a working bwrap (SPEC 14.5). Ubuntu blocks user
+      # namespaces for normal users, so the runner allows them. They must not skip here.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          echo "GNOMISH_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
       - run: cargo test
 
   supply-chain:
@@ -81,6 +89,10 @@ jobs:
       - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2
         with:
           tool: cargo-llvm-cov
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
       - run: scripts/check-coverage.sh
 
   model:

@@ -82,6 +82,19 @@ pub struct Config {
     pub permission_timeout: Duration,
     /// Commands that run from the game with no question (SPEC.md 12).
     pub allow: AllowTable,
+    /// With no `[story]`, Timeways answers each message with a fixed error.
+    pub story: Option<StoryConfig>,
+}
+
+/// The story program of Timeways (SPEC.md 9.8).
+#[derive(Debug, PartialEq, Eq)]
+pub struct StoryConfig {
+    /// An absolute path, never a name to look up on `PATH`.
+    pub program: PathBuf,
+    /// The `SQLite` file of the lore. The story program gets it as its first argument.
+    pub lore_pack: PathBuf,
+    /// The longest wait for the reply to one message.
+    pub timeout: Duration,
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -132,12 +145,41 @@ struct File {
     agents: BTreeMap<String, Agent>,
     #[serde(default)]
     allow: AllowFile,
+    story: Option<Story>,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Wow {
     path: String,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct Story {
+    program: String,
+    lore_pack: String,
+    timeout_seconds: Option<u64>,
+}
+
+const DEFAULT_STORY_SECONDS: u64 = 120;
+const MAX_STORY_SECONDS: u64 = 600;
+
+fn story(file: Option<&Story>, home: &Path) -> Result<Option<StoryConfig>> {
+    let Some(story) = file else {
+        return Ok(None);
+    };
+    let program = expand(&story.program, home).context("[story] program")?;
+    let lore_pack = expand(&story.lore_pack, home).context("[story] lore_pack")?;
+    let seconds = story.timeout_seconds.unwrap_or(DEFAULT_STORY_SECONDS);
+    if !(1..=MAX_STORY_SECONDS).contains(&seconds) {
+        bail!("[story] timeout_seconds must be 1 to {MAX_STORY_SECONDS}");
+    }
+    Ok(Some(StoryConfig {
+        program,
+        lore_pack,
+        timeout: Duration::from_secs(seconds),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -350,6 +392,7 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
         })
         .collect();
     let allow = allow::parse(&file.allow, home)?;
+    let story = story(file.story.as_ref(), home)?;
     Ok(Config {
         wow: expand(&file.wow.path, home)?,
         policy: Policy {
@@ -361,6 +404,7 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
         timeout,
         permission_timeout,
         allow,
+        story,
     })
 }
 
@@ -638,6 +682,54 @@ mod tests {
         );
         assert!(home.parse(&with(0)).is_err());
         assert!(home.parse(&with(241)).is_err());
+    }
+
+    #[test]
+    fn a_config_with_no_story_section_has_no_story_program() {
+        let home = Home::new();
+        assert_eq!(home.parse(GOOD).unwrap().story, None);
+    }
+
+    #[test]
+    fn the_story_section_gives_an_absolute_program_a_lore_pack_and_a_timeout() {
+        let home = Home::new();
+        let text = format!(
+            "{GOOD}\n[story]\nprogram = \"~/bin/timeways-story\"\nlore_pack = \"~/lore.sqlite\"\n"
+        );
+        let story = home.parse(&text).unwrap().story.unwrap();
+        assert_eq!(story.program, home.path().join("bin/timeways-story"));
+        assert_eq!(story.lore_pack, home.path().join("lore.sqlite"));
+        assert_eq!(story.timeout, Duration::from_mins(2));
+        let text = format!("{text}timeout_seconds = 5\n");
+        assert_eq!(
+            home.parse(&text).unwrap().story.unwrap().timeout,
+            Duration::from_secs(5)
+        );
+    }
+
+    #[test]
+    fn a_story_program_by_name_only_is_an_error_because_the_bridge_never_looks_on_path() {
+        let home = Home::new();
+        let text =
+            format!("{GOOD}\n[story]\nprogram = \"timeways-story\"\nlore_pack = \"~/lore\"\n");
+        let error = format!("{:#}", home.parse(&text).err().unwrap());
+        assert!(error.contains("[story] program"), "{error}");
+    }
+
+    #[test]
+    fn a_bad_story_section_is_an_error() {
+        let home = Home::new();
+        let bad = [
+            "[story]\n",
+            "[story]\nprogram = \"~/x\"\n",
+            "[story]\nprogram = \"~/x\"\nlore_pack = \"lore.sqlite\"\n",
+            "[story]\nprogram = \"~/x\"\nlore_pack = \"~/l\"\ntimeout_seconds = 0\n",
+            "[story]\nprogram = \"~/x\"\nlore_pack = \"~/l\"\ntimeout_seconds = 601\n",
+            "[story]\nprogram = \"~/x\"\nlore_pack = \"~/l\"\nargs = [\"--yolo\"]\n",
+        ];
+        for story in bad {
+            assert!(home.parse(&format!("{GOOD}\n{story}")).is_err(), "{story}");
+        }
     }
 
     #[test]

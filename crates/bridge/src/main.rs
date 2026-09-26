@@ -13,6 +13,7 @@ use bridge::lock::{self, Bridge};
 use bridge::receive::{KeySet, RELAY_KEY_FILE};
 use bridge::run::{Paths, now, run};
 use bridge::slots::{self, Files};
+use bridge::story::StorySpec;
 use bridge::update::{self, Replaced};
 use protocol::apps::App;
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
@@ -480,7 +481,16 @@ fn start() -> Result<()> {
     let gate = Gate::new(&config, &config_dir()?, &paths.state, Notice::System);
     gate.approvals.clear();
     let agents = agent::from_config(&config, &gate);
-    run(paths, config.policy, keys, agents)
+    let story = match &config.story {
+        Some(story) => Some(StorySpec::from_config(
+            story,
+            &config_dir()?,
+            &paths.state,
+            &home_dir()?,
+        )?),
+        None => None,
+    };
+    run(paths, config.policy, keys, agents, story)
 }
 
 /// The default agent, started once with no prompt, so a missing login shows here and

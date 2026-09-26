@@ -33,6 +33,8 @@ pub mod saved;
 pub mod screenshots;
 pub mod slots;
 pub mod state;
+pub mod story;
+pub mod story_sandbox;
 pub mod strip;
 pub mod timeways;
 pub mod turn;

@@ -10,6 +10,8 @@ mod common;
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::run::{Bridge, now};
 use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, RESTORE_FILE};
+use bridge::story::{STORY_DIR, StorySpec};
+use bridge::story_sandbox::{Sandbox, Walls};
 use bridge::strip::{Image, read_with};
 use bridge::timeways::NO_STORY;
 use common::{Bits, hex, load_addon, lua, repo_file, screenshot_png};
@@ -555,5 +557,68 @@ fn a_lua_timeways_strip_comes_back_as_the_fixed_reply_in_a_timeways_slot() {
 
     assert!(loaded);
     assert_eq!(text_of(&data), NO_STORY.as_bytes());
+    assert!(!screenshot.exists());
+}
+
+/// The loopback of SPEC.md 9.7, step 5: the Lua strip, the bridge, the fake story
+/// program, and the Lua slot poll.
+#[test]
+fn a_lua_timeways_strip_comes_back_from_the_fake_story_program_through_the_slot_poll() {
+    let (_root, paths) = bridge_folders();
+    let addons = paths.addons.clone();
+    let screenshot = paths.screenshots.join("WoWScrnShot_1.png");
+    let story = StorySpec {
+        program: env!("CARGO_BIN_EXE_fake-story").into(),
+        args: vec!["echo".into()],
+        walls: Walls {
+            folder: paths.state.join("timeways").join(STORY_DIR),
+            hidden: Vec::new(),
+            readable: Vec::new(),
+        },
+        sandbox: Sandbox::None,
+        timeout: std::time::Duration::from_secs(20),
+    };
+    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let policy = bridge::config::Policy {
+        folders: bridge::relay::Folders {
+            roots: vec![b"/home/x".to_vec()],
+            base: b"/home/x".to_vec(),
+        },
+        agents: std::collections::BTreeMap::new(),
+        default_agent: "claude".into(),
+    };
+    let mut bridge = Bridge::new(paths, policy, keys, std::collections::BTreeMap::new())
+        .unwrap()
+        .with_story(story);
+    let game = Game::new();
+    game.set_time(now());
+    let timeways = game.shared(&TIMEWAYS);
+    let batch = "{\"type\":\"character_entered\",\"realm\":\"Stormrage\",\"name\":\"Anduin\"}\n\
+                 {\"type\":\"zone_entered\",\"at\":1,\"zone\":\"Elwynn Forest\"}\n\
+                 {\"type\":\"lore_asked\",\"at\":2,\"question\":\"open the portal\"}";
+    game.show(&timeways, batch);
+    std::fs::write(&screenshot, screenshot_png(&game.last_shot(TIMEWAYS.strip))).unwrap();
+
+    let start = std::time::Instant::now();
+    while !String::from_utf8_lossy(&slot_bytes(&addons, BODY_FILE)).contains("story: open") {
+        assert!(
+            start.elapsed().as_secs() < 30,
+            "no story in the Timeways slot"
+        );
+        bridge.step();
+        std::thread::sleep(std::time::Duration::from_millis(10));
+    }
+    game.put_slot_files(
+        App::Timeways,
+        slot_bytes(&addons, BODY_FILE),
+        slot_bytes(&addons, RESTORE_FILE),
+        slot_bytes(&addons, LIVE_FILE),
+    );
+    let (loaded, data, _, _) = load_slot(&timeways);
+
+    assert!(loaded);
+    let reply: serde_json::Value = serde_json::from_slice(&text_of(&data)).unwrap();
+    assert_eq!(reply["type"], "lore_answer");
+    assert_eq!(reply["text"], "story: open the portal");
     assert!(!screenshot.exists());
 }

@@ -20,6 +20,7 @@ use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots::{self, Files};
 use crate::state;
+use crate::story::{Story, StorySpec};
 use crate::timeways::{NO_STORY, Timeways};
 
 const TICK: Duration = Duration::from_millis(250);
@@ -56,7 +57,7 @@ pub fn now() -> u32 {
 
 /// Control characters in a log line come out escaped, so a prompt cannot fake a
 /// log line (SPEC.md 6.2, rule 15).
-fn log(line: &str) {
+pub fn log(line: &str) {
     eprintln!("{} {}", now(), line.escape_debug());
 }
 
@@ -117,6 +118,8 @@ struct RelayLane {
 struct TimewaysLane {
     timeways: Timeways,
     files: LaneFiles,
+    /// Only with a `[story]` section in the config.
+    story: Option<Story>,
 }
 
 impl Bridge {
@@ -150,6 +153,17 @@ impl Bridge {
             addons: paths.addons,
             keys,
         })
+    }
+
+    /// The story program runs only in the Timeways lane, so with no Timeways key it
+    /// never starts.
+    #[must_use]
+    pub fn with_story(mut self, spec: StorySpec) -> Bridge {
+        match &mut self.timeways {
+            Some(timeways) => timeways.story = Some(Story::new(spec)),
+            None => log("timeways: no timeways.key, so the story program does not start"),
+        }
+        self
     }
 
     pub fn step(&mut self) {
@@ -407,6 +421,7 @@ impl TimewaysLane {
         Ok(TimewaysLane {
             timeways,
             files: LaneFiles::new(dir, &paths.accounts, App::Timeways),
+            story: None,
         })
     }
 
@@ -417,9 +432,12 @@ impl TimewaysLane {
             self.publish(addons);
             self.files.last_publish = Instant::now();
         }
+        // A message reaches the story program only after `store` marked it as seen on
+        // disk, as a run of the relay does.
         if self.files.stored {
-            self.serve_story();
+            self.send_to_story();
         }
+        self.take_story_replies();
     }
 
     fn take_saved_variables(&mut self, keys: &KeySet) {
@@ -442,12 +460,29 @@ impl TimewaysLane {
         self.files.changed = true;
     }
 
-    /// The seam for the story program. A message reaches it only after `store` marked
-    /// it as seen on disk, as a run of the relay does.
-    // TODO: send each message to the story program when step 5 of SPEC.md 9.7 adds it.
-    fn serve_story(&mut self) {
-        for message in self.timeways.take_messages() {
-            self.timeways.answer(&message, Err(NO_STORY.into()));
+    fn send_to_story(&mut self) {
+        let messages = self.timeways.take_messages();
+        let Some(story) = &mut self.story else {
+            for message in &messages {
+                self.timeways.answer(message, Err(NO_STORY.into()));
+                self.files.changed = true;
+            }
+            return;
+        };
+        for message in messages {
+            story.send(message);
+        }
+    }
+
+    /// The bridge writes the slot body from each answer with the proved writers. The
+    /// story program never writes a file that the game reads.
+    fn take_story_replies(&mut self) {
+        let Some(story) = &mut self.story else {
+            return;
+        };
+        story.step();
+        for (message, reply) in story.take_replies() {
+            self.timeways.answer(&message, reply);
             self.files.changed = true;
         }
     }
@@ -494,9 +529,18 @@ fn list_sessions(agents: &Agents, cwd: &str) -> Found {
     Ok(found)
 }
 
-pub fn run(paths: Paths, policy: Policy, keys: KeySet, agents: Agents) -> Result<()> {
+pub fn run(
+    paths: Paths,
+    policy: Policy,
+    keys: KeySet,
+    agents: Agents,
+    story: Option<StorySpec>,
+) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
     let mut bridge = Bridge::new(paths, policy, keys, agents)?;
+    if let Some(spec) = story {
+        bridge = bridge.with_story(spec);
+    }
     loop {
         bridge.step();
         thread::sleep(TICK);

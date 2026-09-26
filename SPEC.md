@@ -306,6 +306,26 @@ Settings from the project and the user do not apply to these runs, because array
 
 On Windows, the setup recommends Codex, or Claude under WSL2. Both have a sandbox there. A Windows sandbox for other agents comes later (17).
 
+**The story program of Timeways (9.7, decision 9).** The story program reads hostile text, so the bridge starts it in a sandbox of its own. `crates/bridge/src/story_sandbox.rs` builds it with the tools that the user already has. The bridge installs nothing.
+
+| Rule | Value |
+|---|---|
+| Write | Only its story folder, `<data>/timeways/story/` (mode 0700) |
+| Read | The system, except the config folder, the data folder (its own folder comes back), and the `desktop` paths of 6.6.3 under the home folder that exist. The lore pack stays readable, also inside a hidden folder. `/tmp`, `/var/tmp`, and `/run` are private and empty, because they hold the sockets of the ssh agent and the desktop. |
+| Network | None |
+| Children | In the same sandbox |
+
+| OS | Sandbox | Tests |
+|---|---|---|
+| Linux | `bwrap` (bubblewrap): `--ro-bind / /`, a `--tmpfs` over each hidden folder and `/dev/null` over each hidden file, a writable `--bind` of its folder, a `--ro-bind` of the lore pack, then `--remount-ro` of each hidden folder, `--unshare-all`, `--die-with-parent`, and `--new-session`. | Real `bwrap` runs in CI (14.5). |
+| macOS | `sandbox-exec` with a generated Seatbelt profile: `(allow default)`, `(deny network*)`, `(deny file-write*)`, a deny of reads and writes under each hidden path, then an allow of reads of the lore pack, and last an allow of its folder. The paths go in as `-D` parameters, never into the profile text. | Built and checked as text only. It never ran: the CI tests run with no sandbox on macOS. Mach services stay reachable. |
+| Windows | None | |
+
+- At start the bridge runs `bwrap --version` inside a sandbox of the same kind. A `bwrap` that is missing, or that cannot make namespaces (some systems block them for normal users), counts as no sandbox.
+- With no sandbox, the story program still runs. The bridge writes a log line, and the first reply with text after the bridge starts carries "The Timeways story program runs with no sandbox here." (9.8).
+- `bwrap` sets `PWD` to the story folder. Its other variables are the allowlist of 6.2 rule 12.
+- The `desktop` patterns that match anywhere, such as a `.env` file in a project, are not hidden. The sandbox hides only the ones under the home folder.
+
 #### 6.6.5 "Always allow"
 
 The goal is one click for the common case, with a bounded worst case.
@@ -670,6 +690,7 @@ The bridge keeps its state in JSON files in the data folder of the OS:
 
 - `state.json`: the replay store, the unread records, the waiting messages, the slot window, the tokens, and the restore history (7.6).
 - `timeways/state.json`: the lane of Timeways (9.7), only with a Timeways key. Later also agent session IDs per chat, the folder of each session, and signal counters.
+- `timeways/story/`: the folder of the story program (9.8). Only the story program writes there, and the bridge never reads it.
 - `transcripts.json`: every prompt and reply, per chat. 200 messages per chat, 4000 characters each.
 
 Rules:
@@ -923,7 +944,7 @@ agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder na
 
 Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It uses this bridge as its desktop program: the same strip, the same slots, and the same proofs, with its own key, its own slots, and its own lane. This section is the approved plan (2026-09-25). A reviewer checked it, and the user approved every decision below.
 
-**Status (2026-09-25):** steps 1 to 4 are done. The Timeways lane is on only when `timeways.key` exists in the config folder. Setup does not make that key yet (step 8), so a normal install works exactly as before. Until the story program runs (step 5), the lane answers each message with "Timeways story program not running." in its own slots. `run.rs` has the seam: `TimewaysLane::serve_story` takes the queue of `Timeways::take_messages` after the state is on disk, and answers each message with `Timeways::answer`. Step 5 sends the messages to the story program there.
+**Status (2026-09-26):** steps 1 to 5 are done. The Timeways lane is on only when `timeways.key` exists in the config folder. Setup does not make that key yet (step 8), so a normal install works exactly as before. The story program runs only with the Timeways lane and a `[story]` section in the config (12). Without `[story]`, the lane answers each message with "Timeways story program not running." in its own slots. The app protocol is in 9.8, and the story sandbox in 6.6.4. The loopback of step 5 runs in the fake game of the tests: the shared Lua transport sends a real strip with a batch of the Timeways addon, the fake story program answers, and the Lua slot poll reads the answer from `Timeways_S0001`. A loopback in the real game waits for a Timeways addon build. The story program of the Timeways repo speaks the same shapes, and the fake story program copies them.
 
 **Decisions:**
 
@@ -935,12 +956,12 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
 6. **Flags.** The flags split into transport flags (`h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, `restored`) and coding flags (`perm=`, `level=`, `agent=`, `attach=`, `list`, `d`, `n`, `stop`). The Timeways lane parses the transport flags only. A Timeways record with a non-empty `cwd` is refused: it counts as seen, and its reply is the error "Timeways takes no folder.".
 7. **Restore.** Timeways has no restore bundle. The story state lives on the desktop, so the addon rebuilds from there. A Timeways hello never starts a relay restore and never retires a relay token.
 8. **The story program.** The bridge starts `timeways-story` when the Timeways key exists, from a path in the config (never a `PATH` lookup), with no shell and the environment allowlist of 6.2. It talks JSON lines over stdin and stdout, with a size limit on each line, a version handshake, and a timeout for each request. The bridge checks each message against a fixed shape. The bridge writes all files that the game reads.
-9. **The story sandbox.** The story program reads hostile text: records from any addon, other players' names and messages, and model answers. So it runs in the sandbox of 6.6.4. It writes only `<data>/timeways/`, has no network, and cannot read the `deny` and `desktop` paths. On Windows there is no sandbox yet: Timeways runs, and the bridge shows a one-time warning.
+9. **The story sandbox.** The story program reads hostile text: records from any addon, other players' names and messages, and model answers. So it runs in the sandbox of 6.6.4. It writes only `<data>/timeways/`, has no network, and cannot read the `deny` and `desktop` paths. On Windows there is no sandbox yet: Timeways runs, and the bridge shows a one-time warning. (Step 5: the story program writes only `<data>/timeways/story/`, because `<data>/timeways/state.json` holds the replay store of the lane. The same warning shows on a Linux with no working `bwrap`.)
 10. **Model calls.** The story program asks the bridge for a model call over the app protocol. The bridge runs the model with no tools and returns only text.
     - **Claude:** `claude -p --tools "" --strict-mcp-config`, with the flags that load no user or project settings (checked live), in an empty private temp folder for each call. The `PreToolUse` gate denies every tool on this route, and the check on tool results stays on.
     - **A local model** (Ollama, LM Studio): through `curl` with `-q` first, `--proto =http`, `--max-redirs 0` and no `-L`, `--noproxy '*'`, `--max-time`, and the prompt through stdin (`--data-binary @-`), never in the arguments. The bridge limits the size of the answer while it reads it. The config accepts only `127.0.0.1` and `[::1]`, not `localhost`. The answer is hostile text, like an agent reply.
     - **Budget.** The bridge enforces a budget of calls for each app with the proved limiter of S14. A hostile addon cannot spend the model subscription faster than that.
-11. **Prompt injection.** Other players' text reaches the prompt. With no tools, it can reach only three things: the text that the user sees (bounded by S10 and S24), the story world (bounded by the rules of the world), and the budget. This is the accepted boundary. Each part has a named test.
+11. **Prompt injection.** Other players' text reaches the prompt. With no tools, it can reach only three things: the text that the user sees (bounded by S10 and S24), the story world (bounded by the rules of the world), and the budget. This is the accepted boundary. Each part has a named test. (Step 5: a Timeways reply is a JSON line, not Markdown blocks, so S24 does not apply to it. The bridge applies the escape of S10 to each text in the reply, and S8, S9, and S12 bound the slot file, 9.8.)
 12. **Protected files.** The data folder joins the config folder in the `deny_folders` of the classifier (6.6.3), with a named test for each file in it. The sandbox of 6.6.4 hides it too.
 13. **The shared strip corner.** Both addons draw the strip in the same corner, so they take turns through a shared "busy until" value. While an addon waits for the corner, its 40 s retry timer stops. Each addon counts only the screenshot events of its own strip. An addon that cannot get the corner shows "Screenshots blocked by another addon" before its frame reaches the 270 s limit. A Quint model (`models/corner.qnt`) checks this with the timers.
 14. **Shared Lua transport.** `Codec.lua`, `Sha256.lua`, `Strip.lua`, and the slot poll move into one source folder with parameters: the app name, the slot prefix, the global names, and the saved variables. The relay repo copies the folder at package time and never commits a copy. The Timeways repo checks its copy with a plain diff against the pinned relay tag.
@@ -974,9 +995,87 @@ The relay tests use a small second test addon built from the shared transport, n
 3. The second key, routing (S29), and the Timeways lane, in one step. No commit has a Timeways key without a Timeways lane.
 4. The data folder in `deny_folders`, the flags split, and the outbox rule.
 5. The app protocol, the story program with its sandbox, and its life cycle, with a fake echo story program and a test addon: a loopback proved in the game before the real story work.
+5b. Shared message logic: the send queue, the signed outbox, retries, `next`, `read`, the hello, the slot poll with reply handling, and the health flags move from `GnomishRelay/Transport.lua` into `addon/transport/Messages.lua`, with `ns.App` parameters, so Timeways and the test addon share the logic that `models/transport.qnt` checks. The relay keeps chats, sessions, restore, live, and popups on top of it.
 6. Model calls with no tools, and the budget.
 7. The shared corner and its Quint model.
 8. Setup for two apps, and versions.
+
+### 9.8 The app protocol
+
+The bridge and the story program of Timeways talk in JSON lines: one JSON object on each line, over the stdin and stdout of the story program. The story program is untrusted, like an agent, and so is the addon. `crates/bridge/src/addon_lines.rs` checks the lines of the addon, `crates/bridge/src/app_protocol.rs` has the other messages, and `crates/bridge/src/story.rs` has the life cycle.
+
+**Start.** The bridge starts the story program only when the Timeways lane is on (`timeways.key` exists) and the config has a `[story]` section (12). The command line is `<program> <lore pack> <story folder>`. The program path is absolute: the bridge never looks it up on `PATH`. The lore pack is the SQLite file of the lore. The story folder is `<data>/timeways/story/`, which the bridge makes with mode 0700. The bridge starts the program with no shell, with the environment allowlist of 6.2 rule 12, with the story folder as its working folder, and in the sandbox of 6.6.4. On Linux and macOS the story program leads its own process group. On Windows, `taskkill /T` stops its process tree.
+
+**What the story program writes.** Only files below its story folder, for example `worlds/<realm id>/<character id>.jsonl`. Each id is a safe encoding of a name from the game: `[A-Za-z0-9]` stays, and every other byte becomes `_XX` in hex (9.7, decision 19). The bridge writes every file that the game reads, with the proved writers (S9, S12). The story program never writes a slot file. Problems go to its stderr.
+
+**Batches from the addon.** The Timeways addon sends one message for each batch, in its one chat. The text of the message is JSON lines: an optional `character_entered` line first, then game events, then at most one line with a reply, last. The bridge checks each line:
+
+- One JSON object, at most 4 KiB, with a string `type` of 1 to 32 bytes of `[a-z_]`.
+- No `id` key. The bridge adds `id`, never the addon.
+- No control character in any string or key. Nesting depth at most 4 (a flat object is 1). At most 64 keys in all.
+- Three types keep an exact shape (`deny_unknown_fields`, a key twice is an error):
+
+| `type` | Fields | Checks |
+|---|---|---|
+| `character_entered` | `realm`, `name` | `realm` at most 64 bytes, `name` at most 48 bytes |
+| `lore_asked` | `at`, `question`, `target` (optional) | `question` at most 1 KiB, `target` at most 128 bytes |
+| `journal_asked` | `page` (optional, default 0) | |
+| `talk_asked` | `at`, `npc`, `text` | `npc` 1 to 64 bytes, `text` at most 255 bytes |
+
+- `lore_asked`, `journal_asked`, and `talk_asked` are the lines with a reply.
+- Any other `type` is a game event with no reply, for example `zone_entered`, `npc_met`, `level_reached`, and `npc_defeated`. The story program checks its fields, and ignores a type that it does not know. So a new event of Timeways needs no change in the bridge.
+
+A line that fails a check is dropped and logged. The batch is refused with an error reply, and none of its lines go on, when its character line is too long or holds a control character ("The realm or the name of the character is too long."), or when its order is wrong: a second character line, a character line that is not first, or a line with a reply that is not last ("The lines of the batch are in the wrong order.").
+
+**Messages from the bridge.** Each line that the bridge sends is made from the checked value, never from the raw bytes of the addon.
+
+| `type` | Fields | When |
+|---|---|---|
+| `hello` | `protocol` (the version of the bridge, now 1), `app` (`"timeways"`) | The first line after each start |
+| each line of a batch | its own fields, and `id` (a number from 1 up, the same for each line of one batch) | For each batch that the lane marked as seen on disk |
+| `batch_end` | `id` | After the last line of a batch with no line with a reply. A line with a reply ends its batch itself, so each batch gets exactly one answer line. |
+| `model_failed` | `call` | The answer to each `model_call`. Until step 6 of 9.7 it comes at once. Step 6 adds `model_answered` with `call` and `text`. |
+
+The bridge sends each batch as soon as the story program is ready. A batch that waits for its answer never holds up the next one: answers match by `id`. The limits of each chat (the queue cap of S14, and 30 records in the body) bound the batches that wait.
+
+**Messages from the story program.** Each line must have one of these shapes, with `deny_unknown_fields`: an unknown type, an unknown field, a missing field, a field twice, or a value of the wrong type refuses the line.
+
+| `type` | Fields | Checks |
+|---|---|---|
+| `hello` | `protocol` | |
+| `lore_answer` | `id`, `text` (a string or `null`), `passages` (a list of `text` and `source`), `companion` (optional) | `text` at most 8 KiB, at most 8 passages, each `text` at most 4 KiB and each `source` at most 512 bytes. No control character but a newline and a tab. |
+| `journal` | `id`, `page`, `pages`, `places` (`name`, `within` or `null`, `first_visit`), `people` (`name`, `place` or `null`, `first_met`), `deeds` (`kind`, which is `level`, `from` or `null`, `to`, `at`, `place` or `null`), `companion` (optional) | Each name and place at most 128 bytes, with no control character. |
+| `talk_answer` | `id`, `npc`, `text` (a string or `null` when no model answered), `companion` (optional) | `npc` at most 64 bytes. `text` at most 1600 bytes (400 characters), on one line, with no control character. |
+| `events_seen` | `id`, `companion` (a string or `null`) | The answer to a batch of game events only |
+| `model_call` | `call`, `prompt` | `prompt` at most 256 KiB. |
+
+**Model calls.** A `model_call` can come at any time, also when no batch waits, for example the call of the bard for a saga after `events_seen`. The bridge ties it to no batch and answers it by its `call`. A call that belongs to no batch gives no reply to the game. At most 2 model calls of the story program are open at once (one of the companion, one of the bard); a third one gets `model_failed` at once. In step 5 every call gets `model_failed` at once, so no call stays open. Step 6 keeps calls open while the model runs, and counts them.
+
+`companion` is a line of the companion of the player. It is at most 1000 bytes, with no control character. A longer one, or one with a control character, is dropped and logged, and the rest of the answer stays.
+
+**Replies.**
+
+- A batch with a `lore_asked`, `journal_asked`, or `talk_asked` line waits for the `lore_answer`, `journal`, or `talk_answer` with its `id`, for the request timeout. A batch of game events only waits for `events_seen`, for 60 seconds (or the request timeout, if that is shorter).
+- The done reply is one JSON line that the bridge makes from the checked answer, with no `id`, and always with `companion` (a string or `null`): for example `{"type":"events_seen","companion":null}`. The bridge doubles every `|` in each text of it (S10), so the game shows the text as it is. The addon shows these texts with no escape of its own.
+- A batch of game events never gets an error. At its deadline, or when the story program stops, is refused for its version, or does not start, it gets a done reply with an empty text.
+- An answer for an `id` that already ended, for example an `events_seen` after its deadline, or a second answer line with the same `id`, is late: the bridge drops it and logs it. An answer of the wrong type for its batch is a bad line.
+- An answer line of more than 24576 bytes gets the error reply "The Timeways answer is too long for the game.", never a cut line. So does a reply that the slot writer would cut (S12). A reply record holds at most 32 KB after the Lua escape, and the Lua escape writes 4 bytes for some bytes, so the bridge checks the real size too.
+- An error reply is plain text.
+
+**Rules:**
+
+- A line from the story program is at most 1 MiB. The reader skips the rest of a longer line.
+- A line that fails a check is a bad line. The bridge logs it and skips it. An answer for an `id` that the bridge never gave is a bad line too. More than 10 bad lines in one run of the story program stop it.
+- **Handshake.** The story program answers the `hello` of the bridge with its own `hello` within 10 seconds (or the request timeout, if that is shorter). Any other line first is a bad line. No `hello` in time stops the story program.
+- **Versions.** The story program compares nothing; the bridge compares. A story program with a higher `protocol` gets "Update the desktop program: gnomish-relay update." as the answer to each batch. A lower one gets "Update Timeways.". The bridge stops it, logs both versions, and does not start it again until the bridge restarts: a restart cannot fix a version.
+- **Timeout.** A batch with a reply line has the timeout of `[story] timeout_seconds` (default 120 seconds), from the time that the lane gives it to the story program. With no answer in time it ends with "The Timeways story program did not answer in time.". Such a batch that was sent with no answer in time means a hang: the bridge kills the story program. A batch of game events with no `events_seen` in time is no hang.
+- **Stop.** The bridge kills the process group of the story program when a hang, a crash, or too many bad lines stop it. Each sent batch with a reply line then ends with "The Timeways story program stopped.", and each sent batch of events with an empty done reply. A batch that is not sent yet waits for the next start.
+- **Restart.** After a stop, the bridge starts the story program again after 1 second, then 2, 4, and so on up to 60 seconds. After a run of 60 seconds or more, the wait starts at 1 second again.
+- **End of input.** The story program exits when its stdin closes: the bridge is gone. With `bwrap`, `--die-with-parent` also stops it. `gnomish-relay restart` and `update` restart the bridge, so the story program starts again with it. A systemd service stops the whole control group. On macOS and on a Linux with no `bwrap`, a bridge that a signal kills cannot kill the process group, because the bridge has no signal handler (it forbids `unsafe`). There the story program depends on the end-of-input rule.
+- **No sandbox.** With no sandbox (6.6.4), the first reply with text after the bridge starts carries the warning: a `note` field in a JSON reply, or a second line in an error reply.
+- **Logs.** Each log line of the story program starts with `timeways:`. The last line of its stderr goes into the log after a crash, with the escapes of 6.2 rule 15.
+
+The tests use a fake story program, `crates/bridge/src/bin/fake-story.rs`, with scripts: echo (a `lore_answer` of "story: <question>", the journal, a `talk_answer`, and `events_seen`), a `null` text, two answers with one `id`, three bard calls after `events_seen`, `events_seen` and answers with a companion line and with one that is too long, a late `events_seen`, a missing `events_seen`, crash, crash once, garbage lines, a flood of bad lines, a huge line, an answer line one byte over the limit, a hang, no hello, a higher and a lower version, answers for unknown ids, an answer for another id, a model call, its environment, a child process, and probes of the sandbox. It writes each line that it gets into `seen.txt` in its folder, and the `id` of each `batch_end` into `ends.txt`.
 
 ## 10. Pings from terminal sessions
 
@@ -1104,7 +1203,21 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never replaces a config.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`, and `[allow]` with `commands` and `[allow.folders]`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`, `[allow]` with `commands` and `[allow.folders]`, and `[story]` with `program`, `lore_pack`, and `timeout_seconds`.
+
+**The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
+
+```toml
+[story]
+program = "~/.local/bin/timeways-story"   # an absolute path, or one that starts with ~/
+lore_pack = "~/.local/share/timeways/lore.sqlite"   # the same; the first argument
+timeout_seconds = 120                     # 1 to 600; the longest wait for one reply
+```
+
+- The bridge never looks up `program` on `PATH`. A name with no folder is an error, for `program` and for `lore_pack`.
+- `program` and `lore_pack` are both needed.
+- With no `[story]`, each Timeways message gets the answer "Timeways story program not running.".
+- With `[story]` and no `timeways.key`, the bridge logs one line and starts no story program.
 
 **The allow table** lists the commands that run from the game with no question at `auto-edit` and `full-auto` (9.3):
 
@@ -1409,6 +1522,9 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 - The environment of an agent process: it contains only the allowlist.
 - A prompt with newlines: `bridge.log` has one line for it.
 - On macOS and Windows: `allowed_roots` works with a root in a different letter case.
+- The environment of the story program: it contains only the allowlist, with and without `bwrap`.
+- The story sandbox on Linux with a real `bwrap` (`crates/bridge/tests/story_sandbox.rs`): a write outside its folder fails, also to `state.json` of the lane and to the lore pack; a read of the config folder, the keys, the data folder, and `~/.ssh` fails, and a read of the lore pack inside the hidden data folder works; a connect to a port that answers outside the sandbox fails inside it. With no working `bwrap` these tests skip with a message. CI installs `bwrap` on Linux and sets `GNOMISH_REQUIRE_BWRAP`, so there they cannot skip.
+- A hang of the story program: its child process stops too (Linux).
 
 ### 14.6 Supply chain
 
@@ -1434,7 +1550,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
-15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 4. **Next:** step 5, the story program.
+15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 5. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. **Next:** step 6, model calls with no tools, and the budget.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
