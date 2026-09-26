@@ -55,11 +55,12 @@ pub struct ClaudeAgent {
     pub gate: Gate,
 }
 
-/// Full-auto still runs in `acceptEdits`: the bridge allows each question, so every
-/// tool call passes through the bridge first.
+/// The hook decides every call, so the mode matters only when the hook fails. Then
+/// `manual` asks the bridge, and `acceptEdits` does not. Not `plan`: in that mode
+/// Claude writes `~/.claude/plans/<name>.md`, which asks on the desktop (SPEC.md 9.3).
 fn default_mode(level: Permission) -> &'static str {
     match level {
-        Permission::Ask => "plan",
+        Permission::Ask => "manual",
         Permission::AutoEdit | Permission::FullAuto => "acceptEdits",
     }
 }

@@ -99,7 +99,7 @@ fn a_variable_in_the_env_list_reaches_the_agent() {
 #[test]
 fn each_level_gets_its_permission_mode() {
     let modes = |level| run("reply", level).unwrap();
-    assert!(modes(Permission::Ask).contains("mode=plan"));
+    assert!(modes(Permission::Ask).contains("mode=manual"));
     assert!(modes(Permission::AutoEdit).contains("mode=acceptEdits"));
     assert!(modes(Permission::FullAuto).contains("mode=acceptEdits"));
 }
@@ -108,12 +108,12 @@ fn each_level_gets_its_permission_mode() {
 fn the_modes_table_of_the_config_replaces_the_default_mode() {
     let dir = tempfile::tempdir().unwrap();
     let mut claude = agent("reply", dir.path());
-    claude.modes.insert(Permission::Ask, "manual".into());
+    claude.modes.insert(Permission::Ask, "plan".into());
     let reply = claude
         .run(&job(&dir, Permission::Ask, "hi"), &Control::default())
         .reply
         .unwrap();
-    assert!(reply.contains("mode=manual"), "{reply}");
+    assert!(reply.contains("mode=plan"), "{reply}");
 }
 
 #[test]

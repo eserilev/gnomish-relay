@@ -92,6 +92,14 @@ fn use_tool(hook: Option<&Hook>, tool: &str, input: &Value) -> Option<String> {
     Some(format!("{decision}: {reason}"))
 }
 
+/// Where Claude Code writes its plan in plan mode, even when the user asked for no plan.
+fn plan_file() -> String {
+    let home = std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .unwrap_or_default();
+    format!("{home}/.claude/plans/lazy-reef.md")
+}
+
 /// The scripts of the gate: a tool call through the hook, and hooks that go wrong.
 fn gate_reply(script: &str, args: &[String], hook: Option<&Hook>) -> Option<String> {
     match script {
@@ -99,6 +107,14 @@ fn gate_reply(script: &str, args: &[String], hook: Option<&Hook>) -> Option<Stri
             let tool = args.get(1)?;
             let input: Value = serde_json::from_str(args.get(2)?).ok()?;
             use_tool(hook, tool, &input)
+        }
+        "plan" => {
+            let file = if flag(args, "--permission-mode") == "plan" {
+                plan_file()
+            } else {
+                "hello.txt".into()
+            };
+            use_tool(hook, "Write", &json!({ "file_path": file }))
         }
         "hookinfo" => hook.map(|h| format!("hook={} timeout={}", h.id, h.timeout)),
         "nohook" => {
@@ -158,7 +174,7 @@ fn reply(
     hook: Option<&Hook>,
 ) -> Option<String> {
     match script {
-        "tool" | "hookinfo" | "nohook" | "badhook" => gate_reply(script, args, hook),
+        "tool" | "plan" | "hookinfo" | "nohook" | "badhook" => gate_reply(script, args, hook),
         "hang" => loop {
             std::thread::park();
         },

@@ -99,7 +99,17 @@ fn call_with_game(
     answer: impl Fn(&Question) -> Option<Option<usize>> + Send + 'static,
 ) -> (String, Vec<Question>) {
     let input = input.to_string();
-    let claude = claude(home, &["tool", tool, &input], Duration::from_secs(10));
+    run_with_game(home, &["tool", tool, &input], level, answer)
+}
+
+/// One run of a script of the fake `claude` with the game listening.
+fn run_with_game(
+    home: &Home,
+    args: &[&str],
+    level: Permission,
+    answer: impl Fn(&Question) -> Option<Option<usize>> + Send + 'static,
+) -> (String, Vec<Question>) {
+    let claude = claude(home, args, Duration::from_secs(10));
     let job = job(home, level);
     let (to, events) = std::sync::mpsc::channel();
     let control = Control {
@@ -306,6 +316,18 @@ fn at_the_level_ask_a_read_runs_and_an_edit_in_the_folder_asks() {
         Permission::AutoEdit,
     );
     assert_eq!(edit, "allow: Allowed by Gnomish Relay.");
+}
+
+/// Plan mode made Claude write `~/.claude/plans/<name>.md`, a desktop path, for a
+/// plain "create a file" request.
+#[test]
+fn at_the_level_ask_claude_writes_no_plan_file_and_the_write_asks_in_the_game() {
+    let home = home("");
+    let (reply, questions) = run_with_game(&home, &["plan"], Permission::Ask, |_| Some(Some(0)));
+    assert_eq!(reply, "allow: Allowed by Gnomish Relay.");
+    assert_eq!(questions.len(), 1);
+    let text = String::from_utf8_lossy(&questions[0].text);
+    assert!(text.starts_with("hello.txt"), "{text}");
 }
 
 #[test]
