@@ -176,22 +176,19 @@ enum Wire {
         id: RequestId,
         text: Option<String>,
         passages: Vec<Passage>,
-        // TODO: drop the alias when the Timeways story program writes `narrator`.
-        #[serde(default, alias = "companion")]
+        #[serde(default)]
         narrator: Option<String>,
     },
     TalkAnswer {
         id: RequestId,
         npc: String,
         text: Option<String>,
-        // TODO: drop the alias when the Timeways story program writes `narrator`.
-        #[serde(default, alias = "companion")]
+        #[serde(default)]
         narrator: Option<String>,
     },
     EventsSeen {
         id: RequestId,
-        // TODO: drop the alias when the Timeways story program writes `narrator`.
-        #[serde(default, alias = "companion")]
+        #[serde(default)]
         narrator: Option<String>,
     },
     ModelCall {
@@ -277,9 +274,7 @@ fn read_journal(value: Value) -> Result<(RequestId, Body, Option<String>), BadLi
     let id = content.remove("id").and_then(|v| v.as_u64());
     let page = content.remove("page").as_ref().and_then(as_u32);
     let pages = content.remove("pages").as_ref().and_then(as_u32);
-    // TODO: drop `companion` when the Timeways story program writes `narrator`.
-    let old_name = content.remove("companion");
-    let narrator = match content.remove("narrator").or(old_name) {
+    let narrator = match content.remove("narrator") {
         None | Some(Value::Null) => None,
         Some(Value::String(line)) => Some(line),
         Some(_) => return Err(BadLine::Shape),
@@ -719,14 +714,9 @@ mod tests {
     }
 
     #[test]
-    fn the_old_name_companion_still_reads_as_the_narrator() {
-        let seen = answer_of(br#"{"type":"events_seen","id":5,"companion":"A wolf howls."}"#);
-        assert_eq!(seen.unwrap().narrator.as_deref(), Some("A wolf howls."));
-        let journal = JOURNAL.replace(r#""id":4,"#, r#""id":4,"companion":"Hm.","#);
-        assert_eq!(
-            answer_of(journal.as_bytes()).unwrap().narrator.as_deref(),
-            Some("Hm.")
-        );
+    fn the_old_name_companion_is_refused() {
+        let line = br#"{"type":"events_seen","id":5,"companion":"A wolf howls."}"#;
+        assert_eq!(read_line(line), Err(BadLine::Shape));
     }
 
     #[test]

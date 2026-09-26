@@ -1121,7 +1121,7 @@ The bridge sends each batch as soon as the story program is ready. A batch that 
 
 **The journal is bounded JSON.** The journal of the story program grows often, for example with chapters, the trust of a person, and new kinds of deeds. So only `type`, `id`, `page`, `pages`, and `narrator` of a `journal` line have a fixed shape, and a new field needs no change in the bridge. The other fields must hold only objects, arrays, strings, integers, `null`, and booleans. The line is depth 1, and the depth is at most 6. Each string is at most 1600 bytes, with no control character. Each key is 1 to 32 bytes of `[a-z_]`. An object holds at most 64 keys, and an array at most 200 items. A `note` key is refused, because the note of a reply is the bridge's own. The bridge writes the journal again from the checked value, with every `|` doubled (S10). A string over its limit is a text error; every other failed check is a shape error. The whole line is at most 24576 bytes, as for every answer.
 
-`narrator` is a line of the narrator, the voice of the chronicle. Until the Timeways story program switches, the bridge also reads the old name `companion` as `narrator`. It is at most 1000 bytes, with no control character. A longer one, or one with a control character, is dropped and logged, and the rest of the answer stays.
+`narrator` is a line of the narrator, the voice of the chronicle. It is at most 1000 bytes, with no control character. A longer one, or one with a control character, is dropped and logged, and the rest of the answer stays.
 
 **Replies.**
 
