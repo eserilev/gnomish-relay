@@ -433,6 +433,38 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 The strip shows only while its screenshot is taken, about half a second.
 If no acknowledgment comes in 40 seconds, the addon shows the strip again, up to 3 times in all.
 Then the addon uses the reload fallback (7.5).
+A wait for the shared corner (7.1.2) is not part of the 40 seconds, and it is not a show.
+
+#### 7.1.2 The shared corner
+
+Every app of the shared transport (9.7, decision 14) draws its strip in the same top-left corner.
+Two strips at the same time give a screenshot that no app can read.
+Also, a `SCREENSHOT_SUCCEEDED` or `SCREENSHOT_FAILED` event has no owner, and every addon gets it.
+So the apps take turns through one shared global, `GnomishStripCorner` (9.7, decision 13).
+`Strip.lua` follows `models/corner.qnt` (14.2).
+
+**The value.** It holds the holder (the name of the strip frame of the app), the time when the hold ends, and a wait mark for each app that waits.
+A wait mark holds the time when the app started to wait, and the time when it last asked. All times come from `GetTime()`, one clock for all addons.
+WoW Lua runs one handler at a time, so an app reads and writes the value in one step.
+A `/reload` resets the globals of all addons together, so no holder stays from an older UI session.
+
+**The rules.**
+
+- An app takes the corner when no other app holds it and no other app waits longer. A hold ends after 12 seconds, so an app that stops with an error frees the corner.
+- After its strip ends, the app keeps the corner for a tail of 2 seconds. A late event of its own shot then finds no strip of another app to end.
+- An app that cannot take the corner writes its wait mark, and asks again at its next Tick, one second later. A mark that is older than 3 seconds belongs to an app that stopped waiting.
+- With no hostile addon, an app waits at most 15 seconds: its own tail, one strip and tail of the other app, and one Tick.
+- While an app waits, it signs nothing, and no show counts. So its 40-second retry timer and its 3 shows wait too, and a wait never starts the outbox.
+- A screenshot event ends a strip only when the app holds the corner and has called `Screenshot()`. So `out=shot` and `out=fail` report only the shots of the app.
+- A screenshot of the player during our shot can still end our strip early, because an event has no owner. This costs at most one early end or one wrong `out=` value, and the next retry covers it. So the addon does not try to match events to shots.
+- After 30 seconds of waiting, the app shows one line: "<title>: screenshots are blocked by another addon.". The window shows "Screenshots blocked". The line shows again only after the corner was free between. 30 seconds is two times the longest honest wait, and far below the 270-second limit of a signed frame.
+- A blocked app keeps waiting. It does not use the outbox: a hostile holder stays across every `/reload`, so the outbox would ask for a reload for each message.
+- Each app hooks the "Screen captured" text, and each hook hides the text of the shots of its own app only. A second `Hide` does nothing.
+
+**A hostile addon.** Every addon can read and write the value. A hostile addon can already block the strip, for example with a hook on `Screenshot()`. So the blocked line is the answer to a hostile holder.
+The addon reads and writes the value with `rawget` and `rawset`, so a metatable has no effect. A value or a field of a wrong type counts as missing.
+
+**Versions.** The Timeways copy of the transport is pinned to a relay tag, so two versions of `Strip.lua` can run at the same time. A new shape of the value needs a new global name.
 
 ### 7.2 Why each channel works
 
@@ -944,7 +976,7 @@ agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder na
 
 Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It uses this bridge as its desktop program: the same strip, the same slots, and the same proofs, with its own key, its own slots, and its own lane. This section is the approved plan (2026-09-25). A reviewer checked it, and the user approved every decision below.
 
-**Status (2026-09-26):** steps 1 to 5, 5b, and 6 are done. Step 6 runs the model calls of the story program with no tools, with the budget of decision 10 (details there, and the protocol in 9.8). The Timeways lane is on only when `timeways.key` exists in the config folder. Setup does not make that key yet (step 8), so a normal install works exactly as before. The story program runs only with the Timeways lane and a `[story]` section in the config (12). Without `[story]`, the lane answers each message with "Timeways story program not running." in its own slots. The app protocol is in 9.8, and the story sandbox in 6.6.4. The loopback of step 5 runs in the fake game of the tests: the shared Lua transport sends a real strip with a batch of the Timeways addon, the fake story program answers, and the Lua slot poll reads the answer from `Timeways_S0001`. A loopback in the real game waits for a Timeways addon build. The story program of the Timeways repo speaks the same shapes, and the fake story program copies them. Since step 5b, the test addon sends, retries, and polls through `Messages.lua` (13.2), behind the seam of the Timeways addon: `ns.Link = { Fits(text), Send(text) }`, and one call for each final reply.
+**Status (2026-09-26):** steps 1 to 7 are done, with 5b. Step 6 runs the model calls of the story program with no tools, with the budget of decision 10 (details there, and the protocol in 9.8). The Timeways lane is on only when `timeways.key` exists in the config folder. Setup does not make that key yet (step 8), so a normal install works exactly as before. The story program runs only with the Timeways lane and a `[story]` section in the config (12). Without `[story]`, the lane answers each message with "Timeways story program not running." in its own slots. The app protocol is in 9.8, and the story sandbox in 6.6.4. The loopback of step 5 runs in the fake game of the tests: the shared Lua transport sends a real strip with a batch of the Timeways addon, the fake story program answers, and the Lua slot poll reads the answer from `Timeways_S0001`. A loopback in the real game waits for a Timeways addon build. The story program of the Timeways repo speaks the same shapes, and the fake story program copies them. Since step 5b, the test addon sends, retries, and polls through `Messages.lua` (13.2), behind the seam of the Timeways addon: `ns.Link = { Fits(text), Send(text) }`, and one call for each final reply. Since step 7, the two addons take turns for the strip corner (7.1.2).
 
 **Decisions:**
 
@@ -972,6 +1004,13 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
 11. **Prompt injection.** Other players' text reaches the prompt. With no tools, it can reach only three things: the text that the user sees (bounded by S10 and S24), the story world (bounded by the rules of the world), and the budget. This is the accepted boundary. Each part has a named test. (Step 5: a Timeways reply is a JSON line, not Markdown blocks, so S24 does not apply to it. The bridge applies the escape of S10 to each text in the reply, and S8, S9, and S12 bound the slot file, 9.8.)
 12. **Protected files.** The data folder joins the config folder in the `deny_folders` of the classifier (6.6.3), with a named test for each file in it. The sandbox of 6.6.4 hides it too.
 13. **The shared strip corner.** Both addons draw the strip in the same corner, so they take turns through a shared "busy until" value. While an addon waits for the corner, its 40 s retry timer stops. Each addon counts only the screenshot events of its own strip. An addon that cannot get the corner shows "Screenshots blocked by another addon" before its frame reaches the 270 s limit. A Quint model (`models/corner.qnt`) checks this with the timers.
+    - **Done (step 7).** The rules are in 7.1.2. An advisor agent and the implementer chose these details (2026-09-26):
+      - A blocked app waits, and does not use the outbox. A hostile holder stays across every `/reload`, so the outbox would ask for one reload for each message.
+      - The app that waits longest goes next. Without a turn rule, an app that sends often can take the corner again at each release, and no bound holds. The model first had one waiter field. It then found a trace where the second waiter lost its turn, so each app now has its own wait mark.
+      - The holder keeps the corner for a 2-second tail after its strip. The model found a trace where a late event of one app ended the strip of the other.
+      - The blocked line shows once for each blocked time, not once for each UI session. So a second attack shows too.
+      - Each app keeps its own hook for the "Screen captured" text. One shared hook needs a shared flag that a hostile addon can set.
+      - The value goes through `rawget` and `rawset`, so a metatable of a hostile addon has no effect.
 14. **Shared Lua transport.** `Codec.lua`, `Sha256.lua`, `Strip.lua`, the slot poll, `Health.lua`, and `Messages.lua` move into one source folder with parameters: the app name, the slot prefix, the global names, and the saved variables. The relay repo copies the folder at package time and never commits a copy. The Timeways repo checks its copy with a plain diff against the pinned relay tag.
 15. **Setup.** A player with only Timeways gets no folder question and no coding agents, only a `[story]` section in the config for the model. The bridge makes the Timeways slots only when the Timeways addon folder exists. It writes only `Key.lua` into the Timeways folder, and writes it again at start if it is missing. It never writes other Timeways files.
 16. **Life cycle.** `restart` and `update` also stop and start the story program. The bridge kills its process group when it exits. A story program that crashes starts again after a backoff.
@@ -1005,7 +1044,7 @@ The relay tests use a small second test addon built from the shared transport, n
 5. The app protocol, the story program with its sandbox, and its life cycle, with a fake echo story program and a test addon: a loopback proved in the game before the real story work.
 5b. Shared message logic: the send queue, the signed outbox, retries, `next`, `read`, the hello, the slot poll with reply handling, and the health flags move from `GnomishRelay/Transport.lua` into `addon/transport/Messages.lua`, with `ns.App` parameters, so Timeways and the test addon share the logic that `models/transport.qnt` checks. The relay keeps chats, sessions, restore, live, and popups on top of it. (Done. No transport rule changed, so the model did not change.)
 6. Model calls with no tools, and the budget.
-7. The shared corner and its Quint model.
+7. The shared corner and its Quint model. (Done. `Strip.lua` takes turns through `GnomishStripCorner` (7.1.2), and `models/corner.qnt` checks the rules.)
 8. Setup for two apps, and versions.
 
 ### 9.8 The app protocol
@@ -1344,8 +1383,8 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Codec.lua` (shared) | Records, frames, and cells: the Lua side of `crates/protocol`. |
 | `Saved.lua` (shared) | The saved variables table of the app. |
 | `Store.lua` | The saved data of the relay: chats, deletes, and settings. |
-| `Health.lua` (shared) | The login self-test and the health of each channel (7.8). Its lines start with the title of the app. |
-| `Strip.lua` (shared) | Draws a frame and takes one screenshot of it. |
+| `Health.lua` (shared) | The login self-test and the health of each channel (7.8), and the line for a blocked strip corner (7.1.2). Its lines start with the title of the app. |
+| `Strip.lua` (shared) | Takes the shared strip corner in turn with the other apps (7.1.2), draws a frame, and takes one screenshot of it. |
 | `Slots.lua` (shared) | Loads one slot, and takes the three globals of the app. |
 | `Messages.lua` (shared) | The send queue, the signed outbox, retries and give-up, the hello, the report flags (`next`, `read`, `restored`, and the health flags), and the slot poll with the replies. It follows `models/transport.qnt`. It keeps the token and the message ids. An app sets its hooks: the store of its messages, the fields of a record, and the calls for each reply. |
 | `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
@@ -1501,7 +1540,7 @@ So most theorems are security properties. Each one closes a named attack.
 - Put bit arithmetic in tiny helpers that take and return integers (`cell_at`, `append_cell`). One large function with 30 bit operations timed out in the proof. The same code split into helpers proves in seconds.
 - The cell codec works in groups: 3 bytes (24 bits) are exactly 8 cells. The bit stream is the same as in 7.1. The encoder pads the last group with zero bytes, and the frame header carries the real length.
 
-### 14.2 Quint model of the transport
+### 14.2 Quint models of the transport
 
 `models/transport.qnt` models the addon, the bridge, the slots, the signals, `/reload`, and a saved-data wipe.
 The model checker checks these properties:
@@ -1512,6 +1551,16 @@ The model checker checks these properties:
 - Each sent message ends with a reply or an error, also across `/reload`.
 
 Write the model before the bridge state machine. The Rust state machine follows the model.
+
+`models/corner.qnt` models the shared strip corner of 7.1.2: two addons, the shared value, the screenshot events that both addons get, the screenshots of the player, a lost event, the retry timer and the shows, and a hostile addon that writes the value. The times are small, but they keep the order of the real times. The model checker checks these properties:
+
+- Two addons never show a strip at the same time.
+- A screenshot event ends only the strip of the addon that holds the corner, never a strip of another shot.
+- The retry timer does not run while an addon waits, and a wait adds no show. So the outbox comes only after the real shows.
+- An addon that cannot get the corner shows the blocked line before its frame is too old.
+- With no hostile addon, a waiting addon gets the corner within the bound of 7.1.2, and no blocked line shows.
+
+`scripts/check-model.sh` runs both models. For each model, a set of witnesses must fail, so the simulator surely reaches the hard states: a turn after a wait, the blocked line, the outbox, and a retry.
 
 ### 14.3 Tests
 
@@ -1592,7 +1641,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
-15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 5, 5b, and 6. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). **Next:** step 7, the shared corner.
+15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 7, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. **Next:** step 8, setup for two apps, and versions.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
