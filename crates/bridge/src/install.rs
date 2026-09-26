@@ -44,7 +44,7 @@ pub const ADDON_FILES: [(&str, &[u8]); 17] = [
     ),
     (
         "Health.lua",
-        include_bytes!("../../../addon/GnomishRelay/Health.lua"),
+        include_bytes!("../../../addon/transport/Health.lua"),
     ),
     (
         "Strip.lua",

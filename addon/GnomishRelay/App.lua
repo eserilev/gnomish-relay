@@ -4,6 +4,7 @@
 local _, ns = ...
 
 ns.App = {
+	title = "Gnomish Relay",
 	slotPrefix = "GnomishRelay_S%04d",
 	slotData = "GnomishRelay_SlotData",
 	restore = "GnomishRelay_Restore",

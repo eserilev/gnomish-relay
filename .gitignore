@@ -10,5 +10,6 @@ addon/GnomishRelay/Codec.lua
 addon/GnomishRelay/Saved.lua
 addon/GnomishRelay/Strip.lua
 addon/GnomishRelay/Slots.lua
+addon/GnomishRelay/Health.lua
 # Release archives. scripts/package.sh writes them.
 dist/

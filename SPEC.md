@@ -1310,12 +1310,12 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | File | Job |
 |---|---|
 | `Key.lua` | The strip key. `scripts/dev-link.sh` writes it, and git ignores it. |
-| `App.lua` | The names of the app: the slot prefix, the three slot globals, the strip frame, and the saved variables. |
+| `App.lua` | The names of the app: its title, the slot prefix, the three slot globals, the strip frame, and the saved variables. |
 | `Sha256.lua` (shared) | SHA-256 and HMAC-SHA256 for the strip tag. |
 | `Codec.lua` (shared) | Records, frames, and cells: the Lua side of `crates/protocol`. |
 | `Saved.lua` (shared) | The saved variables table of the app. |
 | `Store.lua` | The saved data: token, chats, and the outbox. |
-| `Health.lua` | The login self-test and the health of each channel (7.8). |
+| `Health.lua` (shared) | The login self-test and the health of each channel (7.8). Its lines start with the title of the app. |
 | `Strip.lua` (shared) | Draws a frame and takes one screenshot of it. |
 | `Slots.lua` (shared) | Loads one slot, and takes the three globals of the app. |
 | `Transport.lua` | The strip retries, the poll schedule, and the flags. It follows `models/transport.qnt`. |

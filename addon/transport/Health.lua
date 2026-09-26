@@ -1,5 +1,6 @@
 -- The login self-test and the health of each channel (SPEC.md 7.8). A client patch
--- can remove a function or block a channel. The addon then says so in one line.
+-- can remove a function or block a channel. The addon then says so in one line, with
+-- the title of its app.
 
 local _, ns = ...
 
@@ -51,7 +52,7 @@ function Health.Shot(ok)
 		status.out, status.outAt = "shot", time()
 	elseif status.out ~= "fail" then
 		status.out = "fail"
-		print("Gnomish Relay: screenshots are blocked.")
+		print(ns.App.title .. ": screenshots are blocked.")
 	end
 end
 
@@ -60,7 +61,7 @@ function Health.Slot(ok)
 		status.inbound, status.inAt = "slots", time()
 	elseif status.inbound ~= "missing" then
 		status.inbound = "missing"
-		print("Gnomish Relay: slots are missing. Run gnomish-relay install with the game closed.")
+		print(ns.App.title .. ": slots are missing. Run gnomish-relay install with the game closed.")
 	end
 end
 
@@ -91,7 +92,8 @@ end
 
 function Health.Line()
 	return string.format(
-		"Gnomish Relay: build %s, last screenshot %s, last slot %s",
+		"%s: build %s, last screenshot %s, last slot %s",
+		ns.App.title,
 		Build(),
 		Ago(status.outAt),
 		Ago(status.inAt)
