@@ -10,7 +10,9 @@ use std::path::Path;
 use protocol::lua::lua_string;
 use protocol::slot::MAX_TEXT;
 
-use crate::config::{Policy, RelayConfig, StoryConfig};
+use crate::config::{
+    Policy, RelayConfig, StoryConfig, is_inside_folder, native_folder, path_bytes, path_parts,
+};
 use crate::folder_list::CUT;
 use crate::model::ModelChoice;
 
@@ -41,18 +43,20 @@ pub struct StorySettings {
     pub budget_window_minutes: u32,
 }
 
-/// `~/Code` for a path in the home folder, as the player reads it.
-fn shown(path: &Path, home: Option<&Path>) -> String {
-    let inside = home.and_then(|h| path.strip_prefix(h).ok());
-    match inside {
-        Some(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Some(rest) => format!("~/{}", rest.to_string_lossy().replace('\\', "/")),
-        None => path.to_string_lossy().into_owned(),
-    }
+/// `~/Code` for a path in the home folder, as the player reads it. Both paths are in the
+/// form of `path_bytes`, so a `\\?\` prefix on Windows makes no difference.
+fn shown(path: &[u8], home: Option<&[u8]>) -> String {
+    let Some(home) = home.filter(|h| is_inside_folder(path, h)) else {
+        return String::from_utf8_lossy(path).into_owned();
+    };
+    let mut parts = vec![b"~".as_slice()];
+    parts.extend(&path_parts(path)[path_parts(home).len()..]);
+    String::from_utf8_lossy(&parts.join(&b'/')).into_owned()
 }
 
-fn shown_bytes(path: &[u8], home: Option<&Path>) -> String {
-    shown(Path::new(&*String::from_utf8_lossy(path)), home)
+/// A folder of the policy, in the form of the resolver.
+fn shown_folder(resolved: &[u8], home: Option<&[u8]>) -> String {
+    shown(&native_folder(resolved.to_vec(), cfg!(windows)), home)
 }
 
 /// The model name only: the address of a local model stays on the desktop.
@@ -76,11 +80,17 @@ impl BridgeSettings {
     ) -> BridgeSettings {
         let folders = &relay.policy.folders;
         let (allow, folder_rules) = relay.allow.patterns();
+        let home = home.map(path_bytes);
+        let home = home.as_deref();
         BridgeSettings {
             version: env!("CARGO_PKG_VERSION").into(),
             sandbox,
-            default_cwd: shown_bytes(&folders.base, home),
-            roots: folders.roots.iter().map(|r| shown_bytes(r, home)).collect(),
+            default_cwd: shown_folder(&folders.base, home),
+            roots: folders
+                .roots
+                .iter()
+                .map(|r| shown_folder(r, home))
+                .collect(),
             kinds: relay
                 .agents
                 .iter()
@@ -95,7 +105,7 @@ impl BridgeSettings {
             allow,
             allow_folders: folder_rules
                 .into_iter()
-                .map(|(folder, rule)| (shown(&folder, home), rule))
+                .map(|(folder, rule)| (shown(&path_bytes(&folder), home), rule))
                 .collect(),
         }
     }
@@ -170,7 +180,6 @@ mod tests {
     use super::*;
     use crate::config::Permission;
     use crate::relay::Folders;
-    use std::path::PathBuf;
 
     fn policy() -> Policy {
         Policy {
@@ -257,11 +266,14 @@ mod tests {
 
     #[test]
     fn a_path_in_the_home_folder_starts_with_a_tilde() {
-        let home = PathBuf::from("/home/x");
-        assert_eq!(shown(Path::new("/home/x/Code"), Some(&home)), "~/Code");
-        assert_eq!(shown(Path::new("/home/x"), Some(&home)), "~");
-        assert_eq!(shown(Path::new("/srv/work"), Some(&home)), "/srv/work");
-        assert_eq!(shown(Path::new("/srv/work"), None), "/srv/work");
+        let home = Some(b"/home/x".as_slice());
+        assert_eq!(shown(b"/home/x/Code", home), "~/Code");
+        assert_eq!(shown(b"/home/x", home), "~");
+        assert_eq!(shown(b"/home/xy", home), "/home/xy");
+        assert_eq!(shown(b"/srv/work", home), "/srv/work");
+        assert_eq!(shown(b"/srv/work", None), "/srv/work");
+        let drive = Some(b"C:/Users/x".as_slice());
+        assert_eq!(shown(b"C:/Users/x/Code", drive), "~/Code");
     }
 
     #[test]
