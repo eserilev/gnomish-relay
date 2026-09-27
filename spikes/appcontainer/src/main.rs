@@ -203,12 +203,26 @@ fn outer() {
 
     let caps = derive_named_capability_sids(&["gnomishRelayChatSpike", "gnomishRelayCommand"]).unwrap();
     let sec = SecurityCapabilities { package: pkg.clone(), caps, lpac: false };
-    let env: Vec<(String, String)> = ["SystemRoot", "PATH", "PATHEXT", "ComSpec"]
+    let small: Vec<(String, String)> = ["SystemRoot", "PATH", "PATHEXT", "ComSpec"]
         .iter()
         .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
         .chain([("HOME".into(), temp_s.clone()), ("TEMP".into(), temp_s.clone()), ("TMP".into(), temp_s.clone()), ("TMPDIR".into(), temp_s.clone())])
         .collect();
+    let mut env: Vec<(String, String)> = ["SystemRoot", "PATH", "USERPROFILE", "APPDATA", "LOCALAPPDATA", "LANG", "TERM", "USER", "USERNAME"]
+        .iter()
+        .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
+        .chain([("HOME".into(), temp_s.clone()), ("TEMP".into(), temp_s.clone()), ("TMP".into(), temp_s.clone()), ("TMPDIR".into(), temp_s.clone())])
+        .collect();
+    env.sort_by_key(|(k, _)| k.to_ascii_uppercase());
     let cmd = PathBuf::from(std::env::var("ComSpec").unwrap_or("C:\\Windows\\System32\\cmd.exe".into()));
+    show("small env", &run_ac(&sec, &cmd, "cmd /c set", &chat, &small));
+    let mut sorted_small = small.clone();
+    sorted_small.sort_by_key(|(k, _)| k.to_ascii_uppercase());
+    show("small env sorted", &run_ac(&sec, &cmd, "cmd /c set", &chat, &sorted_small));
+    show("base env sorted", &run_ac(&sec, &cmd, "cmd /c set", &chat, &env));
+    let mut unsorted = env.clone();
+    unsorted.reverse();
+    show("base env unsorted", &run_ac(&sec, &cmd, "cmd /c set", &chat, &unsorted));
 
     show("cmd echo", &run_ac(&sec, &cmd, "cmd /c echo hello", &chat, &env));
     show("cmd echo no env", &run_ac_noenv(&sec, &cmd, "cmd /c echo hello", &chat));
