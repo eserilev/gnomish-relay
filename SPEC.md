@@ -364,8 +364,91 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 - **S31 stays as it is.** S31 is about hidden paths and writable paths, and the proxy adds neither: the socket lies in the temp folder. `Network::Off` of the policy stays true at the OS level: `bwrap` gives no network but a private loopback, and Seatbelt denies all network but one loopback port. The proxy is a channel of the bridge beside the policy, not a part of it.
 - **What the list does not stop.** A list limits where a command connects. It does not stop data that leaves to an allowed host. A command with a token of its own can push to `github.com` or publish to npm. Without an end of the TLS in the bridge, nothing closes this. So the tokens of these tools are hidden (6.6.3), and the list stays short.
 - **Build scripts.** A command such as `cargo build` runs a `build.rs` or an npm install script that the agent can edit. It reaches the allowed hosts too. The short list keeps this small.
-- **Not yet:** the agent process itself is still outside the proxy, with the normal network of the user. The network tools of the agent (web fetch, web search, MCP tools) are unknown tools, so each one asks on the desktop (6.6.3). A proxy for the agent process, limited to its API host, is a later step.
+- **Not yet:** the agent process itself is still outside the proxy, with the normal network of the user. The network tools of the agent (web fetch, web search, MCP tools) are unknown tools, so each one asks on the desktop (6.6.3). "Proposal: the agent process behind the proxy" below is the plan.
 - With no host in the list (12), the proxy does not start, and commands have no network at all.
+
+**Proposal: the agent process behind the proxy** (asked for by the user on 2026-09-27, worked out with an advisor; not built). The new Lean statements wait for the approval of the user. Nothing below is true of the code yet.
+
+*What it gives.* Today a hostile prompt can make the agent process send data anywhere: with WebFetch that the user approves by mistake, with an MCP server, or with any command that runs in the tree of the agent with no sandbox. For Claude the gain is small, because WebFetch and MCP already ask or are off, and its commands already go through the command proxy. For ACP agents the gain is large: their commands run in the tree of the agent with no sandbox (6.6.4, "Other ACP agents"), so the wall of the agent is then the only network wall of those commands. The same holds for the commands of Codex that an `allow` rule of Codex runs outside its sandbox.
+
+*Measured on 2026-09-27* (Arch Linux, `bwrap` 0.13.0). Each agent ran in `bwrap --dev-bind / / --unshare-net`, with `gnomish-relay --sandbox-forward` as the only way out, to a logging proxy, with `HTTPS_PROXY` set:
+
+| Agent | Hosts it connected to |
+|---|---|
+| Claude Code 2.1.283, `claude -p` with the flags of a game run, a prompt "Reply with only the word hi." | `api.anthropic.com` (11 connections) and `http-intake.logs.us5.datadoghq.com` (telemetry) |
+| The same with `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1` | `api.anthropic.com` only |
+| codex-cli 0.157.0, `codex exec`, not logged in on this computer, so every call got `401` | `chatgpt.com`, `github.com`, and `api.openai.com` (a WebSocket first, then HTTPS) |
+
+- Not measured, but named in the programs: `platform.claude.com/v1/oauth/token` (the refresh of a Claude login), and `auth.openai.com` (the refresh of a Codex login). A login expires, so a list without them breaks a long-lived login. A live run with a Codex login is still to do.
+- Both agents took the proxy from `HTTPS_PROXY`, and nothing tried to connect around it: a connect with no proxy has no route in the namespace.
+- Nesting works on Linux. Inside the wall of the agent, a Bash call of the real `claude` went through the real `--sandbox-run`: `bwrap --unshare-all` in `bwrap --unshare-net --unshare-pid`, with its own forwarder. The command reached `index.crates.io` through the command proxy (200), a direct connect failed, and the command did not see the socket of the agent proxy. `codex sandbox` (the Linux sandbox of Codex) also works in the wall, and so does a nested `--overlay`.
+
+*The wall on Linux.* The agent process keeps its file access of today: it writes `~/.claude`, `~/.claude.json`, and `~/.codex`, and it resumes sessions ("Where the wall is"). Only its network, its processes, and its sockets change. `process.rs` starts the agent as:
+
+`bwrap --dev-bind / / --tmpfs /run --tmpfs /tmp --tmpfs /var/tmp --tmpfs /dev/shm <binds back> --unshare-net --unshare-pid --proc /proc --die-with-parent --new-session -- <gnomish-relay> --sandbox-forward <socket> --exec <agent> <args>`
+
+- `--unshare-net` gives the tree a network with only its own loopback. The forwarder listens on `127.0.0.1:3128` there and relays each connection to the agent proxy. The new `--exec` form starts the agent with no shell, with its arguments as they are (6.2 rule 11).
+- `--unshare-pid` with a new `/proc` is needed. With the `/proc` of the host, the agent reads `/proc/<pid>/root` of any process of the user, and through it the session bus under `/run`. Then `systemd-run --user` starts code with the full network. A new `/proc` also stops `ptrace` and `pidfd_getfd` of host processes, which `ptrace_scope = 0` allows. Measured: `claude -p` and a nested `bwrap` both work with it.
+- The tmpfs on `/run`, `/tmp`, `/var/tmp`, and `/dev/shm` hides the sockets there: the session bus, the systemd manager of the user, the ssh agent, Docker, and X11. An abstract socket belongs to one network namespace, so the new namespace hides those. The binds back put the chat folder, the temp folders of the run, and the socket of the proxy at their paths again, when they lie under one of these folders.
+- A socket at a path elsewhere still works across namespaces, for example `~/.docker/desktop/docker.sock` (`docker run --network host` is a full way out), the sockets of Lima, Colima, and Podman machines, of terminal programs, and of editors. At the start of each run, the bridge looks for socket files in a list of known folders and in the top 3 levels of the home folder, and binds `/dev/null` over each one. A socket in another place stays reachable. This is a named limit.
+- Stop gets better. Today `child.kill()` stops only the first process. With `--unshare-pid`, the whole tree ends when `bwrap` ends, also a grandchild. The 10-second grace of Stop (9.4) still comes first, so a session file is not cut short.
+- The variables: the allowlist of 6.2 rule 12, the `env` list of the entry, the proxy variables of "The variables" with port 3128, an empty `NO_PROXY`, and for Claude `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
+- `gnomish-relay check-agent` runs the agent inside the same wall, so it checks the hosts too.
+
+*Two proxies for each run.* The agent proxy is a second proxy of the run, with its own host list:
+
+- Its socket lies in the data folder (`<data>/sandbox/<name>.sock`). S31 hides the data folder from every command, so no command reaches the agent proxy, for example to send data to `api.anthropic.com` with a key of the attacker. A test checks that the socket lies in a hidden path.
+- A Unix socket path holds at most 108 bytes on Linux. The bridge binds through `/proc/self/fd/<folder>/<name>.sock`, so a long data folder still works, with no `unsafe` code and no change of the working folder. Inside the wall, a bind puts the socket at `/run/gnomish-relay/agent.sock`.
+- The command proxy stays as it is, in the temp folder of the run. The agent sees that folder, and it can run `--sandbox-run` itself. So the hosts of the commands are always hosts of the agent too.
+
+*The hosts of each backend* (new key `agent_hosts` in the entry, 12):
+
+| Backend | Default `agent_hosts` |
+|---|---|
+| `claude` | `api.anthropic.com`, `platform.claude.com` |
+| `codex` | `api.openai.com`, `chatgpt.com`, `auth.openai.com` |
+| ACP and `command` | None. The entry names its hosts. |
+| The model calls of Timeways (`model = "claude"`) | The hosts of `claude` |
+
+- An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts in `agent_hosts`.
+- The proxy refuses an address that is not public. So an agent that uses a model on this computer (for example Ollama on loopback) does not work in the wall. A later `local_ports` key can relay one loopback port through the forwarder, so the wall stays up.
+
+*The tools of the agent that use the network:*
+
+- WebFetch runs in the agent process. It asks on the desktop as today (6.6.3), and then fails, because its host is not on the list. There is no allow for one run.
+- WebSearch runs on the servers of Anthropic, through `api.anthropic.com`. The proxy cannot see it. The classifier still asks on the desktop.
+- MCP servers: a game run of Claude starts none (`--strict-mcp-config`). An MCP server of Codex from the config of the user starts in the wall, and it reaches only the hosts of the list.
+
+*What the wall does not stop:*
+
+- It limits where the live run connects. It does not stop data that leaves to an allowed host: a key of the attacker on `api.anthropic.com`, WebSearch, and on the Codex side all of `chatgpt.com`.
+- The agent keeps its file writes. So it can write `~/.bashrc`, `~/.config/systemd/user/`, or `~/.config/autostart/`, and that code runs later with the full network. The classifier guards these writes for Claude (the writes outside the chat folder ask on the desktop), and not for the other backends. An option: read-only binds over the files that the agent never needs to write (the rc files of the shells, `~/.config/systemd/user`, `~/.config/autostart`, `~/.ssh/authorized_keys`, `~/.gitconfig`).
+- The agent can still write the walls file of its run in `<data>/sandbox/`. That is true today too.
+
+*macOS.* A process inside Seatbelt cannot start `sandbox-exec` again (reported, not yet checked on this project). A Seatbelt wall on the agent then breaks the command sandbox of the bridge and the sandbox of Codex. The plan: first a spike on the macOS runner of CI. If nesting fails, the agent stays outside a wall on macOS for now. A later step for Claude is a launch broker: `--sandbox-run` asks the bridge, through a socket in the data folder, to start the command outside the wall of the agent, and relays its input, output, exit status, and signals. That is a new trusted channel with its own tests. Codex on macOS stays a gap, because Codex starts its own Seatbelt.
+
+*Windows.* No wall, as for commands (6.6.4, "Windows"). The setup recommends WSL2.
+
+*With no working `bwrap`,* the agent runs with no wall, the log line at start says so, and the first reply carries a notice, as for commands. (The user decides: this, or no run.)
+
+*Timeways.* The story program already has no network. The model calls of `model_claude.rs` run `claude -p` with no tools and no sandbox today. They go into the same wall with the hosts of `claude`. The local route (`model_local.rs`) is `curl` of the bridge to `local_url`, not agent code, and stays as it is.
+
+*Verification.* The pure parts of the proxy move from the bridge into `crates/protocol`, over bytes and integers, and get proofs. The bridge keeps the sockets, the lookup, and the connection. Proposed statements, for the approval of the user:
+
+- **S33, host check.** For every allow list and every host, `host_allowed(list, host)` is true exactly when the host is a good host name and equals a name of the list without ASCII case. A good host name has 1 to 253 bytes, at least two labels, labels of 1 to 63 bytes of `[A-Za-z0-9-]` that do not start or end with `-`, and a last label that starts with a letter and is not `localhost`. So no IP address in any form passes. Lean shape: `∀ list host, hosts.host_allowed list host ⦃ ok => ok = true ↔ goodHostName (bytes host.val) ∧ ∃ h ∈ strs list.val, lowerAscii h = lowerAscii (bytes host.val) ⦄`.
+- **S34, public address.** For every IPv4 address, `is_public_v4` is true exactly when the address is in none of the ranges of the table `v4NotPublic` (0/8, 10/8, 100.64/10, 127/8, 169.254/16, 172.16/12, 192.0.0/24, 192.0.2/24, 192.88.99/24, 192.168/16, 198.18/15, 198.51.100/24, 203.0.113/24, and 224/3). For every IPv6 address, `is_public_v6` gives the answer of the embedded IPv4 address for `::ffff:0:0/96`, `64:ff9b::/96`, and `2002::/16`, and otherwise is true exactly when the address is in none of the ranges of `v6NotPublic` (`::/128`, `::1/128`, `::/16`, `100::/16`, `2001::/23`, `2001:db8::/32`, `64:ff9b:1::/48`, `fc00::/7`, `fe80::/10`, `fec0::/10`, and `ff00::/8`). Lean shape: `∀ o, ip.is_public_v4 o ⦃ r => r = true ↔ ¬ inRanges v4NotPublic (v4Nat o) ⦄` and `∀ s, ip.is_public_v6 s ⦃ r => r = true ↔ match embeddedV4 (v6Nat s) with | some v4 => ¬ inRanges v4NotPublic v4 | none => ¬ inRanges v6NotPublic (v6Nat s) ⦄`.
+- **S35, the target of a request.** For every request head of at most 8 KiB, `check_target(list, head)` returns a target or a defined refusal, and never panics. It returns a target only when the first line is `CONNECT <host>:<port> HTTP/1.<x>`, the port is 443 or 80, `host_allowed(list, host)` is true (S33), and the target holds the host in lower case and that port. Lean shape: `∀ list head, head.val.length ≤ 8192 → connect.check_target list head ⦃ r => ∀ t, r = .Ok t → ∃ h p rest, bytes head.val = "CONNECT " ++ h ++ ":" ++ decimal p ++ " HTTP/1." ++ rest ∧ (p = 443 ∨ p = 80) ∧ hostAllowed list h ∧ bytes t.host.val = lowerAscii h ∧ t.port.val = p ⦄` (the first line ends at the first CR LF, and `h` holds no space).
+
+A bug that S34 finds: `embedded_v4` takes all of `64:ff9b::/32` as NAT64. The local range `64:ff9b:1::/48` (RFC 8215) holds its IPv4 address at other bits, so it must count as not public. The fix starts with a failing test.
+
+Tests and fuzzing, with no proof:
+
+- Fuzz: `connect` gets `check_target` and checks it against the bridge parser of today during the move. A new target `public_ip` compares `is_public` with a table built from the `ipnet` crate. A new target `agent_wall` checks the `bwrap` arguments of the agent: `--unshare-net`, `--unshare-pid`, and `--proc` are there, each tmpfs comes before its binds back, and the agent and its arguments come last, each one as it is.
+- Unit tests: the host lists of each backend, the `agent_hosts` key, the path of the agent socket inside a hidden path, the short bind path of a long data folder, the scan for socket files, and the variables of the agent.
+- E2E with the fake agents and the real `bwrap` (a new `crates/bridge/tests/agent_wall.rs`). `fake-claude`, `fake-codex`, and `fake-acp-agent` get a script step that connects to a port of the test with no proxy, and sends a `CONNECT` through `HTTPS_PROXY`. The test proxy resolves `allowed.test` to a public address, as in `command_sandbox.rs`. Each fake agent: a direct connect fails, `allowed.test` through the proxy works, a host that is not on the list gets `403`. Also: a command of `fake-claude` still runs in the command sandbox and reaches the command proxy, and does not reach the agent socket. A socket in the fake home and one under `/run` are not reachable. `/proc/<pid of the bridge>/root` does not exist in the wall. A grandchild of the agent ends at Stop. CI sets `GNOMISH_REQUIRE_BWRAP`, so these do not skip.
+- Live tests marked `#[ignore]`: the real `claude -p` answers in the wall with the default hosts, and a Bash call inside it still runs in the command sandbox. The same for `codex app-server` with a login.
+
+*What the user decides:* the hosts of each backend, and whether telemetry stays off; that WebFetch fails in game runs; local models (`local_ports` later, or no wall for such an entry); that the command hosts are also agent hosts; no `bwrap`: run with a notice, or refuse; the read-only binds of the files of the shell and the desktop; the macOS and Windows gaps, and that MCP servers of Codex lose their network; and the new statements S33, S34, and S35.
 
 **The downloads of cargo and rustup** (decided with an advisor on 2026-09-26). cargo writes each new crate into `~/.cargo/registry`, and rustup each toolchain into `~/.rustup`. The sandbox keeps both read-only, so a download fails there. The choices, and why only one works:
 
@@ -2054,7 +2137,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
 15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 7, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. **Next:** step 8, setup for two apps, and versions.
-16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Next:** the bridge proxy for the API host of the agent process. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
+16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Next:** the agent process behind the proxy (6.6.4, "Proposal: the agent process behind the proxy"), after the user approves S33 to S35. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
