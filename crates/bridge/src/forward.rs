@@ -88,27 +88,6 @@ pub fn run_forwarder(forward: &Forward, mut child: std::process::Command) -> i32
     }
 }
 
-/// Relays the ports and runs nothing: the holder of the sandbox of a run (`holder.rs`).
-/// It ends only with the sandbox.
-#[cfg(unix)]
-pub fn hold(forward: &Forward) -> i32 {
-    if let Err(e) = listen(forward) {
-        eprintln!("gnomish-relay sandbox: {e}");
-        return 126;
-    }
-    let mut out = std::io::stdout();
-    if out
-        .write_all(crate::holder::READY)
-        .and_then(|()| out.flush())
-        .is_err()
-    {
-        return 126;
-    }
-    loop {
-        std::thread::park();
-    }
-}
-
 /// Starts a thread for the port of the proxy and one for each local port.
 #[cfg(unix)]
 fn listen(forward: &Forward) -> Result<(), String> {
@@ -293,9 +272,9 @@ mod tests {
         let path = dir.path().join("proxy");
         fake_proxy(&path, "HTTP/1.1 200 Connection established\r\n\r\n");
         let out = dir.path().join("out");
+        let local = free_port();
 
         let code = on_a_free_port(|port| {
-            let local = free_port();
             let forward = Forward {
                 socket: &path,
                 port,
@@ -310,8 +289,7 @@ mod tests {
 
         assert_eq!(code, 0);
         let got = std::fs::read_to_string(out).unwrap();
-        let port = got.strip_prefix("got CONNECT localhost:").unwrap();
-        assert!(port.ends_with(" HTTP/1.1\r\n"), "{got}");
+        assert_eq!(got, format!("got CONNECT localhost:{local} HTTP/1.1\r\n"));
     }
 
     #[test]
@@ -320,9 +298,9 @@ mod tests {
         let path = dir.path().join("proxy");
         fake_proxy(&path, "HTTP/1.1 403 Forbidden\r\n\r\n");
         let out = dir.path().join("out");
+        let local = free_port();
 
         let code = on_a_free_port(|port| {
-            let local = free_port();
             let forward = Forward {
                 socket: &path,
                 port,

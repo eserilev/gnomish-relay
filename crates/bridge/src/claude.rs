@@ -118,7 +118,7 @@ impl ClaudeAgent {
             Some(_) => (None, Some(NEW_SESSION)),
             None => (None, None),
         };
-        let mut walls = match self.walls(&job.cwd, &format!("chat {}", job.chat.0)) {
+        let walls = match self.walls(&job.cwd, &format!("chat {}", job.chat.0)) {
             Ok(walls) => walls,
             Err(e) => {
                 return Run {
@@ -148,17 +148,6 @@ impl ClaudeAgent {
                 };
             }
         };
-        // With a wall, the forwarder in the wall starts the sandbox of the commands.
-        let held = match (&wall, walls.as_mut()) {
-            (None, Some(walls)) => walls.hold(),
-            _ => Ok(()),
-        };
-        if let Err(e) = held {
-            return Run {
-                reply: Err(e),
-                session: job.resume.clone(),
-            };
-        }
         let notes: Vec<&str> = note.into_iter().chain(self.wall.notice()).collect();
         let mut args = self.args(job.permission, resume);
         args.extend(game_run_flags(

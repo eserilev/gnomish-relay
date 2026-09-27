@@ -14,8 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::action_input::{DESKTOP_PATHS, DESKTOP_WRITES, resolve, resolved_bytes};
 use crate::allow_hosts::HostList;
-use crate::forward::INNER_PORT;
-use crate::holder::{Holder, check_holder, holder_file, join_args, start_holder};
+use crate::forward::{FORWARD_FLAG, INNER_PORT, ports_arg};
 use crate::process::BASE_ENV;
 use crate::proxy::{self, Proxy, ProxySettings};
 use crate::story_sandbox::{self, Sandbox};
@@ -113,7 +112,7 @@ impl CommandSandbox {
     pub fn detect(hosts: HostList, local_ports: &[u16]) -> CommandSandbox {
         let wrapper = std::env::current_exe().unwrap_or_default();
         let home = std::env::var_os("HOME").map(PathBuf::from);
-        let mut sandbox = CommandSandbox::new(with_nsenter(story_sandbox::detect()), wrapper, home);
+        let mut sandbox = CommandSandbox::new(story_sandbox::detect(), wrapper, home);
         sandbox.overlay = detect_overlay(&sandbox.tool);
         if hosts.is_empty() && local_ports.is_empty() {
             return sandbox;
@@ -150,18 +149,6 @@ impl CommandSandbox {
     pub fn notice(&self) -> Option<&'static str> {
         let first = !self.told.swap(true, Ordering::Relaxed);
         first.then_some(NO_SANDBOX)
-    }
-}
-
-/// Each command joins the sandbox of its run with `nsenter` (`holder.rs`), so `bwrap`
-/// with no `nsenter` counts as no sandbox.
-fn with_nsenter(tool: Sandbox) -> Sandbox {
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    match tool {
-        Sandbox::Bwrap(_) if crate::program::find_program("nsenter", &path, false).is_none() => {
-            Sandbox::None
-        }
-        other => other,
     }
 }
 
@@ -207,11 +194,8 @@ pub enum ProxyEnd {
     Port(u16),
 }
 
-/// The walls of one run. The holder, the proxy, the temp folder, and the walls file go
-/// away with it.
+/// The walls of one run. The proxy, the temp folder, and the walls file go away with it.
 pub struct RunWalls {
-    /// The holder that the bridge started itself, when the agent has no wall of its own.
-    holder: Option<Holder>,
     pub walls: Walls,
     file: PathBuf,
     /// Before the temp folder, so the proxy stops before its socket goes away.
@@ -221,8 +205,6 @@ pub struct RunWalls {
 
 impl Drop for RunWalls {
     fn drop(&mut self) {
-        drop(self.holder.take());
-        let _ = std::fs::remove_file(holder_file(&self.file));
         let _ = std::fs::remove_file(&self.file);
     }
 }
@@ -244,16 +226,6 @@ impl RunWalls {
             (WALLS_VAR.into(), self.file.clone().into()),
             ("TMPDIR".into(), self.walls.temp.clone().into()),
         ]
-    }
-
-    /// Starts the one sandbox of the run from the bridge, for an agent with no wall of
-    /// its own. With a wall, the forwarder in the wall starts it (`holder.rs`). Seatbelt
-    /// starts a sandbox for each command, so there is nothing to start.
-    pub fn hold(&mut self) -> Result<(), String> {
-        if matches!(self.walls.tool, Sandbox::Bwrap(_)) {
-            self.holder = Some(start_holder(&self.walls, &self.file)?);
-        }
-        Ok(())
     }
 
     /// The wrapper ran at least once in this run.
@@ -308,7 +280,6 @@ pub fn prepare(
     };
     let file = write_walls(&place, &walls)?;
     Ok(RunWalls {
-        holder: None,
         walls,
         file,
         _proxy: proxy,
@@ -644,8 +615,8 @@ fn os(parts: &[&str]) -> Vec<OsString> {
 }
 
 /// A read-only system with the writable paths bound in, then each hidden path covered
-/// and made read-only. The holder of the run adds its namespaces (`holder.rs`).
-pub fn mount_args(walls: &Walls) -> Vec<OsString> {
+/// and made read-only. No network, and the command dies with the shell of the agent.
+pub fn bwrap_args(walls: &Walls, cwd: &Path, shell: &Path, command: &str) -> Vec<OsString> {
     let mut args = os(&["--ro-bind", "/", "/", "--dev", "/dev", "--proc", "/proc"]);
     let private = private_folders(walls);
     for folder in &private {
@@ -684,6 +655,23 @@ pub fn mount_args(walls: &Walls) -> Vec<OsString> {
     for path in walls.hidden.iter().filter(|p| p.is_dir()) {
         args.extend(["--remount-ro".into(), path.into()]);
     }
+    args.extend(["--chdir".into(), cwd.into()]);
+    args.extend(os(&[
+        "--unshare-all",
+        "--die-with-parent",
+        "--new-session",
+        "--",
+    ]));
+    if let Some(ProxyEnd::Socket { socket, forwarder }) = &walls.proxy {
+        let ports = ports_arg(&walls.local_ports);
+        args.extend([
+            forwarder.into(),
+            FORWARD_FLAG.into(),
+            socket.into(),
+            ports.into(),
+        ]);
+    }
+    args.extend([shell.into(), "-c".into(), command.into()]);
     args
 }
 
@@ -788,26 +776,13 @@ pub enum Launch {
     },
 }
 
-/// The launch of `command` with `shell` inside the walls of the run in `walls_file`. With
-/// `bwrap`, the command joins the one sandbox of the run.
-pub fn launch(
-    walls: &Walls,
-    walls_file: &Path,
-    cwd: &Path,
-    shell: &Path,
-    command: &str,
-) -> Result<Launch, String> {
+/// The launch of `command` with `shell` inside the walls of the run.
+pub fn launch(walls: &Walls, cwd: &Path, shell: &Path, command: &str) -> Result<Launch, String> {
     match &walls.tool {
-        Sandbox::Bwrap(_) => {
-            let holder = check_holder(walls_file)?;
-            let path = std::env::var_os("PATH").unwrap_or_default();
-            let nsenter = crate::program::find_program("nsenter", &path, false)
-                .ok_or("nsenter is not on PATH")?;
-            Ok(Launch::Program {
-                program: nsenter,
-                args: join_args(&holder, cwd, shell, command),
-            })
-        }
+        Sandbox::Bwrap(bwrap) => Ok(Launch::Program {
+            program: bwrap.clone(),
+            args: bwrap_args(walls, cwd, shell, command),
+        }),
         Sandbox::Seatbelt => {
             let profile = seatbelt_profile(walls)?;
             let mut args = vec![OsString::from("-p"), bytes_arg(profile)];
@@ -908,7 +883,7 @@ fn wrapped(command: &str) -> Result<i32, String> {
     let cwd = std::env::current_dir().map_err(|e| format!("no working folder: {e}"))?;
     let path = std::env::var_os("PATH").unwrap_or_default();
     let shell = crate::program::find_program("bash", &path, false).ok_or("bash is not on PATH")?;
-    let launch = launch(&walls, Path::new(&file), &cwd, &shell, command)?;
+    let launch = launch(&walls, &cwd, &shell, command)?;
     std::fs::write(walls.temp.join(MARKER), b"").map_err(|e| format!("no marker: {e}"))?;
     let env = command_env(&walls, |name| std::env::var_os(name));
     match launch {
@@ -936,7 +911,6 @@ fn run(_child: std::process::Command) -> Result<i32, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::holder::holder_args;
 
     /// A home with the folders of the bridge, a credential, and a chat folder with a
     /// `.env` file and git hooks.
@@ -1201,8 +1175,13 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn bwrap_binds_the_writable_paths_before_it_hides_and_ends_with_the_holder() {
-        let args = strings(&holder_args(&sample()));
+    fn bwrap_binds_the_writable_paths_before_it_hides_and_ends_with_the_command() {
+        let args = strings(&bwrap_args(
+            &sample(),
+            Path::new("/home/x/Code/app"),
+            Path::new("/bin/bash"),
+            "cargo test",
+        ));
 
         assert_eq!(args[..3], ["--ro-bind", "/", "/"]);
         let tmp = position(&args, &["--tmpfs", "/tmp"]);
@@ -1211,13 +1190,13 @@ mod tests {
         let read_only = position(&args, &["--remount-ro", "/tmp"]);
         assert!(tmp < bind && bind < hide && hide < read_only);
         position(&args, &["--tmpfs", "/run"]);
-        position(&args, &["--info-fd", "2"]);
+        position(&args, &["--chdir", "/home/x/Code/app"]);
         for flag in ["--unshare-all", "--die-with-parent", "--new-session"] {
             assert!(args.contains(&flag.to_owned()), "{flag}");
         }
         assert_eq!(
             args[args.len() - 4..],
-            ["--", "sh", "-c", "echo ready && exec sleep infinity"]
+            ["--", "/bin/bash", "-c", "cargo test"]
         );
     }
 
@@ -1229,7 +1208,12 @@ mod tests {
             PathBuf::from("/home/x/Code/app/lib/.git"),
         ];
 
-        let args = strings(&holder_args(&walls));
+        let args = strings(&bwrap_args(
+            &walls,
+            Path::new("/"),
+            Path::new("/bin/bash"),
+            "make",
+        ));
 
         let bind = position(&args, &["--bind", "/tmp/run1", "/tmp/run1"]);
         let pin = position(
@@ -1292,7 +1276,7 @@ mod tests {
     }
 
     #[test]
-    fn with_a_proxy_the_holder_is_the_forwarder_with_the_local_ports() {
+    fn with_a_proxy_bwrap_starts_the_forwarder_and_the_forwarder_starts_the_command() {
         let mut walls = sample();
         walls.proxy = Some(ProxyEnd::Socket {
             socket: PathBuf::from("/tmp/run1/.gnomish-relay-proxy"),
@@ -1301,17 +1285,24 @@ mod tests {
 
         walls.local_ports = vec![5432, 3000];
 
-        let args = strings(&holder_args(&walls));
+        let args = strings(&bwrap_args(
+            &walls,
+            Path::new("/"),
+            Path::new("/bin/bash"),
+            "cargo fetch",
+        ));
 
         assert_eq!(
-            args[args.len() - 6..],
+            args[args.len() - 8..],
             [
                 "--",
                 "/usr/bin/gnomish-relay",
-                crate::forward::FORWARD_FLAG,
+                FORWARD_FLAG,
                 "/tmp/run1/.gnomish-relay-proxy",
                 "5432,3000",
-                crate::holder::HOLD_FLAG,
+                "/bin/bash",
+                "-c",
+                "cargo fetch",
             ][..]
         );
         assert!(args.contains(&"--unshare-all".to_owned()));
@@ -1498,7 +1489,12 @@ mod tests {
             .hidden
             .push(PathBuf::from("/home/x/.cargo/credentials.toml"));
 
-        let args = strings(&holder_args(&walls));
+        let args = strings(&bwrap_args(
+            &walls,
+            Path::new("/"),
+            Path::new("/bin/bash"),
+            "x",
+        ));
 
         let bind = position(&args, &["--bind", "/tmp/run1", "/tmp/run1"]);
         let overlay = position(
@@ -1602,7 +1598,12 @@ mod tests {
         let mut walls = sample();
         walls.hidden = vec![folder.clone(), PathBuf::from("/home/x/Code/app/.env")];
 
-        let args = strings(&holder_args(&walls));
+        let args = strings(&bwrap_args(
+            &walls,
+            Path::new("/"),
+            Path::new("/bin/bash"),
+            "x",
+        ));
 
         let folder = folder.display().to_string();
         position(&args, &["--tmpfs", &folder]);
@@ -1665,14 +1666,8 @@ mod tests {
         let mut walls = sample();
         walls.tool = Sandbox::Seatbelt;
 
-        let Launch::Program { program, args } = launch(
-            &walls,
-            Path::new("/nowhere"),
-            Path::new("/"),
-            Path::new("/bin/bash"),
-            "make",
-        )
-        .unwrap();
+        let Launch::Program { program, args } =
+            launch(&walls, Path::new("/"), Path::new("/bin/bash"), "make").unwrap();
 
         let args = strings(&args);
         assert_eq!(program, PathBuf::from(SANDBOX_EXEC));
@@ -1686,24 +1681,21 @@ mod tests {
         let mut walls = sample();
         walls.tool = Sandbox::None;
 
-        let file = Path::new("/nowhere/run.json");
-        assert!(launch(&walls, file, Path::new("/"), Path::new("/bin/bash"), "make").is_err());
+        assert!(launch(&walls, Path::new("/"), Path::new("/bin/bash"), "make").is_err());
     }
 
     #[test]
-    fn with_bwrap_and_no_holder_a_command_does_not_start() {
-        let dir = tempfile::tempdir().unwrap();
+    fn bwrap_runs_its_own_arguments() {
+        let walls = sample();
 
-        let launched = launch(
-            &sample(),
-            &dir.path().join("run.json"),
-            Path::new("/"),
-            Path::new("/bin/bash"),
-            "make",
+        let Launch::Program { program, args } =
+            launch(&walls, Path::new("/"), Path::new("/bin/bash"), "make").unwrap();
+
+        assert_eq!(program, PathBuf::from("/usr/bin/bwrap"));
+        assert_eq!(
+            args,
+            bwrap_args(&walls, Path::new("/"), Path::new("/bin/bash"), "make")
         );
-
-        let error = launched.unwrap_err();
-        assert!(error.contains("not running"), "{error}");
     }
 
     #[test]
