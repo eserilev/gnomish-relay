@@ -177,3 +177,10 @@ path = "fuzz_targets/connect.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "public_ip"
+path = "fuzz_targets/public_ip.rs"
+test = false
+doc = false
+bench = false

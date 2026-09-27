@@ -5043,6 +5043,1832 @@ def inline.push_inline
     inline.push_inline_loop out md start «end» escape inline.PLAIN start
   inline.close_color out1 style
 
+/-- [protocol::ip::v4_low_ranges]:
+    Source: 'crates/protocol/src/ip.rs', lines 5:0-12:1 -/
+def ip.v4_low_ranges (a : Std.U8) (b : Std.U8) : Result Bool := do
+  if a = 0#u8
+  then ok true
+  else
+    if a = 10#u8
+    then ok true
+    else
+      if a = 127#u8
+      then ok true
+      else
+        if a = 100#u8
+        then
+          if b >= 64#u8
+          then
+            if b < 128#u8
+            then ok true
+            else
+              if a = 169#u8
+              then
+                if b = 254#u8
+                then ok true
+                else
+                  if a = 172#u8
+                  then if b >= 16#u8
+                       then ok (b < 32#u8)
+                       else ok false
+                  else ok false
+              else
+                if a = 172#u8
+                then if b >= 16#u8
+                     then ok (b < 32#u8)
+                     else ok false
+                else ok false
+          else
+            if a = 169#u8
+            then
+              if b = 254#u8
+              then ok true
+              else
+                if a = 172#u8
+                then if b >= 16#u8
+                     then ok (b < 32#u8)
+                     else ok false
+                else ok false
+            else
+              if a = 172#u8
+              then if b >= 16#u8
+                   then ok (b < 32#u8)
+                   else ok false
+              else ok false
+        else
+          if a = 169#u8
+          then
+            if b = 254#u8
+            then ok true
+            else
+              if a = 172#u8
+              then if b >= 16#u8
+                   then ok (b < 32#u8)
+                   else ok false
+              else ok false
+          else
+            if a = 172#u8
+            then if b >= 16#u8
+                 then ok (b < 32#u8)
+                 else ok false
+            else ok false
+
+/-- [protocol::ip::v4_high_ranges]:
+    Source: 'crates/protocol/src/ip.rs', lines 14:0-22:1 -/
+def ip.v4_high_ranges
+  (a : Std.U8) (b : Std.U8) (c : Std.U8) : Result Bool := do
+  if a = 192#u8
+  then
+    if b = 0#u8
+    then
+      if c = 0#u8
+      then ok true
+      else
+        if c = 2#u8
+        then ok true
+        else
+          if a = 192#u8
+          then
+            if b = 88#u8
+            then
+              if c = 99#u8
+              then ok true
+              else
+                if a = 192#u8
+                then
+                  if b = 168#u8
+                  then ok true
+                  else
+                    if a = 198#u8
+                    then
+                      if b = 18#u8
+                      then ok true
+                      else
+                        if b = 19#u8
+                        then ok true
+                        else
+                          if a = 198#u8
+                          then
+                            if b = 51#u8
+                            then
+                              if c = 100#u8
+                              then ok true
+                              else
+                                if a = 203#u8
+                                then
+                                  if b = 0#u8
+                                  then
+                                    if c = 113#u8
+                                    then ok true
+                                    else ok (a >= 224#u8)
+                                  else ok (a >= 224#u8)
+                                else ok (a >= 224#u8)
+                            else
+                              if a = 203#u8
+                              then
+                                if b = 0#u8
+                                then
+                                  if c = 113#u8
+                                  then ok true
+                                  else ok (a >= 224#u8)
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                          else
+                            if a = 203#u8
+                            then
+                              if b = 0#u8
+                              then
+                                if c = 113#u8
+                                then ok true
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                    else
+                      if a = 198#u8
+                      then
+                        if b = 51#u8
+                        then
+                          if c = 100#u8
+                          then ok true
+                          else
+                            if a = 203#u8
+                            then
+                              if b = 0#u8
+                              then
+                                if c = 113#u8
+                                then ok true
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                else
+                  if a = 198#u8
+                  then
+                    if b = 18#u8
+                    then ok true
+                    else
+                      if b = 19#u8
+                      then ok true
+                      else
+                        if a = 198#u8
+                        then
+                          if b = 51#u8
+                          then
+                            if c = 100#u8
+                            then ok true
+                            else
+                              if a = 203#u8
+                              then
+                                if b = 0#u8
+                                then
+                                  if c = 113#u8
+                                  then ok true
+                                  else ok (a >= 224#u8)
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                          else
+                            if a = 203#u8
+                            then
+                              if b = 0#u8
+                              then
+                                if c = 113#u8
+                                then ok true
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                  else
+                    if a = 198#u8
+                    then
+                      if b = 51#u8
+                      then
+                        if c = 100#u8
+                        then ok true
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+            else
+              if a = 192#u8
+              then
+                if b = 168#u8
+                then ok true
+                else
+                  if a = 198#u8
+                  then
+                    if b = 18#u8
+                    then ok true
+                    else
+                      if b = 19#u8
+                      then ok true
+                      else
+                        if a = 198#u8
+                        then
+                          if b = 51#u8
+                          then
+                            if c = 100#u8
+                            then ok true
+                            else
+                              if a = 203#u8
+                              then
+                                if b = 0#u8
+                                then
+                                  if c = 113#u8
+                                  then ok true
+                                  else ok (a >= 224#u8)
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                          else
+                            if a = 203#u8
+                            then
+                              if b = 0#u8
+                              then
+                                if c = 113#u8
+                                then ok true
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                  else
+                    if a = 198#u8
+                    then
+                      if b = 51#u8
+                      then
+                        if c = 100#u8
+                        then ok true
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+              else
+                if a = 198#u8
+                then
+                  if b = 18#u8
+                  then ok true
+                  else
+                    if b = 19#u8
+                    then ok true
+                    else
+                      if a = 198#u8
+                      then
+                        if b = 51#u8
+                        then
+                          if c = 100#u8
+                          then ok true
+                          else
+                            if a = 203#u8
+                            then
+                              if b = 0#u8
+                              then
+                                if c = 113#u8
+                                then ok true
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                else
+                  if a = 198#u8
+                  then
+                    if b = 51#u8
+                    then
+                      if c = 100#u8
+                      then ok true
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+          else
+            if a = 192#u8
+            then
+              if b = 168#u8
+              then ok true
+              else
+                if a = 198#u8
+                then
+                  if b = 18#u8
+                  then ok true
+                  else
+                    if b = 19#u8
+                    then ok true
+                    else
+                      if a = 198#u8
+                      then
+                        if b = 51#u8
+                        then
+                          if c = 100#u8
+                          then ok true
+                          else
+                            if a = 203#u8
+                            then
+                              if b = 0#u8
+                              then
+                                if c = 113#u8
+                                then ok true
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                else
+                  if a = 198#u8
+                  then
+                    if b = 51#u8
+                    then
+                      if c = 100#u8
+                      then ok true
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+            else
+              if a = 198#u8
+              then
+                if b = 18#u8
+                then ok true
+                else
+                  if b = 19#u8
+                  then ok true
+                  else
+                    if a = 198#u8
+                    then
+                      if b = 51#u8
+                      then
+                        if c = 100#u8
+                        then ok true
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+              else
+                if a = 198#u8
+                then
+                  if b = 51#u8
+                  then
+                    if c = 100#u8
+                    then ok true
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+    else
+      if a = 192#u8
+      then
+        if b = 88#u8
+        then
+          if c = 99#u8
+          then ok true
+          else
+            if a = 192#u8
+            then
+              if b = 168#u8
+              then ok true
+              else
+                if a = 198#u8
+                then
+                  if b = 18#u8
+                  then ok true
+                  else
+                    if b = 19#u8
+                    then ok true
+                    else
+                      if a = 198#u8
+                      then
+                        if b = 51#u8
+                        then
+                          if c = 100#u8
+                          then ok true
+                          else
+                            if a = 203#u8
+                            then
+                              if b = 0#u8
+                              then
+                                if c = 113#u8
+                                then ok true
+                                else ok (a >= 224#u8)
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                else
+                  if a = 198#u8
+                  then
+                    if b = 51#u8
+                    then
+                      if c = 100#u8
+                      then ok true
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+            else
+              if a = 198#u8
+              then
+                if b = 18#u8
+                then ok true
+                else
+                  if b = 19#u8
+                  then ok true
+                  else
+                    if a = 198#u8
+                    then
+                      if b = 51#u8
+                      then
+                        if c = 100#u8
+                        then ok true
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+              else
+                if a = 198#u8
+                then
+                  if b = 51#u8
+                  then
+                    if c = 100#u8
+                    then ok true
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+        else
+          if a = 192#u8
+          then
+            if b = 168#u8
+            then ok true
+            else
+              if a = 198#u8
+              then
+                if b = 18#u8
+                then ok true
+                else
+                  if b = 19#u8
+                  then ok true
+                  else
+                    if a = 198#u8
+                    then
+                      if b = 51#u8
+                      then
+                        if c = 100#u8
+                        then ok true
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+              else
+                if a = 198#u8
+                then
+                  if b = 51#u8
+                  then
+                    if c = 100#u8
+                    then ok true
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+          else
+            if a = 198#u8
+            then
+              if b = 18#u8
+              then ok true
+              else
+                if b = 19#u8
+                then ok true
+                else
+                  if a = 198#u8
+                  then
+                    if b = 51#u8
+                    then
+                      if c = 100#u8
+                      then ok true
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+            else
+              if a = 198#u8
+              then
+                if b = 51#u8
+                then
+                  if c = 100#u8
+                  then ok true
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+      else
+        if a = 192#u8
+        then
+          if b = 168#u8
+          then ok true
+          else
+            if a = 198#u8
+            then
+              if b = 18#u8
+              then ok true
+              else
+                if b = 19#u8
+                then ok true
+                else
+                  if a = 198#u8
+                  then
+                    if b = 51#u8
+                    then
+                      if c = 100#u8
+                      then ok true
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+            else
+              if a = 198#u8
+              then
+                if b = 51#u8
+                then
+                  if c = 100#u8
+                  then ok true
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+        else
+          if a = 198#u8
+          then
+            if b = 18#u8
+            then ok true
+            else
+              if b = 19#u8
+              then ok true
+              else
+                if a = 198#u8
+                then
+                  if b = 51#u8
+                  then
+                    if c = 100#u8
+                    then ok true
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+          else
+            if a = 198#u8
+            then
+              if b = 51#u8
+              then
+                if c = 100#u8
+                then ok true
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+            else
+              if a = 203#u8
+              then
+                if b = 0#u8
+                then if c = 113#u8
+                     then ok true
+                     else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+              else ok (a >= 224#u8)
+  else
+    if a = 192#u8
+    then
+      if b = 88#u8
+      then
+        if c = 99#u8
+        then ok true
+        else
+          if a = 192#u8
+          then
+            if b = 168#u8
+            then ok true
+            else
+              if a = 198#u8
+              then
+                if b = 18#u8
+                then ok true
+                else
+                  if b = 19#u8
+                  then ok true
+                  else
+                    if a = 198#u8
+                    then
+                      if b = 51#u8
+                      then
+                        if c = 100#u8
+                        then ok true
+                        else
+                          if a = 203#u8
+                          then
+                            if b = 0#u8
+                            then
+                              if c = 113#u8
+                              then ok true
+                              else ok (a >= 224#u8)
+                            else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+              else
+                if a = 198#u8
+                then
+                  if b = 51#u8
+                  then
+                    if c = 100#u8
+                    then ok true
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+          else
+            if a = 198#u8
+            then
+              if b = 18#u8
+              then ok true
+              else
+                if b = 19#u8
+                then ok true
+                else
+                  if a = 198#u8
+                  then
+                    if b = 51#u8
+                    then
+                      if c = 100#u8
+                      then ok true
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+            else
+              if a = 198#u8
+              then
+                if b = 51#u8
+                then
+                  if c = 100#u8
+                  then ok true
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+      else
+        if a = 192#u8
+        then
+          if b = 168#u8
+          then ok true
+          else
+            if a = 198#u8
+            then
+              if b = 18#u8
+              then ok true
+              else
+                if b = 19#u8
+                then ok true
+                else
+                  if a = 198#u8
+                  then
+                    if b = 51#u8
+                    then
+                      if c = 100#u8
+                      then ok true
+                      else
+                        if a = 203#u8
+                        then
+                          if b = 0#u8
+                          then if c = 113#u8
+                               then ok true
+                               else ok (a >= 224#u8)
+                          else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+            else
+              if a = 198#u8
+              then
+                if b = 51#u8
+                then
+                  if c = 100#u8
+                  then ok true
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+        else
+          if a = 198#u8
+          then
+            if b = 18#u8
+            then ok true
+            else
+              if b = 19#u8
+              then ok true
+              else
+                if a = 198#u8
+                then
+                  if b = 51#u8
+                  then
+                    if c = 100#u8
+                    then ok true
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+          else
+            if a = 198#u8
+            then
+              if b = 51#u8
+              then
+                if c = 100#u8
+                then ok true
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+            else
+              if a = 203#u8
+              then
+                if b = 0#u8
+                then if c = 113#u8
+                     then ok true
+                     else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+              else ok (a >= 224#u8)
+    else
+      if a = 192#u8
+      then
+        if b = 168#u8
+        then ok true
+        else
+          if a = 198#u8
+          then
+            if b = 18#u8
+            then ok true
+            else
+              if b = 19#u8
+              then ok true
+              else
+                if a = 198#u8
+                then
+                  if b = 51#u8
+                  then
+                    if c = 100#u8
+                    then ok true
+                    else
+                      if a = 203#u8
+                      then
+                        if b = 0#u8
+                        then if c = 113#u8
+                             then ok true
+                             else ok (a >= 224#u8)
+                        else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+          else
+            if a = 198#u8
+            then
+              if b = 51#u8
+              then
+                if c = 100#u8
+                then ok true
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+            else
+              if a = 203#u8
+              then
+                if b = 0#u8
+                then if c = 113#u8
+                     then ok true
+                     else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+              else ok (a >= 224#u8)
+      else
+        if a = 198#u8
+        then
+          if b = 18#u8
+          then ok true
+          else
+            if b = 19#u8
+            then ok true
+            else
+              if a = 198#u8
+              then
+                if b = 51#u8
+                then
+                  if c = 100#u8
+                  then ok true
+                  else
+                    if a = 203#u8
+                    then
+                      if b = 0#u8
+                      then if c = 113#u8
+                           then ok true
+                           else ok (a >= 224#u8)
+                      else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                else
+                  if a = 203#u8
+                  then
+                    if b = 0#u8
+                    then if c = 113#u8
+                         then ok true
+                         else ok (a >= 224#u8)
+                    else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+        else
+          if a = 198#u8
+          then
+            if b = 51#u8
+            then
+              if c = 100#u8
+              then ok true
+              else
+                if a = 203#u8
+                then
+                  if b = 0#u8
+                  then if c = 113#u8
+                       then ok true
+                       else ok (a >= 224#u8)
+                  else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+            else
+              if a = 203#u8
+              then
+                if b = 0#u8
+                then if c = 113#u8
+                     then ok true
+                     else ok (a >= 224#u8)
+                else ok (a >= 224#u8)
+              else ok (a >= 224#u8)
+          else
+            if a = 203#u8
+            then
+              if b = 0#u8
+              then if c = 113#u8
+                   then ok true
+                   else ok (a >= 224#u8)
+              else ok (a >= 224#u8)
+            else ok (a >= 224#u8)
+
+/-- [protocol::ip::is_public_v4]:
+    Source: 'crates/protocol/src/ip.rs', lines 25:0-27:1
+    Visibility: public -/
+def ip.is_public_v4 (octets : Array Std.U8 4#usize) : Result Bool := do
+  let i ← Array.index_usize octets 0#usize
+  let i1 ← Array.index_usize octets 1#usize
+  let b ← ip.v4_low_ranges i i1
+  let b1 ←
+    if b
+    then ok true
+    else
+      do
+      let i2 ← Array.index_usize octets 2#usize
+      ip.v4_high_ranges i i1 i2
+  ok (¬ b1)
+
+/-- [protocol::ip::high_byte]:
+    Source: 'crates/protocol/src/ip.rs', lines 29:0-31:1 -/
+def ip.high_byte (segment : Std.U16) : Result Std.U8 := do
+  let i ← segment >>> 8#i32
+  ok (UScalar.cast .U8 i)
+
+/-- [protocol::ip::low_byte]:
+    Source: 'crates/protocol/src/ip.rs', lines 33:0-35:1 -/
+def ip.low_byte (segment : Std.U16) : Result Std.U8 := do
+  let i ← lift (segment &&& 255#u16)
+  ok (UScalar.cast .U8 i)
+
+/-- [protocol::ip::v4_of]:
+    Source: 'crates/protocol/src/ip.rs', lines 37:0-44:1 -/
+def ip.v4_of
+  (high : Std.U16) (low : Std.U16) : Result (Array Std.U8 4#usize) := do
+  let i ← ip.high_byte high
+  let i1 ← ip.low_byte high
+  let i2 ← ip.high_byte low
+  let i3 ← ip.low_byte low
+  ok (Array.make 4#usize [ i, i1, i2, i3 ])
+
+/-- [protocol::ip::is_mapped]:
+    Source: 'crates/protocol/src/ip.rs', lines 47:0-49:1 -/
+def ip.is_mapped (s : Array Std.U16 8#usize) : Result Bool := do
+  let i ← Array.index_usize s 0#usize
+  if i = 0#u16
+  then
+    let i1 ← Array.index_usize s 1#usize
+    if i1 = 0#u16
+    then
+      let i2 ← Array.index_usize s 2#usize
+      if i2 = 0#u16
+      then
+        let i3 ← Array.index_usize s 3#usize
+        if i3 = 0#u16
+        then
+          let i4 ← Array.index_usize s 4#usize
+          if i4 = 0#u16
+          then let i5 ← Array.index_usize s 5#usize
+               ok (i5 = 65535#u16)
+          else ok false
+        else ok false
+      else ok false
+    else ok false
+  else ok false
+
+/-- [protocol::ip::is_nat64]:
+    Source: 'crates/protocol/src/ip.rs', lines 53:0-55:1 -/
+def ip.is_nat64 (s : Array Std.U16 8#usize) : Result Bool := do
+  let i ← Array.index_usize s 0#usize
+  if i = 100#u16
+  then
+    let i1 ← Array.index_usize s 1#usize
+    if i1 = 65435#u16
+    then
+      let i2 ← Array.index_usize s 2#usize
+      if i2 = 0#u16
+      then
+        let i3 ← Array.index_usize s 3#usize
+        if i3 = 0#u16
+        then
+          let i4 ← Array.index_usize s 4#usize
+          if i4 = 0#u16
+          then let i5 ← Array.index_usize s 5#usize
+               ok (i5 = 0#u16)
+          else ok false
+        else ok false
+      else ok false
+    else ok false
+  else ok false
+
+/-- [protocol::ip::is_6to4]:
+    Source: 'crates/protocol/src/ip.rs', lines 58:0-60:1 -/
+def ip.is_6to4 (s : Array Std.U16 8#usize) : Result Bool := do
+  let i ← Array.index_usize s 0#usize
+  ok (i = 8194#u16)
+
+/-- [protocol::ip::v6_ranges]:
+    Source: 'crates/protocol/src/ip.rs', lines 64:0-74:1 -/
+def ip.v6_ranges (s : Array Std.U16 8#usize) : Result Bool := do
+  let i ← Array.index_usize s 0#usize
+  if i = 0#u16
+  then ok true
+  else
+    if i = 256#u16
+    then ok true
+    else
+      if i = 8193#u16
+      then
+        let i1 ← Array.index_usize s 1#usize
+        if i1 < 512#u16
+        then ok true
+        else
+          if i = 8193#u16
+          then
+            if i1 = 3512#u16
+            then ok true
+            else
+              if i = 100#u16
+              then
+                if i1 = 65435#u16
+                then ok true
+                else
+                  let i2 ← lift (i &&& 65024#u16)
+                  if i2 = 64512#u16
+                  then ok true
+                  else
+                    let i3 ← lift (i &&& 65472#u16)
+                    if i3 = 65152#u16
+                    then ok true
+                    else
+                      let i4 ← lift (i &&& 65472#u16)
+                      if i4 = 65216#u16
+                      then ok true
+                      else
+                        let i5 ← lift (i &&& 65280#u16)
+                        ok (i5 = 65280#u16)
+              else
+                let i2 ← lift (i &&& 65024#u16)
+                if i2 = 64512#u16
+                then ok true
+                else
+                  let i3 ← lift (i &&& 65472#u16)
+                  if i3 = 65152#u16
+                  then ok true
+                  else
+                    let i4 ← lift (i &&& 65472#u16)
+                    if i4 = 65216#u16
+                    then ok true
+                    else let i5 ← lift (i &&& 65280#u16)
+                         ok (i5 = 65280#u16)
+          else
+            if i = 100#u16
+            then
+              if i1 = 65435#u16
+              then ok true
+              else
+                let i2 ← lift (i &&& 65024#u16)
+                if i2 = 64512#u16
+                then ok true
+                else
+                  let i3 ← lift (i &&& 65472#u16)
+                  if i3 = 65152#u16
+                  then ok true
+                  else
+                    let i4 ← lift (i &&& 65472#u16)
+                    if i4 = 65216#u16
+                    then ok true
+                    else let i5 ← lift (i &&& 65280#u16)
+                         ok (i5 = 65280#u16)
+            else
+              let i2 ← lift (i &&& 65024#u16)
+              if i2 = 64512#u16
+              then ok true
+              else
+                let i3 ← lift (i &&& 65472#u16)
+                if i3 = 65152#u16
+                then ok true
+                else
+                  let i4 ← lift (i &&& 65472#u16)
+                  if i4 = 65216#u16
+                  then ok true
+                  else let i5 ← lift (i &&& 65280#u16)
+                       ok (i5 = 65280#u16)
+      else
+        if i = 8193#u16
+        then
+          let i1 ← Array.index_usize s 1#usize
+          if i1 = 3512#u16
+          then ok true
+          else
+            if i = 100#u16
+            then
+              if i1 = 65435#u16
+              then ok true
+              else
+                let i2 ← lift (i &&& 65024#u16)
+                if i2 = 64512#u16
+                then ok true
+                else
+                  let i3 ← lift (i &&& 65472#u16)
+                  if i3 = 65152#u16
+                  then ok true
+                  else
+                    let i4 ← lift (i &&& 65472#u16)
+                    if i4 = 65216#u16
+                    then ok true
+                    else let i5 ← lift (i &&& 65280#u16)
+                         ok (i5 = 65280#u16)
+            else
+              let i2 ← lift (i &&& 65024#u16)
+              if i2 = 64512#u16
+              then ok true
+              else
+                let i3 ← lift (i &&& 65472#u16)
+                if i3 = 65152#u16
+                then ok true
+                else
+                  let i4 ← lift (i &&& 65472#u16)
+                  if i4 = 65216#u16
+                  then ok true
+                  else let i5 ← lift (i &&& 65280#u16)
+                       ok (i5 = 65280#u16)
+        else
+          if i = 100#u16
+          then
+            let i1 ← Array.index_usize s 1#usize
+            if i1 = 65435#u16
+            then ok true
+            else
+              let i2 ← lift (i &&& 65024#u16)
+              if i2 = 64512#u16
+              then ok true
+              else
+                let i3 ← lift (i &&& 65472#u16)
+                if i3 = 65152#u16
+                then ok true
+                else
+                  let i4 ← lift (i &&& 65472#u16)
+                  if i4 = 65216#u16
+                  then ok true
+                  else let i5 ← lift (i &&& 65280#u16)
+                       ok (i5 = 65280#u16)
+          else
+            let i1 ← lift (i &&& 65024#u16)
+            if i1 = 64512#u16
+            then ok true
+            else
+              let i2 ← lift (i &&& 65472#u16)
+              if i2 = 65152#u16
+              then ok true
+              else
+                let i3 ← lift (i &&& 65472#u16)
+                if i3 = 65216#u16
+                then ok true
+                else let i4 ← lift (i &&& 65280#u16)
+                     ok (i4 = 65280#u16)
+
+/-- [protocol::ip::is_public_v6]:
+    Source: 'crates/protocol/src/ip.rs', lines 78:0-86:1
+    Visibility: public -/
+def ip.is_public_v6 (segments : Array Std.U16 8#usize) : Result Bool := do
+  let b ← ip.is_mapped segments
+  if b
+  then
+    let i ← Array.index_usize segments 6#usize
+    let i1 ← Array.index_usize segments 7#usize
+    let a ← ip.v4_of i i1
+    ip.is_public_v4 a
+  else
+    let b1 ← ip.is_nat64 segments
+    if b1
+    then
+      let i ← Array.index_usize segments 6#usize
+      let i1 ← Array.index_usize segments 7#usize
+      let a ← ip.v4_of i i1
+      ip.is_public_v4 a
+    else
+      let b2 ← ip.is_6to4 segments
+      if b2
+      then
+        let i ← Array.index_usize segments 1#usize
+        let i1 ← Array.index_usize segments 2#usize
+        let a ← ip.v4_of i i1
+        ip.is_public_v4 a
+      else let b3 ← ip.v6_ranges segments
+           ok (¬ b3)
+
 /-- [protocol::live::MAX_PROGRESS]
     Source: 'crates/protocol/src/live.rs', lines 10:0-10:35
     Visibility: public -/

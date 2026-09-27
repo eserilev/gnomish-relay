@@ -25,6 +25,7 @@ pub(crate) mod command_rules;
 pub mod folder;
 pub mod frame;
 pub mod inline;
+pub mod ip;
 pub mod live;
 pub mod lua;
 pub mod markdown;
