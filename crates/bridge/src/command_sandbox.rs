@@ -651,7 +651,8 @@ const PROFILE_START: &str = "(version 1)
 ";
 
 /// `git credential-osxkeychain` gives the GitHub token of the user with no prompt, and
-/// the proxy reaches `github.com`. TLS checks go through `trustd`, which stays open.
+/// the proxy reaches `github.com`. The cost: a tool that checks TLS with the Security
+/// framework fails. `curl`, `git`, cargo, npm, and pip do not use it (SPEC.md 6.6.4).
 const NO_KEYCHAIN: &str = "(deny mach-lookup (global-name \"com.apple.SecurityServer\") (global-name \"com.apple.secd\"))\n";
 
 /// A later rule wins in Seatbelt, so the hidden paths come last. Each path is an escaped
