@@ -42,6 +42,10 @@ jobs:
           toolchain: stable
           components: rustfmt, clippy
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # Nextest runs the tests of all binaries side by side, and cargo test runs one binary at a time.
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2
+        with:
+          tool: cargo-nextest
       - run: cargo fmt --check
       - run: cargo clippy --all-targets -- -D warnings
       # The story and command sandbox tests need a working bwrap (SPEC 14.5). Ubuntu blocks user
@@ -55,7 +59,9 @@ jobs:
       # The command sandbox tests run the real sandbox-exec on macOS (SPEC 14.5).
       - if: runner.os == 'macOS'
         run: echo "GNOMISH_REQUIRE_SANDBOX_EXEC=1" >> "$GITHUB_ENV"
-      - run: cargo test
+      - run: cargo nextest run --no-fail-fast
+      # Nextest does not run doc tests.
+      - run: cargo test --doc
 
   supply-chain:
     runs-on: ubuntu-latest
