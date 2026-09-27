@@ -11,11 +11,7 @@ jobs:
         with:
           toolchain: stable
       - run: cargo build --manifest-path spikes/appcontainer/Cargo.toml
-      - run: spikes/appcontainer/session.ps1
-        shell: pwsh
-      - run: whoami /all
-        shell: cmd
-      - run: spikes/appcontainer/session.ps1 -Create
+      - run: spikes/appcontainer/asuser.ps1
         shell: pwsh
       - run: spikes/appcontainer/target/debug/acspike.exe outer
         shell: bash
