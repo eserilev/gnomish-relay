@@ -293,3 +293,14 @@ pub fn start_addon(
     }
     log_in(lua, wow, fake, addon);
 }
+
+/// Makes the slots from 1 to `SLOT_WINDOW`: the bridge writes only there until the addon
+/// reports a next slot. A full install writes 4000 files, which takes most of a minute
+/// on a Windows runner.
+pub fn install_window(addons: &std::path::Path, app: protocol::apps::App) {
+    use bridge::slots::{self, Files};
+    for n in 1..=protocol::slot::SLOT_WINDOW {
+        std::fs::create_dir(addons.join(slots::slot_name(app, n))).unwrap();
+    }
+    slots::publish(addons, app, &Files::empty(app, 0), 1).unwrap();
+}

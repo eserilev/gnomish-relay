@@ -21,8 +21,8 @@ use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
 use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
-use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, slot_name};
-use common::{hex, screenshot_png, signed_frame, strip_rows};
+use bridge::slots::{BODY_FILE, LIVE_FILE, slot_name};
+use common::{hex, install_window, screenshot_png, signed_frame, strip_rows};
 use protocol::apps::App;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
@@ -46,7 +46,7 @@ fn folders() -> Dirs {
     fs::create_dir_all(&state).unwrap();
     fs::create_dir_all(&screenshots).unwrap();
     fs::create_dir_all(&accounts).unwrap();
-    slots::install(&addons, App::Relay, &Files::empty(App::Relay, 0)).unwrap();
+    install_window(&addons, App::Relay);
     Dirs {
         _root: root,
         addons,

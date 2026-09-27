@@ -10,12 +10,14 @@ mod common;
 
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::run::{Bridge, now};
-use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, RESTORE_FILE};
+use bridge::slots::{self, BODY_FILE, LIVE_FILE, RESTORE_FILE};
 use bridge::story::{STORY_DIR, StorySpec};
 use bridge::story_sandbox::{Sandbox, Walls};
 use bridge::strip::{Image, read_with};
 use bridge::timeways::NO_STORY;
-use common::{fake_game, game_lua, hex, load_addon, log_in, measured, screenshot_png};
+use common::{
+    fake_game, game_lua, hex, install_window, load_addon, log_in, measured, screenshot_png,
+};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::live::{Progress, live_body, prepare_progress};
@@ -633,7 +635,7 @@ fn bridge_folders() -> (tempfile::TempDir, bridge::run::Paths) {
         std::fs::create_dir_all(dir).unwrap();
     }
     for app in [App::Relay, App::Timeways] {
-        slots::install(&paths.addons, app, &Files::empty(app, 0)).unwrap();
+        install_window(&paths.addons, app);
     }
     (root, paths)
 }

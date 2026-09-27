@@ -17,11 +17,11 @@ use bridge::config::{Permission, Policy};
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::{Folders, Job};
 use bridge::run::{Bridge, Paths, TIMEWAYS_DIR, now};
-use bridge::slots::{self, BODY_FILE, Files, RESTORE_FILE, slot_name};
+use bridge::slots::{BODY_FILE, RESTORE_FILE, slot_name};
 use bridge::story::{STORY_DIR, StorySpec};
 use bridge::story_sandbox::{Sandbox, Walls};
 use bridge::timeways::NO_STORY;
-use common::{hex, screenshot_png, signed_frame, strip_rows};
+use common::{hex, install_window, screenshot_png, signed_frame, strip_rows};
 use protocol::apps::App;
 
 const RELAY_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
@@ -48,10 +48,9 @@ fn folders(timeways_slots: bool) -> Dirs {
     for dir in [&dirs.addons, &dirs.screenshots, &dirs.accounts, &dirs.state] {
         fs::create_dir_all(dir).unwrap();
     }
-    slots::install(&dirs.addons, App::Relay, &Files::empty(App::Relay, 0)).unwrap();
+    install_window(&dirs.addons, App::Relay);
     if timeways_slots {
-        let empty = Files::empty(App::Timeways, 0);
-        slots::install(&dirs.addons, App::Timeways, &empty).unwrap();
+        install_window(&dirs.addons, App::Timeways);
     }
     dirs
 }
