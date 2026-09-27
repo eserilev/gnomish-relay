@@ -468,6 +468,34 @@ fn quotes_line_breaks_and_substitutions_run_inside_the_sandbox() {
     assert!(!m.other.join("q").exists());
 }
 
+/// The spike of SPEC.md 6.6.4 ("macOS"): a process inside Seatbelt cannot start
+/// `sandbox-exec` again. So the agent has no wall on macOS: its commands and the sandbox
+/// of Codex use Seatbelt. If this test fails, nesting works, and macOS can get a wall.
+#[cfg(target_os = "macos")]
+#[test]
+fn seatbelt_cannot_start_inside_seatbelt() {
+    let Some(_) = tool() else { return };
+    let profile = "(version 1)(allow default)";
+
+    let nested = Command::new("/usr/bin/sandbox-exec")
+        .args([
+            "-p",
+            profile,
+            "/usr/bin/sandbox-exec",
+            "-p",
+            profile,
+            "/usr/bin/true",
+        ])
+        .output()
+        .unwrap();
+
+    assert!(
+        !nested.status.success(),
+        "nested Seatbelt works: {}",
+        String::from_utf8_lossy(&nested.stderr)
+    );
+}
+
 #[test]
 fn a_command_in_a_hidden_folder_does_not_start() {
     let Some(tool) = tool() else { return };

@@ -21,7 +21,8 @@ use crate::story_sandbox::{self, Sandbox};
 pub const EXEC_FLAG: &str = "--exec";
 /// Where the agent finds the socket of its proxy inside the wall. `/run` is private there.
 pub const INNER_SOCKET: &str = "/run/gnomish-relay/agent.sock";
-pub const NO_WALL: &str = "(No sandbox on this computer: the agent has the full network.)";
+pub const NO_WALL: &str =
+    "(No network wall for the agent on this computer: it has the full network.)";
 /// These hold the sockets of the desktop, the ssh agent, and Docker.
 const PRIVATE_FOLDERS: [&str; 4] = ["/run", "/tmp", "/var/tmp", "/dev/shm"];
 /// The folders under the home folder that the scan for sockets looks into.
@@ -191,6 +192,21 @@ impl AgentWall {
 
     pub fn is_on(&self) -> bool {
         matches!(self.tool, Sandbox::Bwrap(_))
+    }
+
+    /// One line for the log at start.
+    pub fn summary(&self) -> String {
+        if !self.is_on() {
+            return "no wall: the agents have the full network".into();
+        }
+        let hosts = match self.proxy.mode {
+            protocol::connect::Mode::Public => "any public host",
+            protocol::connect::Mode::Listed => "only their model hosts and agent_hosts",
+        };
+        format!(
+            "a bwrap wall, with {hosts} through the proxy and the local ports {:?}",
+            self.proxy.local_ports
+        )
     }
 
     /// `Some` once for each start of the bridge, on a computer with no wall.
@@ -696,6 +712,32 @@ mod tests {
         assert_eq!(wall.notice(), None);
         assert!(wall.prepare(&[], "chat test").unwrap().is_none());
         assert_eq!(AgentWall::none().notice(), None);
+        assert!(wall.summary().contains("full network"));
+    }
+
+    #[test]
+    fn the_summary_of_a_wall_names_its_mode_and_its_local_ports() {
+        let open = AgentWall::new(
+            Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")),
+            PathBuf::new(),
+            None,
+            PathBuf::new(),
+            ProxySettings::public().with_local_ports(&[5432]),
+        );
+        let mut strict = open.clone();
+        strict.proxy.mode = protocol::connect::Mode::Listed;
+
+        assert!(
+            open.summary().contains("any public host"),
+            "{}",
+            open.summary()
+        );
+        assert!(open.summary().contains("5432"), "{}", open.summary());
+        assert!(
+            strict.summary().contains("model hosts"),
+            "{}",
+            strict.summary()
+        );
     }
 
     #[test]

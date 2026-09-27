@@ -657,6 +657,7 @@ fn start_relay(
     gate.approvals.clear();
     let sandbox = gate.sandbox.summary();
     println!("commands from the game run in: {sandbox}");
+    println!("the agents of the game run in: {}", gate.wall.summary());
     let agents = agent::from_config(&relay, &gate);
     let raiser = Raiser {
         approvals: gate.approvals.clone(),
