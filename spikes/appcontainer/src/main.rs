@@ -131,7 +131,7 @@ fn run_ac(sec: &SecurityCapabilities, exe: &Path, cmdline: &str, cwd: &Path, env
     };
     let mut io = match launch_in_container_with_io(sec, &opts) {
         Ok(io) => io,
-        Err(e) => return Ran { code: 9999, out: format!("LAUNCH-FAIL {e}") },
+        Err(e) => return Ran { code: 9999, out: format!("LAUNCH-FAIL {e:?}") },
     };
     drop(io.stdin.take());
     let mut out = io.stdout.take().unwrap();
@@ -146,6 +146,20 @@ fn run_ac(sec: &SecurityCapabilities, exe: &Path, cmdline: &str, cwd: &Path, env
     let e = t.join().unwrap();
     let code = io.wait(Some(Duration::from_secs(60))).unwrap_or(8888);
     Ran { code, out: format!("{s}{e}") }
+}
+
+fn run_ac_noenv(sec: &SecurityCapabilities, exe: &Path, cmdline: &str, cwd: &Path) -> Ran {
+    let opts = LaunchOptions {
+        exe: exe.to_path_buf(),
+        cmdline: Some(cmdline.to_string()),
+        cwd: Some(cwd.to_path_buf()),
+        stdio: StdioConfig::Pipe,
+        ..Default::default()
+    };
+    match launch_in_container_with_io(sec, &opts) {
+        Ok(io) => Ran { code: io.wait(Some(Duration::from_secs(30))).unwrap_or(8888), out: String::new() },
+        Err(e) => Ran { code: 9999, out: format!("LAUNCH-FAIL {e:?}") },
+    }
 }
 
 fn show(name: &str, r: &Ran) {
@@ -192,6 +206,19 @@ fn outer() {
     let cmd = PathBuf::from(std::env::var("ComSpec").unwrap_or("C:\\Windows\\System32\\cmd.exe".into()));
 
     show("cmd echo", &run_ac(&sec, &cmd, "cmd /c echo hello", &chat, &env));
+    show("cmd echo no env", &run_ac_noenv(&sec, &cmd, "cmd /c echo hello", &chat));
+    let bare = SecurityCapabilities { package: pkg.clone(), caps: vec![], lpac: false };
+    show("cmd echo no caps", &run_ac(&bare, &cmd, "cmd /c echo hello", &chat, &env));
+    show("cmd echo no caps system32", &run_ac(&bare, &cmd, "cmd /c echo hello", Path::new("C:\\Windows\\System32"), &env));
+    match rappct::AppContainerProfile::ensure("gnomish.spike.profile", "spike", None) {
+        Ok(p) => {
+            let psec = SecurityCapabilities { package: p.sid.clone(), caps: vec![], lpac: false };
+            show("profile cmd echo", &run_ac(&psec, &cmd, "cmd /c echo hello", Path::new("C:\\Windows\\System32"), &env));
+            show("profile cmd echo chat", &run_ac(&psec, &cmd, "cmd /c echo hello", &chat, &env));
+            let _ = p.delete();
+        }
+        Err(e) => println!("PROFILE-FAIL {e:?}"),
+    }
     show("cmd write chat", &run_ac(&sec, &cmd, "cmd /c echo made> made.txt", &chat, &env));
     println!("made exists {}", chat.join("made.txt").exists());
     show("cmd write other", &run_ac(&sec, &cmd, &format!("cmd /c echo x> \"{}\"", other.join("x.txt").display()), &chat, &env));

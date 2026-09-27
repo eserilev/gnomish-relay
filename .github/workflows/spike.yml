@@ -13,5 +13,5 @@ jobs:
       - run: cargo build --manifest-path spikes/appcontainer/Cargo.toml
       - run: spikes/appcontainer/target/debug/acspike.exe outer
         shell: bash
-      - run: spikes\appcontainer\target\debug\acspike.exe outer
-        shell: cmd
+        env:
+          RAPPCT_DEBUG_LAUNCH: "1"
