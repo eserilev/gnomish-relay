@@ -130,6 +130,7 @@ Theorem S15 covers these rules.
 - The strip is signed, not encrypted. The prompt is in the pixels of each strip screenshot until the bridge deletes it. If the bridge does not run, these files stay. A cloud sync of the Screenshots folder (for example OneDrive on Windows) copies them.
 - An addon that loads before ours, for example one named `!Evil`, can replace global functions such as `string.char`, `tonumber`, or `bit.band` before `Key.lua` and `Sha256.lua` run. It can then read the strip key. Lua in WoW gives an addon no way to stop this. Layers 2 to 4 of 6.6 assume that any game message can come from another addon, so the key is a check against programs outside the game, not against other addons.
 - Code in the sandbox can still send data to the allowed API host, for example with an upload under another account key. A proxy that ends TLS and pins the account closes this. It is not in v1.
+- A command of a game run can send data to each host of the proxy list (6.6.4), for example a push to `github.com` with a token of its own. The list limits where a command connects, not what it sends.
 
 ### 6.6 Four layers of defense
 
@@ -174,7 +175,7 @@ Every message from the game (a strip or the reload outbox) runs under one ceilin
 | Write | The chat folder only (the `auto-edit` level of 9.3) |
 | Read | `allowed_roots` |
 | Commands | The allow table of the config. All others ask. |
-| Network | None for commands. The agent process keeps the network of the user for its API, and each network tool of the agent asks on the desktop (6.6.4). |
+| Network | For commands, only through the bridge proxy, to the allowed hosts (6.6.4). The agent process keeps the network of the user for its API, and each network tool of the agent asks on the desktop (6.6.4). |
 
 - The `full-auto` level (6.2 rule 5) skips the questions of the game only. `deny` and `desktop` answers of the classifier still apply, and so does the sandbox.
 - The allow table of the config (12) covers commands. A command that it covers runs with no question at `auto-edit` and `full-auto`. It never covers a `deny`, `desktop`, or "never always" command (S17).
@@ -289,7 +290,7 @@ The bridge runs every command of an agent run from the game inside a sandbox. Th
 |---|---|
 | Write | The chat folder, and a private temp folder of the run |
 | Read | The system, except the `deny` paths and both lists of `desktop` paths of 6.6.3, which are hidden |
-| Network | None for commands. The agent process itself is outside the sandbox (see "Where the wall is"). |
+| Network | Only through the bridge proxy, to the allowed hosts (see "Network: the proxy"). The agent process itself is outside the sandbox and outside the proxy (see "Where the wall is"). |
 | Children | Every child process, for example `cargo test`, is inside the same sandbox |
 
 The sandbox closes the hole that a classifier cannot close: an allowed command such as `cargo test` runs code that the agent can edit first.
@@ -307,15 +308,15 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 
 - At the start of each run, the bridge makes the private temp folder (`gnomish-relay-run-<random>`, mode 0700, under the temp folder of the OS) and writes the walls of the run to `<data>/sandbox/<name>.json`: the tool, the writable paths, and the hidden paths that exist. `GNOMISH_RELAY_SANDBOX` names the file, and `TMPDIR` is the temp folder. Both go away at the end of the run.
 - The wrapper never runs a command outside the sandbox. With no walls, or with a tool that does not start, the command fails with exit status 126.
-- The command gets only the variables of the allowlist of 6.2 rule 12, and `TMPDIR`. The `env` list of the entry, for example `ANTHROPIC_API_KEY`, stays with the agent.
+- The command gets only the variables of the allowlist of 6.2 rule 12, `TMPDIR`, and the variables of the proxy and of the caches ("Network: the proxy"). The `env` list of the entry, for example `ANTHROPIC_API_KEY`, stays with the agent.
 - The wrapper leaves a mark in the temp folder. If a Bash call ran and the mark is missing, Claude Code ignored the prefix, and the run stops at once with "A command ran outside the sandbox, so the run stopped.".
 - The bridge refuses a run when the bridge program is inside the chat folder, because a command could change it: "The bridge program <path> is inside the chat folder, so a command could change it. Install it somewhere else, for example ~/.local/bin."
 - The flags of a game run: `--setting-sources ""`, so the settings of the user and of the project do not apply; `--strict-mcp-config`, so no MCP server starts; and `--settings` with `sandbox.enabled: false` and `env.CLAUDE_CODE_SHELL_PREFIX`. A project from the web can hold a `.claude/settings.json` with hooks, or with an `env` that clears the prefix, so no project setting applies. The model and the other settings of the user do not apply either: the `command` of the entry can add `--model`.
 - The own sandbox of Claude Code stays off. Checked on 2.1.283: the keys are `sandbox.enabled`, `sandbox.failIfUnavailable`, and `sandbox.allowUnsandboxedCommands`. With `failIfUnavailable`, Claude Code refuses to start on a Linux with no `socat` ("sandbox required but unavailable: ... socat not installed"), and on macOS its Seatbelt and the Seatbelt of the bridge would nest, which is reported to fail. The sandbox of the bridge covers the same commands.
 
-**Linux: `bwrap`.** `--ro-bind / /`, `--dev /dev`, `--proc /proc`, an empty `--tmpfs` on `/tmp`, `/var/tmp`, and `/run` (they hold the sockets of the ssh agent and the desktop), a writable `--bind` of the chat folder and the temp folder, then a `--tmpfs` over each hidden folder and a read-only empty file over each hidden file, then `--remount-ro` of each of these. Then `--unshare-all` (no network, own process ids), `--die-with-parent`, `--new-session`, and `bash -c <command>` in the working folder of the command. A folder that holds a writable path keeps its place: a chat folder under `/tmp` still works.
+**Linux: `bwrap`.** `--ro-bind / /`, `--dev /dev`, `--proc /proc`, an empty `--tmpfs` on `/tmp`, `/var/tmp`, and `/run` (they hold the sockets of the ssh agent and the desktop), a writable `--bind` of the chat folder and the temp folder, then a `--tmpfs` over each hidden folder and a read-only empty file over each hidden file, then `--remount-ro` of each of these. Then `--unshare-all` (no network but a loopback of its own, own process ids), `--die-with-parent`, `--new-session`, and `bash -c <command>` in the working folder of the command. With the proxy, `gnomish-relay --sandbox-forward <socket>` starts first inside the sandbox, and it starts `bash -c <command>` (see "Network: the proxy"). A folder that holds a writable path keeps its place: a chat folder under `/tmp` still works.
 
-**macOS: `sandbox-exec`** with a generated profile: `(allow default)`, `(deny network*)`, `(deny file-write*)`, an allow of writes to a few devices (`/dev/null`, `/dev/tty`, `/dev/fd`), an allow of writes to the chat folder and the temp folder, and last a deny of reads and writes under each hidden path, `/private/tmp`, and `/private/var/tmp`. A later rule wins in Seatbelt. Each path is a string literal in the profile, with the escape of S32. Mach services stay reachable, so the keychain answers with the rules of its own access lists.
+**macOS: `sandbox-exec`** with a generated profile: `(allow default)`, `(deny network*)`, `(deny file-write*)`, an allow of writes to a few devices (`/dev/null`, `/dev/tty`, `/dev/fd`), an allow of writes to the chat folder and the temp folder, and last a deny of reads and writes under each hidden path, `/private/tmp`, and `/private/var/tmp`. With the proxy, one rule after `(deny network*)` allows the loopback port of the proxy of the run: `(allow network-outbound (remote ip "localhost:<port>"))`. A later rule wins in Seatbelt. Each path is a string literal in the profile, with the escape of S32. Mach services stay reachable, so the keychain answers with the rules of its own access lists.
 
 **Hidden paths that exist.** A `bwrap` mount and a Seatbelt `subpath` name a real path, so the bridge looks for the hidden paths at the start of each run: the `deny` folders, each pattern in the home folder (for example `~/.ssh` and `~/.config/gh`), and a walk of the chat folder. The walk does not follow links, but a link with a hidden name hides its real target. A chat folder with more than 1000000 files and folders gets no run. Limits:
 
@@ -324,7 +325,34 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 - The logins of the agents are `desktop` paths too (`.claude.json`, `.claude/.credentials.json`, `.codex/auth.json`), so no command reads them.
 - In the sandbox `.git/config` reads as empty, so `git` works with no remote and no settings of the repository, and `git config` fails. The hooks of git are gone.
 
-**Network: the decision and the gap.** 6.6.2 asks for "the agent's own API host only". Commands get no network at all, which is stricter. The agent process is outside the sandbox and has the normal network of the user: it needs its API host, and the bridge proxy that would limit it to that host is not built. The network tools of the agent (web fetch, web search, MCP tools) are unknown tools, so each one asks on the desktop (6.6.3). A command that needs the network, such as `cargo fetch` or `npm install`, fails in a game run.
+**Network: the proxy** (asked for by the user and decided with an advisor on 2026-09-26). The user needs `cargo fetch`, `cargo build` with new dependencies, `npm install`, `pip install`, and `git fetch` over https in a game run. So a command reaches a short list of package hosts through a proxy of the bridge, and nothing else:
+
+- **The proxy** (`proxy.rs`) runs in the bridge, outside the sandbox, one for each run. It takes only HTTP `CONNECT` to a host of the allow list on port 443 or 80. It never ends the TLS, so it sees only the host name. It takes no plain `GET http://...`: the tools use https, and a forward of plain HTTP needs a second parser.
+- **The host check.** The name must be on the list, compared exactly and without ASCII case (`allow_hosts.rs`). An IP address in any form (`[::1]`, `127.1`, `0x7f000001`) and `localhost` are refused before any lookup. The proxy resolves the name once and refuses it when any address is not on the public internet: loopback, private, link-local, shared (100.64/10), multicast, reserved, and the IPv6 forms that hold such an IPv4 address (`public_ip.rs`). It then connects to a checked address. No second lookup happens, so a name cannot resolve to a public address for the check and to an inside address for the connection.
+- **Limits.** At most 64 connections at once for each run, 10 seconds for the request head (at most 8 KiB) and for the connection, and 5 minutes with no byte in either way. Each refusal writes a log line with the chat, the host, and the reason, and the command gets `403` with the reason.
+- **Linux.** `bwrap --unshare-all` leaves the command a network with only its own loopback. The proxy listens on a Unix socket in the temp folder of the run, which the sandbox already binds at the same path. The wrapper starts `gnomish-relay --sandbox-forward <socket> bash -c <command>` inside the sandbox. This forwarder listens on `127.0.0.1:3128` of that network, relays each connection to the socket, runs the command, and exits with its status. No `socat` and no `unsafe`.
+- **macOS.** The proxy listens on a free loopback port. The profile allows only that port, after `(deny network*)`. Other programs of the user can also reach the port, but they already have the full network, and the proxy gives them nothing more.
+- **The variables.** The command gets `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`, `ALL_PROXY`, `CARGO_HTTP_PROXY`, `npm_config_https_proxy`, and `npm_config_proxy` with `http://127.0.0.1:<port>`, and an empty `NO_PROXY` and `no_proxy`. A command that clears them has no way out: the OS network stays off. The caches of npm and pip in the home folder are read-only, so `npm_config_cache` and `PIP_CACHE_DIR` point into the temp folder of the run.
+- **The default hosts,** each checked against what the tool fetches:
+
+| Host | Why |
+|---|---|
+| `index.crates.io` | The sparse index of crates.io |
+| `static.crates.io` | The crate files: the `dl` of the index config |
+| `static.rust-lang.org` | `rustup`, when `rust-toolchain.toml` asks for a toolchain |
+| `github.com` | `git fetch` over https, and git dependencies of cargo |
+| `codeload.github.com` | Archives of a tag or a branch |
+| `objects.githubusercontent.com`, `release-assets.githubusercontent.com` | Release files, where `github.com` sends a download |
+| `raw.githubusercontent.com` | Single files, for example install scripts of build tools |
+| `registry.npmjs.org` | npm packages and their files |
+| `pypi.org`, `files.pythonhosted.org` | The index of pip and its files |
+
+- `crates.io` itself is not on the list. It is the API host of `cargo publish`, and `cargo fetch` does not need it.
+- **S31 stays as it is.** S31 is about hidden paths and writable paths, and the proxy adds neither: the socket lies in the temp folder. `Network::Off` of the policy stays true at the OS level: `bwrap` gives no network but a private loopback, and Seatbelt denies all network but one loopback port. The proxy is a channel of the bridge beside the policy, not a part of it.
+- **What the list does not stop.** A list limits where a command connects. It does not stop data that leaves to an allowed host. A command with a token of its own can push to `github.com` or publish to npm. Without an end of the TLS in the bridge, nothing closes this. So the tokens of these tools are hidden (6.6.3), and the list stays short.
+- **Build scripts.** A command such as `cargo build` runs a `build.rs` or an npm install script that the agent can edit. It reaches the allowed hosts too. The short list keeps this small.
+- **Not yet:** the agent process itself is still outside the proxy, with the normal network of the user. The network tools of the agent (web fetch, web search, MCP tools) are unknown tools, so each one asks on the desktop (6.6.3). A proxy for the agent process, limited to its API host, is a later step.
+- With no host in the list (12), the proxy does not start, and commands have no network at all.
 
 What each backend and OS enforces:
 
@@ -337,7 +365,7 @@ What each backend and OS enforces:
 **Codex.** Codex runs its commands in its own sandbox. The bridge sets `sandbox_workspace_write.exclude_slash_tmp`, and a private temp folder of the run as `TMPDIR` (checked on codex-cli 0.157.0: `thread/start` answers with `excludeSlashTmp: true`). Against S31:
 
 - Writes match: the chat folder and the temp folder only, and at `ask` nothing.
-- Network matches: none for commands.
+- Network is stricter: Codex commands get no network, and no proxy.
 - Reads do not match: `workspace-write` reads the whole disk, with no hidden path. A command can read `~/.ssh` and the keys of the bridge. The bridge cannot put Codex in its own sandbox: the login and the rules of Codex live in `CODEX_HOME`, and on macOS the sandbox of Codex cannot start inside Seatbelt. codex-cli 0.157.0 has `permissions.<profile>.filesystem.deny_read`, but its format has no documentation yet, so it waits for a live test.
 - A command that an `allow` rule of Codex covers runs outside the sandbox (6.6.3).
 
@@ -1799,6 +1827,8 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 - The story sandbox on Linux with a real `bwrap` (`crates/bridge/tests/story_sandbox.rs`): a write outside its folder fails, also to `state.json` of the lane and to the lore pack; a read of the config folder, the keys, the data folder, and `~/.ssh` fails, and a read of the lore pack inside the hidden data folder works; a connect to a port that answers outside the sandbox fails inside it. With no working `bwrap` these tests skip with a message. CI installs `bwrap` on Linux and sets `GNOMISH_REQUIRE_BWRAP`, so there they cannot skip.
 - A hang of the story program: its child process stops too (Linux).
 - The command sandbox with the real tool: `bwrap` on Linux and `sandbox-exec` on macOS (`crates/bridge/tests/command_sandbox.rs`). Each test runs a command through `gnomish-relay --sandbox-run`, as Claude Code does. A write inside the chat folder and the temp folder works. A write outside fails: to another project, the home folder, `/tmp`, and `/var/tmp`. A read of the strip key, the state of the bridge, `~/.ssh`, and a `.env` in the chat folder shows no secret. A git hook cannot change. A child process of a child process stays inside. A link out of the chat folder writes nothing and reads no key. A connect to a port that answers outside fails inside. Quotes, line breaks, and `$(…)` in a command stay inside. The home folder of the tests has a `"`, a `\`, and a space in its name, so each path of the profile needs the escape of S32. CI sets `GNOMISH_REQUIRE_BWRAP` on Linux and `GNOMISH_REQUIRE_SANDBOX_EXEC` on macOS, so there they cannot skip.
+- The proxy of the command sandbox with the real tool (the same file). The proxy of the test knows `allowed.test`, which it resolves to a public address, and its connect step leads that address to a web server of the test; the address check stays real. Through the proxy, `curl` inside the sandbox reaches `allowed.test`. A host that is not on the list, an IP address, and a name that resolves to `127.0.0.1` or `192.168.1.1` get `403`. A connection that skips the proxy, to a port that answers outside, fails and reaches nothing. One small test fetches `https://index.crates.io/config.json` through the real proxy with the default hosts, so TLS inside the sandbox is checked; it skips when the computer is offline. A live test marked `#[ignore]` runs `cargo fetch` of a small crate inside the sandbox.
+- The proxy with no sandbox (`proxy.rs`): an allowed host gets a tunnel to exactly the address that the check passed, a name with one public and one private address is refused, and each IPv6 form of a private IPv4 address is refused. A plain HTTP request gets `405`, a port other than 443 and 80 gets `403`, a head that is too long or never ends gets `400`, and a connection over the limit gets `503`.
 - Claude with the real sandbox (`claude_gate.rs`): the scripted `claude` runs an allowed command through the prefix, and the command writes its chat folder and nothing outside. A command that ran without the wrapper stops the run. With no sandbox, a command of the allow table asks in the game, and the reply carries the notice.
 
 ### 14.6 Supply chain
@@ -1826,7 +1856,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
 15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 7, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. **Next:** step 8, setup for two apps, and versions.
-16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Next:** the bridge proxy for the API host of the agent, and a Windows launcher.
+16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Next:** the bridge proxy for the API host of the agent process, and a Windows launcher.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 

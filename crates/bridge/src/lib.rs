@@ -23,6 +23,7 @@ pub mod connect_line;
 pub mod desktop;
 pub mod dialog;
 pub mod flags;
+pub mod forward;
 pub mod fs_safe;
 pub mod gate;
 pub mod history;

@@ -13,7 +13,10 @@ use protocol::sbpl::sbpl_string;
 use serde::{Deserialize, Serialize};
 
 use crate::action_input::{DESKTOP_PATHS, DESKTOP_WRITES, resolve, resolved_bytes};
+use crate::allow_hosts::HostList;
+use crate::forward::{FORWARD_FLAG, INNER_PORT};
 use crate::process::BASE_ENV;
+use crate::proxy::{self, Proxy, ProxySettings};
 use crate::story_sandbox::{self, Sandbox};
 
 /// The flag of this program that runs one command inside the walls of a run.
@@ -26,6 +29,8 @@ const MARKER: &str = ".gnomish-relay-sandbox";
 const MAX_WALK: usize = 1_000_000;
 pub const NO_SANDBOX: &str = "(No sandbox on this computer: every command asks in the game.)";
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
+/// The Unix socket of the proxy, in the temp folder of the run.
+const PROXY_SOCKET: &str = ".gnomish-relay-proxy";
 
 /// The sandbox of this computer, for the commands of runs from the game.
 #[derive(Clone, Debug)]
@@ -34,6 +39,8 @@ pub struct CommandSandbox {
     /// This program. Claude Code runs it before each command.
     pub wrapper: PathBuf,
     pub home: Option<PathBuf>,
+    /// With no proxy, commands have no network at all.
+    pub proxy: Option<ProxySettings>,
     /// The notice of no sandbox shows once for each start of the bridge.
     told: Arc<AtomicBool>,
 }
@@ -44,15 +51,26 @@ impl CommandSandbox {
             tool,
             wrapper,
             home,
+            proxy: None,
             told: Arc::new(AtomicBool::new(false)),
         }
     }
 
+    #[must_use]
+    pub fn with_proxy(mut self, settings: ProxySettings) -> CommandSandbox {
+        self.proxy = Some(settings);
+        self
+    }
+
     /// Windows has none: its sandbox needs `unsafe` calls of the Windows API.
-    pub fn detect() -> CommandSandbox {
+    pub fn detect(hosts: HostList) -> CommandSandbox {
         let wrapper = std::env::current_exe().unwrap_or_default();
         let home = std::env::var_os("HOME").map(PathBuf::from);
-        CommandSandbox::new(story_sandbox::detect(), wrapper, home)
+        let sandbox = CommandSandbox::new(story_sandbox::detect(), wrapper, home);
+        if hosts.is_empty() {
+            return sandbox;
+        }
+        sandbox.with_proxy(ProxySettings::new(hosts))
     }
 
     pub fn none() -> CommandSandbox {
@@ -81,12 +99,26 @@ pub struct Walls {
     pub hidden: Vec<PathBuf>,
     /// An empty file that shows in place of a hidden file.
     pub empty: PathBuf,
+    /// The way to the proxy of the run. With none, commands have no network.
+    pub proxy: Option<ProxyEnd>,
 }
 
-/// The walls of one run. The temp folder and the walls file go away with it.
+/// Where a command inside the sandbox finds the proxy of its run.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub enum ProxyEnd {
+    /// `bwrap`: the forwarder, this program inside the sandbox, relays a port there to
+    /// the socket.
+    Socket { socket: PathBuf, forwarder: PathBuf },
+    /// Seatbelt: a loopback port, the only address that the profile allows.
+    Port(u16),
+}
+
+/// The walls of one run. The proxy, the temp folder, and the walls file go away with it.
 pub struct RunWalls {
     pub walls: Walls,
     file: PathBuf,
+    /// Before the temp folder, so the proxy stops before its socket goes away.
+    _proxy: Option<Proxy>,
     _temp: tempfile::TempDir,
 }
 
@@ -127,11 +159,13 @@ pub fn shell_prefix(wrapper: &Path) -> String {
     format!("{} {RUN_FLAG}", wrapper.display())
 }
 
-/// Makes the temp folder and the walls file of one run in `chat`.
+/// Makes the temp folder, the proxy, and the walls file of one run in `chat`. `tag`
+/// names the chat in each log line of the proxy.
 pub fn prepare(
     sandbox: &CommandSandbox,
     guarded: &Guarded,
     chat: &Path,
+    tag: &str,
 ) -> Result<RunWalls, String> {
     let chat = resolve(chat).ok_or("The chat folder is missing.")?;
     let (temp, temp_path) = make_temp()?;
@@ -146,19 +180,73 @@ pub fn prepare(
     let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), &chat)?;
     hidden.retain(|h| !writable.iter().any(|w| w.starts_with(h)));
     let place = guarded.data_dir.join("sandbox");
+    let (proxy, end) = start_proxy(sandbox, &temp_path, &hidden, tag)?.unzip();
     let walls = Walls {
         tool: sandbox.tool.clone(),
         writable,
         temp: temp_path,
         hidden,
         empty: empty_file(&place)?,
+        proxy: end,
     };
     let file = write_walls(&place, &walls)?;
     Ok(RunWalls {
         walls,
         file,
+        _proxy: proxy,
         _temp: temp,
     })
+}
+
+/// The proxy of the run and the way to it, or `None` with no hosts or no sandbox.
+fn start_proxy(
+    sandbox: &CommandSandbox,
+    temp: &Path,
+    hidden: &[PathBuf],
+    tag: &str,
+) -> Result<Option<(Proxy, ProxyEnd)>, String> {
+    let Some(settings) = sandbox.proxy.clone() else {
+        return Ok(None);
+    };
+    let failed = |e: std::io::Error| format!("The proxy of the sandbox did not start: {e}");
+    match &sandbox.tool {
+        Sandbox::Bwrap(_) => {
+            check_forwarder(&sandbox.wrapper, hidden)?;
+            let socket = temp.join(PROXY_SOCKET);
+            let proxy = listen_unix(&socket, settings, tag).map_err(failed)?;
+            let forwarder = sandbox.wrapper.clone();
+            Ok(Some((proxy, ProxyEnd::Socket { socket, forwarder })))
+        }
+        Sandbox::Seatbelt => {
+            let (proxy, port) = proxy::listen_tcp(settings, tag.to_owned()).map_err(failed)?;
+            Ok(Some((proxy, ProxyEnd::Port(port))))
+        }
+        Sandbox::None => Ok(None),
+    }
+}
+
+#[cfg(unix)]
+fn listen_unix(socket: &Path, settings: ProxySettings, tag: &str) -> std::io::Result<Proxy> {
+    proxy::listen_unix(socket, settings, tag.to_owned())
+}
+
+#[cfg(not(unix))]
+fn listen_unix(_socket: &Path, _settings: ProxySettings, _tag: &str) -> std::io::Result<Proxy> {
+    Err(std::io::ErrorKind::Unsupported.into())
+}
+
+/// The forwarder runs inside the sandbox, so a hidden folder must not hold it.
+fn check_forwarder(wrapper: &Path, hidden: &[PathBuf]) -> Result<(), String> {
+    let real = wrapper
+        .canonicalize()
+        .unwrap_or_else(|_| wrapper.to_owned());
+    if hidden.iter().any(|h| real.starts_with(h)) {
+        return Err(format!(
+            "The bridge program {} is inside a folder that the sandbox hides. Install it somewhere else, for example ~/.local/bin.",
+            real.display()
+        ));
+    }
+    Ok(())
 }
 
 /// Mode 0700, with a name that no other run has.
@@ -395,6 +483,9 @@ pub fn bwrap_args(walls: &Walls, cwd: &Path, shell: &Path, command: &str) -> Vec
         "--new-session",
         "--",
     ]));
+    if let Some(ProxyEnd::Socket { socket, forwarder }) = &walls.proxy {
+        args.extend([forwarder.into(), FORWARD_FLAG.into(), socket.into()]);
+    }
     args.extend([shell.into(), "-c".into(), command.into()]);
     args
 }
@@ -441,6 +532,10 @@ const PROFILE_START: &str = "(version 1)
 /// string literal (S32).
 pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
     let mut out = PROFILE_START.as_bytes().to_vec();
+    if let Some(ProxyEnd::Port(port)) = walls.proxy {
+        let rule = format!("(allow network-outbound (remote ip \"localhost:{port}\"))\n");
+        out.extend_from_slice(rule.as_bytes());
+    }
     let writable: Vec<&Path> = walls.writable.iter().map(PathBuf::as_path).collect();
     rule(&mut out, "(allow file-write*", &writable)?;
     let private = private_folders(walls).into_iter().map(Path::new);
@@ -501,8 +596,8 @@ fn bytes_arg(bytes: Vec<u8>) -> OsString {
     }
 }
 
-/// The allowlist of SPEC.md 6.2 rule 12, and the temp folder of the run. The agent keeps
-/// its keys, such as `ANTHROPIC_API_KEY`, and the command never sees them.
+/// The allowlist of SPEC.md 6.2 rule 12, the temp folder of the run, and the proxy. The
+/// agent keeps its keys, such as `ANTHROPIC_API_KEY`, and the command never sees them.
 pub fn command_env(
     walls: &Walls,
     own: impl Fn(&str) -> Option<OsString>,
@@ -513,6 +608,40 @@ pub fn command_env(
         .filter_map(|name| own(name).map(|value| ((*name).to_owned(), value)))
         .collect();
     env.push(("TMPDIR".into(), walls.temp.clone().into()));
+    // The caches in the home folder are read-only, and npm fails with no cache.
+    env.push(("npm_config_cache".into(), walls.temp.join("npm").into()));
+    env.push(("PIP_CACHE_DIR".into(), walls.temp.join("pip").into()));
+    if let Some(end) = &walls.proxy {
+        env.extend(proxy_env(end));
+    }
+    env
+}
+
+/// Each tool reads its own names, and some of them read only the lower-case ones.
+const PROXY_VARS: [&str; 8] = [
+    "HTTPS_PROXY",
+    "https_proxy",
+    "HTTP_PROXY",
+    "http_proxy",
+    "ALL_PROXY",
+    "CARGO_HTTP_PROXY",
+    "npm_config_https_proxy",
+    "npm_config_proxy",
+];
+
+/// No host skips the proxy, and a command has no other way out.
+fn proxy_env(end: &ProxyEnd) -> Vec<(String, OsString)> {
+    let port = match end {
+        ProxyEnd::Socket { .. } => INNER_PORT,
+        ProxyEnd::Port(port) => *port,
+    };
+    let url = OsString::from(format!("http://127.0.0.1:{port}"));
+    let mut env: Vec<(String, OsString)> = PROXY_VARS
+        .iter()
+        .map(|name| ((*name).to_owned(), url.clone()))
+        .collect();
+    env.push(("NO_PROXY".into(), OsString::new()));
+    env.push(("no_proxy".into(), OsString::new()));
     env
 }
 
@@ -609,7 +738,17 @@ mod tests {
             config_dir: &h.config,
             data_dir: &h.data,
         };
-        prepare(&sandbox(h, Sandbox::Seatbelt), &guarded, chat)
+        prepare(&sandbox(h, Sandbox::Seatbelt), &guarded, chat, "chat test")
+    }
+
+    fn proxied(h: &Folders, tool: Sandbox) -> Result<RunWalls, String> {
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+        let hosts = HostList::new(crate::allow_hosts::Defaults::Keep, &[]).unwrap();
+        let sandbox = sandbox(h, tool).with_proxy(ProxySettings::new(hosts));
+        prepare(&sandbox, &guarded, &h.chat, "chat test")
     }
 
     #[test]
@@ -732,7 +871,9 @@ mod tests {
         let mut inside = sandbox(&h, Sandbox::Seatbelt);
         inside.wrapper = h.chat.join("target/debug/gnomish-relay");
 
-        let error = prepare(&inside, &guarded, &h.chat).err().unwrap();
+        let error = prepare(&inside, &guarded, &h.chat, "chat test")
+            .err()
+            .unwrap();
 
         assert!(error.contains("inside the chat folder"), "{error}");
     }
@@ -750,6 +891,7 @@ mod tests {
                 PathBuf::from("/home/x/Code/app/.env"),
             ],
             empty: PathBuf::from("/data/sandbox/empty"),
+            proxy: None,
         }
     }
 
@@ -789,6 +931,157 @@ mod tests {
         assert_eq!(
             args[args.len() - 4..],
             ["--", "/bin/bash", "-c", "cargo test"]
+        );
+    }
+
+    #[test]
+    fn with_a_proxy_bwrap_starts_the_forwarder_and_the_forwarder_starts_the_command() {
+        let mut walls = sample();
+        walls.proxy = Some(ProxyEnd::Socket {
+            socket: PathBuf::from("/tmp/run1/.gnomish-relay-proxy"),
+            forwarder: PathBuf::from("/usr/bin/gnomish-relay"),
+        });
+
+        let args = strings(&bwrap_args(
+            &walls,
+            Path::new("/"),
+            Path::new("/bin/bash"),
+            "cargo fetch",
+        ));
+
+        assert_eq!(
+            args[args.len() - 7..],
+            [
+                "--",
+                "/usr/bin/gnomish-relay",
+                FORWARD_FLAG,
+                "/tmp/run1/.gnomish-relay-proxy",
+                "/bin/bash",
+                "-c",
+                "cargo fetch",
+            ][..]
+        );
+        assert!(args.contains(&"--unshare-all".to_owned()));
+    }
+
+    #[test]
+    fn with_a_proxy_seatbelt_allows_only_its_port_after_the_deny_of_the_network() {
+        let mut walls = sample();
+        walls.proxy = Some(ProxyEnd::Port(41234));
+
+        let profile = String::from_utf8(seatbelt_profile(&walls).unwrap()).unwrap();
+
+        let deny = profile.find("(deny network*)").unwrap();
+        let allow = profile
+            .find("(allow network-outbound (remote ip \"localhost:41234\"))")
+            .unwrap();
+        assert!(deny < allow);
+        assert_eq!(profile.matches("(allow network").count(), 1);
+        let plain = String::from_utf8(seatbelt_profile(&sample()).unwrap()).unwrap();
+        assert!(!plain.contains("(allow network"));
+    }
+
+    #[test]
+    fn with_a_proxy_a_command_gets_the_proxy_in_every_name_and_no_host_skips_it() {
+        let mut walls = sample();
+        walls.proxy = Some(ProxyEnd::Socket {
+            socket: PathBuf::from("/tmp/run1/.gnomish-relay-proxy"),
+            forwarder: PathBuf::from("/usr/bin/gnomish-relay"),
+        });
+
+        let env = command_env(&walls, |_| None);
+
+        let value = |name: &str| env.iter().find(|(n, _)| n == name).map(|(_, v)| v.clone());
+        for name in PROXY_VARS {
+            assert_eq!(
+                value(name),
+                Some(OsString::from(format!("http://127.0.0.1:{INNER_PORT}"))),
+                "{name}"
+            );
+        }
+        assert_eq!(value("NO_PROXY"), Some(OsString::new()));
+        assert_eq!(value("no_proxy"), Some(OsString::new()));
+        walls.proxy = Some(ProxyEnd::Port(41234));
+        let env = command_env(&walls, |_| None);
+        assert!(env.contains(&(
+            "HTTPS_PROXY".to_owned(),
+            OsString::from("http://127.0.0.1:41234")
+        )));
+    }
+
+    #[test]
+    fn with_no_proxy_a_command_gets_no_proxy_but_still_gets_its_caches() {
+        let env = command_env(&sample(), |_| None);
+
+        assert!(!env.iter().any(|(name, _)| name.ends_with("_PROXY")));
+        assert!(env.contains(&(
+            "npm_config_cache".to_owned(),
+            OsString::from("/tmp/run1/npm")
+        )));
+        assert!(env.contains(&("PIP_CACHE_DIR".to_owned(), OsString::from("/tmp/run1/pip"))));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_run_with_bwrap_and_hosts_gets_a_proxy_on_a_socket_in_its_temp_folder() {
+        let h = folders();
+
+        let run = proxied(&h, Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap"))).unwrap();
+
+        let socket = run.walls.temp.join(PROXY_SOCKET);
+        assert_eq!(
+            run.walls.proxy,
+            Some(ProxyEnd::Socket {
+                socket: socket.clone(),
+                forwarder: PathBuf::from("/usr/bin/gnomish-relay"),
+            })
+        );
+        assert!(std::os::unix::net::UnixStream::connect(&socket).is_ok());
+    }
+
+    #[test]
+    fn a_run_with_seatbelt_and_hosts_gets_a_proxy_on_a_loopback_port() {
+        let h = folders();
+
+        let run = proxied(&h, Sandbox::Seatbelt).unwrap();
+
+        let Some(ProxyEnd::Port(port)) = run.walls.proxy else {
+            panic!("no port: {:?}", run.walls.proxy);
+        };
+        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_ok());
+        drop(run);
+        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err());
+    }
+
+    #[test]
+    fn a_run_with_no_hosts_gets_no_proxy() {
+        let h = folders();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        assert_eq!(run.walls.proxy, None);
+        assert!(CommandSandbox::detect(HostList::default()).proxy.is_none());
+    }
+
+    #[test]
+    fn a_forwarder_inside_a_hidden_folder_gets_no_run() {
+        let h = folders();
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+        let hosts = HostList::new(crate::allow_hosts::Defaults::Keep, &[]).unwrap();
+        let mut inside = sandbox(&h, Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")))
+            .with_proxy(ProxySettings::new(hosts));
+        inside.wrapper = h.data.join("gnomish-relay");
+
+        let error = prepare(&inside, &guarded, &h.chat, "chat test")
+            .err()
+            .unwrap();
+
+        assert!(
+            error.contains("inside a folder that the sandbox hides"),
+            "{error}"
         );
     }
 
@@ -912,12 +1205,13 @@ mod tests {
         let env = command_env(&sample(), own);
 
         assert_eq!(
-            env,
+            env[..2],
             [
                 ("PATH".to_owned(), OsString::from("/usr/bin")),
                 ("TMPDIR".to_owned(), OsString::from("/tmp/run1")),
-            ]
+            ][..]
         );
+        assert!(!env.iter().any(|(name, _)| name == "ANTHROPIC_API_KEY"));
     }
 
     #[test]

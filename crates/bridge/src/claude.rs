@@ -113,7 +113,7 @@ impl ClaudeAgent {
             Some(_) => (None, Some(NEW_SESSION)),
             None => (None, None),
         };
-        let walls = match self.walls(&job.cwd) {
+        let walls = match self.walls(&job.cwd, &format!("chat {}", job.chat.0)) {
             Ok(walls) => walls,
             Err(e) => {
                 return Run {
@@ -171,7 +171,7 @@ impl ClaudeAgent {
     }
 
     /// The walls of a run, or `None` on a computer with no sandbox.
-    fn walls(&self, cwd: &str) -> Result<Option<RunWalls>, String> {
+    fn walls(&self, cwd: &str, tag: &str) -> Result<Option<RunWalls>, String> {
         if !self.gate.sandbox.is_on() {
             return Ok(None);
         }
@@ -179,7 +179,7 @@ impl ClaudeAgent {
             config_dir: &self.gate.config_dir,
             data_dir: &self.gate.data_dir,
         };
-        command_sandbox::prepare(&self.gate.sandbox, &guarded, Path::new(cwd)).map(Some)
+        command_sandbox::prepare(&self.gate.sandbox, &guarded, Path::new(cwd), tag).map(Some)
     }
 
     fn args(&self, level: Permission, resume: Option<&str>) -> Vec<String> {

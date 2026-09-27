@@ -8,10 +8,16 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
+use std::io::{self, BufRead, Write};
+use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Arc, OnceLock};
+use std::time::Duration;
 
+use bridge::allow_hosts::{Defaults, HostList};
 use bridge::command_sandbox::{self, CommandSandbox, Guarded, RunWalls, WALLS_VAR};
+use bridge::proxy::{Limits, Net, ProxySettings};
 use bridge::story_sandbox::{self, Sandbox};
 
 const REQUIRE: &str = if cfg!(target_os = "macos") {
@@ -91,17 +97,81 @@ fn machine() -> Machine {
     }
 }
 
-fn walls(m: &Machine, tool: Sandbox) -> RunWalls {
-    let sandbox = CommandSandbox::new(
+fn sandbox(m: &Machine, tool: Sandbox) -> CommandSandbox {
+    CommandSandbox::new(
         tool,
         PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
         Some(m.home.clone()),
-    );
+    )
+}
+
+fn prepare(m: &Machine, sandbox: &CommandSandbox) -> RunWalls {
     let guarded = Guarded {
         config_dir: &m.config,
         data_dir: &m.data,
     };
-    command_sandbox::prepare(&sandbox, &guarded, &m.chat).unwrap()
+    command_sandbox::prepare(sandbox, &guarded, &m.chat, "chat test").unwrap()
+}
+
+fn walls(m: &Machine, tool: Sandbox) -> RunWalls {
+    prepare(m, &sandbox(m, tool))
+}
+
+/// A public address that stands for the fake server behind the proxy.
+const PUBLIC: [u8; 4] = [93, 184, 216, 34];
+
+/// A web server on this computer that answers with the first line of each request.
+fn server() -> SocketAddr {
+    static SERVER: OnceLock<SocketAddr> = OnceLock::new();
+    *SERVER.get_or_init(|| {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let addr = listener.local_addr().unwrap();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut line = String::new();
+                let _ = io::BufReader::new(&stream).read_line(&mut line);
+                let body = format!("hello {}", line.trim_end());
+                let _ = write!(
+                    stream,
+                    "HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                    body.len()
+                );
+            }
+        });
+        addr
+    })
+}
+
+fn fake_resolve(host: &str, port: u16) -> io::Result<Vec<SocketAddr>> {
+    let ip: IpAddr = match host {
+        "allowed.test" => PUBLIC.into(),
+        "local.test" => [127, 0, 0, 1].into(),
+        "private.test" => [192, 168, 1, 1].into(),
+        _ => return Err(io::ErrorKind::NotFound.into()),
+    };
+    Ok(vec![SocketAddr::new(ip, port)])
+}
+
+fn fake_connect(addr: &SocketAddr, limit: Duration) -> io::Result<TcpStream> {
+    if addr.ip() == IpAddr::from(PUBLIC) {
+        return TcpStream::connect_timeout(&server(), limit);
+    }
+    TcpStream::connect_timeout(addr, limit)
+}
+
+/// The walls of a run whose proxy knows `allowed.test` and two names that lead back to
+/// this computer or its network.
+fn proxied_walls(m: &Machine, tool: Sandbox) -> RunWalls {
+    let names = ["allowed.test", "local.test", "private.test"].map(String::from);
+    let settings = ProxySettings {
+        hosts: Arc::new(HostList::new(Defaults::Off, &names).unwrap()),
+        net: Net {
+            resolve: fake_resolve,
+            connect: fake_connect,
+        },
+        limits: Limits::default(),
+    };
+    prepare(m, &sandbox(m, tool).with_proxy(settings))
 }
 
 struct Ran {
@@ -295,4 +365,136 @@ fn a_command_in_a_hidden_folder_does_not_start() {
 
     assert!(!ran.ok, "{}", ran.out);
     assert!(!ran.out.contains("secret"), "{}", ran.out);
+}
+
+#[test]
+fn a_command_reaches_an_allowed_host_through_the_proxy() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = proxied_walls(&m, tool);
+
+    let ran = run(
+        &w,
+        &m,
+        "curl -sS --max-time 20 --proxytunnel http://allowed.test/x",
+    );
+
+    assert!(ran.ok, "{}", ran.out);
+    assert_eq!(ran.out, "hello GET /x HTTP/1.1");
+}
+
+#[test]
+fn a_host_that_is_not_on_the_list_is_refused() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = proxied_walls(&m, tool);
+
+    let ran = run(&w, &m, "curl -sS --max-time 20 https://example.com/");
+
+    assert!(!ran.ok, "{}", ran.out);
+    assert!(ran.out.contains("403"), "{}", ran.out);
+}
+
+#[test]
+fn an_ip_address_is_refused_by_the_proxy() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = proxied_walls(&m, tool);
+
+    let ran = run(&w, &m, "curl -sS --max-time 20 https://93.184.216.34/");
+
+    assert!(!ran.ok, "{}", ran.out);
+    assert!(ran.out.contains("403"), "{}", ran.out);
+}
+
+#[test]
+fn a_name_that_resolves_to_this_computer_or_its_network_is_refused() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = proxied_walls(&m, tool);
+
+    for host in ["local.test", "private.test"] {
+        let ran = run(&w, &m, &format!("curl -sS --max-time 20 https://{host}/"));
+        assert!(!ran.ok, "{host}: {}", ran.out);
+        assert!(ran.out.contains("403"), "{host}: {}", ran.out);
+    }
+}
+
+#[test]
+fn a_connection_that_skips_the_proxy_fails() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = proxied_walls(&m, tool);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let direct = run(&w, &m, &format!("echo hi > /dev/tcp/127.0.0.1/{port}"));
+    let no_proxy = run(
+        &w,
+        &m,
+        &format!("curl -sS --max-time 20 --noproxy '*' http://127.0.0.1:{port}/"),
+    );
+
+    assert!(!direct.ok, "{}", direct.out);
+    assert!(!no_proxy.ok, "{}", no_proxy.out);
+    listener.set_nonblocking(true).unwrap();
+    assert!(listener.accept().is_err(), "a connection came in");
+}
+
+/// One small fetch over the internet, through the real proxy and the default hosts. It
+/// checks that TLS works inside the sandbox. It skips when this computer is offline.
+#[test]
+fn a_command_fetches_the_index_config_of_crates_io_through_the_real_proxy() {
+    let Some(tool) = tool() else { return };
+    if !is_online("index.crates.io:443") {
+        eprintln!("skipped: index.crates.io is out of reach");
+        return;
+    }
+    let m = machine();
+    let hosts = HostList::new(Defaults::Keep, &[]).unwrap();
+    let w = prepare(&m, &sandbox(&m, tool).with_proxy(ProxySettings::new(hosts)));
+
+    let ran = run(
+        &w,
+        &m,
+        "curl -sS --max-time 60 https://index.crates.io/config.json",
+    );
+
+    assert!(ran.ok, "{}", ran.out);
+    assert!(ran.out.contains("static.crates.io"), "{}", ran.out);
+}
+
+fn is_online(host: &str) -> bool {
+    let Some(addr) = host.to_socket_addrs().ok().and_then(|mut all| all.next()) else {
+        return false;
+    };
+    TcpStream::connect_timeout(&addr, Duration::from_secs(5)).is_ok()
+}
+
+/// A live run of `cargo fetch` for a small crate, with the real proxy and the default
+/// hosts. It needs the internet and `cargo`.
+#[test]
+#[ignore = "live: fetches a crate from crates.io"]
+fn cargo_fetch_of_a_small_crate_works_inside_the_sandbox() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    fs::create_dir_all(m.chat.join("src")).unwrap();
+    fs::write(
+        m.chat.join("Cargo.toml"),
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nitoa = \"=1.0.9\"\n",
+    )
+    .unwrap();
+    fs::write(m.chat.join("src/main.rs"), "fn main() {}\n").unwrap();
+    let hosts = HostList::new(Defaults::Keep, &[]).unwrap();
+    let w = prepare(&m, &sandbox(&m, tool).with_proxy(ProxySettings::new(hosts)));
+
+    let home = std::env::var("HOME").unwrap();
+    let ran = run(
+        &w,
+        &m,
+        &format!("HOME='{home}' CARGO_HOME=\"$PWD/.cargo-home\" cargo fetch"),
+    );
+
+    assert!(ran.ok, "{}", ran.out);
+    assert!(m.chat.join("Cargo.lock").exists());
 }

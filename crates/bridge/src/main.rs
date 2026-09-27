@@ -9,6 +9,8 @@ use bridge::command_sandbox;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::config_text::RelayPart;
 use bridge::desktop::{self, Approvals, Prompt};
+#[cfg(unix)]
+use bridge::forward;
 use bridge::fs_safe::write_atomic;
 use bridge::gate::Gate;
 use bridge::install;
@@ -737,6 +739,15 @@ fn main() -> Result<()> {
         ["say", chat, id, text] => say(chat, id, text),
         [command_sandbox::RUN_FLAG, command] => {
             std::process::exit(command_sandbox::run_wrapped(command))
+        }
+        #[cfg(unix)]
+        [forward::FORWARD_FLAG, socket, shell, "-c", command] => {
+            std::process::exit(forward::run_forwarder(
+                Path::new(socket),
+                forward::INNER_PORT,
+                Path::new(shell),
+                command,
+            ))
         }
         _ => bail!("{USAGE}"),
     }

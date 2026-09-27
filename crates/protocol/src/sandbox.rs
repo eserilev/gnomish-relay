@@ -7,7 +7,7 @@
 use crate::ascii::copy_bytes;
 use crate::path_rules::{is_clean, is_denied, matches_any_pattern};
 
-/// Commands have none. The agent process runs outside the sandbox and reaches its API.
+/// The OS network is off. The only way out is the proxy of the bridge (SPEC.md 6.6.4).
 #[derive(Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(test, derive(Debug))]
 pub enum Network {
