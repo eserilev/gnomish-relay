@@ -8,19 +8,38 @@ if ! command -v quint >/dev/null; then
   exit 1
 fi
 
-# check <model> <max steps> "<properties>" "<witnesses>"
-check() {
+out=$(mktemp -d)
+trap 'rm -rf "$out"' EXIT
+
+# Each simulation takes seconds, and they share nothing, so they all start at once.
+# simulate <model> <steps> <invariant> <seed>
+simulate() {
+  quint run "$1" --invariant="$3" --max-samples=20000 --max-steps="$2" --seed="$4" \
+    > "$out/$(basename "$1").$3.$4" 2>&1 || true
+}
+
+# start <model> <max steps> "<properties>" "<witnesses>"
+start() {
   local model=$1 steps=$2 properties=$3 witnesses=$4
   quint typecheck "$model"
-
-  simulate() {
-    quint run "$model" --invariant="$1" --max-samples=20000 --max-steps="$steps" --seed="$2" 2>&1 || true
-  }
-
-  # An exit code cannot tell a violation from a typo in a name, so read the verdict.
   for property in $properties; do
     for seed in 1 2 3; do
-      if ! simulate "$property" "$seed" | grep -q "No violation found"; then
+      simulate "$model" "$steps" "$property" "$seed" &
+    done
+  done
+  for witness in $witnesses; do
+    simulate "$model" "$steps" "$witness" 1 &
+  done
+}
+
+# An exit code cannot tell a violation from a typo in a name, so read the verdict.
+# verify <model> "<properties>" "<witnesses>"
+verify() {
+  local model=$1 properties=$2 witnesses=$3 name
+  name=$(basename "$model")
+  for property in $properties; do
+    for seed in 1 2 3; do
+      if ! grep -q "No violation found" "$out/$name.$property.$seed"; then
         echo "error: $property fails (seed $seed). Run: quint run $model --invariant=$property --seed=$seed" >&2
         exit 1
       fi
@@ -30,7 +49,7 @@ check() {
 
   # A witness that holds means the simulator never reached a hard state.
   for witness in $witnesses; do
-    if ! simulate "$witness" 1 | grep -q "\[violation\] Found an issue"; then
+    if ! grep -q "\[violation\] Found an issue" "$out/$name.$witness.1"; then
       echo "error: witness $witness of $model was never reached" >&2
       exit 1
     fi
@@ -38,10 +57,14 @@ check() {
   done
 }
 
-check models/transport.qnt 40 \
-  "runsOnce noLostReply restoreSafe noStuckMessage bodyBounded" \
-  "neverFull neverRestored neverTwoAnswers neverOutboxReply"
+transport_properties="runsOnce noLostReply restoreSafe noStuckMessage bodyBounded"
+transport_witnesses="neverFull neverRestored neverTwoAnswers neverOutboxReply"
+corner_properties="oneStrip ownEvents retryPaused blockedInTime fairWait"
+corner_witnesses="neverTurn neverWarned neverOutbox neverBoth neverRetry"
 
-check models/corner.qnt 100 \
-  "oneStrip ownEvents retryPaused blockedInTime fairWait" \
-  "neverTurn neverWarned neverOutbox neverBoth neverRetry"
+start models/transport.qnt 40 "$transport_properties" "$transport_witnesses"
+start models/corner.qnt 100 "$corner_properties" "$corner_witnesses"
+wait
+
+verify models/transport.qnt "$transport_properties" "$transport_witnesses"
+verify models/corner.qnt "$corner_properties" "$corner_witnesses"
