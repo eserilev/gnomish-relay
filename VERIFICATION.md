@@ -48,6 +48,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 24 | S30: version range | `version::version_fit` | `S30_version_fit` | proved |
 | 25 | S32: Seatbelt escape | `sbpl::sbpl_string` | `S32_sbpl_string`, `S32_reads_back` | proved |
 | 26 | S31: sandbox policy | `sandbox::sandbox_policy`, `path_rules` | `S31_sandbox_policy` | proved |
+| 27 | S36 to S39: "Always allow" | `always`, `command_rules` | `S36_propose`, `S37_no_proposal`, `S38_offer`, `S39_ceiling` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |
@@ -179,7 +180,7 @@ The statement makes "every path" and "reads back" exact:
 Each target checks the property of its proof on the compiled code, not only "no crash":
 `frame` (S1, C2, and S29 with two keys: a frame signed by one key goes only to its app), `records` (S3, C3), `folder` (S5), `lua` (S8 in a real Lua 5.1, and S9 for each app),
 `lua_model` (the Lean lexer model against a real Lua 5.1), `chat_text` (S10), `markdown` (S22 to S25), and
-`popup` (S15), `action` (S16, S17, S27, and S28: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor), `sandbox` (S31 and S32: the policy, the escape, the Seatbelt profile, and the `bwrap` arguments), `screenshot` (any file in the Screenshots folder never panics the
+`popup` (S15), `action` (S16, S17, S27, and S28: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor), `sandbox` (S31 and S32: the policy, the escape, the Seatbelt profile, and the `bwrap` arguments), `always` (S36 to S39: each proposal is the first words of its command with only plain words, and each offer makes the classifier give `allow` under a ceiling of `allow`), `rules_file` (any `rules.json` never panics the reader, and each rule that loads has the shape that `propose` makes), `screenshot` (any file in the Screenshots folder never panics the
 bridge), `saved` (any saved variables text never panics the frame reader), `restore` and
 `live` (S18 to S21 in a real Lua 5.1, for each app: each field loads back in the global
 of that app only, and each file stays under its bound), `flags` (each flag value from the game has its shape, and a coding flag never changes the transport flags), `acp` (a message
@@ -240,5 +241,7 @@ and the `action` fuzz target run such inputs.
 **S30 approved (2026-09-26).** The user approved S30 in words: for every app and every version, `version_fit` never fails, and it gives `Supported` exactly when oldest app ≤ v ≤ newest app, `TooOld` exactly when v < oldest app, and `TooNew` exactly when newest app < v. `S30_version_fit` in `proofs/Statements.lean` states this.
 
 **S32 approved (2026-09-26).** The user approved S32 in words: for every path, the escaped path in the Seatbelt profile reads back as the same path and never ends the string literal early. `S32_sbpl_string` and `S32_reads_back` in `proofs/Statements.lean` state this.
+
+**S36 to S39 approved (2026-09-27).** The user approved the statements of SPEC 6.6.5 as written at commit `29ed506`. `proofs/Statements.lean` states them with these exact readings, none of which changes the meaning: `isDesktop` is `desktopSimple`, `isCapped` is `neverAlways`, `simplesOf call` is `inCall call`, `ruleMatches r s.words` is `ruleMatches (strs r) (words s)`, `rules ++ rs` is every slice whose list is the rules and then `rs`, and `¬ hasSlash (r.head!)` is `¬ hasSlash h` for each `h` in `r.head?`. `plainWord` asks printable ASCII with no space (bytes 33 to 126), which is stricter than "printable ASCII".
 
 **S31 approved (2026-09-26).** The user approved S31 in words: for every config, each `deny` and `desktop` path is hidden; no writable path is inside a hidden path; writes go only to the chat folder and a private temp folder. `S31_sandbox_policy` in `proofs/Statements.lean` states this.
