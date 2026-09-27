@@ -71,6 +71,23 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
 
+    fn free_port() -> u16 {
+        TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port()
+    }
+
+    /// A test that runs at the same time can take the free port before the forwarder
+    /// binds it, which gives 126. Then the run goes again on a new port.
+    fn on_a_free_port(run: impl Fn(u16) -> i32) -> i32 {
+        (0..5)
+            .map(|_| run(free_port()))
+            .find(|code| *code != 126)
+            .unwrap_or(126)
+    }
+
     #[test]
     fn the_command_reaches_the_socket_through_the_port_and_keeps_its_exit_status() {
         let dir = tempfile::tempdir().unwrap();
@@ -82,18 +99,15 @@ mod tests {
             stream.read_exact(&mut got).unwrap();
             stream.write_all(b"pong").unwrap();
         });
-        let port = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
         let out = dir.path().join("out");
-        let command = format!(
-            "exec 3<>/dev/tcp/127.0.0.1/{port}; printf ping >&3; head -c 4 <&3 > '{}'; exit 7",
-            out.display()
-        );
 
-        let code = run_forwarder(&path, port, Path::new("/bin/bash"), &command);
+        let code = on_a_free_port(|port| {
+            let command = format!(
+                "exec 3<>/dev/tcp/127.0.0.1/{port}; printf ping >&3; head -c 4 <&3 > '{}'; exit 7",
+                out.display()
+            );
+            run_forwarder(&path, port, Path::new("/bin/bash"), &command)
+        });
 
         assert_eq!(code, 7);
         assert_eq!(std::fs::read_to_string(out).unwrap(), "pong");
@@ -101,18 +115,14 @@ mod tests {
 
     #[test]
     fn a_command_that_a_signal_stops_gives_128_plus_the_signal() {
-        let port = TcpListener::bind("127.0.0.1:0")
-            .unwrap()
-            .local_addr()
-            .unwrap()
-            .port();
-
-        let code = run_forwarder(
-            Path::new("/nowhere"),
-            port,
-            Path::new("/bin/sh"),
-            "kill -9 $$",
-        );
+        let code = on_a_free_port(|port| {
+            run_forwarder(
+                Path::new("/nowhere"),
+                port,
+                Path::new("/bin/sh"),
+                "kill -9 $$",
+            )
+        });
 
         assert_eq!(code, 137);
     }

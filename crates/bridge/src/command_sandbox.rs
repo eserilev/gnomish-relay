@@ -1194,7 +1194,19 @@ mod tests {
         };
         assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_ok());
         drop(run);
-        assert!(std::net::TcpStream::connect(("127.0.0.1", port)).is_err());
+        assert!(port_closes(port), "the proxy still listens on {port}");
+    }
+
+    /// A test that runs at the same time can take the free port for a moment, so the
+    /// check waits for the port to be closed once.
+    fn port_closes(port: u16) -> bool {
+        (0..50).any(|_| {
+            let closed = std::net::TcpStream::connect(("127.0.0.1", port)).is_err();
+            if !closed {
+                std::thread::sleep(std::time::Duration::from_millis(20));
+            }
+            closed
+        })
     }
 
     #[test]
