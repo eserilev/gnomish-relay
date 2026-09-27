@@ -18,10 +18,15 @@ local FOLDER_ICON = "Interface\\Icons\\INV_Misc_Bag_10"
 local ARROW = "Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up"
 local NEW = "9fe39f"
 local STATUS_BAR = "Interface\\TargetingFrame\\UI-StatusBar"
+local BODY_FONT = "Fonts\\ARIALN.TTF"
+local FONT_MIN, FONT_MAX = 12, 20
+-- Pings has no content yet, so it has no tab (SPEC.md 13.1).
+local TABS =
+	{ { id = "chats", name = "Chats" }, { id = "settings", name = "Settings" }, { id = "diag", name = "Diag" } }
 
 local frame
 local tiles = {}
-local ui = {}
+local ui = { tab = "chats" }
 
 -- The selected chat, or the first chat when none is selected.
 local function Selected()
@@ -38,6 +43,7 @@ local function MarkSelected(chatId)
 end
 
 local function Select(chatId)
+	ui.tab = "chats"
 	ui.picking = false
 	ns.Browser.Close()
 	MarkSelected(chatId)
@@ -135,8 +141,9 @@ end
 
 local function RefreshTiles(current)
 	local chats = ns.Store.Chats()
+	local chatsTab = ui.tab == "chats" and not ui.picking
 	for i, chat in ipairs(chats) do
-		ShowTile(i, chat, not ui.picking and current and chat.id == current.id)
+		ShowTile(i, chat, chatsTab and current and chat.id == current.id)
 	end
 	ShowTile(#chats + 1, nil, false)
 	ShowResumeTile(#chats + 2)
@@ -261,13 +268,29 @@ local function RefreshPicker()
 	ui.pickNote:SetText(note)
 end
 
-function Window.Refresh()
-	if not frame or not frame:IsShown() then
-		return
+local function RefreshTabs()
+	for _, tab in ipairs(ui.tabs) do
+		local open = tab.id == ui.tab
+		tab.bg:SetColorTexture(open and 0.11 or 0.04, open and 0.09 or 0.04, open and 0.06 or 0.05, 0.95)
+		tab.label:SetTextColor(open and 1 or 0.6, open and 0.82 or 0.58, open and 0 or 0.51)
 	end
-	local chat = Selected()
+end
+
+-- Settings and Diag take the place of the center and the Activity panel. The chat
+-- tiles stay, and a click on one goes back to Chats.
+local function RefreshPages()
+	local chats = ui.tab == "chats"
+	for _, part in ipairs(ui.chatParts) do
+		part:SetShown(chats)
+	end
+	ui.settings:SetShown(ui.tab == "settings")
+	ui.diag:SetShown(ui.tab == "diag")
+	ns.SettingsTab.Refresh()
+	ns.DiagTab.Refresh()
+end
+
+local function RefreshChats(chat)
 	local browsing = not ui.picking and ns.Browser.IsOpen()
-	RefreshTiles(chat)
 	ui.log:SetShown(not ui.picking and not browsing)
 	ui.input:SetShown(not ui.picking)
 	ui.picker:SetShown(ui.picking == true)
@@ -279,6 +302,52 @@ function Window.Refresh()
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
+end
+
+function Window.Refresh()
+	if not frame or not frame:IsShown() then
+		return
+	end
+	local chat = Selected()
+	RefreshTiles(chat)
+	RefreshTabs()
+	RefreshPages()
+	if ui.tab == "chats" then
+		RefreshChats(chat)
+	else
+		for _, part in ipairs({ ui.log, ui.input, ui.picker, ui.banner, ui.stop }) do
+			part:Hide()
+		end
+		ns.Browser.Show(false)
+	end
+end
+
+function Window.ShowTab(id)
+	ui.tab = id
+	ui.picking = false
+	ns.Browser.Close()
+	if id ~= "chats" then
+		ns.BridgeSettings.AskIfOld()
+	end
+	Window.Refresh()
+end
+
+-- The font size of all chat text. The window keeps its size, and long lines wrap.
+function Window.SetFontSize(size)
+	size = math.max(FONT_MIN, math.min(FONT_MAX, math.floor(size + 0.5)))
+	ns.Store.db.fontSize = size
+	if ui.input then
+		ui.input:SetFont(BODY_FONT, size, "")
+	end
+	Window.Refresh()
+end
+
+function Window.ResetPosition()
+	ns.Store.db.windowPoint = nil
+	if frame then
+		frame:ClearAllPoints()
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	end
 end
 
 -- The chat starts in the default folder. The folder button changes it (SPEC.md 9.9).
@@ -315,6 +384,7 @@ end
 
 function Window.ShowSessions()
 	ns.Browser.Close()
+	ui.tab = "chats"
 	ui.picking = true
 	ui.pickOffset = 0
 	ns.Transport.ListSessions()
@@ -445,6 +515,7 @@ local function BuildCenter()
 	ui.input:SetSize(width - 6, 24)
 	ui.input:SetAutoFocus(false)
 	ui.input:SetMaxBytes(MAX_INPUT)
+	ui.input:SetFont(BODY_FONT, ns.Store.db.fontSize, "")
 	ui.input:SetScript("OnEnterPressed", function(self)
 		local text = strtrim(self:GetText() or "")
 		if text == "" then
@@ -468,7 +539,9 @@ end
 
 local function BuildActivity()
 	local panel = Inset(frame, WIDTH - SIDE - 6, -84, SIDE, 44)
-	Label(frame, "GameFontNormal", "TOPRIGHT", -SIDE + 60, -64):SetText("Activity")
+	local title = Label(frame, "GameFontNormal", "TOPRIGHT", -SIDE + 60, -64)
+	title:SetText("Activity")
+	ui.activity = { panel, title }
 
 	ui.cast = CreateFrame("StatusBar", nil, panel)
 	ui.cast:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -8)
@@ -566,16 +639,66 @@ function Window.AskDelete(chatId)
 	ui.confirm:Show()
 end
 
+-- The saved variables keep the place, so the window opens where the player left it.
+local function SavePosition()
+	frame:StopMovingOrSizing()
+	frame:SetUserPlaced(false)
+	local point, _, relative, x, y = frame:GetPoint()
+	if point then
+		ns.Store.db.windowPoint = { point = point, relative = relative, x = x, y = y }
+	end
+end
+
+local function PlaceFrame()
+	local saved = ns.Store.db.windowPoint
+	frame:ClearAllPoints()
+	if type(saved) == "table" and type(saved.point) == "string" then
+		frame:SetPoint(saved.point, UIParent, saved.relative or saved.point, saved.x or 0, saved.y or 0)
+	else
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+	end
+end
+
+local function BuildTabs()
+	ui.tabs = {}
+	for i, tab in ipairs(TABS) do
+		local button = CreateFrame("Button", "GnomishRelayTab" .. i, frame)
+		button:SetSize(74, 28)
+		button:SetPoint("TOPLEFT", frame, "TOPRIGHT", 0, -70 - (i - 1) * 32)
+		button.bg = button:CreateTexture(nil, "BACKGROUND")
+		button.bg:SetAllPoints()
+		button.label = button:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+		button.label:SetPoint("CENTER", button, "CENTER", 0, 0)
+		button.label:SetText(tab.name)
+		button.id = tab.id
+		button:SetScript("OnClick", function(self)
+			Window.ShowTab(self.id)
+		end)
+		ui.tabs[i] = button
+	end
+end
+
+local function BuildPages()
+	local left = SIDE + 14
+	local width = WIDTH - SIDE - 20
+	ui.settings = Inset(frame, left, -60, width, 16)
+	ui.diag = Inset(frame, left, -60, width, 16)
+	ns.SettingsTab.Build(ui.settings)
+	ns.DiagTab.Build(ui.diag)
+	ui.settings:Hide()
+	ui.diag:Hide()
+end
+
 local function Build()
 	frame = CreateFrame("Frame", "GnomishRelayFrame", UIParent, "PortraitFrameTemplate")
 	frame:SetSize(WIDTH, HEIGHT)
-	frame:SetPoint("CENTER")
+	PlaceFrame()
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
 	frame:SetClampedToScreen(true)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", frame.StartMoving)
-	frame:SetScript("OnDragStop", frame.StopMovingOrSizing)
+	frame:SetScript("OnDragStop", SavePosition)
 	frame:SetScript("OnShow", Window.Refresh)
 	table.insert(UISpecialFrames, "GnomishRelayFrame")
 
@@ -591,6 +714,9 @@ local function Build()
 	BuildCenter()
 	BuildActivity()
 	BuildConfirm()
+	BuildTabs()
+	BuildPages()
+	ui.chatParts = { ui.agent, ui.folderButton, ui.bridge, ui.activity[1], ui.activity[2] }
 	frame:Hide()
 end
 
@@ -604,6 +730,7 @@ function Window.Open(chatId)
 		Build()
 	end
 	if chatId then
+		ui.tab = "chats"
 		ui.picking = false
 		ns.Browser.Close()
 		MarkSelected(chatId)

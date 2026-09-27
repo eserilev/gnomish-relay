@@ -206,8 +206,23 @@ function methods:SetColorTexture(r, g, b)
 	self.color = { r, g, b }
 end
 
-function methods:SetPoint(_, _, _, x, y)
+function methods:SetPoint(point, relative, relativePoint, x, y)
 	self.x, self.y = x or 0, y or 0
+	self.anchor = { point, relative, relativePoint, x, y }
+end
+
+function methods:GetPoint()
+	if self.anchor then
+		return unpack(self.anchor)
+	end
+end
+
+function methods:SetChecked(checked)
+	self.checked = checked and true or false
+end
+
+function methods:GetChecked()
+	return self.checked == true
 end
 
 function methods:SetText(text)
@@ -270,7 +285,7 @@ function methods:SetFont(...)
 	if wow.missingFiles[args[1]] then
 		return false
 	end
-	self.font = args[1]
+	self.font, self.fontSize = args[1], args[2]
 	return true
 end
 
@@ -332,7 +347,11 @@ function methods:SetValue(v)
 	self.value = v
 end
 
+-- A click on a check button turns it before its script runs, as in WoW.
 function methods:Click()
+	if self.kind == "CheckButton" then
+		self.checked = not self.checked
+	end
 	self.scripts.OnClick(self, "LeftButton")
 end
 

@@ -1642,9 +1642,14 @@ The mockup is the reference for the layout.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
 - **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details.
-- **Side tabs:** Chats, Terminal pings, Settings, and Diagnostics.
+- **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. Pings gets its tab when pings exist (section 10). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
+- **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
+  - **New Chats:** Agent, a dropdown of the agents in the settings list (13.4), and Level, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Max: <level> (set on the desktop)", the level of the chosen agent in the config.
+  - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
+  - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "No data yet.". A click asks for a new list.
+- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
-- **Game chat:** a finished reply or a ping shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound.
+- **Game chat:** a finished reply or a ping shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game.
 - **Permission requests** use the separate popup of 6.4, never the window. A desktop request has no popup: an Activity row and one whisper line (6.6.3).
 
 ### 13.2 Code
@@ -1670,7 +1675,10 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks. |
 | `Folders.lua` | The folder tree of 9.9: the parser, the relative folders, the filter, the recent folders, and the name rules. |
 | `Browser.lua` | The folder browser of 9.9 in the center of the window. |
-| `Window.lua` | The window of 13.1. |
+| `BridgeSettings.lua` | The settings list of 13.4: the parser, the cache, and the agent of a new chat. |
+| `SettingsTab.lua` | The Settings tab of 13.1. |
+| `DiagTab.lua` | The Diag tab of 13.1. |
+| `Window.lua` | The window of 13.1, its side tabs, and its place. |
 | `Popup.lua` | The permission popup (6.4). Each button names the kind of its option, never the label of the agent. |
 | `Core.lua` | Startup, slash commands, and the whisper line. |
 
@@ -1695,7 +1703,9 @@ The tests run the addon in a real Lua 5.1 with a fake WoW API (`addon/tests/wow.
 They decode each strip with the proved Rust decoder and check its tag against the Rust HMAC.
 They also check the SHA code against both kinds of `bit` results: unsigned as in WoW, and signed as in LuaJIT.
 
-Still to come: pings (section 10), the side tabs, the agent dropdown, and the emblem texture.
+**Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place of the window, and the agent and level of new chats. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
+
+Still to come: pings (section 10), the agent dropdown in the header, and the emblem texture.
 
 Slash commands:
 
@@ -1705,6 +1715,7 @@ Slash commands:
 | `/ai <text>` | Send a message to the current chat. |
 | `/relay diag` | Show transport diagnostics. |
 | `/relay poll` | Load the next slot now. |
+| `/relay size <n>` | Set the font size of the chat text, from 12 to 20. |
 
 ### 13.3 Voice (later)
 
@@ -1770,6 +1781,25 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 - The list never holds a key, an `env` entry, or the command line of an agent. A command line can hold a secret, and the game does not need it.
 - The reply is at most 32 KB after the Lua escape (S12). The allow table comes last, because only it can be long. A list that does not fit keeps its first lines and ends with a line `+`, as the folder tree does.
 - No version change (7.7): the bridge writes the relay addon again at each start, so the addon is never newer than its bridge.
+- **When the addon asks.** When the Settings or Diag tab opens and the list is older than 10 minutes, or there is none, and at a click on the status line. Each ask costs a strip, so a tab that opens again soon asks nothing.
+- The addon parser takes a line only with a known shape: an agent needs a valid name and a known level, and a folder rule needs a folder and a pattern. A seeded test feeds it random bytes (14.4).
+
+### 13.5 Decisions for the desktop notice, the new message, and the Settings tab
+
+The implementer and an advisor agent chose these (2026-09-26).
+
+1. **The desktop state rides in the live file** as one progress line of the bridge, right after the level line. S9 and S20 do not change, and no slot file is new.
+2. **A separate `PollEvery` hook** in the shared `Messages.lua`, with nil as the default, so the Timeways copy keeps its schedule.
+3. **At most 24 fast polls for each desktop request.** A request that waits for the whole `permission_timeout_minutes` then costs 24 of the 1000 slots, and the normal schedule still finds the answer.
+4. **The whisper line of a desktop request is once for each request**, also across a `/reload`. The saved variables keep the last 16 ids, so the list stays small.
+5. **A new message ends only a wait for an answer.** During a normal turn, a follow-up waits in the queue, else each follow-up ends a long run. Only a newly accepted record counts: a duplicate, an outbox copy, or a refused record never ends a wait.
+6. **The old message ends as "Stopped."**, the text of Stop, so the player sees one known end.
+7. **No Pings tab yet.** An empty tab is a promise that the game does not keep.
+8. **A settings list, not a new slot file.** It is one more list in its own chat, as `list=folders`. Some values hold tabs, so a line splits at its first tab only.
+9. **The addon asks for the list only when a tab opens and the list is old**, and at a click on the status line, because each ask costs a strip.
+10. **The Level dropdown has no `full-auto`.** The config caps every level anyway (S6), so this only keeps the page honest.
+11. **Own dropdowns.** A button and a list of choices, with no dropdown API of the client, so a client patch cannot break them.
+12. **The reply line setting does not stop the line of a desktop request**, the only notice of that request in the game.
 
 ## 14. Verification and tests
 
@@ -1909,6 +1939,8 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | The sandbox policy, the Seatbelt escape and profile, and the `bwrap` arguments (`sandbox`, 6.6.4) | Backs up S31 and S32 on the compiled code: each writable path is the chat folder or the temp folder and is not hidden, each `deny` folder is hidden, each path reads back from its literal with the model of S32, the profile holds exactly the expected literals in order, and `bwrap` binds each writable path and ends with the command. |
 | The head of a `CONNECT` request to the proxy of the sandbox (`connect`, 6.6.4) | A command of a game run writes it. No input panics the parser. A target that passes is a host name in lower case, never an IP address in any form, and the allow list matches only its exact names. |
 | Answers of a local model (`model_http`, 9.7 decision 10) | The local model is untrusted. No answer panics the reader. The text that goes to the story program is at most 16 KiB, has no control character but a newline and a tab, and its `model_answered` line is one JSON line. |
+
+The addon parsers have seeded tests in the addon harness instead of a fuzz target: the folder tree of 9.9 and the settings list of 13.4 each get 600 random inputs, and each result keeps its rules.
 
 ### 14.5 Security tests
 

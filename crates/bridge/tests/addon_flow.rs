@@ -13,6 +13,7 @@ use bridge::config::{Permission, Policy};
 use bridge::desktop::{Notice, Prompted, Waiting};
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::relay::{Folders, Relay};
+use bridge::settings_list::{BridgeSettings, StorySettings, settings_reply};
 use bridge::strip::{self, Image};
 use common::{Bits, load_into, lua, repo_file, screenshot_png};
 use hmac::{Hmac, Mac};
@@ -46,6 +47,9 @@ const FILES: &[&str] = &[
     "Transcript.lua",
     "Folders.lua",
     "Browser.lua",
+    "BridgeSettings.lua",
+    "SettingsTab.lua",
+    "DiagTab.lua",
     "Window.lua",
     "Popup.lua",
     "Core.lua",
@@ -2300,4 +2304,463 @@ fn an_error_that_looks_rendered_shows_as_plain_text() {
     let drawn = transcript(&game);
     assert!(of_kind(&drawn, "SimpleHTML").is_empty());
     assert!(texts(&drawn).last().unwrap().contains("||cffff0000fake"));
+}
+
+/// The settings list of a bridge with two agents, as the bridge writes it.
+fn settings_text(story: bool) -> String {
+    let settings = BridgeSettings {
+        version: "0.1.0".into(),
+        sandbox: "bwrap".into(),
+        default_cwd: "~/Code".into(),
+        roots: vec!["~/Code".into()],
+        kinds: vec![
+            ("claude".into(), "claude".into()),
+            ("codex".into(), "codex".into()),
+        ],
+        timeout_minutes: 30,
+        permission_timeout_minutes: 10,
+        story: story.then(|| StorySettings {
+            model: "claude haiku".into(),
+            budget_window_minutes: 20,
+        }),
+        allow: vec!["cargo test".into()],
+        allow_folders: vec![("~/Code/lighthouse".into(), "npm test".into())],
+    };
+    let policy = Policy {
+        folders: Folders {
+            roots: vec![b"/home/x/Code".to_vec()],
+            base: b"/home/x/Code".to_vec(),
+        },
+        agents: [
+            ("claude".to_owned(), Permission::AutoEdit),
+            ("codex".to_owned(), Permission::Ask),
+        ]
+        .into(),
+        default_agent: "claude".into(),
+    };
+    settings_reply(&settings, &policy)
+}
+
+fn click(game: &Game, frame: &str) {
+    game.run(&format!("{frame}:Click()"));
+}
+
+fn open_tab(game: &Game, n: usize) {
+    game.run("local ns = ... ns.Window.Open()");
+    click(game, &format!("GnomishRelayTab{n}"));
+}
+
+const SETTINGS: usize = 2;
+const DIAG: usize = 3;
+
+fn settings_requests(game: &Game, since: usize) -> usize {
+    (since + 1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .filter(|r| flags(r).contains(&"list=settings".into()) && r.chat == b"settings")
+        .count()
+}
+
+/// Opens Settings, and answers its list request with the list of `settings_text`.
+fn open_settings_with_list(game: &Game, story: bool) {
+    let before = game.shots();
+    open_tab(game, SETTINGS);
+    game.advance(2.0);
+    assert_eq!(settings_requests(game, before), 1, "one settings request");
+    game.publish(&[reply("settings", 99, Status::Done, &settings_text(story))]);
+    game.run("local ns = ... ns.Transport.Poll()");
+}
+
+fn shown_by_name(game: &Game, name: &str) -> bool {
+    game.run(&format!("return {name}:IsVisible()"))
+        .as_boolean()
+        .unwrap()
+}
+
+#[test]
+fn settings_takes_the_place_of_the_center_and_a_tile_goes_back_to_chats() {
+    let game = Game::start();
+    game.send("hello");
+    open_tab(&game, SETTINGS);
+
+    assert!(shown_by_name(&game, "GnomishRelaySettingsStatus"));
+    assert!(!shown_by_name(&game, "GnomishRelayInput"));
+    assert!(!shown_by_name(&game, "GnomishRelayTranscript"));
+    assert!(!shown_by_name(&game, "GnomishRelayFolderButton"));
+    assert!(shown_by_name(&game, "GnomishRelayTile1"), "the tiles stay");
+
+    click(&game, "GnomishRelayTile1");
+    assert!(!shown_by_name(&game, "GnomishRelaySettingsStatus"));
+    assert!(shown_by_name(&game, "GnomishRelayInput"));
+    assert!(shown_by_name(&game, "GnomishRelayTranscript"));
+}
+
+#[test]
+fn settings_asks_for_the_list_only_when_it_is_old_and_on_a_click_on_the_status() {
+    let game = Game::start();
+    open_settings_with_list(&game, false);
+    click(&game, "GnomishRelayTab1");
+    let before = game.shots();
+
+    click(&game, &format!("GnomishRelayTab{SETTINGS}"));
+    game.advance(2.0);
+    assert_eq!(
+        settings_requests(&game, before),
+        0,
+        "a fresh list asks nothing"
+    );
+
+    click(&game, "GnomishRelaySettingsStatus");
+    game.advance(2.0);
+    assert_eq!(settings_requests(&game, before), 1, "a click asks again");
+
+    click(&game, "GnomishRelayTab1");
+    game.advance(700.0);
+    let before = game.shots();
+    click(&game, &format!("GnomishRelayTab{DIAG}"));
+    game.advance(2.0);
+    assert_eq!(
+        settings_requests(&game, before),
+        1,
+        "an old list asks again"
+    );
+}
+
+#[test]
+fn the_status_line_shows_the_age_of_the_list_and_the_state_of_the_bridge() {
+    let game = Game::start();
+    open_tab(&game, SETTINGS);
+    assert_eq!(
+        text_of(&game, "GnomishRelaySettingsStatus.text:GetText()"),
+        "|cff8d8778No data yet.|r"
+    );
+
+    game.publish(&[reply("settings", 99, Status::Done, &settings_text(false))]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    game.advance(120.0);
+    game.run("local ns = ... ns.Window.Refresh()");
+    assert_eq!(
+        text_of(&game, "GnomishRelaySettingsStatus.text:GetText()"),
+        "|cff1eff00Online · 2m ago|r"
+    );
+
+    game.advance(500.0);
+    game.run("local ns = ... ns.Window.Refresh()");
+    assert_eq!(
+        text_of(&game, "GnomishRelaySettingsStatus.text:GetText()"),
+        "|cffff9f40Online · 10m ago|r",
+        "an old list is orange"
+    );
+
+    game.wow.set("body", Value::Nil).unwrap();
+    game.advance(3600.0);
+    game.run("local ns = ... ns.Window.Refresh()");
+    assert!(
+        text_of(&game, "GnomishRelaySettingsStatus.text:GetText()")
+            .starts_with("|cff8d8778Offline · 1h ago"),
+        "{}",
+        text_of(&game, "GnomishRelaySettingsStatus.text:GetText()")
+    );
+}
+
+#[test]
+fn a_new_chat_takes_the_agent_and_level_that_settings_chose() {
+    let game = Game::start();
+    open_settings_with_list(&game, false);
+    assert_eq!(
+        text_of(&game, "GnomishRelaySettingsAgentChoice2.text:GetText()"),
+        "Codex"
+    );
+    click(&game, "GnomishRelaySettingsAgent");
+    click(&game, "GnomishRelaySettingsAgentChoice2");
+    click(&game, "GnomishRelaySettingsLevel");
+    click(&game, "GnomishRelaySettingsLevelChoice1");
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"|cff8d8778Max: ask (set on the desktop)|r".to_owned()),
+        "{texts:?}"
+    );
+    click_new_chat(&game);
+    game.send("hi");
+    game.advance(1.0);
+
+    let f = flags(&game.last_strip()[0]);
+    assert!(
+        f.contains(&"agent=codex".into()) && f.contains(&"level=ask".into()),
+        "{f:?}"
+    );
+}
+
+#[test]
+fn a_chosen_agent_that_the_bridge_no_longer_has_gives_the_default_agent() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Store.db.newAgent = 'gemini'");
+    open_settings_with_list(&game, false);
+    click_new_chat(&game);
+    game.send("hi");
+    game.advance(1.0);
+
+    let f = flags(&game.last_strip()[0]);
+    assert!(f.contains(&"agent=claude".into()), "{f:?}");
+}
+
+fn font_of(game: &Game, code: &str) -> i64 {
+    game.run(&format!("return {code}.fontSize"))
+        .as_integer()
+        .unwrap()
+}
+
+#[test]
+fn the_font_size_applies_at_once_to_all_chat_text_and_the_input() {
+    let game = Game::start();
+    rendered_reply(&game, "# Title\n\nSome words.\n\n```\nlet x = 1;\n```\n");
+    open_tab(&game, SETTINGS);
+    game.run("GnomishRelaySettingsFont:GetScript('OnValueChanged')(GnomishRelaySettingsFont, 18)");
+    click(&game, "GnomishRelayTab1");
+
+    let drawn = transcript(&game);
+    let html = of_kind(&drawn, "SimpleHTML")[0];
+    let fonts: Table = html.object.get("fonts").unwrap();
+    assert!(fonts.contains_key("p").unwrap());
+    let code = of_kind(&drawn, "Frame")
+        .into_iter()
+        .find(|d| d.object.get::<Option<Table>>("text").unwrap().is_some())
+        .expect("a code box");
+    let code_text: Table = code.object.get("text").unwrap();
+    assert_eq!(code_text.get::<i64>("fontSize").unwrap(), 16);
+    let line = drawn.iter().find(|d| d.kind == "FontString").unwrap();
+    assert_eq!(line.object.get::<i64>("fontSize").unwrap(), 18);
+    assert_eq!(font_of(&game, "GnomishRelayInput"), 18);
+    assert_eq!(game.db().get::<i64>("fontSize").unwrap(), 18);
+}
+
+#[test]
+fn relay_size_sets_the_font_size_within_12_to_20() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.run("SlashCmdList.GNOMISHRELAY('size 16')");
+    assert_eq!(game.db().get::<i64>("fontSize").unwrap(), 16);
+    assert_eq!(font_of(&game, "GnomishRelayInput"), 16);
+    game.run("SlashCmdList.GNOMISHRELAY('size 40')");
+    assert_eq!(game.db().get::<i64>("fontSize").unwrap(), 20);
+    game.run("SlashCmdList.GNOMISHRELAY('size 3')");
+    assert_eq!(game.db().get::<i64>("fontSize").unwrap(), 12);
+}
+
+fn answer_first_message(game: &Game, text: &str) {
+    game.send("go");
+    game.advance(1.0);
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(game),
+        Status::Done,
+        text,
+    )]);
+    game.advance(5.0);
+}
+
+#[test]
+fn the_reply_line_can_be_off_or_silent_and_takes_the_chosen_color() {
+    let game = Game::start();
+    open_tab(&game, SETTINGS);
+    click(&game, "GnomishRelaySettingsColor3");
+    click(&game, "GnomishRelaySettingsSound");
+    let preview = texts_of(&game, "FontString")
+        .into_iter()
+        .find(|t| t.contains("whispers:"))
+        .expect("a preview");
+    assert!(preview.starts_with("|cff69ccf0["), "{preview}");
+
+    answer_first_message(&game, "done");
+    let whisper = game
+        .printed()
+        .into_iter()
+        .find(|l| l.contains("whispers:"))
+        .unwrap();
+    assert!(whisper.starts_with("|cff69ccf0|H"), "{whisper}");
+    let sounds: Table = game.wow.get("sounds").unwrap();
+    assert_eq!(sounds.raw_len(), 0, "no sound");
+
+    click(&game, "GnomishRelaySettingsReply");
+    let game = game.reload();
+    answer_first_message(&game, "second");
+    assert!(
+        !game.printed().iter().any(|l| l.contains("whispers:")),
+        "the line is off"
+    );
+}
+
+#[test]
+fn a_desktop_request_gets_its_line_also_with_the_reply_line_off() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Store.db.whisperOn = false");
+    game.send("read my key");
+    game.advance(1.0);
+    wait_on_desktop(&game, WAIT);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(whispers_with(&game, "Approve on your desktop."), 1);
+}
+
+#[test]
+fn the_window_opens_where_the_player_left_it_until_a_reset() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.run(
+        "GnomishRelayFrame:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 40, -30) \
+         GnomishRelayFrame:GetScript('OnDragStop')(GnomishRelayFrame)",
+    );
+    let game = game.reload();
+    game.run("local ns = ... ns.Window.Open()");
+    assert_eq!(
+        text_of(&game, "select(1, GnomishRelayFrame:GetPoint())"),
+        "TOPLEFT"
+    );
+    assert_eq!(
+        game.run("return select(4, GnomishRelayFrame:GetPoint())")
+            .as_integer(),
+        Some(40)
+    );
+
+    open_tab(&game, SETTINGS);
+    click(&game, "GnomishRelaySettingsReset");
+    assert_eq!(
+        text_of(&game, "select(1, GnomishRelayFrame:GetPoint())"),
+        "CENTER"
+    );
+    let game = game.reload();
+    game.run("local ns = ... ns.Window.Open()");
+    assert_eq!(
+        text_of(&game, "select(1, GnomishRelayFrame:GetPoint())"),
+        "CENTER"
+    );
+}
+
+fn diag_texts(game: &Game) -> Vec<String> {
+    (1..=26)
+        .filter(|i| shown_by_name(game, &format!("GnomishRelayDiagLine{i}")))
+        .map(|i| {
+            let label = text_of(game, &format!("GnomishRelayDiagLine{i}.label:GetText()"));
+            let value = text_of(game, &format!("GnomishRelayDiagLine{i}.value:GetText()"));
+            format!("{label}|{value}")
+        })
+        .collect()
+}
+
+#[test]
+fn diag_shows_the_bridge_values_timeways_versions_and_the_transport_lines() {
+    let game = Game::start();
+    open_settings_with_list(&game, true);
+    click(&game, &format!("GnomishRelayTab{DIAG}"));
+
+    let rows = diag_texts(&game);
+    for expected in [
+        "Allowed|~/Code",
+        "Default folder|~/Code",
+        "Agents|claude  auto-edit",
+        "|codex  ask",
+        "Commands|cargo test",
+        "|npm test  in ~/Code/lighthouse",
+        "Timeout|30 min · ask 10 min",
+        "Model|claude haiku",
+        "Budget|10 calls / 20 min",
+        "|Bridge 0.1.0 · protocol 1",
+    ] {
+        assert!(rows.contains(&expected.to_owned()), "{expected}: {rows:#?}");
+    }
+    assert!(
+        rows.iter().any(|r| r.contains("Gnomish Relay: slot ")),
+        "{rows:#?}"
+    );
+}
+
+#[test]
+fn diag_greys_the_bridge_values_while_the_bridge_is_offline() {
+    let game = Game::start();
+    open_settings_with_list(&game, false);
+    game.wow.set("body", Value::Nil).unwrap();
+    game.advance(3600.0);
+    click(&game, &format!("GnomishRelayTab{DIAG}"));
+
+    let rows = diag_texts(&game);
+    assert!(
+        rows.contains(&"Allowed||cff8d8778~/Code|r".to_owned()),
+        "{rows:#?}"
+    );
+    assert!(
+        !rows.iter().any(|r| r.contains("Timeways")),
+        "no story section"
+    );
+}
+
+#[test]
+fn diag_says_no_data_yet_with_no_list() {
+    let game = Game::start();
+    open_tab(&game, DIAG);
+    let rows = diag_texts(&game);
+    assert!(
+        rows.contains(&"Status||cff8d8778No data yet.|r".to_owned()),
+        "{rows:#?}"
+    );
+}
+
+/// Fails with the broken rule, or gives `true`.
+const SETTINGS_RULES: &str = r#"
+local ns, text = ...
+local parsed = ns.BridgeSettings.Parse(text)
+for key, value in pairs(parsed.values) do
+    assert(key:match("^[%l_]+$"), "a bad key")
+    assert(not value:find("%c"), "a control character in a value")
+end
+for _, agent in ipairs(parsed.agents) do
+    assert(ns.Codec.IsValidId(agent.name), "a bad agent name")
+    assert(({ ask = true, ["auto-edit"] = true, ["full-auto"] = true })[agent.level], "a bad level")
+end
+for _, rule in ipairs(parsed.folders) do
+    assert(rule.folder ~= "" and rule.pattern ~= "", "an empty rule")
+    assert(not (rule.folder .. rule.pattern):find("%c"), "a control character in a rule")
+end
+for _, list in ipairs({ parsed.roots, parsed.allow }) do
+    for _, value in ipairs(list) do
+        assert(type(value) == "string" and not value:find("[\n]"), "a bad line")
+    end
+end
+return true
+"#;
+
+#[test]
+fn the_settings_parser_gives_clean_values_for_any_bytes() {
+    let game = Game::start();
+    let check: Function = game.lua.load(SETTINGS_RULES).into_function().unwrap();
+    let mut seed = 0x2545_f491_4f6c_dd1d;
+    let alphabet = b"\t\n\t\nagent_low+claude-ask\x1f\x00|\xff\xc2\x85auto-edit";
+    for len in 0..600 {
+        let bytes: Vec<u8> = (0..len)
+            .map(|_| {
+                alphabet[usize::try_from(next_random(&mut seed) % 256).unwrap() % alphabet.len()]
+            })
+            .collect();
+        let text = game.lua.create_string(&bytes).unwrap();
+        let clean: bool = check.call((game.ns.clone(), text)).unwrap();
+        assert!(clean);
+    }
+}
+
+#[test]
+fn the_settings_parser_reads_the_list_of_the_bridge() {
+    let game = Game::start();
+    let text = game.lua.create_string(settings_text(true)).unwrap();
+    let check: Function = game
+        .lua
+        .load(
+            "local ns, text = ... local p = ns.BridgeSettings.Parse(text) \
+             return p.values.default_agent, #p.agents, p.agents[2].level, p.folders[1].folder, p.cut",
+        )
+        .into_function()
+        .unwrap();
+    let (agent, agents, level, folder, cut): (String, i64, String, String, bool) =
+        check.call((game.ns.clone(), text)).unwrap();
+    assert_eq!(
+        (agent.as_str(), agents, level.as_str(), folder.as_str(), cut),
+        ("claude", 2, "ask", "~/Code/lighthouse", false)
+    );
 }

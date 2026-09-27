@@ -19,6 +19,9 @@ Blocks.lua
 Transcript.lua
 Folders.lua
 Browser.lua
+BridgeSettings.lua
+SettingsTab.lua
+DiagTab.lua
 Window.lua
 Popup.lua
 Core.lua

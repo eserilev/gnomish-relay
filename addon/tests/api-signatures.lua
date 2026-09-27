@@ -109,6 +109,13 @@ return {
 				{ Name = "isShown", Type = "bool", Nilable = false },
 			},
 		},
+		["FrameAPIModelSceneFrameActorBase:SetAlpha"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			SecretArgumentsAddAspect = { Enum.SecretAspect.Alpha },
+			Arguments = {
+				{ Name = "alpha", Type = "number", Nilable = false },
+			},
+		},
 		["FrameAPIModelSceneFrameActorBase:SetScale"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
@@ -140,6 +147,26 @@ return {
 				{ Name = "colorB", Type = "number", Nilable = false },
 				{ Name = "alpha", Type = "number", Nilable = false, ConditionalSecret = true, Default = 1 },
 				{ Name = "wrap", Type = "bool", Nilable = false, ConditionalSecret = true, Default = false },
+			},
+		},
+		["LuaColorCurveObjectAPI:GetPoint"] = {
+			ConstSecretAccessor = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "index", Type = "luaIndex", Nilable = false },
+			},
+			Returns = {
+				{ Name = "point", Type = "LuaColorCurvePoint", Nilable = true },
+			},
+		},
+		["LuaCurveObjectAPI:GetPoint"] = {
+			ConstSecretAccessor = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "index", Type = "luaIndex", Nilable = false },
+			},
+			Returns = {
+				{ Name = "point", Type = "vector2", Mixin = "Vector2DMixin", Nilable = true },
 			},
 		},
 		["SimpleAnimAPI:HookScript"] = {
@@ -228,6 +255,18 @@ return {
 				{ Name = "text", Type = "cstring", Nilable = false, Default = "" },
 			},
 		},
+		["SimpleCheckboxAPI:GetChecked"] = {
+			Arguments = {},
+			Returns = {
+				{ Name = "checked", Type = "bool", Nilable = false },
+			},
+		},
+		["SimpleCheckboxAPI:SetChecked"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "checked", Type = "bool", Nilable = false, Default = false },
+			},
+		},
 		["SimpleEditBoxAPI:ClearFocus"] = {
 			ChecksForbiddenAspects = { { Argument = "self", Aspect = Enum.ForbiddenAspect.ScriptedInput } },
 			Arguments = {},
@@ -294,6 +333,12 @@ return {
 				{ Name = "colorG", Type = "number", Nilable = false },
 				{ Name = "colorB", Type = "number", Nilable = false },
 				{ Name = "a", Type = "SingleColorValue", Nilable = true },
+			},
+		},
+		["SimpleFontAPI:SetAlpha"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "alpha", Type = "SingleColorValue", Nilable = false },
 			},
 		},
 		["SimpleFontAPI:SetFont"] = {
@@ -459,6 +504,13 @@ return {
 				{ Name = "buttons", Type = "MouseButton", Nilable = false, StrideIndex = 1 },
 			},
 		},
+		["SimpleFrameAPI:SetAlpha"] = {
+			SecretArguments = "AllowedWhenTainted",
+			SecretArgumentsAddAspect = { Enum.SecretAspect.Alpha },
+			Arguments = {
+				{ Name = "alpha", Type = "SingleColorValue", Nilable = false },
+			},
+		},
 		["SimpleFrameAPI:SetClampedToScreen"] = {
 			IsProtectedFunction = true,
 			SecretArguments = "NotAllowed",
@@ -510,7 +562,17 @@ return {
 				{ Name = "shown", Type = "bool", Nilable = false, Default = false },
 			},
 		},
+		["SimpleFrameAPI:SetUserPlaced"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "userPlaced", Type = "bool", Nilable = false },
+			},
+		},
 		["SimpleFrameAPI:Show"] = {
+			IsProtectedFunction = true,
+			Arguments = {},
+		},
+		["SimpleFrameAPI:StopMovingOrSizing"] = {
 			IsProtectedFunction = true,
 			Arguments = {},
 		},
@@ -609,6 +671,13 @@ return {
 				{ Name = "a", Type = "SingleColorValue", Nilable = true },
 			},
 		},
+		["SimpleRegionAPI:SetAlpha"] = {
+			SecretArguments = "AllowedWhenTainted",
+			SecretArgumentsAddAspect = { Enum.SecretAspect.Alpha },
+			Arguments = {
+				{ Name = "alpha", Type = "SingleColorValue", Nilable = false },
+			},
+		},
 		["SimpleRegionAPI:SetIgnoreParentScale"] = {
 			IsProtectedFunction = true,
 			SecretArguments = "NotAllowed",
@@ -695,6 +764,23 @@ return {
 			IsProtectedFunction = true,
 			Arguments = {},
 		},
+		["SimpleScriptRegionResizingAPI:GetPoint"] = {
+			ConstSecretAccessor = true,
+			MayReturnNothing = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretWhenAnchoringSecret = true,
+			Arguments = {
+				{ Name = "anchorIndex", Type = "luaIndex", Nilable = false, Default = 0 },
+				{ Name = "resolveCollapsed", Type = "bool", Nilable = false, Default = false },
+			},
+			Returns = {
+				{ Name = "point", Type = "FramePoint", Nilable = false },
+				{ Name = "relativeTo", Type = "ScriptRegion", Nilable = false },
+				{ Name = "relativePoint", Type = "FramePoint", Nilable = false },
+				{ Name = "offsetX", Type = "uiUnit", Nilable = false },
+				{ Name = "offsetY", Type = "uiUnit", Nilable = false },
+			},
+		},
 		["SimpleScriptRegionResizingAPI:SetAllPoints"] = {
 			CheckAllowInheritForbiddenLayoutAspects = true,
 			IsProtectedFunction = true,
@@ -768,11 +854,23 @@ return {
 				{ Name = "maxValue", Type = "number", Nilable = false },
 			},
 		},
+		["SimpleSliderAPI:SetObeyStepOnDrag"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "obeyStepOnDrag", Type = "bool", Nilable = false },
+			},
+		},
 		["SimpleSliderAPI:SetValue"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
 				{ Name = "value", Type = "number", Nilable = false },
 				{ Name = "treatAsMouseEvent", Type = "bool", Nilable = false, Default = false },
+			},
+		},
+		["SimpleSliderAPI:SetValueStep"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "valueStep", Type = "number", Nilable = false },
 			},
 		},
 		["SimpleStatusBarAPI:SetMinMaxValues"] = {

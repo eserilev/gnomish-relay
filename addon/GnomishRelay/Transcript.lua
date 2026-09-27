@@ -10,7 +10,8 @@ local MONO = "Interface\\AddOns\\GnomishRelay\\JetBrainsMono-Regular.ttf"
 local MONO_FALLBACK = "Fonts\\ARIALN.TTF"
 local BODY_FONT = "Fonts\\ARIALN.TTF"
 local HEADING_FONT = "Fonts\\FRIZQT__.TTF"
-local HEADINGS = { { "h1", 18 }, { "h2", 15 }, { "h3", 13 } }
+-- Each heading is this much bigger than the body text. The font size is a setting.
+local HEADINGS = { { "h1", 4 }, { "h2", 1 }, { "h3", -1 } }
 local YOU = "69ccf0"
 local GREY = "9d9d9d"
 local CODE = "b8c8b8"
@@ -70,8 +71,13 @@ local function Place(widget, x, y)
 	widget:SetPoint("TOPLEFT", ui.child, "TOPLEFT", x, -y)
 end
 
+local function FontSize()
+	return ns.Store.db.fontSize
+end
+
 local function TextLine(text, x, y, w)
 	local line = Acquire(ui.pools.text)
+	line:SetFont(BODY_FONT, FontSize(), "")
 	line:SetWidth(w)
 	line:SetText(text)
 	Place(line, x, y)
@@ -136,19 +142,24 @@ end
 local function NewHtml()
 	local html = CreateFrame("SimpleHTML", nil, ui.child)
 	for _, heading in ipairs(HEADINGS) do
-		html:SetFont(heading[1], HEADING_FONT, heading[2], "")
 		html:SetTextColor(heading[1], 1, 0.82, 0)
 	end
-	html:SetFont("p", BODY_FONT, 14, "")
 	html:SetTextColor("p", 0.92, 0.92, 0.92)
 	return html
+end
+
+local function SetHtmlFonts(html)
+	for _, heading in ipairs(HEADINGS) do
+		html:SetFont(heading[1], HEADING_FONT, FontSize() + heading[2], "")
+	end
+	html:SetFont("p", BODY_FONT, FontSize(), "")
 end
 
 -- A guess from the text length, for a client that measures the content only later.
 local function GuessHeight(run, w)
 	local height = 0
 	for _, block in ipairs(run) do
-		local size = block.kind == "heading" and HEADINGS[block.level][2] + 4 or 16
+		local size = FontSize() + 2 + (block.kind == "heading" and HEADINGS[block.level][2] + 2 or 0)
 		height = height + size * math.ceil((#block.text * 7 + 1) / w) + 14
 	end
 	return height
@@ -156,6 +167,7 @@ end
 
 local function DrawHtml(run, x, y)
 	local html = Acquire(ui.pools.html)
+	SetHtmlFonts(html)
 	html:SetWidth(width - x)
 	html:SetText(Html(run))
 	local height = html:GetContentHeight()
@@ -176,12 +188,15 @@ local function NewCodeBox()
 	box.text:SetPoint("TOPLEFT", box, "TOPLEFT", PAD, -PAD)
 	box.text:SetJustifyH("LEFT")
 	box.text:SetNonSpaceWrap(true)
-	-- WoW finds a new file only at launch, so after an update the font can be missing.
-	if not box.text:SetFont(MONO, 12, "") then
-		box.text:SetFont(MONO_FALLBACK, 13, "")
-	end
 	box.text:SetTextColor(0.85, 0.9, 0.85)
 	return box
+end
+
+-- WoW finds a new file only at launch, so after an update the font can be missing.
+local function SetCodeFont(text)
+	if not text:SetFont(MONO, FontSize() - 2, "") then
+		text:SetFont(MONO_FALLBACK, FontSize() - 1, "")
+	end
 end
 
 local function DrawCode(run, x, y)
@@ -190,6 +205,7 @@ local function DrawCode(run, x, y)
 		lines[i] = block.text
 	end
 	local box = Acquire(ui.pools.code)
+	SetCodeFont(box.text)
 	box.text:SetWidth(width - x - 2 * PAD)
 	box.text:SetText(table.concat(lines, "\n"))
 	local height = box.text:GetStringHeight() + 2 * PAD
@@ -214,6 +230,7 @@ local function Cell(text, gold, w)
 	else
 		cell:SetTextColor(1, 1, 1)
 	end
+	cell:SetFont(BODY_FONT, FontSize() - 2, "")
 	cell:SetWidth(w or 0)
 	cell:SetText(text)
 	return cell
@@ -379,13 +396,13 @@ local function ScrollTo(offset)
 	ui.scroll:SetVerticalScroll(math.max(0, math.min(most, offset)))
 end
 
--- Drawing costs time, so a chat draws again only when its history changes.
+-- Drawing costs time, so a chat draws again only when its history or the font size changes.
 local function KeyOf(chat)
 	if not chat then
 		return "none"
 	end
 	local history = chat.history
-	return chat.id .. ":" .. #history .. ":" .. tostring(history[#history])
+	return table.concat({ chat.id, #history, tostring(history[#history]), FontSize() }, ":")
 end
 
 function Transcript.Show(chat)

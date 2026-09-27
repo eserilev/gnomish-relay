@@ -9,6 +9,7 @@ ns.Transport = Transport
 
 local LIST_CHAT = "relay"
 local FOLDER_CHAT = "folders"
+local SETTINGS_CHAT = "settings"
 
 -- The bridge writes one of these as the first line of each run, and no agent line
 -- can start with "Level:" (SPEC.md 9.3). The config can lower the level of the chat.
@@ -81,7 +82,7 @@ end
 
 -- The list chats have no messages: their records are the replies to a list control.
 local function Find(chatId, id)
-	if chatId == LIST_CHAT or chatId == FOLDER_CHAT then
+	if chatId == LIST_CHAT or chatId == FOLDER_CHAT or chatId == SETTINGS_CHAT then
 		return nil
 	end
 	local chat = ns.Store.Chat(chatId)
@@ -110,6 +111,11 @@ end
 -- The list is the reply to a message of the chat "folders": the folder tree (Folders.lua).
 function Transport.ListFolders()
 	List(FOLDER_CHAT, "list=folders")
+end
+
+-- The list is the reply to a message of the chat "settings" (BridgeSettings.lua).
+function Transport.ListSettings()
+	List(SETTINGS_CHAT, "list=settings")
 end
 
 function Transport.ListingSessions()
@@ -204,6 +210,7 @@ end
 local LISTS = {
 	[LIST_CHAT] = { key = "sessions", field = "rows", Parse = ParseSessions },
 	[FOLDER_CHAT] = { key = "folders", field = "text", Parse = tostring },
+	[SETTINGS_CHAT] = { key = "settings", field = "text", Parse = tostring },
 }
 
 -- An older list that comes after a newer one changes nothing. Returns whether the

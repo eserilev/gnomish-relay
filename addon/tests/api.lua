@@ -1634,6 +1634,12 @@ return {
 				"TopTileStreaks",
 			},
 		},
+		UICheckButtonTemplate = {
+			base = "CheckButton",
+			names = {
+				"Text",
+			},
+		},
 		UIPanelButtonTemplate = {
 			base = "Button",
 			names = {
@@ -1648,6 +1654,13 @@ return {
 				"SetDisabledTooltip",
 				"SetTextToFit",
 				"Text",
+			},
+		},
+		UISliderTemplate = {
+			base = "Slider",
+			names = {
+				"NineSlice",
+				"Thumb",
 			},
 		},
 	},

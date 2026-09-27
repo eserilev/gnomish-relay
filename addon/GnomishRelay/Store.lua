@@ -9,6 +9,9 @@ ns.Store = Store
 local HISTORY_LIMIT = 200
 local DEFAULT_AGENT = "claude"
 local DEFAULT_MODE = "auto-edit"
+local DEFAULT_FONT_SIZE = 14
+-- The Level dropdown offers only these. The config of the bridge caps each (S6).
+local NEW_LEVELS = { ask = true, ["auto-edit"] = true }
 
 function Store.Load()
 	local db = ns.Messages.Db()
@@ -19,6 +22,13 @@ function Store.Load()
 	db.whisperColor = db.whisperColor or "f0a860"
 	-- The desktop requests that already got their whisper line.
 	db.desktopWhispered = db.desktopWhispered or {}
+	db.fontSize = db.fontSize or DEFAULT_FONT_SIZE
+	if db.whisperOn == nil then
+		db.whisperOn = true
+	end
+	if db.whisperSound == nil then
+		db.whisperSound = true
+	end
 	Store.db = db
 end
 
@@ -34,6 +44,11 @@ function Store.Chat(id)
 	end
 end
 
+-- The level that a new chat asks for.
+function Store.NewLevel()
+	return NEW_LEVELS[Store.db.newLevel] and Store.db.newLevel or DEFAULT_MODE
+end
+
 function Store.NewChat(agent)
 	local name = "Chat " .. (#Store.db.chats + 1)
 	local chat = {
@@ -41,8 +56,8 @@ function Store.NewChat(agent)
 		name = name,
 		-- The name comes back when the chat goes back to the default folder.
 		defaultName = name,
-		agent = agent or DEFAULT_AGENT,
-		mode = DEFAULT_MODE,
+		agent = agent or ns.BridgeSettings.NewChatAgent(DEFAULT_AGENT),
+		mode = Store.NewLevel(),
 		cwd = "",
 		history = {},
 		fresh = true,

@@ -40,25 +40,32 @@ local function Snippet(text)
 end
 
 local function WhisperLine(chat, text)
+	local db = ns.Store.db
 	DEFAULT_CHAT_FRAME:AddMessage(
 		string.format(
 			"|cff%s|Hgnomishrelay:%s|h[%s]|h whispers: [%s] %s|r",
-			ns.Store.db.whisperColor,
+			db.whisperColor,
 			chat.id,
 			Relay.AgentName(chat.agent),
 			Relay.Plain(chat.name),
 			Relay.Plain(text)
 		)
 	)
-	PlaySound(SOUNDKIT.TELL_MESSAGE)
+	if db.whisperSound then
+		PlaySound(SOUNDKIT.TELL_MESSAGE)
+	end
 end
 
+-- The reply line is a setting. A desktop request always gets its line: it is the
+-- only notice in the game (SPEC.md 6.6.3).
 local function Whisper(chat, reply)
 	local shown = ns.Window.Showing(chat.id)
 	if not shown then
 		chat.unread = true
 	end
-	WhisperLine(chat, Snippet(reply.text))
+	if ns.Store.db.whisperOn then
+		WhisperLine(chat, Snippet(reply.text))
+	end
 end
 
 -- The id comes from the bridge, so no agent text is in this line.
@@ -87,13 +94,19 @@ local function LastMessage(chat)
 	end
 end
 
-local function Diag()
+-- The lines of /relay diag. The Diag tab shows them too.
+function Relay.DiagLines()
+	local lines = {}
 	local chat = ns.Store.Chat(ns.Store.db.selected or "")
 	if chat then
-		print(string.format("Gnomish Relay: chat %s, last message %s", chat.id, tostring(LastMessage(chat))))
+		table.insert(
+			lines,
+			string.format("Gnomish Relay: chat %s, last message %s", chat.id, tostring(LastMessage(chat)))
+		)
 	end
 	local s = ns.Transport.Stats()
-	print(
+	table.insert(
+		lines,
 		string.format(
 			"Gnomish Relay: slot %d, %d left, reported %s, %d open, %d in outbox, bridge %s",
 			s.nextSlot,
@@ -104,7 +117,14 @@ local function Diag()
 			s.online and "online" or "offline"
 		)
 	)
-	print(ns.Health.Line())
+	table.insert(lines, ns.Health.Line())
+	return lines
+end
+
+local function Diag()
+	for _, line in ipairs(Relay.DiagLines()) do
+		print(line)
+	end
 end
 
 local function Command(arg)
@@ -115,8 +135,10 @@ local function Command(arg)
 		Diag()
 	elseif arg == "poll" then
 		ns.Transport.Poll()
+	elseif arg:match("^size %d+$") then
+		ns.Window.SetFontSize(tonumber(arg:match("%d+")))
 	else
-		print("/relay | /relay diag | /relay poll | /ai <message>")
+		print("/relay | /relay diag | /relay poll | /relay size <12-20> | /ai <message>")
 	end
 end
 
