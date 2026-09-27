@@ -161,7 +161,7 @@ inductive apps.Unrouted where
 | Ambiguous : apps.Unrouted
 
 /-- [protocol::connect::Mode]
-    Source: 'crates/protocol/src/connect.rs', lines 22:0-27:1
+    Source: 'crates/protocol/src/connect.rs', lines 23:0-28:1
     Visibility: public -/
 @[discriminant isize]
 inductive connect.Mode where
@@ -169,7 +169,7 @@ inductive connect.Mode where
 | Public : connect.Mode
 
 /-- [protocol::connect::Target]
-    Source: 'crates/protocol/src/connect.rs', lines 31:0-36:1
+    Source: 'crates/protocol/src/connect.rs', lines 32:0-37:1
     Visibility: public -/
 @[discriminant isize]
 inductive connect.Target where
@@ -177,7 +177,7 @@ inductive connect.Target where
 | Local : Std.U16 → connect.Target
 
 /-- [protocol::connect::Refusal]
-    Source: 'crates/protocol/src/connect.rs', lines 40:0-52:1
+    Source: 'crates/protocol/src/connect.rs', lines 41:0-53:1
     Visibility: public -/
 @[discriminant isize]
 inductive connect.Refusal where

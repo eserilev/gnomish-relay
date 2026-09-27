@@ -4274,39 +4274,39 @@ def command_rules.Test.Insts.CoreCmpEq : core.cmp.Eq command_rules.Test := {
 }
 
 /-- [protocol::connect::SPACE]
-    Source: 'crates/protocol/src/connect.rs', lines 8:0-8:23 -/
+    Source: 'crates/protocol/src/connect.rs', lines 9:0-9:23 -/
 @[global_simps, irreducible] def connect.SPACE : Std.U8 := 32#u8
 
 /-- [protocol::connect::COLON]
-    Source: 'crates/protocol/src/connect.rs', lines 9:0-9:23 -/
+    Source: 'crates/protocol/src/connect.rs', lines 10:0-10:23 -/
 @[global_simps, irreducible] def connect.COLON : Std.U8 := 58#u8
 
 /-- [protocol::connect::DOT]
-    Source: 'crates/protocol/src/connect.rs', lines 10:0-10:21 -/
+    Source: 'crates/protocol/src/connect.rs', lines 11:0-11:21 -/
 @[global_simps, irreducible] def connect.DOT : Std.U8 := 46#u8
 
 /-- [protocol::connect::CR]
-    Source: 'crates/protocol/src/connect.rs', lines 11:0-11:21 -/
+    Source: 'crates/protocol/src/connect.rs', lines 12:0-12:21 -/
 @[global_simps, irreducible] def connect.CR : Std.U8 := 13#u8
 
 /-- [protocol::connect::LF]
-    Source: 'crates/protocol/src/connect.rs', lines 12:0-12:21 -/
+    Source: 'crates/protocol/src/connect.rs', lines 13:0-13:21 -/
 @[global_simps, irreducible] def connect.LF : Std.U8 := 10#u8
 
 /-- [protocol::connect::CONNECT]
-    Source: 'crates/protocol/src/connect.rs', lines 13:0-13:37 -/
+    Source: 'crates/protocol/src/connect.rs', lines 14:0-14:37 -/
 @[global_simps, irreducible]
 def connect.CONNECT : Array Std.U8 7#usize :=
   Array.make 7#usize [ 67#u8, 79#u8, 78#u8, 78#u8, 69#u8, 67#u8, 84#u8 ]
 
 /-- [protocol::connect::HTTP_1]
-    Source: 'crates/protocol/src/connect.rs', lines 14:0-14:36 -/
+    Source: 'crates/protocol/src/connect.rs', lines 15:0-15:36 -/
 @[global_simps, irreducible]
 def connect.HTTP_1 : Array Std.U8 7#usize :=
   Array.make 7#usize [ 72#u8, 84#u8, 84#u8, 80#u8, 47#u8, 49#u8, 46#u8 ]
 
 /-- [protocol::connect::LOCALHOST]
-    Source: 'crates/protocol/src/connect.rs', lines 15:0-15:41 -/
+    Source: 'crates/protocol/src/connect.rs', lines 16:0-16:41 -/
 @[global_simps, irreducible]
 def connect.LOCALHOST : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -4314,41 +4314,41 @@ def connect.LOCALHOST : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::connect::DANGEROUS_PORTS]
-    Source: 'crates/protocol/src/connect.rs', lines 17:0-17:53 -/
+    Source: 'crates/protocol/src/connect.rs', lines 18:0-18:53 -/
 @[global_simps, irreducible]
 def connect.DANGEROUS_PORTS : Array Std.U16 3#usize :=
   Array.make 3#usize [ 2375#u16, 2376#u16, 9222#u16 ]
 
 /-- [protocol::connect::{impl core::clone::Clone for protocol::connect::Mode}::clone]:
-    Source: 'crates/protocol/src/connect.rs', lines 20:9-20:14
+    Source: 'crates/protocol/src/connect.rs', lines 21:9-21:14
     Visibility: public -/
 def connect.Mode.Insts.CoreCloneClone.clone
   (self : connect.Mode) : Result connect.Mode := do
   ok self
 
 /-- Trait implementation: [protocol::connect::{impl core::clone::Clone for protocol::connect::Mode}]
-    Source: 'crates/protocol/src/connect.rs', lines 20:9-20:14 -/
+    Source: 'crates/protocol/src/connect.rs', lines 21:9-21:14 -/
 @[reducible]
 def connect.Mode.Insts.CoreCloneClone : core.clone.Clone connect.Mode := {
   clone := connect.Mode.Insts.CoreCloneClone.clone
 }
 
 /-- Trait implementation: [protocol::connect::{impl core::marker::Copy for protocol::connect::Mode}]
-    Source: 'crates/protocol/src/connect.rs', lines 20:16-20:20 -/
+    Source: 'crates/protocol/src/connect.rs', lines 21:16-21:20 -/
 @[reducible]
 def connect.Mode.Insts.CoreMarkerCopy : core.marker.Copy connect.Mode := {
   cloneInst := connect.Mode.Insts.CoreCloneClone
 }
 
 /-- Trait implementation: [protocol::connect::{impl core::marker::StructuralPartialEq for protocol::connect::Mode}]
-    Source: 'crates/protocol/src/connect.rs', lines 20:22-20:31 -/
+    Source: 'crates/protocol/src/connect.rs', lines 21:22-21:31 -/
 @[reducible]
 def connect.Mode.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq connect.Mode := {
 }
 
 /-- [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Mode> for protocol::connect::Mode}::eq]:
-    Source: 'crates/protocol/src/connect.rs', lines 20:22-20:31
+    Source: 'crates/protocol/src/connect.rs', lines 21:22-21:31
     Visibility: public -/
 def connect.Mode.Insts.CoreCmpPartialEqMode.eq
   (self : connect.Mode) (other : connect.Mode) : Result Bool := do
@@ -4357,7 +4357,7 @@ def connect.Mode.Insts.CoreCmpPartialEqMode.eq
   ok (self1 = other1)
 
 /-- Trait implementation: [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Mode> for protocol::connect::Mode}]
-    Source: 'crates/protocol/src/connect.rs', lines 20:22-20:31 -/
+    Source: 'crates/protocol/src/connect.rs', lines 21:22-21:31 -/
 @[reducible]
 impl_def connect.Mode.Insts.CoreCmpPartialEqMode : core.cmp.PartialEq
   connect.Mode connect.Mode := {
@@ -4367,14 +4367,14 @@ impl_def connect.Mode.Insts.CoreCmpPartialEqMode : core.cmp.PartialEq
 }
 
 /-- [protocol::connect::{impl core::cmp::Eq for protocol::connect::Mode}::assert_fields_are_eq]:
-    Source: 'crates/protocol/src/connect.rs', lines 20:33-20:35
+    Source: 'crates/protocol/src/connect.rs', lines 21:33-21:35
     Visibility: public -/
 def connect.Mode.Insts.CoreCmpEq.assert_fields_are_eq
   (self : connect.Mode) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [protocol::connect::{impl core::cmp::Eq for protocol::connect::Mode}]
-    Source: 'crates/protocol/src/connect.rs', lines 20:33-20:35 -/
+    Source: 'crates/protocol/src/connect.rs', lines 21:33-21:35 -/
 @[reducible]
 def connect.Mode.Insts.CoreCmpEq : core.cmp.Eq connect.Mode := {
   partialEqInst := connect.Mode.Insts.CoreCmpPartialEqMode
@@ -4382,14 +4382,14 @@ def connect.Mode.Insts.CoreCmpEq : core.cmp.Eq connect.Mode := {
 }
 
 /-- Trait implementation: [protocol::connect::{impl core::marker::StructuralPartialEq for protocol::connect::Target}]
-    Source: 'crates/protocol/src/connect.rs', lines 29:9-29:18 -/
+    Source: 'crates/protocol/src/connect.rs', lines 30:9-30:18 -/
 @[reducible]
 def connect.Target.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq connect.Target := {
 }
 
 /-- [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Target> for protocol::connect::Target}::eq]:
-    Source: 'crates/protocol/src/connect.rs', lines 29:9-29:18
+    Source: 'crates/protocol/src/connect.rs', lines 30:9-30:18
     Visibility: public -/
 def connect.Target.Insts.CoreCmpPartialEqTarget.eq
   (self : connect.Target) (other : connect.Target) : Result Bool := do
@@ -4416,7 +4416,7 @@ def connect.Target.Insts.CoreCmpPartialEqTarget.eq
   else ok false
 
 /-- Trait implementation: [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Target> for protocol::connect::Target}]
-    Source: 'crates/protocol/src/connect.rs', lines 29:9-29:18 -/
+    Source: 'crates/protocol/src/connect.rs', lines 30:9-30:18 -/
 @[reducible]
 impl_def connect.Target.Insts.CoreCmpPartialEqTarget : core.cmp.PartialEq
   connect.Target connect.Target := {
@@ -4426,14 +4426,14 @@ impl_def connect.Target.Insts.CoreCmpPartialEqTarget : core.cmp.PartialEq
 }
 
 /-- [protocol::connect::{impl core::cmp::Eq for protocol::connect::Target}::assert_fields_are_eq]:
-    Source: 'crates/protocol/src/connect.rs', lines 29:20-29:22
+    Source: 'crates/protocol/src/connect.rs', lines 30:20-30:22
     Visibility: public -/
 def connect.Target.Insts.CoreCmpEq.assert_fields_are_eq
   (self : connect.Target) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [protocol::connect::{impl core::cmp::Eq for protocol::connect::Target}]
-    Source: 'crates/protocol/src/connect.rs', lines 29:20-29:22 -/
+    Source: 'crates/protocol/src/connect.rs', lines 30:20-30:22 -/
 @[reducible]
 def connect.Target.Insts.CoreCmpEq : core.cmp.Eq connect.Target := {
   partialEqInst := connect.Target.Insts.CoreCmpPartialEqTarget
@@ -4441,14 +4441,14 @@ def connect.Target.Insts.CoreCmpEq : core.cmp.Eq connect.Target := {
 }
 
 /-- [protocol::connect::{impl core::clone::Clone for protocol::connect::Refusal}::clone]:
-    Source: 'crates/protocol/src/connect.rs', lines 38:9-38:14
+    Source: 'crates/protocol/src/connect.rs', lines 39:9-39:14
     Visibility: public -/
 def connect.Refusal.Insts.CoreCloneClone.clone
   (self : connect.Refusal) : Result connect.Refusal := do
   ok self
 
 /-- Trait implementation: [protocol::connect::{impl core::clone::Clone for protocol::connect::Refusal}]
-    Source: 'crates/protocol/src/connect.rs', lines 38:9-38:14 -/
+    Source: 'crates/protocol/src/connect.rs', lines 39:9-39:14 -/
 @[reducible]
 def connect.Refusal.Insts.CoreCloneClone : core.clone.Clone connect.Refusal
   := {
@@ -4456,7 +4456,7 @@ def connect.Refusal.Insts.CoreCloneClone : core.clone.Clone connect.Refusal
 }
 
 /-- Trait implementation: [protocol::connect::{impl core::marker::Copy for protocol::connect::Refusal}]
-    Source: 'crates/protocol/src/connect.rs', lines 38:16-38:20 -/
+    Source: 'crates/protocol/src/connect.rs', lines 39:16-39:20 -/
 @[reducible]
 def connect.Refusal.Insts.CoreMarkerCopy : core.marker.Copy connect.Refusal
   := {
@@ -4464,14 +4464,14 @@ def connect.Refusal.Insts.CoreMarkerCopy : core.marker.Copy connect.Refusal
 }
 
 /-- Trait implementation: [protocol::connect::{impl core::marker::StructuralPartialEq for protocol::connect::Refusal}]
-    Source: 'crates/protocol/src/connect.rs', lines 38:22-38:31 -/
+    Source: 'crates/protocol/src/connect.rs', lines 39:22-39:31 -/
 @[reducible]
 def connect.Refusal.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq connect.Refusal := {
 }
 
 /-- [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Refusal> for protocol::connect::Refusal}::eq]:
-    Source: 'crates/protocol/src/connect.rs', lines 38:22-38:31
+    Source: 'crates/protocol/src/connect.rs', lines 39:22-39:31
     Visibility: public -/
 def connect.Refusal.Insts.CoreCmpPartialEqRefusal.eq
   (self : connect.Refusal) (other : connect.Refusal) : Result Bool := do
@@ -4480,7 +4480,7 @@ def connect.Refusal.Insts.CoreCmpPartialEqRefusal.eq
   ok (self1 = other1)
 
 /-- Trait implementation: [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Refusal> for protocol::connect::Refusal}]
-    Source: 'crates/protocol/src/connect.rs', lines 38:22-38:31 -/
+    Source: 'crates/protocol/src/connect.rs', lines 39:22-39:31 -/
 @[reducible]
 impl_def connect.Refusal.Insts.CoreCmpPartialEqRefusal : core.cmp.PartialEq
   connect.Refusal connect.Refusal := {
@@ -4490,67 +4490,70 @@ impl_def connect.Refusal.Insts.CoreCmpPartialEqRefusal : core.cmp.PartialEq
 }
 
 /-- [protocol::connect::{impl core::cmp::Eq for protocol::connect::Refusal}::assert_fields_are_eq]:
-    Source: 'crates/protocol/src/connect.rs', lines 38:33-38:35
+    Source: 'crates/protocol/src/connect.rs', lines 39:33-39:35
     Visibility: public -/
 def connect.Refusal.Insts.CoreCmpEq.assert_fields_are_eq
   (self : connect.Refusal) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [protocol::connect::{impl core::cmp::Eq for protocol::connect::Refusal}]
-    Source: 'crates/protocol/src/connect.rs', lines 38:33-38:35 -/
+    Source: 'crates/protocol/src/connect.rs', lines 39:33-39:35 -/
 @[reducible]
 def connect.Refusal.Insts.CoreCmpEq : core.cmp.Eq connect.Refusal := {
   partialEqInst := connect.Refusal.Insts.CoreCmpPartialEqRefusal
   assert_fields_are_eq := connect.Refusal.Insts.CoreCmpEq.assert_fields_are_eq
 }
 
+/-- [protocol::connect::is_line_end]:
+    Source: 'crates/protocol/src/connect.rs', lines 55:0-57:1 -/
+def connect.is_line_end
+  (head : Slice Std.U8) («at» : Std.Usize) : Result Bool := do
+  let i ← Slice.index_usize head «at»
+  if i = connect.CR
+  then
+    let i1 ← «at» + 1#usize
+    let i2 ← Slice.index_usize head i1
+    ok (i2 = connect.LF)
+  else ok false
+
 /-- [protocol::connect::line_end]: loop body 0:
-    Source: 'crates/protocol/src/connect.rs', lines 58:4-63:5 -/
+    Source: 'crates/protocol/src/connect.rs', lines 62:4-64:5 -/
 @[rust_loop_body]
 def connect.line_end_loop.body
-  (head : Slice Std.U8) («at» : Std.Usize) (found : Bool) :
-  Result (ControlFlow (Std.Usize × Bool) (Std.Usize × Bool))
+  (head : Slice Std.U8) («at» : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
   := do
-  if found
-  then ok (done («at», true))
-  else
-    let i ← «at» + 1#usize
-    let i1 := Slice.len head
-    if i < i1
-    then
-      let i2 ← Slice.index_usize head «at»
-      let found1 ←
-        if i2 = connect.CR
-        then do
-             let i3 ← Slice.index_usize head i
-             ok (i3 = connect.LF)
-        else ok false
-      if found1
-      then ok (cont («at», true))
-      else ok (cont (i, false))
-    else ok (done («at», false))
+  let i ← «at» + 1#usize
+  let i1 := Slice.len head
+  if i < i1
+  then
+    let b ← connect.is_line_end head «at»
+    if b
+    then ok (done «at»)
+    else ok (cont i)
+  else ok (done «at»)
 
 /-- [protocol::connect::line_end]: loop 0:
-    Source: 'crates/protocol/src/connect.rs', lines 58:4-63:5 -/
+    Source: 'crates/protocol/src/connect.rs', lines 62:4-64:5 -/
 @[rust_loop]
 def connect.line_end_loop
-  (head : Slice Std.U8) («at» : Std.Usize) (found : Bool) :
-  Result (Std.Usize × Bool)
-  := do
+  (head : Slice Std.U8) («at» : Std.Usize) : Result Std.Usize := do
   loop
-    (fun (at1, found1) => connect.line_end_loop.body head at1 found1)
-    («at», found)
+    (fun at1 => connect.line_end_loop.body head at1)
+    «at»
 
 /-- [protocol::connect::line_end]:
-    Source: 'crates/protocol/src/connect.rs', lines 55:0-65:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 60:0-66:1 -/
 def connect.line_end (head : Slice Std.U8) : Result Std.Usize := do
-  let («at», found) ← connect.line_end_loop head 0#usize false
-  if found
+  let «at» ← connect.line_end_loop head 0#usize
+  let i ← «at» + 1#usize
+  let i1 := Slice.len head
+  if i < i1
   then ok «at»
   else ok (Slice.len head)
 
 /-- [protocol::connect::next_space]: loop body 0:
-    Source: 'crates/protocol/src/connect.rs', lines 70:4-72:5 -/
+    Source: 'crates/protocol/src/connect.rs', lines 71:4-73:5 -/
 @[rust_loop_body]
 def connect.next_space_loop.body
   (line : Slice Std.U8) («end» : Std.Usize) («at» : Std.Usize) :
@@ -4566,7 +4569,7 @@ def connect.next_space_loop.body
   else ok (done «at»)
 
 /-- [protocol::connect::next_space]: loop 0:
-    Source: 'crates/protocol/src/connect.rs', lines 70:4-72:5 -/
+    Source: 'crates/protocol/src/connect.rs', lines 71:4-73:5 -/
 @[rust_loop]
 def connect.next_space_loop
   (line : Slice Std.U8) («end» : Std.Usize) («at» : Std.Usize) :
@@ -4577,7 +4580,7 @@ def connect.next_space_loop
     «at»
 
 /-- [protocol::connect::next_space]:
-    Source: 'crates/protocol/src/connect.rs', lines 68:0-74:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 69:0-75:1 -/
 @[reducible]
 def connect.next_space
   (line : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize) :
@@ -4585,15 +4588,37 @@ def connect.next_space
   := do
   connect.next_space_loop line «end» «from»
 
+/-- [protocol::connect::copy_range]:
+    Source: 'crates/protocol/src/connect.rs', lines 77:0-81:1 -/
+def connect.copy_range
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  ascii.push_range (alloc.vec.Vec.new Std.U8) bytes start «end»
+
+/-- [protocol::connect::equals_at]:
+    Source: 'crates/protocol/src/connect.rs', lines 84:0-86:1 -/
+def connect.equals_at
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize)
+  (word : Slice Std.U8) :
+  Result Bool
+  := do
+  let i ← «end» - start
+  let i1 := Slice.len word
+  if i = i1
+  then let i2 := Slice.len word
+       search.equal_run bytes start word i2
+  else ok false
+
 /-- [protocol::connect::is_digit]:
-    Source: 'crates/protocol/src/connect.rs', lines 124:0-126:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 88:0-90:1 -/
 def connect.is_digit (b : Std.U8) : Result Bool := do
   if 48#u8 <= b
   then ok (b <= 57#u8)
   else ok false
 
 /-- [protocol::connect::is_version]:
-    Source: 'crates/protocol/src/connect.rs', lines 77:0-81:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 93:0-97:1 -/
 def connect.is_version
   (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
   Result Bool
@@ -4616,108 +4641,8 @@ def connect.is_version
     else ok false
   else ok false
 
-/-- [protocol::connect::equals_at]:
-    Source: 'crates/protocol/src/connect.rs', lines 83:0-85:1 -/
-def connect.equals_at
-  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize)
-  (word : Slice Std.U8) :
-  Result Bool
-  := do
-  let i ← «end» - start
-  let i1 := Slice.len word
-  if i = i1
-  then let i2 := Slice.len word
-       search.equal_run bytes start word i2
-  else ok false
-
-/-- [protocol::connect::copy_range]: loop body 0:
-    Source: 'crates/protocol/src/connect.rs', lines 90:4-93:5 -/
-@[rust_loop_body]
-def connect.copy_range_loop.body
-  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
-  (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
-    Std.U8))
-  := do
-  if i < «end»
-  then
-    let i1 ← Slice.index_usize bytes i
-    let out1 ← alloc.vec.Vec.push out i1
-    let i2 ← i + 1#usize
-    ok (cont (out1, i2))
-  else ok (done out)
-
-/-- [protocol::connect::copy_range]: loop 0:
-    Source: 'crates/protocol/src/connect.rs', lines 90:4-93:5 -/
-@[rust_loop]
-def connect.copy_range_loop
-  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
-  (i : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  loop
-    (fun (out1, i1) => connect.copy_range_loop.body bytes «end» out1 i1)
-    (out, i)
-
-/-- [protocol::connect::copy_range]:
-    Source: 'crates/protocol/src/connect.rs', lines 87:0-95:1 -/
-@[reducible]
-def connect.copy_range
-  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  connect.copy_range_loop bytes «end» (alloc.vec.Vec.new Std.U8) start
-
-/-- [protocol::connect::lower]:
-    Source: 'crates/protocol/src/connect.rs', lines 97:0-99:1 -/
-def connect.lower (b : Std.U8) : Result Std.U8 := do
-  if 65#u8 <= b
-  then if b <= 90#u8
-       then b + 32#u8
-       else ok b
-  else ok b
-
-/-- [protocol::connect::lower_range]: loop body 0:
-    Source: 'crates/protocol/src/connect.rs', lines 104:4-107:5 -/
-@[rust_loop_body]
-def connect.lower_range_loop.body
-  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
-  (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
-    Std.U8))
-  := do
-  if i < «end»
-  then
-    let i1 ← Slice.index_usize bytes i
-    let i2 ← connect.lower i1
-    let out1 ← alloc.vec.Vec.push out i2
-    let i3 ← i + 1#usize
-    ok (cont (out1, i3))
-  else ok (done out)
-
-/-- [protocol::connect::lower_range]: loop 0:
-    Source: 'crates/protocol/src/connect.rs', lines 104:4-107:5 -/
-@[rust_loop]
-def connect.lower_range_loop
-  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
-  (i : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  loop
-    (fun (out1, i1) => connect.lower_range_loop.body bytes «end» out1 i1)
-    (out, i)
-
-/-- [protocol::connect::lower_range]:
-    Source: 'crates/protocol/src/connect.rs', lines 101:0-109:1 -/
-@[reducible]
-def connect.lower_range
-  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  connect.lower_range_loop bytes «end» (alloc.vec.Vec.new Std.U8) start
-
 /-- [protocol::connect::last_colon]: loop body 0:
-    Source: 'crates/protocol/src/connect.rs', lines 115:4-120:5 -/
+    Source: 'crates/protocol/src/connect.rs', lines 103:4-108:5 -/
 @[rust_loop_body]
 def connect.last_colon_loop.body
   (bytes : Slice Std.U8) («end» : Std.Usize) (found : Std.Usize)
@@ -4735,7 +4660,7 @@ def connect.last_colon_loop.body
   else ok (done found)
 
 /-- [protocol::connect::last_colon]: loop 0:
-    Source: 'crates/protocol/src/connect.rs', lines 115:4-120:5 -/
+    Source: 'crates/protocol/src/connect.rs', lines 103:4-108:5 -/
 @[rust_loop]
 def connect.last_colon_loop
   (bytes : Slice Std.U8) («end» : Std.Usize) (found : Std.Usize)
@@ -4747,7 +4672,7 @@ def connect.last_colon_loop
     (found, i)
 
 /-- [protocol::connect::last_colon]:
-    Source: 'crates/protocol/src/connect.rs', lines 112:0-122:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 100:0-110:1 -/
 @[reducible]
 def connect.last_colon
   (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
@@ -4755,13 +4680,19 @@ def connect.last_colon
   := do
   connect.last_colon_loop bytes «end» «end» start
 
-/-- [protocol::connect::parse_port]: loop body 0:
-    Source: 'crates/protocol/src/connect.rs', lines 136:4-142:5 -/
+/-- [protocol::connect::digit_value]:
+    Source: 'crates/protocol/src/connect.rs', lines 112:0-114:1 -/
+def connect.digit_value (b : Std.U8) : Result Std.U32 := do
+  let i ← b - 48#u8
+  ok (UScalar.cast .U32 i)
+
+/-- [protocol::connect::digits]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 121:4-127:5 -/
 @[rust_loop_body]
-def connect.parse_port_loop.body
+def connect.digits_loop.body
   (bytes : Slice Std.U8) («end» : Std.Usize) (value : Std.U32) (ok1 : Bool)
   (i : Std.Usize) :
-  Result (ControlFlow (Std.U32 × Bool × Std.Usize) (Std.U32 × Bool))
+  Result (ControlFlow (Std.U32 × Bool × Std.Usize) (Bool × Std.U32))
   := do
   if ok1
   then
@@ -4774,30 +4705,38 @@ def connect.parse_port_loop.body
         then
           do
           let i2 ← value * 10#u32
-          let i3 ← i1 - 48#u8
-          let i4 ← lift (UScalar.cast .U32 i3)
-          i2 + i4
+          let i3 ← connect.digit_value i1
+          i2 + i3
         else ok value
       let i2 ← i + 1#usize
       ok (cont (value1, ok2, i2))
-    else ok (done (value, true))
-  else ok (done (value, false))
+    else ok (done (true, value))
+  else ok (done (false, value))
 
-/-- [protocol::connect::parse_port]: loop 0:
-    Source: 'crates/protocol/src/connect.rs', lines 136:4-142:5 -/
+/-- [protocol::connect::digits]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 121:4-127:5 -/
 @[rust_loop]
-def connect.parse_port_loop
+def connect.digits_loop
   (bytes : Slice Std.U8) («end» : Std.Usize) (value : Std.U32) (ok1 : Bool)
   (i : Std.Usize) :
-  Result (Std.U32 × Bool)
+  Result (Bool × Std.U32)
   := do
   loop
-    (fun (value1, ok2, i1) => connect.parse_port_loop.body bytes «end» value1
-      ok2 i1)
+    (fun (value1, ok2, i1) => connect.digits_loop.body bytes «end» value1 ok2
+      i1)
     (value, ok1, i)
 
+/-- [protocol::connect::digits]:
+    Source: 'crates/protocol/src/connect.rs', lines 117:0-129:1 -/
+@[reducible]
+def connect.digits
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (Bool × Std.U32)
+  := do
+  connect.digits_loop bytes «end» 0#u32 true start
+
 /-- [protocol::connect::parse_port]:
-    Source: 'crates/protocol/src/connect.rs', lines 129:0-148:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 132:0-142:1 -/
 def connect.parse_port
   (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
   Result (Option Std.U16)
@@ -4809,8 +4748,7 @@ def connect.parse_port
     if i > 5#usize
     then ok none
     else
-      let (value, ok1) ←
-        connect.parse_port_loop bytes «end» 0#u32 true start
+      let (ok1, value) ← connect.digits bytes start «end»
       if ok1
       then
         if value > 65535#u32
@@ -4819,58 +4757,57 @@ def connect.parse_port
              ok (some i1)
       else ok none
 
-/-- [protocol::connect::looks_like_ip]: loop body 0:
-    Source: 'crates/protocol/src/connect.rs', lines 155:4-163:5 -/
+/-- [protocol::connect::last_label_start]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 148:4-153:5 -/
 @[rust_loop_body]
-def connect.looks_like_ip_loop.body
-  (bytes : Slice Std.U8) («end» : Std.Usize) (last : Std.Usize)
-  (colon : Bool) (i : Std.Usize) :
-  Result (ControlFlow (Std.Usize × Bool × Std.Usize) (Std.Usize × Bool))
+def connect.last_label_start_loop.body
+  (host : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) :
+  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
   := do
-  if i < «end»
+  let i1 := Slice.len host
+  if i < i1
   then
-    let i1 ← Slice.index_usize bytes i
-    let last1 ← if i1 = connect.DOT
-                  then i + 1#usize
-                  else ok last
-    let colon1 ← if i1 = connect.COLON
-                   then ok true
-                   else ok colon
-    let i2 ← i + 1#usize
-    ok (cont (last1, colon1, i2))
-  else ok (done (last, colon))
+    let i2 ← Slice.index_usize host i
+    let start1 ← if i2 = connect.DOT
+                   then i + 1#usize
+                   else ok start
+    let i3 ← i + 1#usize
+    ok (cont (start1, i3))
+  else ok (done start)
 
-/-- [protocol::connect::looks_like_ip]: loop 0:
-    Source: 'crates/protocol/src/connect.rs', lines 155:4-163:5 -/
+/-- [protocol::connect::last_label_start]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 148:4-153:5 -/
 @[rust_loop]
-def connect.looks_like_ip_loop
-  (bytes : Slice Std.U8) («end» : Std.Usize) (last : Std.Usize)
-  (colon : Bool) (i : Std.Usize) :
-  Result (Std.Usize × Bool)
+def connect.last_label_start_loop
+  (host : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) :
+  Result Std.Usize
   := do
   loop
-    (fun (last1, colon1, i1) => connect.looks_like_ip_loop.body bytes «end»
-      last1 colon1 i1)
-    (last, colon, i)
+    (fun (start1, i1) => connect.last_label_start_loop.body host start1 i1)
+    (start, i)
+
+/-- [protocol::connect::last_label_start]:
+    Source: 'crates/protocol/src/connect.rs', lines 145:0-155:1 -/
+@[reducible]
+def connect.last_label_start (host : Slice Std.U8) : Result Std.Usize := do
+  connect.last_label_start_loop host 0#usize 0#usize
 
 /-- [protocol::connect::looks_like_ip]:
-    Source: 'crates/protocol/src/connect.rs', lines 151:0-165:1 -/
-def connect.looks_like_ip
-  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
-  Result Bool
-  := do
-  let (last, colon) ←
-    connect.looks_like_ip_loop bytes «end» start false start
-  if colon
+    Source: 'crates/protocol/src/connect.rs', lines 158:0-164:1 -/
+def connect.looks_like_ip (host : Slice Std.U8) : Result Bool := do
+  let b ← search.has_byte host connect.COLON
+  if b
   then ok true
   else
-    if last < «end»
-    then let i ← Slice.index_usize bytes last
-         connect.is_digit i
+    let last ← connect.last_label_start host
+    let i := Slice.len host
+    if last < i
+    then let i1 ← Slice.index_usize host last
+         connect.is_digit i1
     else ok false
 
 /-- [protocol::connect::is_listed_port]: loop body 0:
-    Source: 'crates/protocol/src/connect.rs', lines 170:4-173:5 -/
+    Source: 'crates/protocol/src/connect.rs', lines 169:4-172:5 -/
 @[rust_loop_body]
 def connect.is_listed_port_loop.body
   (ports : Slice Std.U16) (port : Std.U16) (found : Bool) (i : Std.Usize) :
@@ -4888,7 +4825,7 @@ def connect.is_listed_port_loop.body
     else ok (done false)
 
 /-- [protocol::connect::is_listed_port]: loop 0:
-    Source: 'crates/protocol/src/connect.rs', lines 170:4-173:5 -/
+    Source: 'crates/protocol/src/connect.rs', lines 169:4-172:5 -/
 @[rust_loop]
 def connect.is_listed_port_loop
   (ports : Slice Std.U16) (port : Std.U16) (found : Bool) (i : Std.Usize) :
@@ -4899,14 +4836,14 @@ def connect.is_listed_port_loop
     (found, i)
 
 /-- [protocol::connect::is_listed_port]:
-    Source: 'crates/protocol/src/connect.rs', lines 167:0-175:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 166:0-174:1 -/
 @[reducible]
 def connect.is_listed_port
   (ports : Slice Std.U16) (port : Std.U16) : Result Bool := do
   connect.is_listed_port_loop ports port false 0#usize
 
 /-- [protocol::connect::local_target]:
-    Source: 'crates/protocol/src/connect.rs', lines 177:0-185:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 176:0-184:1 -/
 def connect.local_target
   (ports : Slice Std.U16) (port : Std.U16) :
   Result (core.result.Result connect.Target connect.Refusal)
@@ -4921,85 +4858,18 @@ def connect.local_target
     then ok (core.result.Result.Ok (connect.Target.Local port))
     else ok (core.result.Result.Err connect.Refusal.LocalPortClosed)
 
-/-- [protocol::hosts::lower_copy]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 70:4-73:5 -/
-@[rust_loop_body]
-def hosts.lower_copy_loop.body
-  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
-    Std.U8))
-  := do
-  let i1 := Slice.len bytes
-  if i < i1
-  then
-    let i2 ← Slice.index_usize bytes i
-    let i3 ← ascii.to_lower i2
-    let out1 ← alloc.vec.Vec.push out i3
-    let i4 ← i + 1#usize
-    ok (cont (out1, i4))
-  else ok (done out)
-
-/-- [protocol::hosts::lower_copy]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 70:4-73:5 -/
-@[rust_loop]
-def hosts.lower_copy_loop
-  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+/-- [protocol::hosts::lower_range]:
+    Source: 'crates/protocol/src/hosts.rs', lines 49:0-53:1 -/
+def hosts.lower_range
+  (host : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
   Result (alloc.vec.Vec Std.U8)
   := do
-  loop
-    (fun (out1, i1) => hosts.lower_copy_loop.body bytes out1 i1)
-    (out, i)
-
-/-- [protocol::hosts::lower_copy]:
-    Source: 'crates/protocol/src/hosts.rs', lines 67:0-75:1 -/
-@[reducible]
-def hosts.lower_copy
-  (bytes : Slice Std.U8) (start : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  hosts.lower_copy_loop bytes (alloc.vec.Vec.new Std.U8) start
-
-/-- [protocol::hosts::DOT]
-    Source: 'crates/protocol/src/hosts.rs', lines 8:0-8:21 -/
-@[global_simps, irreducible] def hosts.DOT : Std.U8 := 46#u8
-
-/-- [protocol::hosts::last_label_start]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 58:4-63:5 -/
-@[rust_loop_body]
-def hosts.last_label_start_loop.body
-  (host : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) :
-  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
-  := do
-  let i1 := Slice.len host
-  if i < i1
-  then
-    let i2 ← Slice.index_usize host i
-    let start1 ← if i2 = hosts.DOT
-                   then i + 1#usize
-                   else ok start
-    let i3 ← i + 1#usize
-    ok (cont (start1, i3))
-  else ok (done start)
-
-/-- [protocol::hosts::last_label_start]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 58:4-63:5 -/
-@[rust_loop]
-def hosts.last_label_start_loop
-  (host : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) :
-  Result Std.Usize
-  := do
-  loop
-    (fun (start1, i1) => hosts.last_label_start_loop.body host start1 i1)
-    (start, i)
-
-/-- [protocol::hosts::last_label_start]:
-    Source: 'crates/protocol/src/hosts.rs', lines 55:0-65:1 -/
-@[reducible]
-def hosts.last_label_start (host : Slice Std.U8) : Result Std.Usize := do
-  hosts.last_label_start_loop host 0#usize 0#usize
+  let label ← ascii.push_range (alloc.vec.Vec.new Std.U8) host start «end»
+  let s := alloc.vec.Vec.deref label
+  path_rules.lower_bytes s
 
 /-- [protocol::hosts::is_letter]:
-    Source: 'crates/protocol/src/hosts.rs', lines 12:0-14:1 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 14:0-16:1 -/
 def hosts.is_letter (b : Std.U8) : Result Bool := do
   if 97#u8 <= b
   then
@@ -5013,7 +4883,7 @@ def hosts.is_letter (b : Std.U8) : Result Bool := do
        else ok false
 
 /-- [protocol::hosts::LOCALHOST]
-    Source: 'crates/protocol/src/hosts.rs', lines 10:0-10:41 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 12:0-12:41 -/
 @[global_simps, irreducible]
 def hosts.LOCALHOST : Array Std.U8 9#usize :=
   Array.make 9#usize [
@@ -5021,30 +4891,65 @@ def hosts.LOCALHOST : Array Std.U8 9#usize :=
     ]
 
 /-- [protocol::hosts::last_label_ok]:
-    Source: 'crates/protocol/src/hosts.rs', lines 79:0-85:1 -/
-def hosts.last_label_ok (host : Slice Std.U8) : Result Bool := do
-  let start ← hosts.last_label_start host
-  let i := Slice.len host
-  if start >= i
-  then ok false
-  else
-    let i1 ← Slice.index_usize host start
-    let b ← hosts.is_letter i1
-    if b
-    then
-      let v ← hosts.lower_copy host start
-      let s := alloc.vec.Vec.deref v
-      let s1 ← lift (Array.to_slice hosts.LOCALHOST)
-      let b1 ← ascii.bytes_equal s s1
-      ok (¬ b1)
-    else ok false
+    Source: 'crates/protocol/src/hosts.rs', lines 57:0-59:1 -/
+def hosts.last_label_ok
+  (host : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result Bool
+  := do
+  let i ← Slice.index_usize host start
+  let b ← hosts.is_letter i
+  if b
+  then
+    let v ← hosts.lower_range host start «end»
+    let s := alloc.vec.Vec.deref v
+    let s1 ← lift (Array.to_slice hosts.LOCALHOST)
+    let b1 ← ascii.bytes_equal s s1
+    ok (¬ b1)
+  else ok false
+
+/-- [protocol::hosts::DOT]
+    Source: 'crates/protocol/src/hosts.rs', lines 10:0-10:21 -/
+@[global_simps, irreducible] def hosts.DOT : Std.U8 := 46#u8
+
+/-- [protocol::hosts::next_dot]: loop body 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 43:4-45:5 -/
+@[rust_loop_body]
+def hosts.next_dot_loop.body
+  (host : Slice Std.U8) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  let i1 := Slice.len host
+  if i < i1
+  then
+    let i2 ← Slice.index_usize host i
+    if i2 != hosts.DOT
+    then let i3 ← i + 1#usize
+         ok (cont i3)
+    else ok (done i)
+  else ok (done i)
+
+/-- [protocol::hosts::next_dot]: loop 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 43:4-45:5 -/
+@[rust_loop]
+def hosts.next_dot_loop
+  (host : Slice Std.U8) (i : Std.Usize) : Result Std.Usize := do
+  loop
+    (fun i1 => hosts.next_dot_loop.body host i1)
+    i
+
+/-- [protocol::hosts::next_dot]:
+    Source: 'crates/protocol/src/hosts.rs', lines 41:0-47:1 -/
+@[reducible]
+def hosts.next_dot
+  (host : Slice Std.U8) («from» : Std.Usize) : Result Std.Usize := do
+  hosts.next_dot_loop host «from»
 
 /-- [protocol::hosts::DASH]
-    Source: 'crates/protocol/src/hosts.rs', lines 9:0-9:22 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 11:0-11:22 -/
 @[global_simps, irreducible] def hosts.DASH : Std.U8 := 45#u8
 
 /-- [protocol::hosts::is_label_byte]:
-    Source: 'crates/protocol/src/hosts.rs', lines 16:0-18:1 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 18:0-20:1 -/
 def hosts.is_label_byte (b : Std.U8) : Result Bool := do
   let b1 ← hosts.is_letter b
   if b1
@@ -5057,7 +4962,7 @@ def hosts.is_label_byte (b : Std.U8) : Result Bool := do
     else ok (b = hosts.DASH)
 
 /-- [protocol::hosts::all_label_bytes]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 23:4-26:5 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 25:4-28:5 -/
 @[rust_loop_body]
 def hosts.all_label_bytes_loop.body
   (host : Slice Std.U8) («end» : Std.Usize) (ok1 : Bool) (i : Std.Usize) :
@@ -5075,7 +4980,7 @@ def hosts.all_label_bytes_loop.body
   else ok (done false)
 
 /-- [protocol::hosts::all_label_bytes]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 23:4-26:5 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 25:4-28:5 -/
 @[rust_loop]
 def hosts.all_label_bytes_loop
   (host : Slice Std.U8) («end» : Std.Usize) (ok1 : Bool) (i : Std.Usize) :
@@ -5086,7 +4991,7 @@ def hosts.all_label_bytes_loop
     (ok1, i)
 
 /-- [protocol::hosts::all_label_bytes]:
-    Source: 'crates/protocol/src/hosts.rs', lines 20:0-28:1 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 22:0-30:1 -/
 @[reducible]
 def hosts.all_label_bytes
   (host : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
@@ -5095,11 +5000,11 @@ def hosts.all_label_bytes
   hosts.all_label_bytes_loop host «end» true start
 
 /-- [protocol::hosts::MAX_LABEL]
-    Source: 'crates/protocol/src/hosts.rs', lines 7:0-7:28 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 9:0-9:28 -/
 @[global_simps, irreducible] def hosts.MAX_LABEL : Std.Usize := 63#usize
 
 /-- [protocol::hosts::label_ok]:
-    Source: 'crates/protocol/src/hosts.rs', lines 31:0-36:1 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 33:0-38:1 -/
 def hosts.label_ok
   (host : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
   Result Bool
@@ -5121,71 +5026,28 @@ def hosts.label_ok
         else ok false
       else ok false
 
-/-- [protocol::hosts::labels_ok]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 44:4-51:5 -/
-@[rust_loop_body]
-def hosts.labels_ok_loop.body
-  (host : Slice Std.U8) (ok1 : Bool) (labels : Std.Usize) (start : Std.Usize)
-  (i : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize × Std.Usize × Std.Usize) (Bool ×
-    Std.Usize))
-  := do
-  if ok1
-  then
-    let i1 := Slice.len host
-    if i <= i1
-    then
-      let i2 := Slice.len host
-      let (ok2, labels1, start1) ←
-        if i = i2
-        then
-          do
-          let ok3 ← hosts.label_ok host start i
-          let labels2 ← labels + 1#usize
-          let start2 ← i + 1#usize
-          ok (ok3, labels2, start2)
-        else
-          do
-          let i3 ← Slice.index_usize host i
-          if i3 = hosts.DOT
-          then
-            let ok3 ← hosts.label_ok host start i
-            let labels2 ← labels + 1#usize
-            let start2 ← i + 1#usize
-            ok (ok3, labels2, start2)
-          else ok (true, labels, start)
-      let i3 ← i + 1#usize
-      ok (cont (ok2, labels1, start1, i3))
-    else ok (done (true, labels))
-  else ok (done (false, labels))
-
-/-- [protocol::hosts::labels_ok]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 44:4-51:5 -/
-@[rust_loop]
-def hosts.labels_ok_loop
-  (host : Slice Std.U8) (ok1 : Bool) (labels : Std.Usize) (start : Std.Usize)
-  (i : Std.Usize) :
-  Result (Bool × Std.Usize)
-  := do
-  loop
-    (fun (ok2, labels1, start1, i1) => hosts.labels_ok_loop.body host ok2
-      labels1 start1 i1)
-    (ok1, labels, start, i)
-
 /-- [protocol::hosts::labels_ok]:
-    Source: 'crates/protocol/src/hosts.rs', lines 39:0-53:1 -/
-def hosts.labels_ok (host : Slice Std.U8) : Result Bool := do
-  let (ok1, labels) ← hosts.labels_ok_loop host true 0#usize 0#usize 0#usize
-  if ok1
-  then ok (labels >= 2#usize)
+    Source: 'crates/protocol/src/hosts.rs', lines 62:0-71:1 -/
+def hosts.labels_ok
+  (host : Slice Std.U8) (start : Std.Usize) : Result Bool := do
+  let «end» ← hosts.next_dot host start
+  let b ← hosts.label_ok host start «end»
+  if b
+  then
+    let i := Slice.len host
+    if «end» = i
+    then hosts.last_label_ok host start «end»
+    else let i1 ← «end» + 1#usize
+         hosts.labels_ok host i1
   else ok false
+partial_fixpoint
 
 /-- [protocol::hosts::MAX_NAME]
-    Source: 'crates/protocol/src/hosts.rs', lines 6:0-6:28 -/
+    Source: 'crates/protocol/src/hosts.rs', lines 8:0-8:28 -/
 @[global_simps, irreducible] def hosts.MAX_NAME : Std.Usize := 253#usize
 
 /-- [protocol::hosts::good_host_name]:
-    Source: 'crates/protocol/src/hosts.rs', lines 89:0-94:1
+    Source: 'crates/protocol/src/hosts.rs', lines 75:0-80:1
     Visibility: public -/
 def hosts.good_host_name (host : Slice Std.U8) : Result Bool := do
   let i := Slice.len host
@@ -5196,13 +5058,13 @@ def hosts.good_host_name (host : Slice Std.U8) : Result Bool := do
     if i1 > hosts.MAX_NAME
     then ok false
     else
-      let b ← hosts.labels_ok host
+      let b ← search.has_byte host hosts.DOT
       if b
-      then hosts.last_label_ok host
+      then hosts.labels_ok host 0#usize
       else ok false
 
 /-- [protocol::hosts::host_allowed]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 105:4-108:5
+    Source: 'crates/protocol/src/hosts.rs', lines 91:4-94:5
     Visibility: public -/
 @[rust_loop_body]
 def hosts.host_allowed_loop.body
@@ -5218,7 +5080,7 @@ def hosts.host_allowed_loop.body
     then
       let v ← Slice.index_usize list i
       let s := alloc.vec.Vec.deref v
-      let v1 ← hosts.lower_copy s 0#usize
+      let v1 ← path_rules.lower_bytes s
       let s1 := alloc.vec.Vec.deref v1
       let s2 := alloc.vec.Vec.deref lower
       let found1 ← ascii.bytes_equal s1 s2
@@ -5227,7 +5089,7 @@ def hosts.host_allowed_loop.body
     else ok (done false)
 
 /-- [protocol::hosts::host_allowed]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 105:4-108:5
+    Source: 'crates/protocol/src/hosts.rs', lines 91:4-94:5
     Visibility: public -/
 @[rust_loop]
 def hosts.host_allowed_loop
@@ -5240,7 +5102,7 @@ def hosts.host_allowed_loop
     (found, i)
 
 /-- [protocol::hosts::host_allowed]:
-    Source: 'crates/protocol/src/hosts.rs', lines 98:0-110:1
+    Source: 'crates/protocol/src/hosts.rs', lines 84:0-96:1
     Visibility: public -/
 def hosts.host_allowed
   (list : Slice (alloc.vec.Vec Std.U8)) (host : Slice Std.U8) :
@@ -5249,12 +5111,23 @@ def hosts.host_allowed
   let b ← hosts.good_host_name host
   if b
   then
-    let lower ← hosts.lower_copy host 0#usize
+    let lower ← path_rules.lower_bytes host
     hosts.host_allowed_loop list lower false 0#usize
   else ok false
 
+/-- [protocol::connect::host_passes]:
+    Source: 'crates/protocol/src/connect.rs', lines 186:0-191:1 -/
+def connect.host_passes
+  (mode : connect.Mode) (list : Slice (alloc.vec.Vec Std.U8))
+  (host : Slice Std.U8) :
+  Result Bool
+  := do
+  match mode with
+  | connect.Mode.Listed => hosts.host_allowed list host
+  | connect.Mode.Public => hosts.good_host_name host
+
 /-- [protocol::connect::remote_target]:
-    Source: 'crates/protocol/src/connect.rs', lines 187:0-201:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 193:0-207:1 -/
 def connect.remote_target
   (mode : connect.Mode) (list : Slice (alloc.vec.Vec Std.U8))
   (host : Slice Std.U8) (port : Std.U16) :
@@ -5268,41 +5141,25 @@ def connect.remote_target
       if port != 80#u16
       then ok (core.result.Result.Err connect.Refusal.BadPort)
       else
-        let b1 ←
-          connect.Mode.Insts.CoreCmpPartialEqMode.eq mode connect.Mode.Listed
+        let b1 ← connect.host_passes mode list host
         if b1
         then
-          let b2 ← hosts.host_allowed list host
-          if b2
-          then
-            let i := Slice.len host
-            let v ← connect.lower_range host 0#usize i
-            ok (core.result.Result.Ok (connect.Target.Remote v port))
-          else ok (core.result.Result.Err connect.Refusal.NotListed)
-        else
           let i := Slice.len host
-          let v ← connect.lower_range host 0#usize i
-          ok (core.result.Result.Ok (connect.Target.Remote v port))
-    else
-      let b1 ←
-        connect.Mode.Insts.CoreCmpPartialEqMode.eq mode connect.Mode.Listed
-      if b1
-      then
-        let b2 ← hosts.host_allowed list host
-        if b2
-        then
-          let i := Slice.len host
-          let v ← connect.lower_range host 0#usize i
+          let v ← hosts.lower_range host 0#usize i
           ok (core.result.Result.Ok (connect.Target.Remote v port))
         else ok (core.result.Result.Err connect.Refusal.NotListed)
-      else
+    else
+      let b1 ← connect.host_passes mode list host
+      if b1
+      then
         let i := Slice.len host
-        let v ← connect.lower_range host 0#usize i
+        let v ← hosts.lower_range host 0#usize i
         ok (core.result.Result.Ok (connect.Target.Remote v port))
+      else ok (core.result.Result.Err connect.Refusal.NotListed)
   else ok (core.result.Result.Err connect.Refusal.BadHost)
 
 /-- [protocol::connect::check_host_port]:
-    Source: 'crates/protocol/src/connect.rs', lines 204:0-234:1 -/
+    Source: 'crates/protocol/src/connect.rs', lines 210:0-236:1 -/
 def connect.check_host_port
   (mode : connect.Mode) (list : Slice (alloc.vec.Vec Std.U8))
   (ports : Slice Std.U16) (line : Slice Std.U8) (start : Std.Usize)
@@ -5324,21 +5181,23 @@ def connect.check_host_port
         match o with
         | none => ok (core.result.Result.Err connect.Refusal.NoPort)
         | some port =>
-          let v ← connect.lower_range line start colon
-          let s := alloc.vec.Vec.deref v
-          let i2 ← colon - start
-          let s1 ← lift (Array.to_slice connect.LOCALHOST)
-          let b ← connect.equals_at s 0#usize i2 s1
+          let host ← connect.copy_range line start colon
+          let s := alloc.vec.Vec.deref host
+          let i2 := alloc.vec.Vec.len host
+          let v ← hosts.lower_range s 0#usize i2
+          let s1 := alloc.vec.Vec.deref v
+          let s2 ← lift (Array.to_slice connect.LOCALHOST)
+          let b ← ascii.bytes_equal s1 s2
           if b
           then connect.local_target ports port
           else
-            let b1 ← connect.looks_like_ip line start colon
+            let s3 := alloc.vec.Vec.deref host
+            let b1 ← connect.looks_like_ip s3
             if b1
             then ok (core.result.Result.Err connect.Refusal.IpAddress)
             else
-              let v1 ← connect.copy_range line start colon
-              let s2 := alloc.vec.Vec.deref v1
-              connect.remote_target mode list s2 port
+              let s4 := alloc.vec.Vec.deref host
+              connect.remote_target mode list s4 port
   else
     let colon ← connect.last_colon line start «end»
     if colon = «end»
@@ -5349,24 +5208,26 @@ def connect.check_host_port
       match o with
       | none => ok (core.result.Result.Err connect.Refusal.NoPort)
       | some port =>
-        let v ← connect.lower_range line start colon
-        let s := alloc.vec.Vec.deref v
-        let i1 ← colon - start
-        let s1 ← lift (Array.to_slice connect.LOCALHOST)
-        let b ← connect.equals_at s 0#usize i1 s1
+        let host ← connect.copy_range line start colon
+        let s := alloc.vec.Vec.deref host
+        let i1 := alloc.vec.Vec.len host
+        let v ← hosts.lower_range s 0#usize i1
+        let s1 := alloc.vec.Vec.deref v
+        let s2 ← lift (Array.to_slice connect.LOCALHOST)
+        let b ← ascii.bytes_equal s1 s2
         if b
         then connect.local_target ports port
         else
-          let b1 ← connect.looks_like_ip line start colon
+          let s3 := alloc.vec.Vec.deref host
+          let b1 ← connect.looks_like_ip s3
           if b1
           then ok (core.result.Result.Err connect.Refusal.IpAddress)
           else
-            let v1 ← connect.copy_range line start colon
-            let s2 := alloc.vec.Vec.deref v1
-            connect.remote_target mode list s2 port
+            let s4 := alloc.vec.Vec.deref host
+            connect.remote_target mode list s4 port
 
 /-- [protocol::connect::check_target]:
-    Source: 'crates/protocol/src/connect.rs', lines 243:0-268:1
+    Source: 'crates/protocol/src/connect.rs', lines 245:0-270:1
     Visibility: public -/
 def connect.check_target
   (mode : connect.Mode) (list : Slice (alloc.vec.Vec Std.U8))
@@ -6642,1587 +6503,115 @@ def inline.push_inline
     inline.push_inline_loop out md start «end» escape inline.PLAIN start
   inline.close_color out1 style
 
-/-- [protocol::ip::v4_low_ranges]:
-    Source: 'crates/protocol/src/ip.rs', lines 5:0-12:1 -/
-def ip.v4_low_ranges (a : Std.U8) (b : Std.U8) : Result Bool := do
-  if a = 0#u8
-  then ok true
-  else
-    if a = 10#u8
-    then ok true
-    else
-      if a = 127#u8
-      then ok true
-      else
-        if a = 100#u8
-        then
-          if b >= 64#u8
-          then
-            if b < 128#u8
-            then ok true
-            else
-              if a = 169#u8
-              then
-                if b = 254#u8
-                then ok true
-                else
-                  if a = 172#u8
-                  then if b >= 16#u8
-                       then ok (b < 32#u8)
-                       else ok false
-                  else ok false
-              else
-                if a = 172#u8
-                then if b >= 16#u8
-                     then ok (b < 32#u8)
-                     else ok false
-                else ok false
-          else
-            if a = 169#u8
-            then
-              if b = 254#u8
-              then ok true
-              else
-                if a = 172#u8
-                then if b >= 16#u8
-                     then ok (b < 32#u8)
-                     else ok false
-                else ok false
-            else
-              if a = 172#u8
-              then if b >= 16#u8
-                   then ok (b < 32#u8)
-                   else ok false
-              else ok false
-        else
-          if a = 169#u8
-          then
-            if b = 254#u8
-            then ok true
-            else
-              if a = 172#u8
-              then if b >= 16#u8
-                   then ok (b < 32#u8)
-                   else ok false
-              else ok false
-          else
-            if a = 172#u8
-            then if b >= 16#u8
-                 then ok (b < 32#u8)
-                 else ok false
-            else ok false
+/-- [protocol::ip::V4_NOT_PUBLIC]
+    Source: 'crates/protocol/src/ip.rs', lines 6:0-35:2 -/
+@[global_simps, irreducible]
+def ip.V4_NOT_PUBLIC : Array Std.U32 28#usize :=
+  Array.make 28#usize [
+    0#u32, 16777215#u32, 167772160#u32, 184549375#u32, 1681915904#u32,
+    1686110207#u32, 2130706432#u32, 2147483647#u32, 2851995648#u32,
+    2852061183#u32, 2886729728#u32, 2887778303#u32, 3221225472#u32,
+    3221225727#u32, 3221225984#u32, 3221226239#u32, 3227017984#u32,
+    3227018239#u32, 3232235520#u32, 3232301055#u32, 3323068416#u32,
+    3323199487#u32, 3325256704#u32, 3325256959#u32, 3405803776#u32,
+    3405804031#u32, 3758096384#u32, 4294967295#u32
+    ]
 
-/-- [protocol::ip::v4_high_ranges]:
-    Source: 'crates/protocol/src/ip.rs', lines 14:0-22:1 -/
-def ip.v4_high_ranges
-  (a : Std.U8) (b : Std.U8) (c : Std.U8) : Result Bool := do
-  if a = 192#u8
-  then
-    if b = 0#u8
-    then
-      if c = 0#u8
-      then ok true
-      else
-        if c = 2#u8
-        then ok true
-        else
-          if a = 192#u8
-          then
-            if b = 88#u8
-            then
-              if c = 99#u8
-              then ok true
-              else
-                if a = 192#u8
-                then
-                  if b = 168#u8
-                  then ok true
-                  else
-                    if a = 198#u8
-                    then
-                      if b = 18#u8
-                      then ok true
-                      else
-                        if b = 19#u8
-                        then ok true
-                        else
-                          if a = 198#u8
-                          then
-                            if b = 51#u8
-                            then
-                              if c = 100#u8
-                              then ok true
-                              else
-                                if a = 203#u8
-                                then
-                                  if b = 0#u8
-                                  then
-                                    if c = 113#u8
-                                    then ok true
-                                    else ok (a >= 224#u8)
-                                  else ok (a >= 224#u8)
-                                else ok (a >= 224#u8)
-                            else
-                              if a = 203#u8
-                              then
-                                if b = 0#u8
-                                then
-                                  if c = 113#u8
-                                  then ok true
-                                  else ok (a >= 224#u8)
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                          else
-                            if a = 203#u8
-                            then
-                              if b = 0#u8
-                              then
-                                if c = 113#u8
-                                then ok true
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                    else
-                      if a = 198#u8
-                      then
-                        if b = 51#u8
-                        then
-                          if c = 100#u8
-                          then ok true
-                          else
-                            if a = 203#u8
-                            then
-                              if b = 0#u8
-                              then
-                                if c = 113#u8
-                                then ok true
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                else
-                  if a = 198#u8
-                  then
-                    if b = 18#u8
-                    then ok true
-                    else
-                      if b = 19#u8
-                      then ok true
-                      else
-                        if a = 198#u8
-                        then
-                          if b = 51#u8
-                          then
-                            if c = 100#u8
-                            then ok true
-                            else
-                              if a = 203#u8
-                              then
-                                if b = 0#u8
-                                then
-                                  if c = 113#u8
-                                  then ok true
-                                  else ok (a >= 224#u8)
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                          else
-                            if a = 203#u8
-                            then
-                              if b = 0#u8
-                              then
-                                if c = 113#u8
-                                then ok true
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                  else
-                    if a = 198#u8
-                    then
-                      if b = 51#u8
-                      then
-                        if c = 100#u8
-                        then ok true
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-            else
-              if a = 192#u8
-              then
-                if b = 168#u8
-                then ok true
-                else
-                  if a = 198#u8
-                  then
-                    if b = 18#u8
-                    then ok true
-                    else
-                      if b = 19#u8
-                      then ok true
-                      else
-                        if a = 198#u8
-                        then
-                          if b = 51#u8
-                          then
-                            if c = 100#u8
-                            then ok true
-                            else
-                              if a = 203#u8
-                              then
-                                if b = 0#u8
-                                then
-                                  if c = 113#u8
-                                  then ok true
-                                  else ok (a >= 224#u8)
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                          else
-                            if a = 203#u8
-                            then
-                              if b = 0#u8
-                              then
-                                if c = 113#u8
-                                then ok true
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                  else
-                    if a = 198#u8
-                    then
-                      if b = 51#u8
-                      then
-                        if c = 100#u8
-                        then ok true
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-              else
-                if a = 198#u8
-                then
-                  if b = 18#u8
-                  then ok true
-                  else
-                    if b = 19#u8
-                    then ok true
-                    else
-                      if a = 198#u8
-                      then
-                        if b = 51#u8
-                        then
-                          if c = 100#u8
-                          then ok true
-                          else
-                            if a = 203#u8
-                            then
-                              if b = 0#u8
-                              then
-                                if c = 113#u8
-                                then ok true
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                else
-                  if a = 198#u8
-                  then
-                    if b = 51#u8
-                    then
-                      if c = 100#u8
-                      then ok true
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-          else
-            if a = 192#u8
-            then
-              if b = 168#u8
-              then ok true
-              else
-                if a = 198#u8
-                then
-                  if b = 18#u8
-                  then ok true
-                  else
-                    if b = 19#u8
-                    then ok true
-                    else
-                      if a = 198#u8
-                      then
-                        if b = 51#u8
-                        then
-                          if c = 100#u8
-                          then ok true
-                          else
-                            if a = 203#u8
-                            then
-                              if b = 0#u8
-                              then
-                                if c = 113#u8
-                                then ok true
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                else
-                  if a = 198#u8
-                  then
-                    if b = 51#u8
-                    then
-                      if c = 100#u8
-                      then ok true
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-            else
-              if a = 198#u8
-              then
-                if b = 18#u8
-                then ok true
-                else
-                  if b = 19#u8
-                  then ok true
-                  else
-                    if a = 198#u8
-                    then
-                      if b = 51#u8
-                      then
-                        if c = 100#u8
-                        then ok true
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-              else
-                if a = 198#u8
-                then
-                  if b = 51#u8
-                  then
-                    if c = 100#u8
-                    then ok true
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-    else
-      if a = 192#u8
-      then
-        if b = 88#u8
-        then
-          if c = 99#u8
-          then ok true
-          else
-            if a = 192#u8
-            then
-              if b = 168#u8
-              then ok true
-              else
-                if a = 198#u8
-                then
-                  if b = 18#u8
-                  then ok true
-                  else
-                    if b = 19#u8
-                    then ok true
-                    else
-                      if a = 198#u8
-                      then
-                        if b = 51#u8
-                        then
-                          if c = 100#u8
-                          then ok true
-                          else
-                            if a = 203#u8
-                            then
-                              if b = 0#u8
-                              then
-                                if c = 113#u8
-                                then ok true
-                                else ok (a >= 224#u8)
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                else
-                  if a = 198#u8
-                  then
-                    if b = 51#u8
-                    then
-                      if c = 100#u8
-                      then ok true
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-            else
-              if a = 198#u8
-              then
-                if b = 18#u8
-                then ok true
-                else
-                  if b = 19#u8
-                  then ok true
-                  else
-                    if a = 198#u8
-                    then
-                      if b = 51#u8
-                      then
-                        if c = 100#u8
-                        then ok true
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-              else
-                if a = 198#u8
-                then
-                  if b = 51#u8
-                  then
-                    if c = 100#u8
-                    then ok true
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-        else
-          if a = 192#u8
-          then
-            if b = 168#u8
-            then ok true
-            else
-              if a = 198#u8
-              then
-                if b = 18#u8
-                then ok true
-                else
-                  if b = 19#u8
-                  then ok true
-                  else
-                    if a = 198#u8
-                    then
-                      if b = 51#u8
-                      then
-                        if c = 100#u8
-                        then ok true
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-              else
-                if a = 198#u8
-                then
-                  if b = 51#u8
-                  then
-                    if c = 100#u8
-                    then ok true
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-          else
-            if a = 198#u8
-            then
-              if b = 18#u8
-              then ok true
-              else
-                if b = 19#u8
-                then ok true
-                else
-                  if a = 198#u8
-                  then
-                    if b = 51#u8
-                    then
-                      if c = 100#u8
-                      then ok true
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-            else
-              if a = 198#u8
-              then
-                if b = 51#u8
-                then
-                  if c = 100#u8
-                  then ok true
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-      else
-        if a = 192#u8
-        then
-          if b = 168#u8
-          then ok true
-          else
-            if a = 198#u8
-            then
-              if b = 18#u8
-              then ok true
-              else
-                if b = 19#u8
-                then ok true
-                else
-                  if a = 198#u8
-                  then
-                    if b = 51#u8
-                    then
-                      if c = 100#u8
-                      then ok true
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-            else
-              if a = 198#u8
-              then
-                if b = 51#u8
-                then
-                  if c = 100#u8
-                  then ok true
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-        else
-          if a = 198#u8
-          then
-            if b = 18#u8
-            then ok true
-            else
-              if b = 19#u8
-              then ok true
-              else
-                if a = 198#u8
-                then
-                  if b = 51#u8
-                  then
-                    if c = 100#u8
-                    then ok true
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-          else
-            if a = 198#u8
-            then
-              if b = 51#u8
-              then
-                if c = 100#u8
-                then ok true
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-            else
-              if a = 203#u8
-              then
-                if b = 0#u8
-                then if c = 113#u8
-                     then ok true
-                     else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-              else ok (a >= 224#u8)
+/-- [protocol::ip::V6_NOT_PUBLIC]
+    Source: 'crates/protocol/src/ip.rs', lines 39:0-58:2 -/
+@[global_simps, irreducible]
+def ip.V6_NOT_PUBLIC : Array Std.U32 18#usize :=
+  Array.make 18#usize [
+    0#u32, 65535#u32, 16777216#u32, 16842751#u32, 536936448#u32, 536936959#u32,
+    536939960#u32, 536939960#u32, 6619035#u32, 6619035#u32, 4227858432#u32,
+    4261412863#u32, 4269801472#u32, 4273995775#u32, 4273995776#u32,
+    4278190079#u32, 4278190080#u32, 4294967295#u32
+    ]
+
+/-- [protocol::ip::in_ranges]: loop body 0:
+    Source: 'crates/protocol/src/ip.rs', lines 64:4-67:5 -/
+@[rust_loop_body]
+def ip.in_ranges_loop.body
+  (table : Slice Std.U32) (x : Std.U32) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
   else
-    if a = 192#u8
+    let i1 ← i + 1#usize
+    let i2 := Slice.len table
+    if i1 < i2
     then
-      if b = 88#u8
-      then
-        if c = 99#u8
-        then ok true
-        else
-          if a = 192#u8
-          then
-            if b = 168#u8
-            then ok true
-            else
-              if a = 198#u8
-              then
-                if b = 18#u8
-                then ok true
-                else
-                  if b = 19#u8
-                  then ok true
-                  else
-                    if a = 198#u8
-                    then
-                      if b = 51#u8
-                      then
-                        if c = 100#u8
-                        then ok true
-                        else
-                          if a = 203#u8
-                          then
-                            if b = 0#u8
-                            then
-                              if c = 113#u8
-                              then ok true
-                              else ok (a >= 224#u8)
-                            else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-              else
-                if a = 198#u8
-                then
-                  if b = 51#u8
-                  then
-                    if c = 100#u8
-                    then ok true
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-          else
-            if a = 198#u8
-            then
-              if b = 18#u8
-              then ok true
-              else
-                if b = 19#u8
-                then ok true
-                else
-                  if a = 198#u8
-                  then
-                    if b = 51#u8
-                    then
-                      if c = 100#u8
-                      then ok true
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-            else
-              if a = 198#u8
-              then
-                if b = 51#u8
-                then
-                  if c = 100#u8
-                  then ok true
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-      else
-        if a = 192#u8
-        then
-          if b = 168#u8
-          then ok true
-          else
-            if a = 198#u8
-            then
-              if b = 18#u8
-              then ok true
-              else
-                if b = 19#u8
-                then ok true
-                else
-                  if a = 198#u8
-                  then
-                    if b = 51#u8
-                    then
-                      if c = 100#u8
-                      then ok true
-                      else
-                        if a = 203#u8
-                        then
-                          if b = 0#u8
-                          then if c = 113#u8
-                               then ok true
-                               else ok (a >= 224#u8)
-                          else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-            else
-              if a = 198#u8
-              then
-                if b = 51#u8
-                then
-                  if c = 100#u8
-                  then ok true
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-        else
-          if a = 198#u8
-          then
-            if b = 18#u8
-            then ok true
-            else
-              if b = 19#u8
-              then ok true
-              else
-                if a = 198#u8
-                then
-                  if b = 51#u8
-                  then
-                    if c = 100#u8
-                    then ok true
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-          else
-            if a = 198#u8
-            then
-              if b = 51#u8
-              then
-                if c = 100#u8
-                then ok true
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-            else
-              if a = 203#u8
-              then
-                if b = 0#u8
-                then if c = 113#u8
-                     then ok true
-                     else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-              else ok (a >= 224#u8)
-    else
-      if a = 192#u8
-      then
-        if b = 168#u8
-        then ok true
-        else
-          if a = 198#u8
-          then
-            if b = 18#u8
-            then ok true
-            else
-              if b = 19#u8
-              then ok true
-              else
-                if a = 198#u8
-                then
-                  if b = 51#u8
-                  then
-                    if c = 100#u8
-                    then ok true
-                    else
-                      if a = 203#u8
-                      then
-                        if b = 0#u8
-                        then if c = 113#u8
-                             then ok true
-                             else ok (a >= 224#u8)
-                        else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-          else
-            if a = 198#u8
-            then
-              if b = 51#u8
-              then
-                if c = 100#u8
-                then ok true
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-            else
-              if a = 203#u8
-              then
-                if b = 0#u8
-                then if c = 113#u8
-                     then ok true
-                     else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-              else ok (a >= 224#u8)
-      else
-        if a = 198#u8
-        then
-          if b = 18#u8
-          then ok true
-          else
-            if b = 19#u8
-            then ok true
-            else
-              if a = 198#u8
-              then
-                if b = 51#u8
-                then
-                  if c = 100#u8
-                  then ok true
-                  else
-                    if a = 203#u8
-                    then
-                      if b = 0#u8
-                      then if c = 113#u8
-                           then ok true
-                           else ok (a >= 224#u8)
-                      else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                else
-                  if a = 203#u8
-                  then
-                    if b = 0#u8
-                    then if c = 113#u8
-                         then ok true
-                         else ok (a >= 224#u8)
-                    else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-        else
-          if a = 198#u8
-          then
-            if b = 51#u8
-            then
-              if c = 100#u8
-              then ok true
-              else
-                if a = 203#u8
-                then
-                  if b = 0#u8
-                  then if c = 113#u8
-                       then ok true
-                       else ok (a >= 224#u8)
-                  else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-            else
-              if a = 203#u8
-              then
-                if b = 0#u8
-                then if c = 113#u8
-                     then ok true
-                     else ok (a >= 224#u8)
-                else ok (a >= 224#u8)
-              else ok (a >= 224#u8)
-          else
-            if a = 203#u8
-            then
-              if b = 0#u8
-              then if c = 113#u8
-                   then ok true
-                   else ok (a >= 224#u8)
-              else ok (a >= 224#u8)
-            else ok (a >= 224#u8)
+      let i3 ← Slice.index_usize table i
+      let found1 ←
+        if i3 <= x
+        then do
+             let i4 ← Slice.index_usize table i1
+             ok (x <= i4)
+        else ok false
+      let i4 ← i + 2#usize
+      ok (cont (found1, i4))
+    else ok (done false)
+
+/-- [protocol::ip::in_ranges]: loop 0:
+    Source: 'crates/protocol/src/ip.rs', lines 64:4-67:5 -/
+@[rust_loop]
+def ip.in_ranges_loop
+  (table : Slice Std.U32) (x : Std.U32) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => ip.in_ranges_loop.body table x found1 i1)
+    (found, i)
+
+/-- [protocol::ip::in_ranges]:
+    Source: 'crates/protocol/src/ip.rs', lines 61:0-69:1 -/
+@[reducible]
+def ip.in_ranges (table : Slice Std.U32) (x : Std.U32) : Result Bool := do
+  ip.in_ranges_loop table x false 0#usize
+
+/-- [protocol::ip::v4_value]:
+    Source: 'crates/protocol/src/ip.rs', lines 71:0-76:1 -/
+def ip.v4_value (octets : Array Std.U8 4#usize) : Result Std.U32 := do
+  let i ← Array.index_usize octets 0#usize
+  let i1 ← lift (UScalar.cast .U32 i)
+  let i2 ← i1 * 16777216#u32
+  let i3 ← Array.index_usize octets 1#usize
+  let i4 ← lift (UScalar.cast .U32 i3)
+  let i5 ← i4 * 65536#u32
+  let i6 ← i2 + i5
+  let i7 ← Array.index_usize octets 2#usize
+  let i8 ← lift (UScalar.cast .U32 i7)
+  let i9 ← i8 * 256#u32
+  let i10 ← i6 + i9
+  let i11 ← Array.index_usize octets 3#usize
+  let i12 ← lift (UScalar.cast .U32 i11)
+  i10 + i12
+
+/-- [protocol::ip::pair_value]:
+    Source: 'crates/protocol/src/ip.rs', lines 79:0-81:1 -/
+def ip.pair_value (high : Std.U16) (low : Std.U16) : Result Std.U32 := do
+  let i ← lift (UScalar.cast .U32 high)
+  let i1 ← i * 65536#u32
+  let i2 ← lift (UScalar.cast .U32 low)
+  i1 + i2
+
+/-- [protocol::ip::is_public_value]:
+    Source: 'crates/protocol/src/ip.rs', lines 83:0-85:1 -/
+def ip.is_public_value (v4 : Std.U32) : Result Bool := do
+  let s ← lift (Array.to_slice ip.V4_NOT_PUBLIC)
+  let b ← ip.in_ranges s v4
+  ok (¬ b)
 
 /-- [protocol::ip::is_public_v4]:
-    Source: 'crates/protocol/src/ip.rs', lines 25:0-27:1
+    Source: 'crates/protocol/src/ip.rs', lines 88:0-90:1
     Visibility: public -/
 def ip.is_public_v4 (octets : Array Std.U8 4#usize) : Result Bool := do
-  let i ← Array.index_usize octets 0#usize
-  let i1 ← Array.index_usize octets 1#usize
-  let b ← ip.v4_low_ranges i i1
-  let b1 ←
-    if b
-    then ok true
-    else
-      do
-      let i2 ← Array.index_usize octets 2#usize
-      ip.v4_high_ranges i i1 i2
-  ok (¬ b1)
-
-/-- [protocol::ip::high_byte]:
-    Source: 'crates/protocol/src/ip.rs', lines 29:0-31:1 -/
-def ip.high_byte (segment : Std.U16) : Result Std.U8 := do
-  let i ← segment >>> 8#i32
-  ok (UScalar.cast .U8 i)
-
-/-- [protocol::ip::low_byte]:
-    Source: 'crates/protocol/src/ip.rs', lines 33:0-35:1 -/
-def ip.low_byte (segment : Std.U16) : Result Std.U8 := do
-  let i ← lift (segment &&& 255#u16)
-  ok (UScalar.cast .U8 i)
-
-/-- [protocol::ip::v4_of]:
-    Source: 'crates/protocol/src/ip.rs', lines 37:0-44:1 -/
-def ip.v4_of
-  (high : Std.U16) (low : Std.U16) : Result (Array Std.U8 4#usize) := do
-  let i ← ip.high_byte high
-  let i1 ← ip.low_byte high
-  let i2 ← ip.high_byte low
-  let i3 ← ip.low_byte low
-  ok (Array.make 4#usize [ i, i1, i2, i3 ])
+  let i ← ip.v4_value octets
+  ip.is_public_value i
 
 /-- [protocol::ip::is_mapped]:
-    Source: 'crates/protocol/src/ip.rs', lines 47:0-49:1 -/
+    Source: 'crates/protocol/src/ip.rs', lines 93:0-95:1 -/
 def ip.is_mapped (s : Array Std.U16 8#usize) : Result Bool := do
   let i ← Array.index_usize s 0#usize
   if i = 0#u16
@@ -8247,7 +6636,7 @@ def ip.is_mapped (s : Array Std.U16 8#usize) : Result Bool := do
   else ok false
 
 /-- [protocol::ip::is_nat64]:
-    Source: 'crates/protocol/src/ip.rs', lines 53:0-55:1 -/
+    Source: 'crates/protocol/src/ip.rs', lines 99:0-101:1 -/
 def ip.is_nat64 (s : Array Std.U16 8#usize) : Result Bool := do
   let i ← Array.index_usize s 0#usize
   if i = 100#u16
@@ -8271,175 +6660,8 @@ def ip.is_nat64 (s : Array Std.U16 8#usize) : Result Bool := do
     else ok false
   else ok false
 
-/-- [protocol::ip::is_6to4]:
-    Source: 'crates/protocol/src/ip.rs', lines 58:0-60:1 -/
-def ip.is_6to4 (s : Array Std.U16 8#usize) : Result Bool := do
-  let i ← Array.index_usize s 0#usize
-  ok (i = 8194#u16)
-
-/-- [protocol::ip::v6_ranges]:
-    Source: 'crates/protocol/src/ip.rs', lines 64:0-74:1 -/
-def ip.v6_ranges (s : Array Std.U16 8#usize) : Result Bool := do
-  let i ← Array.index_usize s 0#usize
-  if i = 0#u16
-  then ok true
-  else
-    if i = 256#u16
-    then ok true
-    else
-      if i = 8193#u16
-      then
-        let i1 ← Array.index_usize s 1#usize
-        if i1 < 512#u16
-        then ok true
-        else
-          if i = 8193#u16
-          then
-            if i1 = 3512#u16
-            then ok true
-            else
-              if i = 100#u16
-              then
-                if i1 = 65435#u16
-                then ok true
-                else
-                  let i2 ← lift (i &&& 65024#u16)
-                  if i2 = 64512#u16
-                  then ok true
-                  else
-                    let i3 ← lift (i &&& 65472#u16)
-                    if i3 = 65152#u16
-                    then ok true
-                    else
-                      let i4 ← lift (i &&& 65472#u16)
-                      if i4 = 65216#u16
-                      then ok true
-                      else
-                        let i5 ← lift (i &&& 65280#u16)
-                        ok (i5 = 65280#u16)
-              else
-                let i2 ← lift (i &&& 65024#u16)
-                if i2 = 64512#u16
-                then ok true
-                else
-                  let i3 ← lift (i &&& 65472#u16)
-                  if i3 = 65152#u16
-                  then ok true
-                  else
-                    let i4 ← lift (i &&& 65472#u16)
-                    if i4 = 65216#u16
-                    then ok true
-                    else let i5 ← lift (i &&& 65280#u16)
-                         ok (i5 = 65280#u16)
-          else
-            if i = 100#u16
-            then
-              if i1 = 65435#u16
-              then ok true
-              else
-                let i2 ← lift (i &&& 65024#u16)
-                if i2 = 64512#u16
-                then ok true
-                else
-                  let i3 ← lift (i &&& 65472#u16)
-                  if i3 = 65152#u16
-                  then ok true
-                  else
-                    let i4 ← lift (i &&& 65472#u16)
-                    if i4 = 65216#u16
-                    then ok true
-                    else let i5 ← lift (i &&& 65280#u16)
-                         ok (i5 = 65280#u16)
-            else
-              let i2 ← lift (i &&& 65024#u16)
-              if i2 = 64512#u16
-              then ok true
-              else
-                let i3 ← lift (i &&& 65472#u16)
-                if i3 = 65152#u16
-                then ok true
-                else
-                  let i4 ← lift (i &&& 65472#u16)
-                  if i4 = 65216#u16
-                  then ok true
-                  else let i5 ← lift (i &&& 65280#u16)
-                       ok (i5 = 65280#u16)
-      else
-        if i = 8193#u16
-        then
-          let i1 ← Array.index_usize s 1#usize
-          if i1 = 3512#u16
-          then ok true
-          else
-            if i = 100#u16
-            then
-              if i1 = 65435#u16
-              then ok true
-              else
-                let i2 ← lift (i &&& 65024#u16)
-                if i2 = 64512#u16
-                then ok true
-                else
-                  let i3 ← lift (i &&& 65472#u16)
-                  if i3 = 65152#u16
-                  then ok true
-                  else
-                    let i4 ← lift (i &&& 65472#u16)
-                    if i4 = 65216#u16
-                    then ok true
-                    else let i5 ← lift (i &&& 65280#u16)
-                         ok (i5 = 65280#u16)
-            else
-              let i2 ← lift (i &&& 65024#u16)
-              if i2 = 64512#u16
-              then ok true
-              else
-                let i3 ← lift (i &&& 65472#u16)
-                if i3 = 65152#u16
-                then ok true
-                else
-                  let i4 ← lift (i &&& 65472#u16)
-                  if i4 = 65216#u16
-                  then ok true
-                  else let i5 ← lift (i &&& 65280#u16)
-                       ok (i5 = 65280#u16)
-        else
-          if i = 100#u16
-          then
-            let i1 ← Array.index_usize s 1#usize
-            if i1 = 65435#u16
-            then ok true
-            else
-              let i2 ← lift (i &&& 65024#u16)
-              if i2 = 64512#u16
-              then ok true
-              else
-                let i3 ← lift (i &&& 65472#u16)
-                if i3 = 65152#u16
-                then ok true
-                else
-                  let i4 ← lift (i &&& 65472#u16)
-                  if i4 = 65216#u16
-                  then ok true
-                  else let i5 ← lift (i &&& 65280#u16)
-                       ok (i5 = 65280#u16)
-          else
-            let i1 ← lift (i &&& 65024#u16)
-            if i1 = 64512#u16
-            then ok true
-            else
-              let i2 ← lift (i &&& 65472#u16)
-              if i2 = 65152#u16
-              then ok true
-              else
-                let i3 ← lift (i &&& 65472#u16)
-                if i3 = 65216#u16
-                then ok true
-                else let i4 ← lift (i &&& 65280#u16)
-                     ok (i4 = 65280#u16)
-
 /-- [protocol::ip::is_public_v6]:
-    Source: 'crates/protocol/src/ip.rs', lines 78:0-86:1
+    Source: 'crates/protocol/src/ip.rs', lines 106:0-114:1
     Visibility: public -/
 def ip.is_public_v6 (segments : Array Std.U16 8#usize) : Result Bool := do
   let b ← ip.is_mapped segments
@@ -8447,26 +6669,30 @@ def ip.is_public_v6 (segments : Array Std.U16 8#usize) : Result Bool := do
   then
     let i ← Array.index_usize segments 6#usize
     let i1 ← Array.index_usize segments 7#usize
-    let a ← ip.v4_of i i1
-    ip.is_public_v4 a
+    let i2 ← ip.pair_value i i1
+    ip.is_public_value i2
   else
     let b1 ← ip.is_nat64 segments
     if b1
     then
       let i ← Array.index_usize segments 6#usize
       let i1 ← Array.index_usize segments 7#usize
-      let a ← ip.v4_of i i1
-      ip.is_public_v4 a
+      let i2 ← ip.pair_value i i1
+      ip.is_public_value i2
     else
-      let b2 ← ip.is_6to4 segments
-      if b2
+      let i ← Array.index_usize segments 0#usize
+      if i = 8194#u16
       then
-        let i ← Array.index_usize segments 1#usize
-        let i1 ← Array.index_usize segments 2#usize
-        let a ← ip.v4_of i i1
-        ip.is_public_v4 a
-      else let b3 ← ip.v6_ranges segments
-           ok (¬ b3)
+        let i1 ← Array.index_usize segments 1#usize
+        let i2 ← Array.index_usize segments 2#usize
+        let i3 ← ip.pair_value i1 i2
+        ip.is_public_value i3
+      else
+        let s ← lift (Array.to_slice ip.V6_NOT_PUBLIC)
+        let i1 ← Array.index_usize segments 1#usize
+        let i2 ← ip.pair_value i i1
+        let b2 ← ip.in_ranges s i2
+        ok (¬ b2)
 
 /-- [protocol::live::MAX_PROGRESS]
     Source: 'crates/protocol/src/live.rs', lines 10:0-10:35

@@ -2,7 +2,8 @@
 //! writes the request, so it is untrusted, and every input gives a target or a defined
 //! refusal. See `SPEC.md` 6.6.4 and 14.1, S35.
 
-use crate::hosts::{good_host_name, host_allowed};
+use crate::ascii::{bytes_equal, push_range};
+use crate::hosts::{good_host_name, host_allowed, lower_range};
 use crate::search::{equal_run, has_byte};
 
 const SPACE: u8 = b' ';
@@ -51,17 +52,17 @@ pub enum Refusal {
     LocalPortDangerous,
 }
 
+fn is_line_end(head: &[u8], at: usize) -> bool {
+    head[at] == CR && head[at + 1] == LF
+}
+
 /// The index of the first CR LF, or `head.len()` with none.
 fn line_end(head: &[u8]) -> usize {
     let mut at = 0;
-    let mut found = false;
-    while !found && at + 1 < head.len() {
-        found = head[at] == CR && head[at + 1] == LF;
-        if !found {
-            at += 1;
-        }
+    while at + 1 < head.len() && !is_line_end(head, at) {
+        at += 1;
     }
-    if found { at } else { head.len() }
+    if at + 1 < head.len() { at } else { head.len() }
 }
 
 /// The index of the first space in `line[from..end]`, or `end`.
@@ -73,39 +74,26 @@ fn next_space(line: &[u8], from: usize, end: usize) -> usize {
     at
 }
 
+fn copy_range(bytes: &[u8], start: usize, end: usize) -> Vec<u8> {
+    let mut out = Vec::new();
+    push_range(&mut out, bytes, start, end);
+    out
+}
+
+/// `bytes[start..end]` is exactly `word`.
+fn equals_at(bytes: &[u8], start: usize, end: usize, word: &[u8]) -> bool {
+    end - start == word.len() && equal_run(bytes, start, word, word.len())
+}
+
+fn is_digit(b: u8) -> bool {
+    b'0' <= b && b <= b'9'
+}
+
 /// `HTTP/1.` and one digit.
 fn is_version(bytes: &[u8], start: usize, end: usize) -> bool {
     end - start == HTTP_1.len() + 1
         && equal_run(bytes, start, &HTTP_1, HTTP_1.len())
         && is_digit(bytes[end - 1])
-}
-
-fn equals_at(bytes: &[u8], start: usize, end: usize, word: &[u8]) -> bool {
-    end - start == word.len() && equal_run(bytes, start, word, word.len())
-}
-
-fn copy_range(bytes: &[u8], start: usize, end: usize) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut i = start;
-    while i < end {
-        out.push(bytes[i]);
-        i += 1;
-    }
-    out
-}
-
-fn lower(b: u8) -> u8 {
-    if b'A' <= b && b <= b'Z' { b + 32 } else { b }
-}
-
-fn lower_range(bytes: &[u8], start: usize, end: usize) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut i = start;
-    while i < end {
-        out.push(lower(bytes[i]));
-        i += 1;
-    }
-    out
 }
 
 /// The index of the last `:` in `bytes[start..end]`, or `end` with none.
@@ -121,8 +109,23 @@ fn last_colon(bytes: &[u8], start: usize, end: usize) -> usize {
     found
 }
 
-fn is_digit(b: u8) -> bool {
-    b'0' <= b && b <= b'9'
+fn digit_value(b: u8) -> u32 {
+    (b - b'0') as u32
+}
+
+/// Whether `bytes[start..end]` is all digits, and their value, which fits: at most five.
+fn digits(bytes: &[u8], start: usize, end: usize) -> (bool, u32) {
+    let mut value: u32 = 0;
+    let mut ok = true;
+    let mut i = start;
+    while ok && i < end {
+        ok = is_digit(bytes[i]);
+        if ok {
+            value = value * 10 + digit_value(bytes[i]);
+        }
+        i += 1;
+    }
+    (ok, value)
 }
 
 /// 1 to 5 decimal digits, at most 65535. No sign, no space.
@@ -130,16 +133,7 @@ fn parse_port(bytes: &[u8], start: usize, end: usize) -> Option<u16> {
     if end <= start || end - start > 5 {
         return None;
     }
-    let mut value: u32 = 0;
-    let mut ok = true;
-    let mut i = start;
-    while ok && i < end {
-        ok = is_digit(bytes[i]);
-        if ok {
-            value = value * 10 + (bytes[i] - b'0') as u32;
-        }
-        i += 1;
-    }
+    let (ok, value) = digits(bytes, start, end);
     if !ok || value > 65535 {
         return None;
     }
@@ -147,21 +141,26 @@ fn parse_port(bytes: &[u8], start: usize, end: usize) -> Option<u16> {
     Some(value as u16)
 }
 
-/// A `:`, or a last label that starts with a digit, as in `127.1` or `0x7f000001`.
-fn looks_like_ip(bytes: &[u8], start: usize, end: usize) -> bool {
-    let mut last = start;
-    let mut colon = false;
-    let mut i = start;
-    while i < end {
-        if bytes[i] == DOT {
-            last = i + 1;
-        }
-        if bytes[i] == COLON {
-            colon = true;
+/// The index just after the last dot, or 0 with none.
+fn last_label_start(host: &[u8]) -> usize {
+    let mut start = 0;
+    let mut i = 0;
+    while i < host.len() {
+        if host[i] == DOT {
+            start = i + 1;
         }
         i += 1;
     }
-    colon || (last < end && is_digit(bytes[last]))
+    start
+}
+
+/// A `:`, or a last label that starts with a digit, as in `127.1` or `0x7f000001`.
+fn looks_like_ip(host: &[u8]) -> bool {
+    if has_byte(host, COLON) {
+        return true;
+    }
+    let last = last_label_start(host);
+    last < host.len() && is_digit(host[last])
 }
 
 fn is_listed_port(ports: &[u16], port: u16) -> bool {
@@ -184,6 +183,13 @@ fn local_target(ports: &[u16], port: u16) -> Result<Target, Refusal> {
     Ok(Target::Local { port })
 }
 
+fn host_passes(mode: Mode, list: &[Vec<u8>], host: &[u8]) -> bool {
+    match mode {
+        Mode::Listed => host_allowed(list, host),
+        Mode::Public => good_host_name(host),
+    }
+}
+
 fn remote_target(mode: Mode, list: &[Vec<u8>], host: &[u8], port: u16) -> Result<Target, Refusal> {
     if !good_host_name(host) {
         return Err(Refusal::BadHost);
@@ -191,7 +197,7 @@ fn remote_target(mode: Mode, list: &[Vec<u8>], host: &[u8], port: u16) -> Result
     if port != 443 && port != 80 {
         return Err(Refusal::BadPort);
     }
-    if mode == Mode::Listed && !host_allowed(list, host) {
+    if !host_passes(mode, list, host) {
         return Err(Refusal::NotListed);
     }
     Ok(Target::Remote {
@@ -219,18 +225,14 @@ fn check_host_port(
     let Some(port) = parse_port(line, colon + 1, end) else {
         return Err(Refusal::NoPort);
     };
-    if equals_at(
-        &lower_range(line, start, colon),
-        0,
-        colon - start,
-        &LOCALHOST,
-    ) {
+    let host = copy_range(line, start, colon);
+    if bytes_equal(&lower_range(&host, 0, host.len()), &LOCALHOST) {
         return local_target(ports, port);
     }
-    if looks_like_ip(line, start, colon) {
+    if looks_like_ip(&host) {
         return Err(Refusal::IpAddress);
     }
-    remote_target(mode, list, &copy_range(line, start, colon), port)
+    remote_target(mode, list, &host, port)
 }
 
 /// The first line must be `CONNECT <host>:<port> HTTP/1.<digit>`, with one space between

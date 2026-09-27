@@ -1,7 +1,9 @@
 //! The host names that the proxy of the bridge takes, and its allow lists. See
 //! `SPEC.md` 6.6.4 and 14.1, S33.
 
-use crate::ascii::{bytes_equal, to_lower};
+use crate::ascii::{bytes_equal, push_range};
+use crate::path_rules::lower_bytes;
+use crate::search::has_byte;
 
 const MAX_NAME: usize = 253;
 const MAX_LABEL: usize = 63;
@@ -35,53 +37,37 @@ fn label_ok(host: &[u8], start: usize, end: usize) -> bool {
     host[start] != DASH && host[end - 1] != DASH && all_label_bytes(host, start, end)
 }
 
-/// Every label is good, and there are at least two.
-fn labels_ok(host: &[u8]) -> bool {
-    let mut ok = true;
-    let mut labels: usize = 0;
-    let mut start = 0;
-    let mut i = 0;
-    while ok && i <= host.len() {
-        if i == host.len() || host[i] == DOT {
-            ok = label_ok(host, start, i);
-            labels += 1;
-            start = i + 1;
-        }
+/// The index of the first dot at `from` or after it, or `host.len()` with none.
+fn next_dot(host: &[u8], from: usize) -> usize {
+    let mut i = from;
+    while i < host.len() && host[i] != DOT {
         i += 1;
     }
-    ok && labels >= 2
+    i
 }
 
-fn last_label_start(host: &[u8]) -> usize {
-    let mut start = 0;
-    let mut i = 0;
-    while i < host.len() {
-        if host[i] == DOT {
-            start = i + 1;
-        }
-        i += 1;
-    }
-    start
-}
-
-fn lower_copy(bytes: &[u8], start: usize) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut i = start;
-    while i < bytes.len() {
-        out.push(to_lower(bytes[i]));
-        i += 1;
-    }
-    out
+pub(crate) fn lower_range(host: &[u8], start: usize, end: usize) -> Vec<u8> {
+    let mut label = Vec::new();
+    push_range(&mut label, host, start, end);
+    lower_bytes(&label)
 }
 
 /// A last label that starts with a letter is never an IP address, also none in a form
-/// such as `127.1` or `0x7f000001`.
-fn last_label_ok(host: &[u8]) -> bool {
-    let start = last_label_start(host);
-    if start >= host.len() {
+/// such as `127.1` or `0x7f000001`. `start < end` holds.
+fn last_label_ok(host: &[u8], start: usize, end: usize) -> bool {
+    is_letter(host[start]) && !bytes_equal(&lower_range(host, start, end), &LOCALHOST)
+}
+
+/// The labels from `start` on, each one between two dots or an end.
+fn labels_ok(host: &[u8], start: usize) -> bool {
+    let end = next_dot(host, start);
+    if !label_ok(host, start, end) {
         return false;
     }
-    is_letter(host[start]) && !bytes_equal(&lower_copy(host, start), &LOCALHOST)
+    if end == host.len() {
+        return last_label_ok(host, start, end);
+    }
+    labels_ok(host, end + 1)
 }
 
 /// A DNS name with at least two labels, and never an IP address or `localhost`.
@@ -90,7 +76,7 @@ pub fn good_host_name(host: &[u8]) -> bool {
     if host.len() == 0 || host.len() > MAX_NAME {
         return false;
     }
-    labels_ok(host) && last_label_ok(host)
+    has_byte(host, DOT) && labels_ok(host, 0)
 }
 
 /// A good host name that equals a name of the list, without ASCII case.
@@ -99,11 +85,11 @@ pub fn host_allowed(list: &[Vec<u8>], host: &[u8]) -> bool {
     if !good_host_name(host) {
         return false;
     }
-    let lower = lower_copy(host, 0);
+    let lower = lower_bytes(host);
     let mut found = false;
     let mut i = 0;
     while !found && i < list.len() {
-        found = bytes_equal(&lower_copy(&list[i], 0), &lower);
+        found = bytes_equal(&lower_bytes(&list[i]), &lower);
         i += 1;
     }
     found

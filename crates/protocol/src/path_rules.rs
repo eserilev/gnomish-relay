@@ -18,7 +18,7 @@ const DEV_NULL: [u8; 9] = *b"/dev/null";
 
 /// macOS and Windows compare paths without case, so `~/.SSH` is `~/.ssh` there.
 /// The `deny` and `desktop` rules compare without ASCII case on every OS.
-fn lower_bytes(bytes: &[u8]) -> Vec<u8> {
+pub(crate) fn lower_bytes(bytes: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < bytes.len() {

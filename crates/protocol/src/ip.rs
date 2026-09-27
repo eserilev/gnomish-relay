@@ -2,45 +2,91 @@
 //! to such an address, so an allowed name cannot lead to this computer or its network.
 //! See `SPEC.md` 6.6.4 and 14.1, S34.
 
-fn v4_low_ranges(a: u8, b: u8) -> bool {
-    a == 0
-        || a == 10
-        || a == 127
-        || (a == 100 && b >= 64 && b < 128)
-        || (a == 169 && b == 254)
-        || (a == 172 && b >= 16 && b < 32)
+/// The ranges of IPv4 that are not public, as pairs of the first and the last address.
+const V4_NOT_PUBLIC: [u32; 28] = [
+    0x0000_0000,
+    0x00ff_ffff, // 0.0.0.0/8
+    0x0a00_0000,
+    0x0aff_ffff, // 10.0.0.0/8
+    0x6440_0000,
+    0x647f_ffff, // 100.64.0.0/10
+    0x7f00_0000,
+    0x7fff_ffff, // 127.0.0.0/8
+    0xa9fe_0000,
+    0xa9fe_ffff, // 169.254.0.0/16
+    0xac10_0000,
+    0xac1f_ffff, // 172.16.0.0/12
+    0xc000_0000,
+    0xc000_00ff, // 192.0.0.0/24
+    0xc000_0200,
+    0xc000_02ff, // 192.0.2.0/24
+    0xc058_6300,
+    0xc058_63ff, // 192.88.99.0/24
+    0xc0a8_0000,
+    0xc0a8_ffff, // 192.168.0.0/16
+    0xc612_0000,
+    0xc613_ffff, // 198.18.0.0/15
+    0xc633_6400,
+    0xc633_64ff, // 198.51.100.0/24
+    0xcb00_7100,
+    0xcb00_71ff, // 203.0.113.0/24
+    0xe000_0000,
+    0xffff_ffff, // 224.0.0.0/3
+];
+
+/// The ranges of IPv6 that are not public, by the first 32 bits, as pairs of the first
+/// and the last value. Each range is a prefix of at most 32 bits, so these bits decide.
+const V6_NOT_PUBLIC: [u32; 18] = [
+    0x0000_0000,
+    0x0000_ffff, // ::/16, with :: and ::1
+    0x0100_0000,
+    0x0100_ffff, // 100::/16
+    0x2001_0000,
+    0x2001_01ff, // 2001::/23
+    0x2001_0db8,
+    0x2001_0db8, // 2001:db8::/32
+    0x0064_ff9b,
+    0x0064_ff9b, // 64:ff9b::/32, with the local range 64:ff9b:1::/48
+    0xfc00_0000,
+    0xfdff_ffff, // fc00::/7
+    0xfe80_0000,
+    0xfebf_ffff, // fe80::/10
+    0xfec0_0000,
+    0xfeff_ffff, // fec0::/10
+    0xff00_0000,
+    0xffff_ffff, // ff00::/8
+];
+
+/// Whether `x` is in a range of `table`, a list of pairs of the first and the last value.
+fn in_ranges(table: &[u32], x: u32) -> bool {
+    let mut found = false;
+    let mut i = 0;
+    while !found && i + 1 < table.len() {
+        found = table[i] <= x && x <= table[i + 1];
+        i += 2;
+    }
+    found
 }
 
-fn v4_high_ranges(a: u8, b: u8, c: u8) -> bool {
-    (a == 192 && b == 0 && (c == 0 || c == 2))
-        || (a == 192 && b == 88 && c == 99)
-        || (a == 192 && b == 168)
-        || (a == 198 && (b == 18 || b == 19))
-        || (a == 198 && b == 51 && c == 100)
-        || (a == 203 && b == 0 && c == 113)
-        || a >= 224
+fn v4_value(octets: [u8; 4]) -> u32 {
+    octets[0] as u32 * 0x100_0000
+        + octets[1] as u32 * 0x1_0000
+        + octets[2] as u32 * 0x100
+        + octets[3] as u32
+}
+
+/// Two segments of IPv6 as one 32-bit value.
+fn pair_value(high: u16, low: u16) -> u32 {
+    high as u32 * 0x1_0000 + low as u32
+}
+
+fn is_public_value(v4: u32) -> bool {
+    !in_ranges(&V4_NOT_PUBLIC, v4)
 }
 
 #[must_use]
 pub fn is_public_v4(octets: [u8; 4]) -> bool {
-    !(v4_low_ranges(octets[0], octets[1]) || v4_high_ranges(octets[0], octets[1], octets[2]))
-}
-
-fn high_byte(segment: u16) -> u8 {
-    (segment >> 8) as u8
-}
-
-fn low_byte(segment: u16) -> u8 {
-    (segment & 0xff) as u8
-}
-
-fn v4_of(high: u16, low: u16) -> [u8; 4] {
-    [
-        high_byte(high),
-        low_byte(high),
-        high_byte(low),
-        low_byte(low),
-    ]
+    is_public_value(v4_value(octets))
 }
 
 /// `::ffff:a.b.c.d`.
@@ -54,35 +100,17 @@ fn is_nat64(s: [u16; 8]) -> bool {
     s[0] == 0x0064 && s[1] == 0xff9b && s[2] == 0 && s[3] == 0 && s[4] == 0 && s[5] == 0
 }
 
-/// `2002:abcd:efgh::`, 6to4.
-fn is_6to4(s: [u16; 8]) -> bool {
-    s[0] == 0x2002
-}
-
-/// `::/16` holds `::` and `::1`. `64:ff9b::/32` holds the local NAT64 range
-/// `64:ff9b:1::/48` (RFC 8215).
-fn v6_ranges(s: [u16; 8]) -> bool {
-    s[0] == 0
-        || s[0] == 0x0100
-        || (s[0] == 0x2001 && s[1] < 0x0200)
-        || (s[0] == 0x2001 && s[1] == 0x0db8)
-        || (s[0] == 0x0064 && s[1] == 0xff9b)
-        || (s[0] & 0xfe00) == 0xfc00
-        || (s[0] & 0xffc0) == 0xfe80
-        || (s[0] & 0xffc0) == 0xfec0
-        || (s[0] & 0xff00) == 0xff00
-}
-
-/// A form that holds an IPv4 address counts as that address.
+/// A form that holds an IPv4 address counts as that address: IPv4-mapped, NAT64, and
+/// 6to4 (`2002:abcd:efgh::`).
 #[must_use]
 pub fn is_public_v6(segments: [u16; 8]) -> bool {
     if is_mapped(segments) || is_nat64(segments) {
-        return is_public_v4(v4_of(segments[6], segments[7]));
+        return is_public_value(pair_value(segments[6], segments[7]));
     }
-    if is_6to4(segments) {
-        return is_public_v4(v4_of(segments[1], segments[2]));
+    if segments[0] == 0x2002 {
+        return is_public_value(pair_value(segments[1], segments[2]));
     }
-    !v6_ranges(segments)
+    !in_ranges(&V6_NOT_PUBLIC, pair_value(segments[0], segments[1]))
 }
 
 #[cfg(test)]
@@ -203,5 +231,12 @@ mod tests {
         ] {
             assert!(!is_public_v6(v6(ip)), "{ip}");
         }
+    }
+
+    #[test]
+    fn an_odd_table_length_leaves_out_the_last_value() {
+        assert!(in_ranges(&[1, 3], 2));
+        assert!(!in_ranges(&[1, 3, 5], 5));
+        assert!(!in_ranges(&[], 0));
     }
 }
