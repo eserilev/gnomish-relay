@@ -90,7 +90,7 @@ pub fn run_forwarder(forward: &Forward, mut child: std::process::Command) -> i32
 
 /// Starts a thread for the port of the proxy and one for each local port.
 #[cfg(unix)]
-fn listen(forward: &Forward) -> Result<(), String> {
+pub fn listen(forward: &Forward) -> Result<(), String> {
     let proxy = TcpListener::bind((Ipv4Addr::LOCALHOST, forward.port))
         .map_err(|e| format!("no port for the proxy: {e}"))?;
     let socket = forward.socket.to_owned();

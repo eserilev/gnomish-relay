@@ -842,6 +842,10 @@ fn main() -> Result<()> {
             std::process::exit(command_sandbox::run_wrapped(command))
         }
         #[cfg(unix)]
+        [bridge::holder::HOLD_FLAG, launch, proxy, ports] => {
+            std::process::exit(bridge::holder::run_holder(Path::new(launch), proxy, ports))
+        }
+        #[cfg(unix)]
         [
             forward::FORWARD_FLAG,
             socket,
