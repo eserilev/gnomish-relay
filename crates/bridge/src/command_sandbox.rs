@@ -105,7 +105,7 @@ impl CommandSandbox {
         self
     }
 
-    /// Windows has none: its sandbox needs `unsafe` calls of the Windows API.
+    /// Windows has none: Git Bash cannot start in an `AppContainer` (SPEC.md 6.6.4).
     pub fn detect(hosts: HostList) -> CommandSandbox {
         let wrapper = std::env::current_exe().unwrap_or_default();
         let home = std::env::var_os("HOME").map(PathBuf::from);
@@ -1498,6 +1498,24 @@ mod tests {
         assert_eq!(none.notice(), Some(NO_SANDBOX));
         assert_eq!(copy.notice(), None);
         assert!(!none.is_on());
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn on_windows_there_is_no_command_sandbox_so_every_command_asks() {
+        use crate::gate::{Effect, Sandboxing, Step, without_sandbox};
+
+        let sandbox = CommandSandbox::detect(HostList::default());
+
+        let sandboxing = if sandbox.is_on() {
+            Sandboxing::On
+        } else {
+            Sandboxing::Off
+        };
+        assert_eq!(sandboxing, Sandboxing::Off);
+        let step = without_sandbox(Step::Run, Effect::Command, sandboxing);
+        assert_eq!(step, Step::AskGame);
+        assert_eq!(sandbox.notice(), Some(NO_SANDBOX));
     }
 
     #[test]
