@@ -177,10 +177,18 @@ mod tests {
     #[test]
     fn a_bad_name_is_refused() {
         let h = home();
-        for name in ["..", "a\u{7}b"] {
-            let made = make_folder(&walk(&h), &h.root.join(name));
-            assert_eq!(made, Err(NewFolderError::BadName), "{name:?}");
-        }
+        let made = make_folder(&walk(&h), &h.root.join("a\u{7}b"));
+        assert_eq!(made, Err(NewFolderError::BadName));
+        // On Windows, `join("..")` on a canonical `\\?\` path goes up by itself, so the
+        // function gets the parent of the root, which is outside the roots.
+        let up = make_folder(&walk(&h), &h.root.join(".."));
+        assert!(
+            matches!(
+                up,
+                Err(NewFolderError::BadName | NewFolderError::OutsideRoots)
+            ),
+            "{up:?}"
+        );
     }
 
     #[test]
