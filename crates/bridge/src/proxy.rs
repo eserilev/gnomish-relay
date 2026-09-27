@@ -384,12 +384,28 @@ mod tests {
         back
     }
 
+    /// Sends `ping` only after a 200, as a real client does. A refusal closes the socket,
+    /// and a byte that the proxy never read resets it, so the answer could be lost.
     fn connect_to(port: u16, target: &str) -> String {
-        ask(
-            port,
-            &format!("CONNECT {target} HTTP/1.1\r\n\r\n"),
-            "ping\n",
-        )
+        let mut stream = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        write!(stream, "CONNECT {target} HTTP/1.1\r\n\r\n").unwrap();
+        let mut back = answer_head(&mut stream);
+        if back.starts_with("HTTP/1.1 200 ") {
+            stream.write_all(b"ping\n").unwrap();
+            stream.shutdown(std::net::Shutdown::Write).unwrap();
+        }
+        let _ = stream.read_to_string(&mut back);
+        back
+    }
+
+    /// Reads byte by byte, so no byte after the head leaves the stream.
+    fn answer_head(stream: &mut TcpStream) -> String {
+        let mut head = Vec::new();
+        let mut byte = [0u8; 1];
+        while !head.ends_with(b"\r\n\r\n") && stream.read(&mut byte).is_ok_and(|n| n == 1) {
+            head.push(byte[0]);
+        }
+        String::from_utf8(head).unwrap()
     }
 
     #[test]
