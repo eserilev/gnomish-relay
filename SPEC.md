@@ -120,6 +120,7 @@ So the popup never shows the label of the agent as the main text. Rules:
 - If the text is too long, the popup shows the start and the end, with a visible "cut" mark in the middle.
 - Control characters, Unicode bidi characters, and zero-width characters show as visible escapes, for example `<U+202E>`.
 - The label of the agent shows below the raw command, marked as "the agent says".
+- Proposed with "Always allow" (6.6.5): when the popup offers Always, one more line names the exact rule and its folder, made by the bridge, never cut.
 
 Theorem S15 covers these rules.
 
@@ -166,7 +167,7 @@ Every message from the game (a strip or the reload outbox) runs under one ceilin
 |---|---|
 | Write | The chat folder only (the `auto-edit` level of 9.3) |
 | Read | `allowed_roots` |
-| Commands | The allow table of the config. All others ask. |
+| Commands | The allow table of the config, and (proposed, 6.6.5) the "Always allow" rules of the folder. All others ask. |
 | Network | For commands, only through the bridge proxy, to the allowed hosts (6.6.4). The agent process keeps the network of the user for its API, and each network tool of the agent asks on the desktop (6.6.4). |
 
 - The `full-auto` level (6.2 rule 5) skips the questions of the game only. `deny` and `desktop` answers of the classifier still apply, and so does the sandbox.
@@ -254,7 +255,7 @@ There are four answers, in this order from strict to open:
 - **Unknown tools are `desktop`.** The classifier knows file reads, file writes, and shell commands. Every other tool is `desktop`: web fetch, web search, MCP tools, and subagents.
 - **Inside:** a path is inside a folder when the parts of the folder start the parts of the path (S5). A write outside the chat folder is `desktop`. A read outside `allowed_roots` is `desktop`.
 - **`deny` paths:** the strip key, `timeways.key`, `config.toml`, and everything else in the config folder of the bridge (12). An approved access would let the agent sign fake strips or raise its own ceiling. The bridge writes `config.toml` itself after a raise on the desktop (9.3), never through the classifier.
-- **`deny` paths in the data folder** (12, and 9.7 decision 12): `state.json`, `approvals/`, `timeways/`, `bridge.lock`, `bridge.pid`, `bridge.log`, and everything else there. An approved access would let the agent clear the replay store, answer its own desktop request, or change the story state. The bridge writes these files itself, never through the classifier.
+- **`deny` paths in the data folder** (12, and 9.7 decision 12): `state.json`, `approvals/`, `timeways/`, the proposed `rules.json` of 6.6.5, `bridge.lock`, `bridge.pid`, `bridge.log`, and everything else there. An approved access would let the agent clear the replay store, answer its own desktop request, or change the story state. The bridge writes these files itself, never through the classifier.
 - **`desktop` patterns** are whole parts that match anywhere in a path, for example `.git/hooks`. A last `*` in a part matches the rest of a part, so `.env.*` matches `.env.local`.
 - **`desktop` paths, for reads and writes:** `.ssh`, `.aws`, `.gnupg`, `.env` files, other credential files (`.netrc`, `.git-credentials`, `.config/gh`, `.docker/config.json`, `.kube`), the tokens of package tools (`.cargo/credentials.toml`, `.npmrc`, `.yarnrc.yml`, `.pypirc`, `.config/pip`, `.gem/credentials`), keychains, and browser profiles. `action_input.rs` has the full list. The proxy of the sandbox (6.6.4) reaches the hosts of the package tools, so a command must not read their tokens. A hidden `.npmrc` or `.config/pip` also hides the settings in it, for example a registry of a project.
 - **`desktop` paths, for writes:** files that code on the host runs later, outside the sandbox. They are `.claude/`, `.git/hooks/`, `.git/config`, `.envrc`, `.vscode/`, and `.github/workflows/`.
@@ -505,7 +506,7 @@ What each backend and OS enforces:
 - Every command asks in the game, at every level, also a command of the allow table (`gate::without_sandbox`).
 - File edits inside the chat folder still work.
 - The first reply of Claude after the start of the bridge begins with "(No sandbox on this computer: every command asks in the game.)". The bridge writes the tool of the sandbox to its log at start. A notice in the chat header waits for new slot fields.
-- "Always allow" for a command that runs code needs a second step in the game: "No sandbox on this computer. This rule lets the agent run any code that it writes, with your full access. Allow always anyway?" The game has no "always allow" yet (9.3), so this step comes with it.
+- With no sandbox, the popup offers no "Always allow" (proposed, 6.6.5): every command asks anyway, so a rule does nothing. The second warning step of the earlier plan goes.
 - At start the bridge runs `bwrap --version` inside a sandbox of the same kind. A `bwrap` that is missing, or that cannot make namespaces, counts as no sandbox.
 
 **Windows** (tested on the Windows runners of CI on 2026-09-27, and decided with an advisor). A sandbox there needs calls of the Windows API, and these calls need `unsafe` code, which every crate of this project forbids (CLAUDE.md). The planned backend was an AppContainer through the `rappct` crate (MIT, 0.13.3), approved by the user on 2026-09-26: the crate holds the `unsafe` calls. A spike on Windows Server 2022, Windows Server 2025, and Windows 11 on ARM showed that an AppContainer cannot run the commands of Claude:
@@ -547,15 +548,73 @@ So Windows keeps the fallback, and the bridge has no `rappct` dependency. The se
 
 #### 6.6.5 "Always allow"
 
-The goal is one click for the common case, with a bounded worst case.
-Any game message can come from another addon (6.6.1). So a rule is safe to add with one click only when the sandbox bounds what the rule allows.
+**Proposal** (asked for by the user on 2026-09-27, designed with an advisor on 2026-09-27; waits for the approval of the user, not built). Today every command that the allow table does not cover asks in the game, every time. With "Always allow", the user approves a command once, and it stays approved in that folder.
 
-1. The popup (6.4) shows the exact rule, for example "Always allow `cargo test *` in lighthouse".
-2. A rule covers one command pattern in one project. It never covers a whole tool, for example "all Bash".
-3. If the backend of the chat has a sandbox (6.6.4), one click in the game adds the rule. The game and the desktop both show "Rule added: cargo test * (lighthouse)", each with **Undo**. Neither blocks.
-4. With the fallback of 6.6.4, a rule for a command that runs code needs the second warning step of 6.6.4.
-5. The "never always" commands of 6.6.3 get "Allow once" at most.
-6. A rule expires after 30 days. The Settings tab of the window lists every rule and its expiry, and removes one with a click.
+The goal is one click for the common case, with a bounded worst case. Any game click can come from another addon (6.6.1). So a rule is safe to add with one click only where the sandbox is the wall for what the rule allows.
+
+*Why one click, and no desktop click.* A hostile addon can already click "Allow" on every popup, and it can already send messages. A forged rule gives it only one thing more: the rule stays after the addon is gone. The rule is one pattern in one folder, and its commands run in the sandbox (6.6.4): writes only in the chat folder, network only to the allowed hosts, and the secrets hidden. The larger risk of a rule is a prompt-injected agent, and a desktop click does not help against that. A desktop click for each new rule brings back most of the friction.
+
+**When the popup offers "Always allow".** All of these hold, else the popup has only Allow and Deny:
+
+1. The call is a shell command.
+2. The level of the run (9.3, the lower of the chat and the config) is `auto-edit`. At `full-auto` the command runs with no question anyway. At `ask` the level promises that every command asks, so rules do not apply there.
+3. The commands run in the command sandbox of 6.6.4: Claude with `bwrap` or `sandbox-exec`. With no sandbox, `gate::without_sandbox` asks anyway, so a rule does nothing. An ACP agent picks its questions, so a rule never gives it `allow` (6.6.3).
+4. Not Codex, for now. Codex retries an allowed command outside its sandbox with no request, and its sandbox reads `~/.ssh` and the keys of the bridge (6.6.4, "Codex"). So for Codex the sandbox is not the wall. The allow table of the config has the same hole today. Codex gets Always after a live test shows that the retry asks.
+5. `offer` (in `protocol`) gives a proposal: 1 to 3 new rules, one for each simple command that no rule covers yet, and with them the classifier gives `allow` for the whole call. So a `deny`, `desktop`, or "never always" part, a redirect into a hidden path, and a command substitution never get Always (S17, S36 to S39).
+6. The rule line fits in 48 bytes, so the popup never cuts it (6.4).
+7. The folder has fewer than 64 rules. At 64, the popup has no Always and says "Rule list full (64). Remove one in Settings." The bridge never drops a rule by itself, because a dropped rule brings back popups that the user does not expect.
+
+**The pattern.** The bridge makes each rule from the words of one simple command, with `propose` in `protocol`. The agent and the game never choose it.
+
+- For a tool with subcommands, the rule is its name and its first word: `cargo test *`, `git status *`, `npm run *`. The list is in `command_rules.rs`: `git`, `cargo`, `npm`, `pnpm`, `yarn`, `go`, `uv`, `pip`, `poetry`, `gradle`, `mvn`, `dotnet`, `rustup`, and `just`.
+- For every other tool, the rule is the name only: `rg *`, `ls *`, `pytest *`, `tail *`, and `make *` for `make test`.
+- Why not narrower: at `auto-edit` the agent can edit `package.json`, a `Makefile`, and the tests in the chat folder. So `npm run build *` protects nothing that `npm run *` does not, and it costs more clicks.
+- No proposal when the first word after the name starts with `-` or `+` (`git -C x status`, `cargo +nightly test`), because `git *` is far too wide.
+- No proposal when the name holds `/` (`./gradlew`, `./x.sh`). The agent can write such a script, so the rule is "all Bash". A user adds such a script to the allow table by hand.
+- No proposal for the tools that run any program or download code: `npx`, `npm exec`, `pnpm exec`, `pnpm dlx`, `yarn dlx`, `yarn exec`, `bunx`, `uvx`, `pipx`, `uv run`, `poetry run`, and `docker`. They amount to "all Bash".
+- No proposal for the commands that publish or send to other people: `git push`, `cargo publish`, `npm publish`, `twine`, and `gh`. The proxy reaches `github.com`, and a push is a way to leak data (6.5). The allow table of the config can still name them.
+- Each word is printable ASCII, 1 to 64 bytes, with no special character of the allow table (12). The rule holds the literal bytes of the words, because the matcher compares bytes.
+- A `cd` is a simple command as any other, so `cd lib && cargo test` proposes `cd *` and `cargo test *`. A `cd` with a redirect stays `desktop` (6.6.3).
+
+**The folder of a rule.** A rule covers one folder: the chat folder, resolved, and every chat inside it, as `[allow.folders]` does. One exception: when the chat folder is an entry of `allowed_roots` or the home folder, the rule covers that exact folder only. Else one click in `~/Documents/Code` gives a global rule from the game. The rule folder is the chat folder, not the current folder of the Bash tool, so a `cd` into a subfolder keeps the rules of the chat.
+
+**The popup** (6.4). It shows one more line, above the buttons: "Always allow: `cargo test *`, `tail *` in Personal/gnomish-relay". The folder is its path from its allowed root, cut from the left. The line is bridge text: the rule words (plain ASCII) and a folder name that the user chose. The addon shows it with the escape of S15. It comes in the `label` of the `allow_always` option of the live file, so S20 does not change. The button is "Always allow", the label that `Popup.lua` already has for the kind. The answer hash (6.6.1) of an Always answer covers the popup text and this line, so the hash binds the rule that the user saw. The bridge fixed the rule when it opened the request, so an answer only picks the option.
+
+**After a grant.**
+
+- The bridge adds the rules to `rules.json` and allows the call. A rule that exists already gives no second row.
+- It answers `allow` to every other open request of the same folder that the new rules now cover, so the user does not click twice.
+- The game prints one whisper line: `[Claude] whispers: [chat] Rule added: cargo test * in Personal/gnomish-relay. Remove it in Settings.` A click on it opens Settings. The addon marks the settings list as old, so the next open of Settings asks for a new one.
+- The desktop shows a plain notice with the same text and "or run: gnomish-relay rules remove <id>". There is no Undo button: a notice cannot hold a button on all three OSes, and the whisper line has none.
+
+**The store.** The rules live in `rules.json` in the data folder (12), never in `config.toml`: the game never writes the config (6.6.2). The data folder is a `deny` path, so the agent never reads or writes the file (6.6.3). The file has mode 0600, and the bridge writes it with an atomic rename. Each row has an id (4 hex digits), the folder, the words, the time it was added, and the day of its last use.
+
+- At load, each row goes through the checks of `parse_pattern` (12) and the word rules above, and its folder must be clean (S5). A bad row is dropped with a log line, so a broken file never widens a rule. A missing or broken file is an empty list.
+- Global rules stay in `[allow] commands` of the config, which the user edits by hand.
+
+**Expiry.** A rule ends 30 days after its last use. So a rule that the user uses stays, and a stale or forged one goes. The bridge writes the day of the last use at most once a day for each rule, so a command does not write the file each time. A deleted or moved folder leaves orphan rules, which expire. A new folder at the same path gets them until then, and Settings shows them.
+
+**See and remove.**
+
+- The Settings tab (13.1) gets a group "Always Allowed": one row for each rule, with its pattern, its folder, its last use, and a remove button (×). The game can remove a rule, because a removal only narrows: a forged removal costs only a click. The addon sends `rule=remove:<id>` in a control record of the chat `settings`. A removed row stays grey ("Removing…") until the next settings list.
+- `gnomish-relay rules` lists the rules on the desktop, and `gnomish-relay rules remove <id>` removes one.
+- The settings list (13.4) gets `rule` lines. Diag shows no second copy.
+
+**What never becomes a rule.** File edits: a write outside the chat folder is `desktop`, and one inside it already runs at `auto-edit`. Unknown tools. Every `deny` and `desktop` answer, so the startup files (`.claude/`, `.git/hooks/`, and the others of 6.6.3) and the hidden paths. The "never always" commands of 6.6.3. Desktop requests: the desktop dialog never offers Always, because a desktop request is the dangerous case.
+
+**The own "always" of each backend.** The `permission_suggestions` of Claude and the `acceptForSession` and `acceptWithExecpolicyAmendment` of Codex stay off (9.3). The bridge keeps the only rules, so the classifier sees each rule.
+
+**Verification plan.** Nothing below is built. The Lean statements wait for the approval of the user.
+
+- In `protocol`, in the Aeneas subset: `propose(simple) -> Option<rule>` and `offer(call, policy, rules) -> Option<rules>` in a new `always.rs`. The matcher `rule_matches` exists (S17).
+- **S36, proposal shape.** For every simple command, `propose` never panics, and `propose(s) = some r` gives `r = take k s.words` with `k` 1 or 2. Each word of `r` is 1 to 64 bytes of printable ASCII with no special character and does not start with `-` or `+`, and the first word holds no `/`. So the rule covers the command that it came from. Lean shape: `∀ s, always.propose s ⦃ o => ∀ r, o = some r → ∃ k, (k = 1 ∨ k = 2) ∧ r.val = s.words.val.take k ∧ (∀ w ∈ r.val, plainWord w.val) ∧ ¬ hasSlash (r.val.head!).val ⦄`.
+- **S37, no proposal for the capped.** For every simple command that is `desktop`, "never always", a tool that runs any program, or a command that publishes, `propose` gives `none`. Lean shape: `∀ s, (isDesktop s ∨ isCapped s.words ∨ noRuleTool s.words) → always.propose s ⦃ o => o = none ⦄`.
+- **S38, an offer allows exactly its call.** For every call, policy, and rule list, `offer` never panics, and `offer = some rs` gives: `rs` has 1 to 3 rules, `classify(call, rules ++ rs) = Allow`, and each rule of `rs` covers a simple command of the call. Lean shape: `∀ call policy rules, always.offer call policy rules ⦃ o => ∀ rs, o = some rs → 1 ≤ rs.len ∧ rs.len ≤ 3 ∧ action.classify call policy (rules ++ rs) = ok Verdict.Allow ∧ ∀ r ∈ rs, ∃ s ∈ simplesOf call, ruleMatches r s.words ⦄`.
+- **S39, an offer stays under the ceiling.** For every call, `offer = some rs` gives `ceiling(call) = Allow`. It follows from S17. Lean shape: `∀ call policy rules rs, always.offer call policy rules = ok (some rs) → action.ceiling call policy = ok Verdict.Allow`.
+- Each goes into `proofs/Axioms.lean`.
+- Fuzz targets: `always` (random simple commands and calls: `propose` and `offer` never panic, each proposal is a prefix of its words, and each offer makes `classify` give `allow`), and `rules_file` (random bytes as `rules.json`: no panic, and each row that loads passes `parse_pattern` and has a clean folder).
+- Unit tests in the bridge: the folder of a rule (a root and the home folder cover only themselves), expiry and the daily write, the full list, a duplicate rule, the answer to the other open requests, the level and backend checks of the offer, the 48-byte line, and the settings lines.
+- Fake-game tests in `addon_flow.rs`: an Always click adds the rule, and the next same command runs with no popup. The whisper line opens Settings. A remove in Settings ends the rule, and the next command asks again. At `ask`, with no sandbox, and with Codex, the popup has no Always. A forged answer with a wrong hash adds no rule. A `git push` and an `rm -rf` get no Always.
 
 ## 7. Transport
 
@@ -1160,7 +1219,7 @@ Each backend maps the level differently:
 Rules:
 
 - The request id holds the time of the question, so an old strip cannot answer a new request after a restart of the bridge.
-- `allow_always` waits for the rules of 6.6.5. Until then, the bridge does not offer it in the game.
+- `allow_always` waits for the rules of 6.6.5. Until then, the bridge does not offer it in the game. With the proposal of 6.6.5, the bridge offers its own `allow_always` for a command of a Claude run at `auto-edit` in the sandbox, and the rule applies at the level of the run. The `auto-edit` text of the raise dialog then says "Commands still ask in the game, unless you added an Always rule there."
 - Each tool call of the agent also becomes a progress line in `Live.lua`, for the activity panel. A run shows its level line first, and then its last 4 lines.
 
 **The level in the game** (decided with an advisor on 2026-09-26). The bridge runs a chat at the lower of its level and the `permission` of the config (S6). In the first test in the game, the header said "Claude · auto-edit", but the run was at `ask`. So the game now shows the level that applies:
@@ -1754,6 +1813,7 @@ The mockup is the reference for the layout.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
   - **New Chats:** Agent, a dropdown of the agents in the settings list (13.4), and Level, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Max: <level> (set on the desktop)", the level of the chosen agent in the config.
   - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
+  - Proposed (6.6.5): **Always Allowed**, one row for each rule of the settings list: the pattern, the folder, the last use, and a remove button (×). With no rule: "No rules yet. Click Always allow in a popup to add one."
   - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "No data yet.". A click asks for a new list.
 - **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
 - **Key binding:** `Bindings.xml` adds "Open or close the window" under "Gnomish Relay" in the Key Bindings menu of the game. It calls the global `GnomishRelay_Toggle`.
@@ -1886,11 +1946,12 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 | `timeout_minutes`, `permission_timeout_minutes` | The two timeouts. |
 | `story_model` | Only with `[story]`: `none`, `claude`, `claude <model>`, or `local <model>`. The address of a local model stays on the desktop. |
 | `story_budget_window_minutes` | Only with `[story]`. |
+| `rule` | Proposed (6.6.5): `id \t folder \t pattern \t days`, one "Always allow" rule, with the days since its last use. |
 | `allow` | One pattern of `[allow] commands`, as words. |
 | `allow_folder` | `folder \t pattern`: one pattern of `[allow.folders]`. |
 
 - The list never holds a key, an `env` entry, or the command line of an agent. A command line can hold a secret, and the game does not need it.
-- The reply is at most 32 KB after the Lua escape (S12). The allow table comes last, because only it can be long. A list that does not fit keeps its first lines and ends with a line `+`, as the folder tree does.
+- The reply is at most 32 KB after the Lua escape (S12). The allow table comes last, because only it can be long. The proposed `rule` lines (6.6.5) come just before it, so a cut removes allow patterns first. A list that does not fit keeps its first lines and ends with a line `+`, as the folder tree does.
 - No version change (7.7): the bridge writes the relay addon again at each start, so the addon is never newer than its bridge.
 - **When the addon asks.** When the Settings or Diag tab opens and the list is older than 10 minutes, or there is none, and at a click on the status line. Each ask costs a strip, so a tab that opens again soon asks nothing.
 - The addon parser takes a line only with a known shape: an agent needs a valid name and a known level, and a folder rule needs a folder and a pattern. A seeded test feeds it random bytes (14.4).
@@ -1959,6 +2020,8 @@ So most theorems are security properties. Each one closes a named attack.
 | S31 | **Sandbox policy:** for every config, each `deny` and `desktop` path is hidden; no writable path is inside a hidden path; writes go only to the chat folder and a private temp folder. `sandbox_policy` builds the policy from the chat folder, the temp folder, the `deny` folders, and both lists of `desktop` patterns. "Hidden" is the predicate of the classifier (6.6.3), and "inside" is the parts prefix of S5. A writable path has the clean form of S5. | A command of a game run reads the strip key or `~/.ssh`, or writes a file that code on the host runs later, such as `.git/hooks/pre-commit`. |
 | S32 | **Seatbelt escape:** for every path, the escaped path in the Seatbelt profile reads back as the same path and never ends the string literal early. `sbpl_string` puts a `\` before each `"` and `\`, and refuses a NUL byte, which no path holds. A small model of the string reader of SBPL states "reads back", as S8 does for Lua. | A folder name with a `"` ends a literal and adds a rule to the profile, for example `(allow default)`. |
 | S28 | **Command floor:** a command that does not parse (the grammar of `split`, 6.6.3) is `desktop`. A command with `$(` or a backtick outside single quotes, by the quote state of the splitter, is `desktop`. `eval`, `sudo`, `cmd.exe`, PowerShell, or a shell after a `\|` make a command at most `desktop`. Commands that run other commands and network tools make it at most `ask`. | A prompt injection runs code through `eval`, a pipe into a shell, or `sudo`, or reaches the network with no question. |
+
+**Proposed:** S36 to S39 ("Always allow", 6.6.5, "Verification plan") wait for the approval of the user.
 
 **Correctness theorems:**
 
