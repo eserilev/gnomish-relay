@@ -73,7 +73,7 @@ The bridge treats all four as untrusted input.
 | A local program | Connects to the hook socket and sends fake pings | Socket mode 0600. Size limit and rate limit. Ping text goes through the same escapes as agent text. |
 | A malicious or prompt-injected agent | Writes a reply that injects Lua or fakes WoW chat links. Asks for permission with a false label. Writes a huge reply. | Lua escape and UI escape (S8 to S10). Honest permission popup (6.4). Size limits (S12). |
 | An old screenshot | A strip is replayed from an old file, for example after `state.json` is lost | Freshness check (S11). |
-| Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our handlers, fill our input box, click our buttons, read and change `GnomishRelayDB`, and replace a slot body during a load. | Signed state (6.6.1) stops changes to stored messages. The taint warning is designed to catch naive calls. The ceiling, the classifier, and the sandbox (6.6.2 to 6.6.4) bound every game message, whoever sent it. |
+| Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our handlers, fill our input box, click our buttons, read and change `GnomishRelayDB`, and replace a slot body during a load. | Signed state (6.6.1) stops changes to stored messages. A call to our handlers gets no more than a message that the user typed: the ceiling, the classifier, the sandbox, and desktop approvals (6.6.2 to 6.6.4, 9.3) bound every game message, whoever sent it. |
 | A prompt injection in a file | The agent reads a README, an issue, or a web page with hidden instructions | The action classifier (6.6.3) and the sandbox (6.6.4). Layer 1 does not help: the prompt came from the user. |
 | A stream or recording | The strip shows the prompt on screen | None. Do not stream while you use the relay. The README says this. |
 
@@ -138,14 +138,14 @@ Each layer covers a hole in the layer before it. No layer depends on a model tha
 
 | Layer | Question | Where |
 |---|---|---|
-| 1. Signed state and the taint warning | Did our own code make this message, and did anything change it? | Addon |
+| 1. Signed state | Did anything change a message after our code signed it? | Addon |
 | 2. Game ceiling | What can a message from the game do at most? | Bridge config |
 | 3. Action classifier | Does this tool call run, ask in the game, ask on the desktop, or never run? | Bridge, proved in `protocol` |
 | 4. Sandbox | What can happen when layers 1 to 3 fail? | Operating system |
 
 The trust of "always allow" (6.6.5) rests on layers 2 to 4. It never rests on layer 1.
 
-#### 6.6.1 Signed state and the taint warning
+#### 6.6.1 Signed state
 
 **Signed state.** Another addon can change `GnomishRelayDB` without a call to our code. So the addon signs messages from private state:
 
@@ -156,15 +156,7 @@ The trust of "always allow" (6.6.5) rests on layers 2 to 4. It never rests on la
 - An outbox entry (7.5) is the same signed frame. The bridge checks the tag, the time, and the replay store for it (S2, S11, S7), as for a strip.
 - A permission answer carries a hash of the exact text that the popup showed: `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256, in hex. The bridge refuses an answer whose hash does not match its own text of the request.
 
-**Taint warning.** WoW tracks which addon tainted each variable, and `issecurevariable(table, key)` returns its name.
-At each entry point, the addon writes a probe value and reads its taint. If the taint names another addon, the addon refuses the action and shows one line: "Blocked: <addon> tried to send as you."
-This catches a naive attack only. It is not a trust decision:
-
-- Taint probably moves to the last data that the code read. Our handler reads our own tables before the probe, so the probe can name "GnomishRelay" for any caller. The spike in 15 tests this.
-- Some attacks need no call to our code. A secure macro button can run `/ai …` on the user's own click. Another addon can fill the chat box with `/ai …` and wait for the user to press Enter.
-- A hostile addon that loads first can replace `issecurevariable`.
-
-No WoW mechanism lets an addon prove that the user typed a message. So layers 2 to 4 assume that any game message can come from another addon.
+No WoW mechanism lets an addon prove that the user typed a message. For example, another addon can fill the chat box with `/ai …` and wait for the user to press Enter. So layers 2 to 4 assume that any game message can come from another addon.
 
 #### 6.6.2 Game ceiling
 
@@ -2156,8 +2148,6 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 15. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Next:** the agent process behind the proxy (6.6.4, "The agent process behind the proxy"). S33 to S35 wait for the approval of the user. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
-
-**Taint spike (before the taint warning ships):** a second test addon calls the send handler of our addon, calls a closure that reads our tables before the probe, fills our input box, and clicks our buttons. The spike records what the probe names in each case, on the Forever client under Wine, Windows, and macOS. Some cases will likely name "GnomishRelay". Nothing in 6.6.5 depends on this spike.
 
 ## 16. Development environment
 
