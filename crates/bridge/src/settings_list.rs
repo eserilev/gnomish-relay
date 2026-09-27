@@ -267,12 +267,12 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let list = RuleList {
             store: crate::always_rules::AlwaysRules::new(dir.path()),
-            roots: vec![std::path::PathBuf::from("/h/Code")],
-            home: std::path::PathBuf::from("/h"),
+            roots: vec![std::env::temp_dir().join("Code")],
+            home: std::env::temp_dir(),
         };
         assert!(list.lines(1_790_000_000).is_empty());
         let rule = [vec!["make".to_owned()]];
-        let folder = std::path::Path::new("/h/Code/app");
+        let folder = &std::env::temp_dir().join("Code").join("app");
         list.store
             .grant(
                 folder,

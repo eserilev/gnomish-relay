@@ -427,10 +427,21 @@ mod tests {
         w.iter().map(|s| (*s).to_owned()).collect()
     }
 
+    /// `/h/app` as an absolute path of this OS: `C:\h\app` on Windows.
+    fn h(path: &str) -> PathBuf {
+        let base = if cfg!(windows) { r"C:\h" } else { "/h" };
+        let rest = path.strip_prefix("/h").unwrap_or(path);
+        PathBuf::from(base).join(rest.trim_start_matches('/'))
+    }
+
+    fn json(path: &Path) -> String {
+        serde_json::to_string(path).unwrap()
+    }
+
     fn rule(id: &str, folder: &str, scope: Scope, w: &[&str]) -> Rule {
         Rule {
             id: id.into(),
-            folder: PathBuf::from(folder),
+            folder: h(folder),
             scope,
             words: words(w),
             added: NOW,
@@ -442,10 +453,10 @@ mod tests {
     fn a_tree_rule_covers_the_folders_inside_and_an_exact_rule_only_its_own() {
         let tree = rule("a1b2", "/h/Code/app", Scope::Tree, &["make"]);
         let exact = rule("c3d4", "/h/Code", Scope::Exact, &["make"]);
-        assert!(tree.applies_to(Path::new("/h/Code/app/src")));
-        assert!(!tree.applies_to(Path::new("/h/Code/lib")));
-        assert!(exact.applies_to(Path::new("/h/Code")));
-        assert!(!exact.applies_to(Path::new("/h/Code/app")));
+        assert!(tree.applies_to(&h("/h/Code/app/src")));
+        assert!(!tree.applies_to(&h("/h/Code/lib")));
+        assert!(exact.applies_to(&h("/h/Code")));
+        assert!(!exact.applies_to(&h("/h/Code/app")));
     }
 
     #[test]
@@ -459,17 +470,19 @@ mod tests {
 
     #[test]
     fn a_bad_row_is_dropped_and_the_good_rows_stay() {
+        let app = json(&h("/h/app"));
+        let up = json(&h("/h").join("..").join("app"));
         let text = format!(
             r#"{{"rules": [
-                {{"id": "a1b2", "folder": "/h/app", "scope": "tree", "words": ["cargo", "test"], "added": {NOW}, "used_day": {day}}},
-                {{"id": "zzzz", "folder": "/h/app", "scope": "tree", "words": ["make"], "added": 0, "used_day": {day}}},
+                {{"id": "a1b2", "folder": {app}, "scope": "tree", "words": ["cargo", "test"], "added": {NOW}, "used_day": {day}}},
+                {{"id": "zzzz", "folder": {app}, "scope": "tree", "words": ["make"], "added": 0, "used_day": {day}}},
                 {{"id": "c3d4", "folder": "rel/app", "scope": "tree", "words": ["make"], "added": 0, "used_day": {day}}},
-                {{"id": "c3d5", "folder": "/h/../app", "scope": "tree", "words": ["make"], "added": 0, "used_day": {day}}},
-                {{"id": "e5f6", "folder": "/h/app", "scope": "tree", "words": ["rm -rf"], "added": 0, "used_day": {day}}},
-                {{"id": "e5f7", "folder": "/h/app", "scope": "tree", "words": ["a", "b", "c"], "added": 0, "used_day": {day}}},
-                {{"id": "e5f8", "folder": "/h/app", "scope": "tree", "words": ["./x.sh"], "added": 0, "used_day": {day}}},
-                {{"id": "e5f9", "folder": "/h/app", "scope": "tree", "words": ["make"], "added": 0, "used_day": {day}, "extra": 1}},
-                {{"id": "e5fa", "folder": "/h/app", "scope": "all", "words": ["make"], "added": 0, "used_day": {day}}}
+                {{"id": "c3d5", "folder": {up}, "scope": "tree", "words": ["make"], "added": 0, "used_day": {day}}},
+                {{"id": "e5f6", "folder": {app}, "scope": "tree", "words": ["rm -rf"], "added": 0, "used_day": {day}}},
+                {{"id": "e5f7", "folder": {app}, "scope": "tree", "words": ["a", "b", "c"], "added": 0, "used_day": {day}}},
+                {{"id": "e5f8", "folder": {app}, "scope": "tree", "words": ["./x.sh"], "added": 0, "used_day": {day}}},
+                {{"id": "e5f9", "folder": {app}, "scope": "tree", "words": ["make"], "added": 0, "used_day": {day}, "extra": 1}},
+                {{"id": "e5fa", "folder": {app}, "scope": "all", "words": ["make"], "added": 0, "used_day": {day}}}
             ]}}"#,
             day = day_of(NOW)
         );
@@ -531,7 +544,7 @@ mod tests {
     #[test]
     fn a_rule_that_exists_gives_no_second_row() {
         let mut rules = Vec::new();
-        let folder = Path::new("/h/app");
+        let folder = &h("/h/app");
         add(&mut rules, folder, Scope::Tree, &[words(&["make"])], NOW).unwrap();
         add(
             &mut rules,
@@ -553,7 +566,7 @@ mod tests {
             rule("a1b2", "/h/app", Scope::Tree, &["cargo", "test"]),
             rule("c3d4", "/h/lib", Scope::Tree, &["make"]),
         ];
-        let got = words_for(&rules, Path::new("/h/app/src"));
+        let got = words_for(&rules, &h("/h/app/src"));
         assert_eq!(got, vec![vec![b"cargo".to_vec(), b"test".to_vec()]]);
     }
 
@@ -564,26 +577,23 @@ mod tests {
         let mut rules = vec![r];
         let used = vec![vec![b"cargo".to_vec(), b"test".to_vec(), b"-q".to_vec()]];
         let other = vec![vec![b"make".to_vec()]];
-        assert!(!mark_used(&mut rules, Path::new("/h/app"), &other, NOW));
-        assert!(mark_used(&mut rules, Path::new("/h/app"), &used, NOW));
+        assert!(!mark_used(&mut rules, &h("/h/app"), &other, NOW));
+        assert!(mark_used(&mut rules, &h("/h/app"), &used, NOW));
         assert_eq!(rules[0].used_day, day_of(NOW));
-        assert!(!mark_used(&mut rules, Path::new("/h/app"), &used, NOW));
+        assert!(!mark_used(&mut rules, &h("/h/app"), &used, NOW));
     }
 
     #[test]
     fn the_shown_folder_is_its_path_from_its_root() {
-        let roots = vec![PathBuf::from("/h/Documents/Code")];
-        let home = Path::new("/h");
-        let app = Path::new("/h/Documents/Code/Personal/app");
+        let roots = vec![h("/h/Documents/Code")];
+        let home = &h("/h");
+        let app = &h("/h/Documents/Code/Personal/app");
         assert_eq!(shown_folder(app, &roots, home), "Code/Personal/app");
-        assert_eq!(
-            shown_folder(Path::new("/h/Documents/Code"), &roots, home),
-            "Code"
-        );
-        assert_eq!(shown_folder(Path::new("/h/x"), &roots, home), "~/x");
+        assert_eq!(shown_folder(&h("/h/Documents/Code"), &roots, home), "Code");
+        assert_eq!(shown_folder(&h("/h/x"), &roots, home), "~/x");
         assert_eq!(shown_folder(Path::new("/opt/x"), &roots, home), "/opt/x");
         assert_eq!(
-            shown_folder(Path::new("/h/Documents/Code/a\u{202e}b"), &roots, home),
+            shown_folder(&h("/h/Documents/Code/a\u{202e}b"), &roots, home),
             "Code/a?b"
         );
     }
@@ -612,7 +622,7 @@ mod tests {
     fn the_store_grants_lists_and_removes() {
         let dir = tempfile::tempdir().unwrap();
         let store = AlwaysRules::new(dir.path());
-        let folder = Path::new("/h/app");
+        let folder = &h("/h/app");
         store
             .grant(folder, Scope::Tree, &[words(&["make"])], NOW)
             .unwrap();
@@ -630,10 +640,10 @@ mod tests {
         assert!(store.list(NOW).is_empty());
         assert!(
             store
-                .grant(Path::new("/h"), Scope::Tree, &[words(&["make"])], NOW)
+                .grant(&h("/h"), Scope::Tree, &[words(&["make"])], NOW)
                 .is_err()
         );
-        store.mark_used(Path::new("/h"), &[], NOW);
+        store.mark_used(&h("/h"), &[], NOW);
     }
 
     #[test]
