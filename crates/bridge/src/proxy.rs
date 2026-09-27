@@ -505,7 +505,11 @@ mod tests {
         let mut ok = [0u8; 12];
         first.read_exact(&mut ok).unwrap();
 
-        let back = connect_to(port, "allowed.test:443");
+        // The proxy answers at once and closes. A request that the client wrote after the
+        // close would reset the socket, and the answer could be lost, so it writes none.
+        let mut second = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        let mut back = String::new();
+        let _ = second.read_to_string(&mut back);
 
         assert_eq!(&ok, b"HTTP/1.1 200");
         assert!(back.starts_with("HTTP/1.1 503 "), "{back}");
