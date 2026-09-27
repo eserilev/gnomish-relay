@@ -37,13 +37,15 @@ pub struct CodingFlags {
     pub new_folder: bool,
 }
 
-/// What a list request asks for: `list` or `list=folders`.
+/// What a list request asks for: `list`, `list=folders`, or `list=settings`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ListKind {
     /// The saved sessions that the game can resume (SPEC.md 9.6).
     Sessions,
     /// The folder tree of the roots, for the folder browser (SPEC.md 9.9).
     Folders,
+    /// What the bridge allows, for the Settings and Diag tabs (SPEC.md 13.1).
+    Settings,
 }
 
 /// `perm=<request>:<option>:<hash>`: the answer to a permission request (SPEC.md 9.3).
@@ -144,6 +146,7 @@ pub fn coding(bytes: &[u8]) -> CodingFlags {
                 _ => {}
             },
             Some(("list", "folders")) => flags.list = Some(ListKind::Folders),
+            Some(("list", "settings")) => flags.list = Some(ListKind::Settings),
             Some(("mkdir", "1")) => flags.new_folder = true,
             Some(("level", word)) => flags.level = Some(Permission::from_game(word)),
             Some(("perm", value)) => flags.perm = perm_answer(value),
@@ -247,6 +250,7 @@ mod tests {
     #[test]
     fn a_folder_list_parses_and_an_unknown_list_is_ignored() {
         assert_eq!(coding(b"list=folders").list, Some(ListKind::Folders));
+        assert_eq!(coding(b"list=settings").list, Some(ListKind::Settings));
         assert_eq!(coding(b"list=files").list, None);
     }
 

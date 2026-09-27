@@ -49,6 +49,7 @@ pub mod reply;
 pub mod run;
 pub mod saved;
 pub mod screenshots;
+pub mod settings_list;
 pub mod setup;
 pub mod slots;
 pub mod state;

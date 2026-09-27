@@ -26,7 +26,7 @@ fn render_exchange(text: &str) -> String {
 pub fn render_reply(work: &Work, text: &str) -> String {
     match work {
         Work::Attach { .. } => render_exchange(text),
-        Work::Prompt | Work::ListSessions | Work::ListFolders => render(text),
+        Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => render(text),
     }
 }
 

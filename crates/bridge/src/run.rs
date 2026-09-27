@@ -24,6 +24,7 @@ use crate::new_folder::make_folder;
 use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
+use crate::settings_list::BridgeSettings;
 use crate::slots::{self, Files};
 use crate::state;
 use crate::story::{Story, StorySpec};
@@ -125,6 +126,8 @@ struct RelayLane {
     /// With no raiser, a chat never raises the level of the config (SPEC.md 9.3).
     raiser: Option<Raiser>,
     raises: RaiseGuard,
+    /// The answer to a settings list, with the levels of the relay.
+    settings: BridgeSettings,
 }
 
 /// The Timeways app: its lane and its files. Its messages go to the story program, and
@@ -168,6 +171,15 @@ impl Bridge {
     pub fn with_raises(mut self, raiser: Raiser) -> Bridge {
         if let Some(relay) = &mut self.relay {
             relay.raiser = Some(raiser);
+        }
+        self
+    }
+
+    /// The values that the Settings and Diag tabs of the game show.
+    #[must_use]
+    pub fn with_settings(mut self, settings: BridgeSettings) -> Bridge {
+        if let Some(relay) = &mut self.relay {
+            relay.settings = settings;
         }
         self
     }
@@ -260,6 +272,7 @@ impl RelayLane {
             results,
             raiser: None,
             raises: RaiseGuard::default(),
+            settings: BridgeSettings::default(),
         })
     }
 
@@ -329,6 +342,10 @@ impl RelayLane {
             match job.work {
                 Work::ListSessions => self.start_list(job),
                 Work::ListFolders => self.start_folder_list(job),
+                Work::ListSettings => {
+                    self.relay.finish_settings(&job, &self.settings);
+                    self.files.changed = true;
+                }
                 Work::Prompt | Work::Attach { .. } => self.start_run(job),
             }
         }
@@ -725,15 +742,15 @@ fn list_sessions(agents: &Agents, cwd: &str) -> Found {
 /// With no relay part, `relay` is `None`, and the bridge serves Timeways alone.
 pub fn run(
     paths: Paths,
-    relay: Option<(Policy, Agents, Raiser)>,
+    relay: Option<(Policy, Agents, Raiser, BridgeSettings)>,
     keys: KeySet,
     story: Option<StorySpec>,
 ) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
     let mut bridge = match relay {
-        Some((policy, agents, raiser)) => {
-            Bridge::new(paths, policy, keys, agents)?.with_raises(raiser)
-        }
+        Some((policy, agents, raiser, settings)) => Bridge::new(paths, policy, keys, agents)?
+            .with_raises(raiser)
+            .with_settings(settings),
         None => Bridge::without_relay(paths, keys)?,
     };
     if let Some(spec) = story {

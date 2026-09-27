@@ -511,7 +511,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 
 #### 7.1.1 Flags
 
-The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `mkdir=1`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
+The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `list=settings`, `mkdir=1`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
 
 | Flag | Meaning |
 |---|---|
@@ -520,6 +520,7 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 | `d` | The chat is deleted. The bridge stops its runs, and drops its replies, its session link, and its history. A reply of a deleted chat can never be read, so it must leave the body (7.3). The addon keeps the id in `db.forget`, and sends it with each strip until a strip goes out while the bridge is online. The agent session itself stays, so Resume can bring the chat back. |
 | `list` | Asks for the saved sessions of the agents (9.6). The record is a message of the chat `relay`, and the reply is the list. |
 | `list=folders` | Asks for the folder tree of the browser (9.9). The record is a message of the chat `folders`, and the reply is the tree. Any other `list=` value is ignored. |
+| `list=settings` | Asks for the settings list of the bridge (13.4). The record is a message of the chat `settings`, and the reply is the list. |
 | `mkdir=1` | The folder of the record is a new folder. The bridge makes its last part before the run (9.9). Only a record with `n` makes it. Any other `mkdir=` value is ignored. |
 | `attach=<session>` | The first message of a resumed chat. It has no text. The session must be in the last list (9.6). |
 | `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not set up." |
@@ -1743,6 +1744,32 @@ The config key `voice` sets what the voice reads:
 - The bridge never stores the audio. It deletes the audio after the transcription.
 - The config can require a desktop hotkey to start a recording, so that no game record can start one. On Wayland, a global hotkey needs the portal (17).
 - A transcript runs under the game ceiling (6.6.2). Voice gives no more rights than typing.
+
+### 13.4 The settings list
+
+The Settings and Diag tabs (13.1) show values of the bridge. The game never writes `config.toml` (6.6.2), so it only reads them. `settings_list.rs` writes the list.
+
+**The request.** The addon sends a `list=settings` record of the chat `settings`, as for `list=folders` (9.9). The reply is one record, and the addon keeps its text in its saved variables with the time. So the tabs show the last list at once, also while the bridge is offline.
+
+**The reply.** One line per value: `key \t value`. Some values hold more tabs, so a reader splits a line at its first tab only. A control character inside a field becomes a space. The lines come in this order:
+
+| Key | Value |
+|---|---|
+| `version` | The version of the bridge. |
+| `sandbox` | How commands from the game run (6.6.4), as the bridge prints it at start. |
+| `default_cwd` | `default_cwd`, with `~/` for the home folder. |
+| `allowed_root` | One root of `allowed_roots`. One line for each root. |
+| `default_agent` | The name of the default agent. |
+| `agent` | `name \t kind \t level`: one line for each agent. The level is the level of the config now, so a raise on the desktop (9.3) shows at the next list. |
+| `timeout_minutes`, `permission_timeout_minutes` | The two timeouts. |
+| `story_model` | Only with `[story]`: `none`, `claude`, `claude <model>`, or `local <model>`. The address of a local model stays on the desktop. |
+| `story_budget_window_minutes` | Only with `[story]`. |
+| `allow` | One pattern of `[allow] commands`, as words. |
+| `allow_folder` | `folder \t pattern`: one pattern of `[allow.folders]`. |
+
+- The list never holds a key, an `env` entry, or the command line of an agent. A command line can hold a secret, and the game does not need it.
+- The reply is at most 32 KB after the Lua escape (S12). The allow table comes last, because only it can be long. A list that does not fit keeps its first lines and ends with a line `+`, as the folder tree does.
+- No version change (7.7): the bridge writes the relay addon again at each start, so the addon is never newer than its bridge.
 
 ## 14. Verification and tests
 

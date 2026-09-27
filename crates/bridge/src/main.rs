@@ -20,6 +20,7 @@ use bridge::model_setup;
 use bridge::raise::Raiser;
 use bridge::receive::{KeySet, RELAY_KEY_FILE};
 use bridge::run::{Paths, now, run};
+use bridge::settings_list::BridgeSettings;
 use bridge::setup::{self, KeyChoice};
 use bridge::slots::{self, Files};
 use bridge::story::StorySpec;
@@ -588,7 +589,7 @@ fn start() -> Result<()> {
         println!("wrote the Timeways key again: type /reload in the game");
     }
     let relay = match config.relay {
-        Some(relay) => Some(start_relay(relay, &paths)?),
+        Some(relay) => Some(start_relay(relay, config.story.as_ref(), &paths)?),
         None => None,
     };
     let story = match &config.story {
@@ -599,14 +600,19 @@ fn start() -> Result<()> {
 }
 
 /// An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
-fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents, Raiser)> {
+fn start_relay(
+    relay: RelayConfig,
+    story: Option<&StoryConfig>,
+    paths: &Paths,
+) -> Result<(Policy, Agents, Raiser, BridgeSettings)> {
     let hex = std::fs::read_to_string(config_dir()?.join(RELAY_KEY_FILE))?;
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
         println!("wrote the addon files again: type /reload in the game");
     }
     let gate = Gate::new(&relay, &config_dir()?, &paths.state, Prompt::Dialog);
     gate.approvals.clear();
-    println!("commands from the game run in: {}", gate.sandbox.summary());
+    let sandbox = gate.sandbox.summary();
+    println!("commands from the game run in: {sandbox}");
     let agents = agent::from_config(&relay, &gate);
     let raiser = Raiser {
         approvals: gate.approvals.clone(),
@@ -614,7 +620,8 @@ fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents, Rai
         home: home_dir()?,
         permission_timeout: relay.permission_timeout,
     };
-    Ok((relay.policy, agents, raiser))
+    let settings = BridgeSettings::from_config(&relay, story, Some(&home_dir()?), sandbox);
+    Ok((relay.policy, agents, raiser, settings))
 }
 
 fn story_spec(story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {

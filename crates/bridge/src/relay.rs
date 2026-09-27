@@ -27,6 +27,7 @@ pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
 use crate::new_folder::{NewFolderError, is_folder_name};
 use crate::reply::render_reply;
+use crate::settings_list::{BridgeSettings, settings_reply};
 use crate::state::State;
 
 const BAD_FOLDER: &str = "Folder not allowed.";
@@ -67,6 +68,8 @@ pub enum Work {
     ListSessions,
     /// The folder tree of the roots, for the folder browser.
     ListFolders,
+    /// What the bridge allows, for the Settings and Diag tabs.
+    ListSettings,
     /// A new chat continues this session. A session that is open in a terminal gets a
     /// fork, so the two never write into one session.
     Attach { session: String, fork: bool },
@@ -385,6 +388,7 @@ impl Relay {
             work: match kind {
                 ListKind::Sessions => Work::ListSessions,
                 ListKind::Folders => Work::ListFolders,
+                ListKind::Settings => Work::ListSettings,
             },
             new_folder: false,
         })
@@ -682,6 +686,13 @@ impl Relay {
         self.activity.end(&job.chat, job.id);
         self.running.remove(&job.chat);
         let text = folder_reply(&self.policy.folders, snapshot);
+        self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
+    }
+
+    /// Answers a settings list with the values of the bridge (SPEC.md 13.1).
+    pub fn finish_settings(&mut self, job: &Job, settings: &BridgeSettings) {
+        self.running.remove(&job.chat);
+        let text = settings_reply(settings, &self.policy);
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
 
@@ -1598,6 +1609,24 @@ mod tests {
         list_folders(&mut relay, 1, &found);
         relay.on_frame(&[record_in("app", "c1", 2, "n", "hi")], NOW);
         assert_eq!(relay.next_job().unwrap().cwd, "/home/x/Code/app");
+    }
+
+    #[test]
+    fn a_settings_list_answers_with_the_values_of_the_bridge() {
+        let mut relay = relay();
+        relay.on_frame(&[record("settings", 5, "list=settings", "")], NOW);
+        let job = relay.next_job().unwrap();
+        assert_eq!(job.work, Work::ListSettings);
+
+        relay.finish_settings(&job, &BridgeSettings::default());
+
+        let body = body(&relay);
+        assert!(
+            body.contains("chat = \"settings\", id = 5, status = \"done\""),
+            "{body}"
+        );
+        assert!(body.contains(r"default_agent\009claude"), "{body}");
+        assert!(relay.next_job().is_none());
     }
 
     #[test]

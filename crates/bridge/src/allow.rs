@@ -48,6 +48,17 @@ impl AllowTable {
         }
         rules
     }
+
+    /// Each pattern as words, for the settings list of the game: the patterns of every
+    /// chat, and each folder with one of its patterns.
+    pub fn patterns(&self) -> (Vec<String>, Vec<(PathBuf, String)>) {
+        let everywhere = self.everywhere.iter().map(|r| r.join(" ")).collect();
+        let mut folders = Vec::new();
+        for (folder, rules) in &self.folders {
+            folders.extend(rules.iter().map(|r| (folder.clone(), r.join(" "))));
+        }
+        (everywhere, folders)
+    }
 }
 
 /// A pattern is words with a space between them, and a last `*` that shows that more
