@@ -196,6 +196,13 @@ impl Approvals {
         check_real_dir(&self.dir)
     }
 
+    /// A plain notice with no buttons, only when the bridge shows dialogs.
+    pub fn notice(&self, text: &str) {
+        if self.prompt == Prompt::Dialog {
+            crate::dialog::show_notice(text);
+        }
+    }
+
     /// Writes a new request, and shows a dialog when the desktop has one.
     pub fn open(&self, agent: &str, folder: &str, text: &str, now: u32) -> Result<Opened> {
         self.open_kind(agent, folder, text, now, Kind::ToolCall)

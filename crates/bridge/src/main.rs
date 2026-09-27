@@ -7,6 +7,7 @@ use bridge::agent;
 use bridge::agent::Agents;
 #[cfg(unix)]
 use bridge::agent_wall;
+use bridge::always_rules::{self, AlwaysRules};
 use bridge::command_sandbox;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::config_text::RelayPart;
@@ -14,7 +15,7 @@ use bridge::desktop::{self, Approvals, Prompt};
 #[cfg(unix)]
 use bridge::forward;
 use bridge::fs_safe::write_atomic;
-use bridge::gate::Gate;
+use bridge::gate::{Gate, Places};
 use bridge::install;
 use bridge::lock::{self, Bridge};
 use bridge::model::ModelChoice;
@@ -644,7 +645,12 @@ fn start_relay(
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
         println!("wrote the addon files again: type /reload in the game");
     }
-    let gate = Gate::new(&relay, &config_dir()?, &paths.state, Prompt::Dialog);
+    let places = Places {
+        config_dir: &config_dir()?,
+        data_dir: &paths.state,
+        home: &home_dir()?,
+    };
+    let gate = Gate::new(&relay, &places, Prompt::Dialog);
     gate.approvals.clear();
     let sandbox = gate.sandbox.summary();
     println!("commands from the game run in: {sandbox}");
@@ -655,7 +661,8 @@ fn start_relay(
         home: home_dir()?,
         permission_timeout: relay.permission_timeout,
     };
-    let settings = BridgeSettings::from_config(&relay, story, Some(&home_dir()?), sandbox);
+    let mut settings = BridgeSettings::from_config(&relay, story, Some(&home_dir()?), sandbox);
+    settings.rules.store = gate.always.clone();
     Ok((relay.policy, agents, raiser, settings))
 }
 
@@ -694,7 +701,12 @@ fn agent_line(config: &RelayConfig) -> String {
 
 /// A check sends no prompt, so no tool call reaches this gate.
 fn check_gate(config: &RelayConfig) -> Result<Gate> {
-    Ok(Gate::new(config, &config_dir()?, &data_dir()?, Prompt::Off))
+    let places = Places {
+        config_dir: &config_dir()?,
+        data_dir: &data_dir()?,
+        home: &home_dir()?,
+    };
+    Ok(Gate::new(config, &places, Prompt::Off))
 }
 
 fn approvals() -> Result<Approvals> {
@@ -720,6 +732,36 @@ fn list_approvals() -> Result<()> {
 fn answer_approval(id: &str, verdict: desktop::Verdict) -> Result<()> {
     approvals()?.answer(id, verdict)?;
     println!("answered {id}");
+    Ok(())
+}
+
+/// Lists the "Always allow" rules from the game (SPEC.md 6.6.5).
+fn list_rules() -> Result<()> {
+    let rules = AlwaysRules::new(&data_dir()?).list(now());
+    if rules.is_empty() {
+        println!("no Always allow rules");
+    }
+    for r in rules {
+        let scope = match r.scope {
+            always_rules::Scope::Tree => "and the folders inside",
+            always_rules::Scope::Exact => "only",
+        };
+        let days = r.days_unused(now());
+        println!(
+            "{}  {}  in {} ({scope}), last used {days} days ago",
+            r.id,
+            r.pattern(),
+            r.folder.display()
+        );
+    }
+    Ok(())
+}
+
+fn remove_rule(id: &str) -> Result<()> {
+    if !AlwaysRules::new(&data_dir()?).remove(id, now())? {
+        bail!("no rule has the id {id}. Run: gnomish-relay rules");
+    }
+    println!("removed {id}");
     Ok(())
 }
 
@@ -788,6 +830,8 @@ fn main() -> Result<()> {
         ["approve"] => list_approvals(),
         ["approve", id] => answer_approval(id, desktop::Verdict::Approve),
         ["deny", id] => answer_approval(id, desktop::Verdict::Deny),
+        ["rules"] => list_rules(),
+        ["rules", "remove", id] => remove_rule(id),
         ["say", chat, id, text] => say(chat, id, text),
         ["selftest", "collect", ref rest @ ..] => selftest_collect(rest),
         [command_sandbox::RUN_FLAG, command] => {

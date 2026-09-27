@@ -3,7 +3,8 @@
 
 use protocol::apps::App;
 use protocol::live::{
-    MAX_LINES, PermOption, Progress, Request, live_body, prepare_progress, prepare_requests,
+    MAX_LINES, OptionKind, PermOption, Progress, Request, live_body, prepare_progress,
+    prepare_requests,
 };
 use std::fmt::Write;
 
@@ -164,12 +165,18 @@ impl Activity {
         let asked = &self.asked[at];
         let fits = &asked.chat == chat
             && answer.option < asked.choices.len()
-            && text_hash(&asked.text) == answer.hash;
+            && asked.hash_of(answer.option) == answer.hash;
         if fits {
             let asked = self.asked.remove(at);
             self.answers.push((asked.request, Some(answer.option)));
         }
         fits
+    }
+
+    /// The open question of a run needs no answer any more. A run waits for one
+    /// question at a time.
+    pub fn withdraw(&mut self, chat: &ChatId, id: MessageId) {
+        self.asked.retain(|a| !(&a.chat == chat && a.id == id));
     }
 
     pub fn take_answers(&mut self) -> Vec<(String, Option<usize>)> {
@@ -213,6 +220,19 @@ impl Activity {
 }
 
 impl Asked {
+    /// The hash of what the popup showed for this choice. For "Always allow" that is
+    /// also its rule line, so the hash binds the rule that the user saw (SPEC.md 6.6.5).
+    fn hash_of(&self, option: usize) -> String {
+        let choice = &self.choices[option];
+        if !matches!(choice.kind, OptionKind::AllowAlways) {
+            return text_hash(&self.text);
+        }
+        let mut shown = self.text.clone();
+        shown.push(b'\n');
+        shown.extend_from_slice(choice.label.as_bytes());
+        text_hash(&shown)
+    }
+
     fn to_request(&self) -> Request {
         Request {
             request: self.request.as_bytes().to_vec(),
@@ -300,6 +320,45 @@ mod tests {
         assert!(!activity.answer(&ChatId("c2".into()), &answer(&request, 0, b"cargo test")));
         assert!(activity.take_answers().is_empty());
         assert!(activity.is_open(&request));
+    }
+
+    fn with_always() -> Vec<Choice> {
+        vec![
+            Choice {
+                kind: OptionKind::AllowOnce,
+                label: "Allow".into(),
+            },
+            Choice {
+                kind: OptionKind::AllowAlways,
+                label: "make * in Code/app".into(),
+            },
+        ]
+    }
+
+    #[test]
+    fn an_always_answer_counts_only_with_the_hash_of_the_text_and_the_rule_line() {
+        let mut activity = Activity::default();
+        let request = activity.ask(&chat(), MessageId(7), b"make".to_vec(), with_always(), 1);
+        assert!(!activity.answer(&chat(), &answer(&request, 1, b"make")));
+        assert!(!activity.answer(&chat(), &answer(&request, 1, b"make\nmake * in Code")));
+        assert!(activity.answer(&chat(), &answer(&request, 1, b"make\nmake * in Code/app")));
+        assert_eq!(activity.take_answers(), [(request, Some(1))]);
+    }
+
+    #[test]
+    fn allow_once_next_to_always_keeps_the_hash_of_the_text() {
+        let mut activity = Activity::default();
+        let request = activity.ask(&chat(), MessageId(7), b"make".to_vec(), with_always(), 1);
+        assert!(activity.answer(&chat(), &answer(&request, 0, b"make")));
+    }
+
+    #[test]
+    fn a_withdrawn_question_leaves_the_file_and_takes_no_answer() {
+        let mut activity = Activity::default();
+        let request = activity.ask(&chat(), MessageId(7), b"make".to_vec(), choices(), 1);
+        activity.withdraw(&chat(), MessageId(7));
+        assert!(!activity.is_open(&request));
+        assert!(!activity.answer(&chat(), &answer(&request, 0, b"make")));
     }
 
     #[test]

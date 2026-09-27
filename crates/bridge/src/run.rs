@@ -279,6 +279,7 @@ impl RelayLane {
     fn step(&mut self, keys: &KeySet, addons: &Path) {
         self.take_saved_variables(keys);
         self.signal_stops();
+        self.remove_rules();
         self.take_events();
         self.pass_answers();
         self.finish_runs();
@@ -343,7 +344,8 @@ impl RelayLane {
                 Work::ListSessions => self.start_list(job),
                 Work::ListFolders => self.start_folder_list(job),
                 Work::ListSettings => {
-                    self.relay.finish_settings(&job, &self.settings);
+                    let rules = self.settings.rules.lines(now());
+                    self.relay.finish_settings(&job, &self.settings, &rules);
                     self.files.changed = true;
                 }
                 Work::Prompt | Work::Attach { .. } => self.start_run(job),
@@ -454,6 +456,15 @@ impl RelayLane {
         });
     }
 
+    fn remove_rules(&mut self) {
+        for id in self.relay.take_rule_removals() {
+            match self.settings.rules.store.remove(&id, now()) {
+                Ok(found) => log(&format!("rule {id} removed from the game: {found}")),
+                Err(e) => log(&format!("rule {id} not removed: {e:#}")),
+            }
+        }
+    }
+
     fn signal_stops(&mut self) {
         for chat in self.relay.take_cancels() {
             self.signal(&chat, StopReason::Stop);
@@ -477,6 +488,11 @@ impl RelayLane {
                 Event::Desktop(notice) => {
                     log(&format!("{} #{}: {}", chat.0, id.0, notice.line()));
                     self.relay.desktop(&chat, id, notice);
+                }
+                Event::Withdrawn => {
+                    self.relay.withdraw(&chat, id);
+                    let relay = &self.relay;
+                    self.answers.retain(|request, _| relay.is_asked(request));
                 }
                 Event::Question(question) => {
                     let request = self

@@ -35,6 +35,8 @@ pub struct CodingFlags {
     pub perm: Option<PermAnswer>,
     /// `mkdir=1`: the first message of a chat in a new folder (SPEC.md 9.9).
     pub new_folder: bool,
+    /// `rule=remove:<id>`: the Settings tab removes an "Always allow" rule (SPEC.md 6.6.5).
+    pub remove_rule: Option<String>,
 }
 
 /// What a list request asks for: `list`, `list=folders`, or `list=settings`.
@@ -78,6 +80,16 @@ fn perm_answer(value: &str) -> Option<PermAnswer> {
         option,
         hash: hash.to_owned(),
     })
+}
+
+/// The 4 hex digits of a rule.
+fn rule_removal(value: &str) -> Option<String> {
+    let id = value.strip_prefix("remove:")?;
+    let hex = id.len() == 4
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b));
+    hex.then(|| id.to_owned())
 }
 
 /// The last result of a channel in the self-test of the addon (SPEC.md 7.8).
@@ -150,6 +162,7 @@ pub fn coding(bytes: &[u8]) -> CodingFlags {
             Some(("mkdir", "1")) => flags.new_folder = true,
             Some(("level", word)) => flags.level = Some(Permission::from_game(word)),
             Some(("perm", value)) => flags.perm = perm_answer(value),
+            Some(("rule", value)) => flags.remove_rule = rule_removal(value),
             Some(("attach", id)) if is_session_id(id) => flags.attach = Some(id.to_owned()),
             Some(("agent", name)) if protocol::record::is_valid_id(name.as_bytes()) => {
                 flags.agent = Some(name.to_owned());
@@ -184,6 +197,23 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_removal_takes_only_four_hex_digits() {
+        assert_eq!(
+            coding(b"rule=remove:a1b2").remove_rule.as_deref(),
+            Some("a1b2")
+        );
+        for bad in [
+            &b"rule=remove:A1B2"[..],
+            b"rule=remove:a1b",
+            b"rule=remove:a1b2c",
+            b"rule=add:a1b2",
+            b"rule=remove:../x",
+        ] {
+            assert_eq!(coding(bad).remove_rule, None, "{bad:?}");
+        }
+    }
+
+    #[test]
     fn every_coding_flag_parses() {
         assert_eq!(
             coding(EVERY_FLAG),
@@ -197,6 +227,7 @@ mod tests {
                 level: Some(Permission::AutoEdit),
                 perm: None,
                 new_folder: true,
+                remove_rule: None,
             }
         );
     }

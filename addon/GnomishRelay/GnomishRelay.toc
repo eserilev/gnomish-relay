@@ -20,6 +20,7 @@ Transcript.lua
 Folders.lua
 Browser.lua
 BridgeSettings.lua
+RulesGroup.lua
 SettingsTab.lua
 DiagTab.lua
 Window.lua

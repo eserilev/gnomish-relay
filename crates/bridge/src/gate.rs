@@ -4,13 +4,16 @@
 
 use std::path::{Path, PathBuf};
 
-use protocol::action::{ToolCall, Verdict, classify};
+use protocol::action::{Policy, ToolCall, Verdict, classify};
 use protocol::live::OptionKind;
+use protocol::shell::split;
 
 use crate::action_input::{self, resolve};
 use crate::agent::Choice;
 use crate::agent_wall::AgentWall;
 use crate::allow::AllowTable;
+use crate::always_offer::{Offer, Place, offer_for};
+use crate::always_rules::{AlwaysRules, Rule, words_for};
 use crate::command_sandbox::CommandSandbox;
 use crate::config::{Permission, RelayConfig};
 use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Waiting};
@@ -44,6 +47,14 @@ pub enum Coverage {
     Every,
     /// Only the calls that the agent asks about: other ACP agents.
     Asked,
+}
+
+/// Whether the popup of this backend can offer "Always allow" (SPEC.md 6.6.5). Only
+/// where the command sandbox is the wall for what a rule allows.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Always {
+    Offer,
+    Never,
 }
 
 /// What happens to a tool call.
@@ -131,6 +142,17 @@ pub struct Job<'a> {
     pub level: Permission,
     pub coverage: Coverage,
     pub sandboxing: Sandboxing,
+    pub always: Always,
+}
+
+impl Job<'_> {
+    /// At `full-auto` a command runs anyway, and at `ask` every command asks.
+    fn offers_always(&self) -> bool {
+        self.always == Always::Offer
+            && self.level == Permission::AutoEdit
+            && self.coverage == Coverage::Every
+            && self.sandboxing == Sandboxing::On
+    }
 }
 
 /// Why a call does not run.
@@ -170,12 +192,23 @@ pub struct Gate {
     pub sandbox: CommandSandbox,
     /// The wall of each agent process (SPEC.md 6.6.4).
     pub wall: AgentWall,
+    /// The "Always allow" rules from the game, in the data folder.
+    pub always: AlwaysRules,
+    /// A rule of the home folder covers only that folder.
+    pub home: PathBuf,
+}
+
+/// Where the gate of the bridge finds its files.
+pub struct Places<'a> {
+    /// Holds `config.toml`.
+    pub config_dir: &'a Path,
+    /// Holds the desktop requests and `rules.json`.
+    pub data_dir: &'a Path,
+    pub home: &'a Path,
 }
 
 impl Gate {
-    /// The gate of the bridge: `config_dir` holds `config.toml`, and `data_dir` holds the
-    /// desktop requests.
-    pub fn new(config: &RelayConfig, config_dir: &Path, data_dir: &Path, prompt: Prompt) -> Gate {
+    pub fn new(config: &RelayConfig, places: &Places, prompt: Prompt) -> Gate {
         let roots = config
             .policy
             .folders
@@ -185,35 +218,124 @@ impl Gate {
             .collect();
         Gate {
             roots,
-            config_dir: config_dir.to_owned(),
-            data_dir: data_dir.to_owned(),
+            config_dir: places.config_dir.to_owned(),
+            data_dir: places.data_dir.to_owned(),
             allow: std::sync::Arc::new(config.allow.clone()),
-            approvals: Approvals::new(data_dir, prompt),
+            approvals: Approvals::new(places.data_dir, prompt),
             sandbox: CommandSandbox::detect(config.hosts.clone(), &config.local_ports),
-            wall: AgentWall::detect(data_dir, config.agent_network, &config.local_ports),
+            wall: AgentWall::detect(places.data_dir, config.agent_network, &config.local_ports),
+            always: AlwaysRules::new(places.data_dir),
+            home: places.home.to_owned(),
         }
     }
 
-    fn verdict(&self, call: &Call, chat: &Path) -> Verdict {
+    fn policy(&self, chat: &Path) -> Policy {
         let deny =
             [&self.config_dir, &self.data_dir].map(|d| resolve(d).unwrap_or_else(|| d.clone()));
         let rules = self.allow.rules_for(chat);
-        let policy = action_input::policy(&self.roots, chat, &deny, &rules);
-        classify(&call.tool, &policy, &[])
+        action_input::policy(&self.roots, chat, &deny, &rules)
     }
 
     /// `Ok` when the call runs. A question waits in the game or on the desktop.
     pub fn check(&self, call: &Call, job: &Job, turn: &mut Turn) -> Result<(), Refusal> {
         let chat = resolve(Path::new(job.cwd)).unwrap_or_else(|| PathBuf::from(job.cwd));
-        let verdict = self.verdict(call, &chat);
+        let now = crate::run::now();
+        let rules = self.always.list(now);
+        let policy = self.policy(&chat);
+        let verdict = classify(&call.tool, &policy, &words_for(&rules, &chat));
         let step = decide(job.level, verdict, call.effect, job.coverage);
         match without_sandbox(step, call.effect, job.sandboxing) {
-            Step::Run => Ok(()),
+            Step::Run => {
+                self.note_use(call, &policy, &chat, &rules, now);
+                Ok(())
+            }
             Step::Refuse => Err(Refusal::by_rule(
                 "It touches the config or data folder of Gnomish Relay, which the agent never reaches.",
             )),
-            Step::AskGame => ask_game(call, turn),
+            Step::AskGame => {
+                let asking = Asking {
+                    call,
+                    job,
+                    policy: &policy,
+                    chat: &chat,
+                };
+                self.ask_game(&asking, &rules, turn)
+            }
             Step::AskDesktop => self.ask_desktop(call, job, turn),
+        }
+    }
+
+    /// A rule that let a command run counts as used today, so it does not expire.
+    fn note_use(&self, call: &Call, policy: &Policy, chat: &Path, rules: &[Rule], now: u32) {
+        let ToolCall::Command { raw, .. } = &call.tool else {
+            return;
+        };
+        if rules.is_empty() || classify(&call.tool, policy, &[]) == Verdict::Allow {
+            return;
+        }
+        let Some(script) = split(raw) else {
+            return;
+        };
+        let commands: Vec<Vec<Vec<u8>>> = script.simples.into_iter().map(|s| s.words).collect();
+        self.always.mark_used(chat, &commands, now);
+    }
+
+    fn offer(&self, asking: &Asking, rules: &[Rule]) -> Option<Offer> {
+        if !asking.job.offers_always() || !self.always.is_on() {
+            return None;
+        }
+        let place = Place {
+            chat: asking.chat,
+            roots: &self.roots,
+            home: &self.home,
+        };
+        offer_for(&asking.call.tool, asking.policy, rules, &place)
+    }
+
+    /// True once a rule that another popup added covers the call (SPEC.md 6.6.5).
+    fn now_covered(&self, asking: &Asking) -> bool {
+        if !asking.job.offers_always() {
+            return false;
+        }
+        let rules = self.always.list(crate::run::now());
+        let game = words_for(&rules, asking.chat);
+        !game.is_empty() && classify(&asking.call.tool, asking.policy, &game) == Verdict::Allow
+    }
+
+    fn grant(&self, offer: &Offer) {
+        let now = crate::run::now();
+        if let Err(e) = self
+            .always
+            .grant(&offer.folder, offer.scope, &offer.rules, now)
+        {
+            crate::run::log(&format!("rule not added: {e:#}"));
+            return;
+        }
+        crate::run::log(&format!("rule added: {}", offer.line));
+        self.approvals.notice(&format!(
+            "Rule added: {}. Remove it in the Settings tab of the game, or run: gnomish-relay rules",
+            offer.line
+        ));
+    }
+
+    fn ask_game(&self, asking: &Asking, rules: &[Rule], turn: &mut Turn) -> Result<(), Refusal> {
+        if !turn.listening() {
+            return Err(Refusal::by_rule(NOT_FROM_THE_GAME));
+        }
+        let offer = self.offer(asking, rules);
+        let choices = game_choices(offer.as_ref().map(|o| o.line.clone()));
+        let covered = || self.now_covered(asking);
+        match turn.ask_game(asking.call.text.clone(), choices, &covered) {
+            Answer::Game(0) | Answer::Covered => Ok(()),
+            Answer::Game(1) if offer.is_some() => {
+                if let Some(offer) = &offer {
+                    self.grant(offer);
+                }
+                Ok(())
+            }
+            Answer::Game(_) => Err(Refusal::ByUser),
+            Answer::NewMessage => Err(Refusal::by_rule(NEW_MESSAGE)),
+            Answer::Desktop(_) | Answer::None => Err(Refusal::by_rule("No answer from the game.")),
         }
     }
 
@@ -229,7 +351,9 @@ impl Gate {
             Answer::Desktop(true) => Ok(()),
             Answer::Desktop(false) => Err(Refusal::by_rule("Denied on the desktop.")),
             Answer::NewMessage => Err(Refusal::by_rule(NEW_MESSAGE)),
-            Answer::Game(_) | Answer::None => Err(Refusal::by_rule("No answer on the desktop.")),
+            Answer::Game(_) | Answer::None | Answer::Covered => {
+                Err(Refusal::by_rule("No answer on the desktop."))
+            }
         }
     }
 }
@@ -259,36 +383,37 @@ pub fn wait_on_the_desktop(
     let waiting = match answer {
         Answer::Desktop(true) => Waiting::Approved,
         Answer::Desktop(false) => Waiting::Denied,
-        Answer::Game(_) | Answer::None | Answer::NewMessage => Waiting::NoAnswer,
+        Answer::Game(_) | Answer::None | Answer::NewMessage | Answer::Covered => Waiting::NoAnswer,
     };
     turn.desktop(notice.ended(waiting));
     answer
 }
 
-/// Allow and Deny. The game never gets "allow always" (6.6.5).
-pub fn game_choices() -> Vec<Choice> {
-    vec![
-        Choice {
-            kind: OptionKind::AllowOnce,
-            label: "Allow".into(),
-        },
-        Choice {
-            kind: OptionKind::RejectOnce,
-            label: "Deny".into(),
-        },
-    ]
+/// A game question and what the gate knows about it.
+struct Asking<'a> {
+    call: &'a Call,
+    job: &'a Job<'a>,
+    policy: &'a Policy,
+    /// Resolved.
+    chat: &'a Path,
 }
 
-fn ask_game(call: &Call, turn: &mut Turn) -> Result<(), Refusal> {
-    if !turn.listening() {
-        return Err(Refusal::by_rule(NOT_FROM_THE_GAME));
-    }
-    match turn.ask_game(call.text.clone(), game_choices()) {
-        Answer::Game(0) => Ok(()),
-        Answer::Game(_) => Err(Refusal::ByUser),
-        Answer::NewMessage => Err(Refusal::by_rule(NEW_MESSAGE)),
-        Answer::Desktop(_) | Answer::None => Err(Refusal::by_rule("No answer from the game.")),
-    }
+/// Allow, "Always allow" with its rule line when the popup offers it, and Deny. The
+/// bridge made the line, never the agent (SPEC.md 6.6.5).
+pub fn game_choices(always: Option<String>) -> Vec<Choice> {
+    let allow = Choice {
+        kind: OptionKind::AllowOnce,
+        label: "Allow".into(),
+    };
+    let always = always.map(|line| Choice {
+        kind: OptionKind::AllowAlways,
+        label: line,
+    });
+    let deny = Choice {
+        kind: OptionKind::RejectOnce,
+        label: "Deny".into(),
+    };
+    std::iter::once(allow).chain(always).chain([deny]).collect()
 }
 
 #[cfg(test)]
@@ -412,6 +537,8 @@ mod tests {
             approvals: Approvals::new(&home.join("data"), desktop::Prompt::Off),
             sandbox: CommandSandbox::none(),
             wall: AgentWall::none(),
+            always: AlwaysRules::new(&home.join("data")),
+            home: home.clone(),
         };
         Setup {
             _tmp: tmp,
@@ -435,6 +562,7 @@ mod tests {
             level,
             coverage: Coverage::Every,
             sandboxing: Sandboxing::On,
+            always: Always::Offer,
         };
         let mut turn = Turn::new(wait, wait, crate::agent::Control::default());
         s.gate.check(call, &job, &mut turn)
@@ -551,6 +679,7 @@ mod tests {
             level: Permission::AutoEdit,
             coverage: Coverage::Every,
             sandboxing: Sandboxing::On,
+            always: Always::Offer,
         };
         let mut turn = Turn::new(SHORT, SHORT, control);
         let call = read(s.home.join(".ssh").join("id_rsa"));
@@ -563,7 +692,7 @@ mod tests {
             .map(|(_, _, event)| match event {
                 Event::Desktop(notice) => notice.line(),
                 Event::Question(_) => "a game request".into(),
-                Event::Progress(_) | Event::Raised { .. } => String::new(),
+                Event::Progress(_) | Event::Raised { .. } | Event::Withdrawn => String::new(),
             })
             .collect();
         assert_eq!(lines.len(), 2, "{lines:?}");
@@ -585,6 +714,7 @@ mod tests {
             level: Permission::AutoEdit,
             coverage: Coverage::Every,
             sandboxing: Sandboxing::On,
+            always: Always::Offer,
         };
         let long = std::time::Duration::from_secs(30);
         let mut turn = Turn::new(long, long, control);
@@ -598,6 +728,259 @@ mod tests {
         assert_eq!(refusal.reason(), "The player sent a new message.");
         assert!(started.elapsed() < std::time::Duration::from_secs(5));
         assert!(s.gate.approvals.list().is_empty(), "the request closed");
+    }
+
+    /// What the game saw and answered for one check with the game listening.
+    struct Asked {
+        result: Result<(), Refusal>,
+        /// The labels of the choices of each question.
+        questions: Vec<Vec<String>>,
+        withdrawn: bool,
+    }
+
+    fn job_for(cwd: &str, level: Permission, always: Always, sandboxing: Sandboxing) -> Job<'_> {
+        Job {
+            agent: "claude",
+            cwd,
+            level,
+            coverage: Coverage::Every,
+            sandboxing,
+            always,
+        }
+    }
+
+    /// Answers each question with `choice`, or never with `None`.
+    fn ask_with_game(s: &Setup, call: &Call, job: &Job, choice: Option<usize>) -> Asked {
+        use crate::agent::{Control, Event, Events};
+        use crate::relay::{ChatId, MessageId, Session, Work};
+        let run = crate::relay::Job {
+            token: "tok".into(),
+            chat: ChatId("c1".into()),
+            id: MessageId(1),
+            agent: "claude".into(),
+            permission: job.level,
+            asked: job.level,
+            cwd: job.cwd.into(),
+            session: Session::New,
+            resume: None,
+            text: "hi".into(),
+            work: Work::Prompt,
+            new_folder: false,
+        };
+        let (to, events) = std::sync::mpsc::channel();
+        let control = Control {
+            events: Events::to_bridge(to, &run),
+            ..Control::default()
+        };
+        let seen = std::thread::spawn(move || {
+            let mut questions = Vec::new();
+            let mut withdrawn = false;
+            let mut open = Vec::new();
+            while let Ok((_, _, event)) = events.recv() {
+                match event {
+                    Event::Question(q) => {
+                        questions.push(q.choices.iter().map(|c| c.label.clone()).collect());
+                        match choice {
+                            Some(c) => q.answer.send(Some(c)).unwrap(),
+                            None => open.push(q.answer),
+                        }
+                    }
+                    Event::Withdrawn => withdrawn = true,
+                    _ => {}
+                }
+            }
+            (questions, withdrawn)
+        });
+        let wait = std::time::Duration::from_secs(10);
+        let mut turn = Turn::new(wait, wait, control);
+        let result = s.gate.check(call, job, &mut turn);
+        drop(turn);
+        let (questions, withdrawn) = seen.join().unwrap();
+        Asked {
+            result,
+            questions,
+            withdrawn,
+        }
+    }
+
+    fn command(s: &Setup, raw: &str) -> Call {
+        Call::command(raw, &s.chat, raw.as_bytes().to_vec(), "Bash".into())
+    }
+
+    const ALWAYS: usize = 1;
+
+    #[test]
+    fn a_command_at_auto_edit_offers_always_with_the_rule_line() {
+        let s = setup();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let asked = ask_with_game(&s, &command(&s, "make test"), &job, Some(0));
+        assert_eq!(asked.result, Ok(()));
+        assert_eq!(
+            asked.questions,
+            vec![vec![
+                "Allow".to_owned(),
+                "make * in Code/app".to_owned(),
+                "Deny".to_owned()
+            ]]
+        );
+        assert!(
+            s.gate.always.list(crate::run::now()).is_empty(),
+            "allow once adds no rule"
+        );
+    }
+
+    #[test]
+    fn always_adds_the_rule_and_the_next_same_command_runs_with_no_question() {
+        let s = setup();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let first = ask_with_game(&s, &command(&s, "cargo test -p x"), &job, Some(ALWAYS));
+        assert_eq!(first.result, Ok(()));
+        let rules = s.gate.always.list(crate::run::now());
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].pattern(), "cargo test *");
+        assert_eq!(rules[0].folder, s.chat);
+
+        let next = ask_with_game(&s, &command(&s, "cargo test -q"), &job, Some(2));
+
+        assert_eq!(next.result, Ok(()));
+        assert!(next.questions.is_empty(), "{:?}", next.questions);
+        let other = ask_with_game(&s, &command(&s, "cargo build"), &job, Some(2));
+        assert_eq!(
+            other.result,
+            Err(Refusal::ByUser),
+            "a rule covers only its words"
+        );
+    }
+
+    #[test]
+    fn with_no_always_choice_the_second_button_is_deny() {
+        let s = setup();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let job = job_for(&cwd, Permission::AutoEdit, Always::Never, Sandboxing::On);
+        let asked = ask_with_game(&s, &command(&s, "make"), &job, Some(1));
+        assert_eq!(asked.result, Err(Refusal::ByUser));
+        assert_eq!(
+            asked.questions,
+            vec![vec!["Allow".to_owned(), "Deny".to_owned()]]
+        );
+        assert!(s.gate.always.list(crate::run::now()).is_empty());
+    }
+
+    #[test]
+    fn at_ask_with_no_sandbox_or_for_codex_the_popup_has_no_always() {
+        let s = setup();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let cases = [
+            job_for(&cwd, Permission::Ask, Always::Offer, Sandboxing::On),
+            job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::Off),
+            job_for(&cwd, Permission::AutoEdit, Always::Never, Sandboxing::On),
+        ];
+        for (i, job) in cases.iter().enumerate() {
+            let asked = ask_with_game(&s, &command(&s, "make"), job, Some(0));
+            assert_eq!(
+                asked.questions,
+                vec![vec!["Allow".to_owned(), "Deny".to_owned()]],
+                "case {i}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_rule_does_not_apply_at_the_level_ask() {
+        let s = setup();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let auto = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        ask_with_game(&s, &command(&s, "make"), &auto, Some(ALWAYS));
+        let ask = job_for(&cwd, Permission::Ask, Always::Offer, Sandboxing::On);
+        let asked = ask_with_game(&s, &command(&s, "make"), &ask, Some(0));
+        assert_eq!(asked.questions.len(), 1, "every command asks at ask");
+    }
+
+    #[test]
+    fn a_push_or_a_recursive_rm_gets_no_always() {
+        let s = setup();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        for raw in ["git push", "rm -rf target", "npx x"] {
+            let asked = ask_with_game(&s, &command(&s, raw), &job, Some(0));
+            assert_eq!(
+                asked.questions,
+                vec![vec!["Allow".to_owned(), "Deny".to_owned()]],
+                "{raw}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_open_question_ends_when_another_popup_adds_a_rule_that_covers_it() {
+        let s = setup();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let always = s.gate.always.clone();
+        let chat = s.chat.clone();
+        let granting = std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            let rule = [vec!["make".to_owned()]];
+            always
+                .grant(
+                    &chat,
+                    crate::always_rules::Scope::Tree,
+                    &rule,
+                    crate::run::now(),
+                )
+                .unwrap();
+        });
+
+        let asked = ask_with_game(&s, &command(&s, "make"), &job, None);
+
+        granting.join().unwrap();
+        assert_eq!(asked.result, Ok(()));
+        assert!(asked.withdrawn, "the popup goes");
+    }
+
+    #[test]
+    fn a_rule_that_lets_a_command_run_counts_as_used_today() {
+        let s = setup();
+        let now = crate::run::now();
+        let mut rule = crate::always_rules::Rule {
+            id: "a1b2".into(),
+            folder: s.chat.clone(),
+            scope: crate::always_rules::Scope::Tree,
+            words: vec!["make".into()],
+            added: now,
+            used_day: crate::always_rules::day_of(now) - 5,
+        };
+        crate::always_rules::save(&s.home.join("data"), std::slice::from_ref(&rule)).unwrap();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+
+        let asked = ask_with_game(&s, &command(&s, "make all"), &job, None);
+
+        assert_eq!(asked.result, Ok(()));
+        rule.used_day = crate::always_rules::day_of(now);
+        assert_eq!(s.gate.always.list(now), vec![rule]);
+    }
+
+    #[test]
+    fn a_rule_in_an_allowed_root_covers_only_that_folder() {
+        let s = setup();
+        let root = s.chat.parent().unwrap().to_owned();
+        let cwd = root.to_string_lossy().into_owned();
+        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let call = Call::command("make", &root, b"make".to_vec(), "Bash".into());
+        ask_with_game(&s, &call, &job, Some(ALWAYS));
+        let rules = s.gate.always.list(crate::run::now());
+        assert_eq!(rules[0].scope, crate::always_rules::Scope::Exact);
+        let app = s.chat.to_string_lossy().into_owned();
+        let job = job_for(&app, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let asked = ask_with_game(&s, &command(&s, "make"), &job, Some(0));
+        assert_eq!(
+            asked.questions.len(),
+            1,
+            "the chat inside the root still asks"
+        );
     }
 
     #[test]

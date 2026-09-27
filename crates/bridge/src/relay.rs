@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::activity::{self, Activity};
 use crate::agent::{Choice, SessionInfo};
+use crate::always_rules::RuleLine;
 use crate::config::{
     Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
 };
@@ -152,6 +153,8 @@ pub struct Relay {
     sessions: Vec<AgentSession>,
     /// Chats whose run in progress got a Stop. The bridge signals each run.
     cancels: Vec<ChatId>,
+    /// The "Always allow" rules that the Settings tab removed, by id.
+    rule_removals: Vec<String>,
     /// Chats whose run waited for an answer when a new message came (SPEC.md 9.3).
     interrupts: Vec<ChatId>,
     /// Chats that the game deleted. A run of one that ends later leaves no trace.
@@ -212,6 +215,7 @@ impl Relay {
             restore_for: None,
             sessions: Vec::new(),
             cancels: Vec::new(),
+            rule_removals: Vec::new(),
             interrupts: Vec::new(),
             deleted: Vec::new(),
             listed: Vec::new(),
@@ -269,22 +273,29 @@ impl Relay {
         self.lane.add_token(token);
     }
 
+    /// Stop, delete, a permission answer, and a rule removal start no run.
+    fn took_control(&mut self, chat: &ChatId, flags: &flags::CodingFlags) -> bool {
+        if flags.stop {
+            self.stop(chat);
+        } else if flags.delete {
+            self.delete(chat.clone());
+        } else if let Some(answer) = &flags.perm {
+            self.activity.answer(chat, answer);
+        } else if let Some(id) = &flags.remove_rule {
+            self.rule_removals.push(id.clone());
+        } else {
+            return false;
+        }
+        true
+    }
+
     fn on_record(&mut self, r: &Record, now: u32) -> Outcome {
         let chat = ChatId(text(&r.chat));
         if flags::transport(&r.flags).hello {
             return Outcome::Control;
         }
         let flags = flags::coding(&r.flags);
-        if flags.stop {
-            self.stop(&chat);
-            return Outcome::Control;
-        }
-        if flags.delete {
-            self.delete(chat);
-            return Outcome::Control;
-        }
-        if let Some(answer) = &flags.perm {
-            self.activity.answer(&chat, answer);
+        if self.took_control(&chat, &flags) {
             return Outcome::Control;
         }
         if let Err(outcome) = self.admit(r, &chat, now) {
@@ -514,6 +525,10 @@ impl Relay {
         Some(job)
     }
 
+    pub fn take_rule_removals(&mut self) -> Vec<String> {
+        std::mem::take(&mut self.rule_removals)
+    }
+
     pub fn take_cancels(&mut self) -> Vec<ChatId> {
         std::mem::take(&mut self.cancels)
     }
@@ -580,6 +595,10 @@ impl Relay {
         now: u32,
     ) -> String {
         self.activity.ask(chat, id, text, choices, now)
+    }
+
+    pub fn withdraw(&mut self, chat: &ChatId, id: MessageId) {
+        self.activity.withdraw(chat, id);
     }
 
     pub fn take_answers(&mut self) -> Vec<(String, Option<usize>)> {
@@ -690,9 +709,9 @@ impl Relay {
     }
 
     /// Answers a settings list with the values of the bridge (SPEC.md 13.1).
-    pub fn finish_settings(&mut self, job: &Job, settings: &BridgeSettings) {
+    pub fn finish_settings(&mut self, job: &Job, settings: &BridgeSettings, rules: &[RuleLine]) {
         self.running.remove(&job.chat);
-        let text = settings_reply(settings, &self.policy);
+        let text = settings_reply(settings, &self.policy, rules);
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
 
@@ -1180,6 +1199,15 @@ mod tests {
     }
 
     #[test]
+    fn a_rule_removal_from_the_settings_tab_is_taken_once_and_starts_no_run() {
+        let mut relay = relay();
+        relay.on_frame(&[record("settings", 1, "rule=remove:a1b2", "")], NOW);
+        assert_eq!(relay.take_rule_removals(), ["a1b2".to_owned()]);
+        assert!(relay.take_rule_removals().is_empty());
+        assert!(relay.next_job().is_none());
+    }
+
+    #[test]
     fn stop_signals_the_run_in_progress_once() {
         let mut relay = relay();
         relay.on_frame(&[record("c1", 1, "", "long task")], NOW);
@@ -1618,7 +1646,7 @@ mod tests {
         let job = relay.next_job().unwrap();
         assert_eq!(job.work, Work::ListSettings);
 
-        relay.finish_settings(&job, &BridgeSettings::default());
+        relay.finish_settings(&job, &BridgeSettings::default(), &[]);
 
         let body = body(&relay);
         assert!(

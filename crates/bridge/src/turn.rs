@@ -89,8 +89,14 @@ impl Turn {
 
     /// Shows a question in the game and waits for the answer. `Answer::None` means no
     /// answer: nobody listens, Stop came, or `permission_timeout` passed. The run
-    /// timeout stops while the question waits (SPEC.md 9.3).
-    pub fn ask_game(&mut self, text: Vec<u8>, choices: Vec<Choice>) -> Answer {
+    /// timeout stops while the question waits (SPEC.md 9.3). Once `covered` is true, an
+    /// "Always allow" of another popup answered this one, and the question goes.
+    pub fn ask_game(
+        &mut self,
+        text: Vec<u8>,
+        choices: Vec<Choice>,
+        covered: &dyn Fn() -> bool,
+    ) -> Answer {
         let (answer, answers) = channel();
         let shown = self.events.send(Event::Question(Question {
             text,
@@ -100,11 +106,15 @@ impl Turn {
         if !shown {
             return Answer::None;
         }
-        self.wait(|| match answers.recv_timeout(POLL) {
+        let answer = self.wait(|| match answers.recv_timeout(POLL) {
             Ok(Some(chosen)) => Some(Answer::Game(chosen)),
-            Err(RecvTimeoutError::Timeout) => None,
+            Err(RecvTimeoutError::Timeout) => covered().then_some(Answer::Covered),
             Ok(None) | Err(RecvTimeoutError::Disconnected) => Some(Answer::None),
-        })
+        });
+        if answer == Answer::Covered {
+            self.events.send(Event::Withdrawn);
+        }
+        answer
     }
 
     /// Waits for `desktop`, which gives `Some` once the desktop answers. The game
@@ -150,4 +160,6 @@ pub enum Answer {
     None,
     /// The player sent a new message, which ends the wait (SPEC.md 9.3).
     NewMessage,
+    /// A rule that another popup added now covers the call (SPEC.md 6.6.5).
+    Covered,
 }

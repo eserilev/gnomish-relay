@@ -39,17 +39,27 @@ local function Folder(value)
 	return { folder = folder, pattern = pattern }
 end
 
+-- `id \t folder \t pattern \t days`: one "Always allow" rule (SPEC.md 6.6.5).
+local function Rule(value)
+	local id, folder, pattern, days = value:match("^(%x%x%x%x)\t([^\t]+)\t([^\t]+)\t(%d+)$")
+	if not id or id:find("%u") then
+		return nil
+	end
+	return { id = id, folder = folder, pattern = pattern, days = tonumber(days) }
+end
+
 -- The keys that can come on many lines, and how each line of them reads.
 local LISTS = {
 	allowed_root = { field = "roots", Read = tostring },
 	agent = { field = "agents", Read = Agent },
 	allow = { field = "allow", Read = tostring },
 	allow_folder = { field = "folders", Read = Folder },
+	rule = { field = "rules", Read = Rule },
 }
 
 -- Every other key once: the first value wins. A line that does not fit is left out.
 function BridgeSettings.Parse(text)
-	local parsed = { values = {}, roots = {}, agents = {}, allow = {}, folders = {}, cut = false }
+	local parsed = { values = {}, roots = {}, agents = {}, allow = {}, folders = {}, rules = {}, cut = false }
 	for line in Lines(text) do
 		local key, value = Split(line)
 		local list = LISTS[key]
@@ -89,9 +99,18 @@ function BridgeSettings.Ask()
 	ns.Transport.ListSettings()
 end
 
+-- A rule was added, so the next open of a tab asks for a new list.
+function BridgeSettings.MarkOld()
+	local saved = ns.Store.db.settings
+	if saved then
+		saved.old = true
+	end
+end
+
 function BridgeSettings.AskIfOld()
 	local age = BridgeSettings.Age()
-	if not age or age >= FRESH_FOR then
+	local saved = ns.Store.db.settings
+	if not age or age >= FRESH_FOR or saved.old then
 		BridgeSettings.Ask()
 	end
 end

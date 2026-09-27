@@ -17,6 +17,7 @@ use bridge::config::Permission;
 use bridge::desktop::{self, Approvals, Prompt};
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
+use protocol::live::OptionKind;
 use serde_json::json;
 
 /// A home with a code root, a chat folder, the config folder of the bridge, and `~/.ssh`.
@@ -51,6 +52,8 @@ fn home(allow_toml: &str) -> Home {
             None,
         ),
         wall: bridge::agent_wall::AgentWall::none(),
+        always: bridge::always_rules::AlwaysRules::none(),
+        home: std::env::temp_dir(),
     };
     Home {
         _tmp: tmp,
@@ -89,6 +92,24 @@ fn job(home: &Home, permission: Permission) -> Job {
         text: "go".into(),
         work: Work::Prompt,
         new_folder: false,
+    }
+}
+
+/// The gate keeps its "Always allow" rules in the data folder of the home.
+fn with_rules(mut home: Home) -> Home {
+    home.gate.always = bridge::always_rules::AlwaysRules::new(&home.path.join("data"));
+    home.gate.home = home.path.clone();
+    home
+}
+
+/// The index of the choice of this kind.
+fn choose(kind: OptionKind) -> impl Fn(&Question) -> Option<Option<usize>> + Send + 'static {
+    move |q| {
+        let at = q
+            .choices
+            .iter()
+            .position(|c| std::mem::discriminant(&c.kind) == std::mem::discriminant(&kind));
+        Some(at)
     }
 }
 
@@ -362,6 +383,47 @@ fn rm_r_asks_in_the_game_at_auto_edit_and_runs_at_full_auto() {
 }
 
 #[test]
+fn always_in_the_game_adds_a_rule_and_the_next_same_command_runs_with_no_question() {
+    let home = with_rules(home(""));
+    let first = json!({ "command": "cargo test -p x" });
+    let (reply, questions) = call_with_game(
+        &home,
+        "Bash",
+        &first,
+        Permission::AutoEdit,
+        choose(OptionKind::AllowAlways),
+    );
+    assert_eq!(reply, "allow: Allowed by Gnomish Relay.");
+    assert_eq!(questions.len(), 1);
+    assert_eq!(questions[0].choices[1].label, "cargo test * in Code/app");
+
+    let next = json!({ "command": "cargo test -q" });
+    let (reply, questions) = call_with_game(&home, "Bash", &next, Permission::AutoEdit, |_| None);
+
+    assert_eq!(reply, "allow: Allowed by Gnomish Relay.");
+    assert!(questions.is_empty(), "the rule answers it");
+    let rules = home.gate.always.list(bridge::run::now());
+    assert_eq!(rules.len(), 1);
+    assert_eq!(rules[0].pattern(), "cargo test *");
+}
+
+#[test]
+fn with_no_sandbox_claude_gets_no_always() {
+    let mut home = with_rules(home(""));
+    home.gate.sandbox = CommandSandbox::none();
+    let make = json!({ "command": "make" });
+    let (_, questions) = call_with_game(&home, "Bash", &make, Permission::AutoEdit, |_| {
+        Some(Some(0))
+    });
+    let labels: Vec<&str> = questions[0]
+        .choices
+        .iter()
+        .map(|c| c.label.as_str())
+        .collect();
+    assert_eq!(labels, ["Allow", "Deny"]);
+}
+
+#[test]
 fn a_deny_in_the_game_reaches_claude() {
     let home = home("");
     let (reply, _) = call_with_game(
@@ -503,7 +565,7 @@ fn live_the_hook_of_claude_fires_for_a_read() {
             Event::Progress(line) => line,
             Event::Question(q) => String::from_utf8_lossy(&q.text).into_owned(),
             Event::Desktop(notice) => notice.line(),
-            Event::Raised { .. } => String::new(),
+            Event::Raised { .. } | Event::Withdrawn => String::new(),
         })
         .collect();
     println!("{steps:#?}\n{:?}", run.reply);

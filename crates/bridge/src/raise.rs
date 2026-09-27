@@ -79,8 +79,9 @@ pub fn raise_text(agent: &str, level: Permission) -> String {
         Permission::AutoEdit | Permission::Ask => format!(
             "A chat from WoW asks for more access. Allow {agent} to edit files in the chat \
              folder with no question, in every chat from WoW? Commands still ask in the \
-             game. This writes permission = \"{word}\" to config.toml. Approve only if you \
-             just sent a message from WoW."
+             game, unless you added an Always rule there. This writes \
+             permission = \"{word}\" to config.toml. Approve only if you just sent a message \
+             from WoW."
         ),
     }
 }
@@ -151,7 +152,9 @@ impl Raiser {
                 }
             },
             Answer::Desktop(false) => Raised::DeniedOnTheDesktop,
-            Answer::Game(_) | Answer::None | Answer::NewMessage => Raised::NotRaised,
+            Answer::Game(_) | Answer::None | Answer::NewMessage | Answer::Covered => {
+                Raised::NotRaised
+            }
         }
     }
 }
@@ -292,7 +295,7 @@ mod tests {
             .map(|(_, _, event)| match event {
                 Event::Desktop(notice) => notice.line(),
                 Event::Question(_) => "a game request".into(),
-                Event::Progress(_) | Event::Raised { .. } => String::new(),
+                Event::Progress(_) | Event::Raised { .. } | Event::Withdrawn => String::new(),
             })
             .collect();
         assert_eq!(lines.len(), 2, "{lines:?}");
@@ -367,6 +370,9 @@ mod tests {
         assert!(text.contains("run commands with no question"), "{text}");
         assert!(text.contains("never asks for this by itself"), "{text}");
         let text = raise_text("claude", Permission::AutoEdit);
-        assert!(text.contains("Commands still ask in the game"), "{text}");
+        assert!(
+            text.contains("Commands still ask in the game, unless you added an Always rule there."),
+            "{text}"
+        );
     }
 }

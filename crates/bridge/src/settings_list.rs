@@ -10,6 +10,7 @@ use std::path::Path;
 use protocol::lua::lua_string;
 use protocol::slot::MAX_TEXT;
 
+use crate::always_rules::{RuleLine, RuleList};
 use crate::config::{
     Policy, RelayConfig, StoryConfig, is_inside_folder, native_folder, path_bytes, path_parts,
 };
@@ -35,6 +36,8 @@ pub struct BridgeSettings {
     pub allow: Vec<String>,
     /// A folder of `[allow.folders]` and one of its patterns.
     pub allow_folders: Vec<(String, String)>,
+    /// The "Always allow" rules, read at each reply (SPEC.md 6.6.5).
+    pub rules: RuleList,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -78,6 +81,7 @@ impl BridgeSettings {
         home: Option<&Path>,
         sandbox: String,
     ) -> BridgeSettings {
+        let shown_home = home;
         let folders = &relay.policy.folders;
         let (allow, folder_rules) = relay.allow.patterns();
         let home = home.map(path_bytes);
@@ -107,11 +111,20 @@ impl BridgeSettings {
                 .into_iter()
                 .map(|(folder, rule)| (shown(&path_bytes(&folder), home), rule))
                 .collect(),
+            rules: RuleList {
+                roots: folders
+                    .roots
+                    .iter()
+                    .map(|r| std::path::PathBuf::from(String::from_utf8_lossy(r).into_owned()))
+                    .collect(),
+                home: shown_home.map(Path::to_owned).unwrap_or_default(),
+                ..RuleList::default()
+            },
         }
     }
 
     /// Each line is a key and its fields. The reply joins the fields with tabs.
-    fn lines(&self, policy: &Policy) -> Vec<(&'static str, Vec<String>)> {
+    fn lines(&self, policy: &Policy, rules: &[RuleLine]) -> Vec<(&'static str, Vec<String>)> {
         let one = |key, value: &str| (key, vec![value.to_owned()]);
         let mut lines = vec![
             one("version", &self.version),
@@ -131,6 +144,15 @@ impl BridgeSettings {
             lines.push(one("story_model", &story.model));
             let window = story.budget_window_minutes.to_string();
             lines.push(one("story_budget_window_minutes", &window));
+        }
+        for rule in rules {
+            let fields = vec![
+                rule.id.clone(),
+                rule.folder.clone(),
+                rule.pattern.clone(),
+                rule.days.to_string(),
+            ];
+            lines.push(("rule", fields));
         }
         lines.extend(self.allow.iter().map(|p| one("allow", p)));
         for (folder, pattern) in &self.allow_folders {
@@ -157,12 +179,13 @@ fn cost(line: &str) -> usize {
     lua_string(format!("\n{line}").as_bytes()).len() - 2
 }
 
-/// Keeps the first lines that fit in one reply record (S12). The allow table comes last,
-/// because only it can be long.
-pub fn settings_reply(settings: &BridgeSettings, policy: &Policy) -> String {
+/// Keeps the first lines that fit in one reply record (S12). The "Always allow" rules and
+/// then the allow table come last, because only they can be long. A cut then drops allow
+/// patterns first.
+pub fn settings_reply(settings: &BridgeSettings, policy: &Policy, rules: &[RuleLine]) -> String {
     let mut kept: Vec<String> = Vec::new();
     let mut size = RESERVED;
-    for (key, fields) in settings.lines(policy) {
+    for (key, fields) in settings.lines(policy, rules) {
         let fields: Vec<String> = fields.iter().map(|f| field(f)).collect();
         let line = format!("{key}\t{}", fields.join("\t"));
         if size + cost(&line) > MAX_TEXT {
@@ -208,12 +231,13 @@ mod tests {
             story: None,
             allow: vec!["cargo test".into()],
             allow_folders: vec![("~/Code/app".into(), "npm test".into())],
+            rules: RuleList::default(),
         }
     }
 
     #[test]
     fn each_value_is_one_line_of_key_and_value() {
-        let reply = settings_reply(&settings(), &policy());
+        let reply = settings_reply(&settings(), &policy(), &[]);
         assert_eq!(
             reply,
             "version\t0.1.0\nsandbox\tbwrap\ndefault_cwd\t~/Code\nallowed_root\t~/Code\n\
@@ -224,33 +248,74 @@ mod tests {
     }
 
     #[test]
+    fn the_always_rules_come_right_before_the_allow_table() {
+        let rules = [RuleLine {
+            id: "a1b2".into(),
+            folder: "Code/app".into(),
+            pattern: "cargo test *".into(),
+            days: 3,
+        }];
+        let reply = settings_reply(&settings(), &policy(), &rules);
+        assert!(
+            reply.contains("permission_timeout_minutes\t10\nrule\ta1b2\tCode/app\tcargo test *\t3\nallow\tcargo test"),
+            "{reply}"
+        );
+    }
+
+    #[test]
+    fn the_rule_list_reads_the_file_at_each_reply() {
+        let dir = tempfile::tempdir().unwrap();
+        let list = RuleList {
+            store: crate::always_rules::AlwaysRules::new(dir.path()),
+            roots: vec![std::path::PathBuf::from("/h/Code")],
+            home: std::path::PathBuf::from("/h"),
+        };
+        assert!(list.lines(1_790_000_000).is_empty());
+        let rule = [vec!["make".to_owned()]];
+        let folder = std::path::Path::new("/h/Code/app");
+        list.store
+            .grant(
+                folder,
+                crate::always_rules::Scope::Tree,
+                &rule,
+                1_790_000_000,
+            )
+            .unwrap();
+        let lines = list.lines(1_790_000_000);
+        assert_eq!(lines.len(), 1);
+        assert_eq!(lines[0].folder, "Code/app");
+        assert_eq!(lines[0].pattern, "make *");
+        assert_eq!(lines[0].days, 0);
+    }
+
+    #[test]
     fn the_story_lines_come_only_with_a_story_section() {
         let mut with_story = settings();
         with_story.story = Some(StorySettings {
             model: "claude haiku".into(),
             budget_window_minutes: 20,
         });
-        let reply = settings_reply(&with_story, &policy());
+        let reply = settings_reply(&with_story, &policy(), &[]);
         assert!(reply.contains("\nstory_model\tclaude haiku\nstory_budget_window_minutes\t20\n"));
-        assert!(!settings_reply(&settings(), &policy()).contains("story"));
+        assert!(!settings_reply(&settings(), &policy(), &[]).contains("story"));
     }
 
     #[test]
     fn a_raised_level_shows_in_the_next_reply() {
         let mut policy = policy();
         policy.agents.insert("codex".into(), Permission::AutoEdit);
-        assert!(settings_reply(&settings(), &policy).contains("agent\tcodex\t\tauto-edit"));
+        assert!(settings_reply(&settings(), &policy, &[]).contains("agent\tcodex\t\tauto-edit"));
     }
 
     #[test]
     fn a_control_character_in_a_value_becomes_a_space() {
         let mut odd = settings();
         odd.roots = vec!["~/a\nb\tc".into()];
-        let reply = settings_reply(&odd, &policy());
+        let reply = settings_reply(&odd, &policy(), &[]);
         assert!(reply.contains("\nallowed_root\t~/a b c\n"), "{reply}");
         let mut folder = settings();
         folder.allow_folders = vec![("~/a\tb".into(), "make".into())];
-        let reply = settings_reply(&folder, &policy());
+        let reply = settings_reply(&folder, &policy(), &[]);
         assert!(reply.ends_with("\nallow_folder\t~/a b\tmake"), "{reply}");
     }
 
@@ -258,7 +323,7 @@ mod tests {
     fn a_long_allow_table_is_cut_to_fit_one_record_with_a_mark() {
         let mut long = settings();
         long.allow = (0..5000).map(|n| format!("tool{n} run")).collect();
-        let reply = settings_reply(&long, &policy());
+        let reply = settings_reply(&long, &policy(), &[]);
         assert!(reply.ends_with("\n+"));
         assert!(lua_string(reply.as_bytes()).len() <= MAX_TEXT);
         assert!(reply.starts_with("version\t0.1.0\n"));
@@ -319,7 +384,7 @@ mod tests {
             Some(&home_path),
             "none".into(),
         );
-        let reply = settings_reply(&settings, &relay.policy);
+        let reply = settings_reply(&settings, &relay.policy, &[]);
         assert!(reply.contains("\nallowed_root\t~/code\n"), "{reply}");
         assert!(reply.contains("\nagent\tclaude\tclaude\task\n"), "{reply}");
         assert!(reply.ends_with("\nallow\tcargo test"), "{reply}");

@@ -36,6 +36,8 @@ fn gate() -> Gate {
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
         sandbox: bridge::command_sandbox::CommandSandbox::none(),
         wall: bridge::agent_wall::AgentWall::none(),
+        always: bridge::always_rules::AlwaysRules::none(),
+        home: std::env::temp_dir(),
     }
 }
 
@@ -278,7 +280,9 @@ fn each_tool_call_becomes_a_progress_line() {
         .into_iter()
         .filter_map(|e| match e {
             Event::Progress(line) => Some(line),
-            Event::Question(_) | Event::Desktop(_) | Event::Raised { .. } => None,
+            Event::Question(_) | Event::Desktop(_) | Event::Raised { .. } | Event::Withdrawn => {
+                None
+            }
         })
         .collect();
     assert_eq!(lines, ["edit src/main.rs", "$ cargo test"]);

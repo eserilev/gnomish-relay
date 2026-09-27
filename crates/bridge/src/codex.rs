@@ -601,6 +601,7 @@ impl Connection {
             level: self.permission,
             coverage: Coverage::Every,
             sandboxing: Sandboxing::On,
+            always: gate::Always::Never,
         };
         match self.gate.check(&call, &job, &mut self.turn) {
             Ok(()) => "accept",

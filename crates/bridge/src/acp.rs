@@ -642,6 +642,7 @@ impl Connection {
             level: self.permission,
             coverage: Coverage::Asked,
             sandboxing: Sandboxing::Off,
+            always: gate::Always::Never,
         };
         match self.gate.check(&call, &job, &mut self.turn) {
             Ok(()) => select(&offered, "allow_once").unwrap_or_else(cancelled),

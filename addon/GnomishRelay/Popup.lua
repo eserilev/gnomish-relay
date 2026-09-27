@@ -21,6 +21,15 @@ local frame
 local ui = { buttons = {} }
 local shown -- the request on screen
 
+-- The rule line comes from the bridge, never from the agent (SPEC.md 6.6.5).
+local function AlwaysOption(request)
+	for _, option in ipairs(request.options) do
+		if option.kind == "allow_always" then
+			return option
+		end
+	end
+end
+
 local function Button(index)
 	local button = ui.buttons[index]
 	if button then
@@ -31,6 +40,10 @@ local function Button(index)
 	button:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12 + (index - 1) * (BUTTON_WIDTH + 6), 12)
 	button:SetScript("OnClick", function(self)
 		if shown and self.option then
+			local always = AlwaysOption(shown)
+			if always and always.id == self.option then
+				ns.Relay.RuleAdded(shown.chat, always.label)
+			end
 			ns.Transport.Answer(shown, self.option)
 		end
 	end)
@@ -54,6 +67,10 @@ local function Build()
 	ui.text:SetWidth(WIDTH - 24)
 	ui.text:SetJustifyH("LEFT")
 	ui.text:SetWordWrap(true)
+	ui.rule = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	ui.rule:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 42)
+	ui.rule:SetWidth(WIDTH - 24)
+	ui.rule:SetJustifyH("LEFT")
 	frame:Hide()
 end
 
@@ -65,6 +82,9 @@ local function Show(request)
 	local chat = ns.Store.Chat(request.chat)
 	ui.chat:SetText(ns.Relay.Plain(chat and chat.name or request.chat))
 	ui.text:SetText(ns.Relay.Plain(request.text))
+	local always = AlwaysOption(request)
+	ui.rule:SetText(always and "Always allow: " .. ns.Relay.Plain(always.label) or "")
+	ui.rule:SetShown(always ~= nil)
 	for i, button in ipairs(ui.buttons) do
 		button.option = nil
 		button:SetShown(i <= #request.options)

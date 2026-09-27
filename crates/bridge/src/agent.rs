@@ -103,6 +103,8 @@ pub enum Event {
     Question(Question),
     /// A desktop request of the run opened or ended (SPEC.md 6.6.3).
     Desktop(Notice),
+    /// The open game question of the run needs no answer any more (SPEC.md 6.6.5).
+    Withdrawn,
     /// The end of a raise of the level in the config (SPEC.md 9.3). `level` is the
     /// level of the run after it.
     Raised {
@@ -315,6 +317,8 @@ mod tests {
             ),
             sandbox: crate::command_sandbox::CommandSandbox::none(),
             wall: crate::agent_wall::AgentWall::none(),
+            always: crate::always_rules::AlwaysRules::none(),
+            home: std::env::temp_dir(),
         }
     }
 

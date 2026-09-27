@@ -182,6 +182,8 @@ fn gate(m: &Machine) -> Gate {
             None,
         ),
         wall: AgentWall::none(),
+        always: bridge::always_rules::AlwaysRules::none(),
+        home: std::env::temp_dir(),
     }
 }
 

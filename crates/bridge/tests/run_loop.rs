@@ -272,6 +272,8 @@ fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {
             approvals: Approvals::new(&f.state, Prompt::Off),
             sandbox: bridge::command_sandbox::CommandSandbox::none(),
             wall: bridge::agent_wall::AgentWall::none(),
+            always: bridge::always_rules::AlwaysRules::none(),
+            home: std::env::temp_dir(),
         },
         wall: bridge::agent_wall::AgentWall::none(),
     };

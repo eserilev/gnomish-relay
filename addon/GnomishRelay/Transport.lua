@@ -118,6 +118,12 @@ function Transport.ListSettings()
 	List(SETTINGS_CHAT, "list=settings")
 end
 
+-- The bridge removes the rule before it answers the list in the same strip.
+function Transport.RemoveRule(id)
+	Messages.Control(SETTINGS_CHAT, 0, "rule=remove:" .. id)
+	Transport.ListSettings()
+end
+
 function Transport.ListingSessions()
 	return state.listing[LIST_CHAT] ~= nil
 end
@@ -394,8 +400,19 @@ function Transport.Request()
 end
 
 -- The hash tells the bridge which text the user saw (SPEC.md 9.3).
+-- The popup text that an answer vouches for. "Always allow" also shows its rule line,
+-- so its hash binds the rule that the player saw (SPEC.md 6.6.5).
+local function Shown(request, optionId)
+	for _, option in ipairs(request.options) do
+		if option.id == optionId and option.kind == "allow_always" then
+			return request.text .. "\n" .. tostring(option.label)
+		end
+	end
+	return request.text
+end
+
 function Transport.Answer(request, optionId)
-	local hash = ns.Codec.Hex(ns.Sha256(request.text)):sub(1, 16)
+	local hash = ns.Codec.Hex(ns.Sha256(Shown(request, optionId))):sub(1, 16)
 	state.answered[request.request] = true
 	Messages.Control(request.chat, 0, string.format("perm=%s:%s:%s", request.request, optionId, hash))
 	Messages.OnChange()

@@ -52,6 +52,7 @@ const FILES: &[&str] = &[
     "Folders.lua",
     "Browser.lua",
     "BridgeSettings.lua",
+    "RulesGroup.lua",
     "SettingsTab.lua",
     "DiagTab.lua",
     "Window.lua",
@@ -1144,6 +1145,275 @@ fn a_click_sends_the_answer_with_the_hash_of_the_text_once() {
             .is_nil(),
         "answered once"
     );
+}
+
+const RULE_LINE: &str = "cargo test * in Code/app";
+
+/// A request with "Always allow" and its rule line, as the bridge makes it (SPEC.md 6.6.5).
+fn always_request(game: &Game, text: &str) -> LiveRequest {
+    let option = |id: &[u8], kind, label: &[u8]| PermOption {
+        id: id.to_vec(),
+        kind,
+        label: label.to_vec(),
+    };
+    LiveRequest {
+        options: vec![
+            option(b"o1", OptionKind::AllowOnce, b"Allow"),
+            option(b"o2", OptionKind::AllowAlways, RULE_LINE.as_bytes()),
+            option(b"o3", OptionKind::RejectOnce, b"Deny"),
+        ],
+        ..request(game, text)
+    }
+}
+
+fn ask_always(game: &Game, text: &str) {
+    let file = live(&[], &[always_request(game, text)]);
+    game.wow
+        .set("live", game.lua.create_string(file).unwrap())
+        .unwrap();
+    game.run("local ns = ... ns.Transport.Poll()");
+}
+
+fn strips_with(game: &Game, since: usize, flag: &str) -> usize {
+    (since + 1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .filter(|r| flags(r).iter().any(|f| f == flag))
+        .count()
+}
+
+#[test]
+fn an_always_choice_shows_its_rule_line_under_the_command() {
+    let game = Game::start();
+    game.send("test it");
+    ask_always(&game, "cargo test -p x");
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&format!("Always allow: {RULE_LINE}")),
+        "{texts:?}"
+    );
+    let buttons = texts_of(&game, "Button");
+    assert_eq!(
+        buttons[buttons.len() - 3..],
+        ["Allow once", "Always allow", "Reject"],
+        "{buttons:?}"
+    );
+}
+
+#[test]
+fn a_popup_with_no_always_choice_shows_no_rule_line() {
+    let game = Game::start();
+    game.send("clean up");
+    ask_always(&game, "cargo test");
+    ask(&game, "make");
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        !texts.iter().any(|t| t.starts_with("Always allow:")),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn always_sends_the_hash_of_the_text_and_the_rule_line_and_whispers_the_rule() {
+    let game = Game::start();
+    game.send("test it");
+    let text = "cargo test -p x";
+    ask_always(&game, text);
+    let shots = game.shots();
+
+    game.run("GnomishRelayPopupButton2:Click()");
+    game.advance(5.0);
+
+    let shown = format!("{text}\n{RULE_LINE}");
+    let expected = format!("perm=p1a2b:o2:{}", text_hash(shown.as_bytes()));
+    assert!(
+        strips_with(&game, shots, &expected) >= 1,
+        "no strip carried {expected}"
+    );
+    let line = format!("Rule added: {RULE_LINE}. Remove it in Settings.");
+    assert_eq!(whispers_with(&game, &line), 1);
+}
+
+#[test]
+fn allow_once_next_to_always_adds_no_rule_line() {
+    let game = Game::start();
+    game.send("test it");
+    let text = "cargo test -p x";
+    ask_always(&game, text);
+    let shots = game.shots();
+
+    game.run("GnomishRelayPopupButton1:Click()");
+    game.advance(5.0);
+
+    let expected = format!("perm=p1a2b:o1:{}", text_hash(text.as_bytes()));
+    assert!(strips_with(&game, shots, &expected) >= 1);
+    assert_eq!(whispers_with(&game, "Rule added"), 0);
+}
+
+fn relay_with_a_job(game: &Game, now: u32) -> (Relay, bridge::relay::Job) {
+    let mut relay = Relay::new(Policy {
+        folders: Folders {
+            roots: vec![b"/home/x".to_vec()],
+            base: b"/home/x".to_vec(),
+        },
+        agents: [("claude".to_owned(), Permission::AutoEdit)].into(),
+        default_agent: "claude".into(),
+    });
+    game.send("test it");
+    game.advance(1.0);
+    relay.on_frame(&records_of_last_shot(game, now), now);
+    let job = relay.next_job().unwrap();
+    (relay, job)
+}
+
+fn always_choices() -> Vec<bridge::agent::Choice> {
+    bridge::gate::game_choices(Some(RULE_LINE.into()))
+}
+
+#[test]
+fn the_bridge_takes_the_always_click_of_the_game() {
+    let game = Game::start();
+    let now = 1_790_211_080;
+    let (mut relay, job) = relay_with_a_job(&game, now);
+    let request = relay.ask(
+        &job.chat,
+        job.id,
+        b"cargo test".to_vec(),
+        always_choices(),
+        now,
+    );
+    game.wow
+        .set("live", game.lua.create_string(relay.live_file()).unwrap())
+        .unwrap();
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    game.run("GnomishRelayPopupButton2:Click()");
+    game.advance(1.0);
+    relay.on_frame(&records_of_last_shot(&game, now), now);
+
+    assert_eq!(relay.take_answers(), [(request, Some(1))]);
+}
+
+#[test]
+fn an_always_answer_that_another_addon_forges_with_the_hash_of_the_text_counts_for_nothing() {
+    let game = Game::start();
+    let now = 1_790_211_080;
+    let (mut relay, job) = relay_with_a_job(&game, now);
+    let request = relay.ask(
+        &job.chat,
+        job.id,
+        b"cargo test".to_vec(),
+        always_choices(),
+        now,
+    );
+    let forged = format!("perm={request}:o2:{}", text_hash(b"cargo test"));
+    game.run(&format!(
+        "local ns = ... ns.Messages.Control('{}', 0, '{forged}')",
+        game.chat_id()
+    ));
+    game.advance(1.0);
+
+    relay.on_frame(&records_of_last_shot(&game, now), now);
+
+    assert!(relay.take_answers().is_empty());
+    assert!(relay.is_asked(&request));
+}
+
+#[test]
+fn the_rule_added_line_opens_the_settings_tab() {
+    let game = Game::start();
+    game.send("test it");
+
+    game.run("SetItemRef('gnomishrelayrules', '', 'LeftButton')");
+
+    assert!(shown_by_name(&game, "GnomishRelaySettingsStatus"));
+}
+
+const RULE_LIST: &str = "rule\ta1b2\tCode/app\tcargo test *\t3\nrule\tc3d4\tCode/lib\tmake *\t0";
+
+fn open_settings_with_rules(game: &Game) {
+    open_tab(game, SETTINGS);
+    game.advance(2.0);
+    let text = format!("{}\n{RULE_LIST}", settings_text(false));
+    game.publish(&[reply("settings", 99, Status::Done, &text)]);
+    game.run("local ns = ... ns.Transport.Poll() ns.Window.Refresh()");
+}
+
+#[test]
+fn settings_lists_each_rule_with_its_folder_and_last_use() {
+    let game = Game::start();
+    open_settings_with_rules(&game);
+
+    let texts = texts_of(&game, "FontString");
+    for want in [
+        "|cffb8c8b8cargo test *|r",
+        "Code/app",
+        "|cff8d87783 days ago|r",
+        "|cffb8c8b8make *|r",
+        "|cff8d8778today|r",
+    ] {
+        assert!(texts.iter().any(|t| t == want), "{want} in {texts:?}");
+    }
+    assert!(shown_by_name(&game, "GnomishRelayRuleRemove2"));
+    assert!(!shown_by_name(&game, "GnomishRelayRule3"));
+}
+
+#[test]
+fn settings_with_no_rules_says_how_to_add_one() {
+    let game = Game::start();
+    open_settings_with_list(&game, false);
+    game.run("local ns = ... ns.Window.Refresh()");
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.contains("No rules yet. Click Always allow in a popup to add one.")),
+        "{texts:?}"
+    );
+}
+
+#[test]
+fn a_remove_sends_the_id_asks_for_a_new_list_and_greys_the_row() {
+    let game = Game::start();
+    open_settings_with_rules(&game);
+    let shots = game.shots();
+
+    click(&game, "GnomishRelayRuleRemove1");
+    game.advance(2.0);
+
+    assert!(strips_with(&game, shots, "rule=remove:a1b2") >= 1);
+    assert!(
+        settings_requests(&game, shots) >= 1,
+        "a new list comes after the removal"
+    );
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"|cff8d8778Removing...|r".to_owned()),
+        "{texts:?}"
+    );
+    let removals: Vec<String> = (shots + 1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .filter_map(|r| bridge::flags::coding(&r.flags).remove_rule)
+        .collect();
+    assert_eq!(removals[0], "a1b2");
+}
+
+#[test]
+fn an_always_click_marks_the_settings_list_old_so_the_next_tab_asks_again() {
+    let game = Game::start();
+    open_settings_with_list(&game, false);
+    click(&game, "GnomishRelayTab1");
+    game.send("test it");
+    ask_always(&game, "cargo test");
+    game.run("GnomishRelayPopupButton2:Click()");
+    game.advance(2.0);
+    let before = game.shots();
+
+    click(&game, &format!("GnomishRelayTab{SETTINGS}"));
+    game.advance(2.0);
+
+    assert_eq!(settings_requests(&game, before), 1);
 }
 
 #[test]
@@ -2331,6 +2601,7 @@ fn settings_text(story: bool) -> String {
         }),
         allow: vec!["cargo test".into()],
         allow_folders: vec![("~/Code/lighthouse".into(), "npm test".into())],
+        rules: bridge::always_rules::RuleList::default(),
     };
     let policy = Policy {
         folders: Folders {
@@ -2344,7 +2615,7 @@ fn settings_text(story: bool) -> String {
         .into(),
         default_agent: "claude".into(),
     };
-    settings_reply(&settings, &policy)
+    settings_reply(&settings, &policy, &[])
 }
 
 fn click(game: &Game, frame: &str) {

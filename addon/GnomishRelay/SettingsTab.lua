@@ -164,6 +164,7 @@ function SettingsTab.Refresh()
 	RefreshSwatches()
 	ui.preview:SetText(PreviewLine())
 	ui.status.text:SetText(SettingsTab.Status())
+	ns.RulesGroup.Refresh()
 end
 
 local function BuildNewChats()
@@ -282,5 +283,6 @@ function SettingsTab.Build(page)
 	ui.page = page
 	BuildNewChats()
 	BuildAppearance()
+	ns.RulesGroup.Build(page, -40 - 2 * ROW - 14 - 28 - 4 * ROW - 10)
 	BuildStatus()
 end

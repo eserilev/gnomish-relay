@@ -35,6 +35,8 @@ fn gate() -> Gate {
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
         sandbox: bridge::command_sandbox::CommandSandbox::none(),
         wall: bridge::agent_wall::AgentWall::none(),
+        always: bridge::always_rules::AlwaysRules::none(),
+        home: std::env::temp_dir(),
     }
 }
 
@@ -238,10 +240,33 @@ fn each_command_and_change_becomes_a_progress_line() {
         .into_iter()
         .filter_map(|e| match e {
             Event::Progress(line) => Some(line),
-            Event::Question(_) | Event::Desktop(_) | Event::Raised { .. } => None,
+            Event::Question(_) | Event::Desktop(_) | Event::Raised { .. } | Event::Withdrawn => {
+                None
+            }
         })
         .collect();
     assert_eq!(lines, ["$ cargo test", "edit src/main.rs"]);
+}
+
+#[test]
+fn codex_gets_no_always_even_at_auto_edit_with_a_rules_file() {
+    let data = tempfile::tempdir().unwrap();
+    let mut codex = agent("approval");
+    codex.gate.always = bridge::always_rules::AlwaysRules::new(data.path());
+    let (_, events) = run_with_game(&codex, Permission::AutoEdit, |q| {
+        let labels: Vec<&str> = q.choices.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(
+            labels,
+            ["Allow", "Deny"],
+            "the sandbox of Codex is not the wall"
+        );
+        Some(Some(1))
+    });
+    let asked = events
+        .iter()
+        .filter(|e| matches!(e, Event::Question(_)))
+        .count();
+    assert!(asked >= 1);
 }
 
 #[test]
@@ -256,7 +281,9 @@ fn an_approval_goes_to_the_game_with_the_honest_text_and_no_always() {
         .into_iter()
         .filter_map(|e| match e {
             Event::Question(q) => Some(q.text),
-            Event::Progress(_) | Event::Desktop(_) | Event::Raised { .. } => None,
+            Event::Progress(_) | Event::Desktop(_) | Event::Raised { .. } | Event::Withdrawn => {
+                None
+            }
         })
         .collect();
     assert_eq!(
@@ -290,6 +317,8 @@ fn gate_in(root: &std::path::Path, allow: &str) -> Gate {
         approvals: Approvals::new(&root.join("data"), Prompt::Off),
         sandbox: bridge::command_sandbox::CommandSandbox::none(),
         wall: bridge::agent_wall::AgentWall::none(),
+        always: bridge::always_rules::AlwaysRules::none(),
+        home: std::env::temp_dir(),
     }
 }
 

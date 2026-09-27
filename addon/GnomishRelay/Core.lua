@@ -56,6 +56,24 @@ local function WhisperLine(chat, text)
 	end
 end
 
+-- A click on the line opens the Settings tab, where the rule can go (SPEC.md 6.6.5).
+function Relay.RuleAdded(chatId, line)
+	local chat = ns.Store.Chat(chatId)
+	if not chat then
+		return
+	end
+	ns.BridgeSettings.MarkOld()
+	DEFAULT_CHAT_FRAME:AddMessage(
+		string.format(
+			"|cff%s|Hgnomishrelayrules|h[%s] whispers: [%s] Rule added: %s. Remove it in Settings.|h|r",
+			ns.Store.db.whisperColor,
+			Relay.AgentName(chat.agent),
+			Relay.Plain(chat.name),
+			Relay.Plain(line)
+		)
+	)
+end
+
 -- The reply line is a setting. A desktop request always gets its line: it is the
 -- only notice in the game (SPEC.md 6.6.3).
 local function Whisper(chat, reply)
@@ -188,6 +206,11 @@ events:SetScript("OnEvent", function(_, event, name)
 end)
 
 hooksecurefunc("SetItemRef", function(link)
+	if link == "gnomishrelayrules" then
+		ns.Window.Open()
+		ns.Window.ShowTab("settings")
+		return
+	end
 	local chatId = type(link) == "string" and link:match("^gnomishrelay:([%w_-]+)$")
 	if chatId then
 		ns.Window.Open(chatId)
