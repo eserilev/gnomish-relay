@@ -1,0 +1,21 @@
+## Interface: 16001
+## Title: Gnomish Relay self-test
+## Notes: Measures the game for the tests of Gnomish Relay. For developers only. Never ship it.
+## Version: 1
+## SavedVariables: GnomishRelaySelfTestDB
+
+Load.lua
+App.lua
+Sha256.lua
+Codec.lua
+Saved.lua
+Health.lua
+Strip.lua
+Json.lua
+Client.lua
+Fonts.lua
+AddOns.lua
+Secrets.lua
+Timing.lua
+Shots.lua
+SelfTest.lua

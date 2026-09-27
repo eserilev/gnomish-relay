@@ -1,0 +1,7 @@
+## Interface: 11500
+## Title: Gnomish Relay self-test (Old)
+## Notes: A load-on-demand addon with an old Interface number for the self-test. Never ship it.
+## LoadOnDemand: 1
+## Dependencies: GnomishRelaySelfTest
+
+Loaded.lua

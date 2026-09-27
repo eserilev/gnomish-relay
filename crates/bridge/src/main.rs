@@ -20,6 +20,7 @@ use bridge::model_setup;
 use bridge::raise::Raiser;
 use bridge::receive::{KeySet, RELAY_KEY_FILE};
 use bridge::run::{Paths, now, run};
+use bridge::selftest;
 use bridge::settings_list::BridgeSettings;
 use bridge::setup::{self, KeyChoice};
 use bridge::slots::{self, Files};
@@ -40,7 +41,9 @@ usage:
   gnomish-relay approve [id]         list the tool calls that wait for the desktop, or allow one
   gnomish-relay deny <id>            refuse a tool call that waits for the desktop
   gnomish-relay say <chat> <id> <text>
-                                     publish a reply to message <id> (from `/relay diag`)";
+                                     publish a reply to message <id> (from `/relay diag`)
+  gnomish-relay selftest collect [folder] [--out <repo>]
+                                     copy the results of the self-test addon into the repo (developers)";
 
 const APP: &str = "gnomish-relay";
 
@@ -551,6 +554,36 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
     Ok(())
 }
 
+/// `selftest collect [folder] [--out <repo>]`. It needs no config and no key, so it
+/// finds the game as setup does.
+fn selftest_collect(args: &[&str]) -> Result<()> {
+    let (game, out) = match args {
+        [] => (None, None),
+        ["--out", out] => (None, Some(*out)),
+        [game] => (Some(*game), None),
+        [game, "--out", out] => (Some(*game), Some(*out)),
+        _ => bail!("{USAGE}"),
+    };
+    let repo = match out {
+        Some(out) => PathBuf::from(out),
+        None => std::env::current_dir()?,
+    };
+    if !repo.join("addon").join("GnomishRelaySelfTest").is_dir() {
+        bail!("run this in the gnomish-relay repo, or give --out <repo>");
+    }
+    let collected = selftest::collect(&pick_game(game)?, &repo)?;
+    println!("wrote {}", collected.fixture.display());
+    println!(
+        "wrote {} golden vectors to tests/vectors/{}",
+        collected.vectors, collected.build
+    );
+    for name in &collected.missing {
+        println!("no screenshot of {name}");
+    }
+    println!("capture: {:?}", collected.capture);
+    Ok(())
+}
+
 fn install() -> Result<()> {
     let config = load_config()?;
     let dir = addons_dir(&config.wow);
@@ -741,6 +774,7 @@ fn main() -> Result<()> {
         ["approve", id] => answer_approval(id, desktop::Verdict::Approve),
         ["deny", id] => answer_approval(id, desktop::Verdict::Deny),
         ["say", chat, id, text] => say(chat, id, text),
+        ["selftest", "collect", ref rest @ ..] => selftest_collect(rest),
         [command_sandbox::RUN_FLAG, command] => {
             std::process::exit(command_sandbox::run_wrapped(command))
         }

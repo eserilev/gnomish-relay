@@ -584,6 +584,16 @@ mod tests {
         assert_eq!(listed, built);
     }
 
+    /// The self-test addon is for developers only (SPEC.md 14.3). The name is split, so
+    /// this test does not find itself.
+    #[test]
+    fn the_self_test_addon_is_never_built_in() {
+        let self_test = ["GnomishRelay", "SelfTest"].concat();
+        assert!(!include_str!("install.rs").contains(&self_test));
+        let toc = std::str::from_utf8(ADDON_FILES[0].1).unwrap();
+        assert!(!toc.contains(&self_test));
+    }
+
     #[test]
     fn a_new_key_is_64_hex_digits_and_never_the_same() {
         let (a, b) = (new_key().unwrap(), new_key().unwrap());

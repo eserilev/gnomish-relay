@@ -47,6 +47,11 @@ impl Image {
         Ok(Image { width, height, rgb })
     }
 
+    /// Width and height in pixels.
+    pub fn size(&self) -> (usize, usize) {
+        (self.width, self.height)
+    }
+
     /// Bit 2 is red, bit 1 is green, bit 0 is blue. Each channel is on at 128 or more.
     fn cell(&self, x: usize, y: usize) -> Option<u8> {
         if x >= self.width || y >= self.height {

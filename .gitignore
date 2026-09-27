@@ -12,5 +12,11 @@ addon/GnomishRelay/Strip.lua
 addon/GnomishRelay/Slots.lua
 addon/GnomishRelay/Health.lua
 addon/GnomishRelay/Messages.lua
+# Links to the shared transport in the self-test. scripts/selftest-link.sh makes them.
+addon/GnomishRelaySelfTest/Sha256.lua
+addon/GnomishRelaySelfTest/Codec.lua
+addon/GnomishRelaySelfTest/Saved.lua
+addon/GnomishRelaySelfTest/Health.lua
+addon/GnomishRelaySelfTest/Strip.lua
 # Release archives. scripts/package.sh writes them.
 dist/

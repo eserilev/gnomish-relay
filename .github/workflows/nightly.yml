@@ -41,7 +41,8 @@ jobs:
         with:
           toolchain: stable
       - run: scripts/wow-api.sh --latest
-      - run: git diff --exit-code -- addon/tests/api.lua addon/tests/api-signatures.lua
+      - run: scripts/selftest-api.sh --latest
+      - run: git diff --exit-code -- addon/tests/api.lua addon/tests/api-signatures.lua addon/tests/selftest-api.lua addon/tests/selftest-api-signatures.lua
       - run: cargo test -p bridge --test addon_flow
       - name: Open an issue
         if: failure()

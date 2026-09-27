@@ -1,0 +1,41 @@
+# The WoW API that only the self-test addon uses, for selene, on top of wow.yml.
+# The relay must never call these, so they stay out of wow.yml.
+# scripts/wow-api.sh checks each one against the real Forever client.
+base: lua51
+globals:
+  C_CombatLog:
+    any: true
+  GetTimePreciseSec:
+    args: []
+  GetServerTime:
+    args: []
+  GetFramerate:
+    args: []
+  GetScreenWidth:
+    args: []
+  GetScreenHeight:
+    args: []
+  date:
+    args: [{type: string, required: false}, {type: number, required: false}]
+  UnitName:
+    args: [{type: string}]
+  UnitExists:
+    args: [{type: string}]
+  UnitHealth:
+    args: [{type: string}, {type: any, required: false}]
+  UnitPower:
+    args: [{type: string}, {type: any, required: false}, {type: any, required: false}]
+  UnitGroupRolesAssigned:
+    args: [{type: string}]
+  UnitDetailedThreatSituation:
+    args: [{type: string}, {type: string}]
+  IsInGroup:
+    args: [{type: any, required: false}]
+  issecretvalue:
+    args: [{type: any}]
+  GnomishRelaySelfTestDB:
+    property: full-write
+  GnomishRelaySelfTestLoads:
+    property: full-write
+  SLASH_GNOMISHRELAYSELFTEST1:
+    property: full-write

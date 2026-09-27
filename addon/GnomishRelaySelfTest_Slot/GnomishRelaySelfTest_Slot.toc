@@ -1,0 +1,7 @@
+## Interface: 16001
+## Title: Gnomish Relay self-test (Slot)
+## Notes: A load-on-demand addon for the self-test. Never ship it.
+## LoadOnDemand: 1
+## Dependencies: GnomishRelaySelfTest
+
+Loaded.lua

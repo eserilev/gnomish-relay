@@ -14,12 +14,16 @@ cargo test -q
 cargo deny --log-level error check
 stylua --check addon
 selene --quiet addon/GnomishRelay addon/transport
+# The self-test calls functions that the relay must never call, so it has its own list.
+selene --quiet --config addon/GnomishRelaySelfTest/selene.toml addon/GnomishRelaySelfTest addon/GnomishRelaySelfTest_Slot addon/GnomishRelaySelfTest_Off addon/GnomishRelaySelfTest_Old
 python3 -m unittest discover -q -s scripts -p 'test_*.py'
 # A WoW name that the client does not have, or has only as deprecated, fails here.
 # So does a changed signature or secret flag of a used function or event.
 scripts/wow-api.sh > /dev/null
-if ! git diff --quiet -- addon/tests/api.lua addon/tests/api-signatures.lua; then
-  echo "error: the WoW API files are out of date. Run scripts/wow-api.sh and commit." >&2
+scripts/selftest-api.sh > /dev/null
+if ! git diff --quiet -- addon/tests/api.lua addon/tests/api-signatures.lua \
+  addon/tests/selftest-api.lua addon/tests/selftest-api-signatures.lua; then
+  echo "error: the WoW API files are out of date. Run scripts/wow-api.sh and scripts/selftest-api.sh, and commit." >&2
   exit 1
 fi
 scripts/check-proofs.sh

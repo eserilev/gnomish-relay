@@ -1,4 +1,5 @@
-//! The reload fallback: signed frames in the saved variables file (SPEC.md 7.5).
+//! Hex fields in a saved variables file: the signed frames of the reload fallback
+//! (SPEC.md 7.5), and the results of the self-test (SPEC.md 14.3).
 
 use std::collections::HashMap;
 use std::fs;
@@ -11,21 +12,55 @@ use crate::app_files::saved_variables_file;
 
 /// Saved variables hold at most 200 messages per chat, far below this.
 const MAX_FILE: u64 = 16 * 1024 * 1024;
-const KEY: &str = "[\"frame\"] = \"";
 
 /// Every `["frame"] = "<hex>"` value in the file. The bridge checks each frame as it
 /// checks a strip, so a frame from any place in the file is safe to take.
 pub fn frames(text: &str) -> Vec<Vec<u8>> {
-    text.match_indices(KEY)
+    hex_fields(text, "frame")
+}
+
+/// Every `["<name>"] = "<hex>"` value in the file. Hex needs no Lua escape, so the
+/// escapes that WoW writes never matter.
+pub fn hex_fields(text: &str, name: &str) -> Vec<Vec<u8>> {
+    let key = format!("[\"{name}\"] = \"");
+    text.match_indices(&key)
         .filter_map(|(at, _)| {
-            let rest = &text[at + KEY.len()..];
+            let rest = &text[at + key.len()..];
             let hex = &rest[..rest.find('"')?];
             from_hex(hex)
         })
         .collect()
 }
 
-fn from_hex(hex: &str) -> Option<Vec<u8>> {
+/// The text of a plain file under the size limit. A link is skipped. A Lua string can
+/// hold any byte, so a byte that is not UTF-8 becomes U+FFFD. Hex fields stay whole.
+fn read_plain(path: &Path) -> Option<(SystemTime, String)> {
+    // `symlink_metadata` does not follow a link.
+    let meta = fs::symlink_metadata(path).ok()?;
+    if !meta.is_file() || meta.len() > MAX_FILE {
+        return None;
+    }
+    let bytes = fs::read(path).ok()?;
+    Some((
+        meta.modified().ok()?,
+        String::from_utf8_lossy(&bytes).into_owned(),
+    ))
+}
+
+/// The newest `file` in the saved variables of all accounts, with its path.
+pub fn newest(accounts: &Path, file: &str) -> Option<(PathBuf, String)> {
+    let mut found: Vec<(SystemTime, PathBuf, String)> = Vec::new();
+    for account in fs::read_dir(accounts).ok()?.flatten() {
+        let path = account.path().join("SavedVariables").join(file);
+        if let Some((modified, text)) = read_plain(&path) {
+            found.push((modified, path, text));
+        }
+    }
+    let (_, path, text) = found.into_iter().max_by_key(|(modified, _, _)| *modified)?;
+    Some((path, text))
+}
+
+pub fn from_hex(hex: &str) -> Option<Vec<u8>> {
     if !hex.len().is_multiple_of(2) || !hex.is_ascii() {
         return None;
     }
@@ -87,6 +122,37 @@ mod tests {
     fn frames_come_from_every_frame_field_and_nothing_else() {
         let text = "GnomishRelayDB = {\n\t[\"outbox\"] = {\n\t\t{\n\t\t\t[\"frame\"] = \"6e5201\",\n\t\t},\n\t},\n\t[\"note\"] = \"[\\\"frame\\\"] = \\\"zz\\\"\",\n\t[\"frame\"] = \"ff00\",\n}\n";
         assert_eq!(frames(text), [vec![0x6e, 0x52, 0x01], vec![0xff, 0x00]]);
+    }
+
+    #[test]
+    fn a_hex_field_is_found_by_its_name_only() {
+        let text = "DB = {\n\t[\"results\"] = \"7b7d\",\n\t[\"load\"] = \"5b5d\",\n}\n";
+        assert_eq!(hex_fields(text, "results"), [b"{}".to_vec()]);
+        assert_eq!(hex_fields(text, "load"), [b"[]".to_vec()]);
+        assert!(hex_fields(text, "combat").is_empty());
+    }
+
+    #[test]
+    fn the_newest_file_of_all_accounts_is_read_even_with_bytes_that_are_not_utf8() {
+        let root = tempfile::tempdir().unwrap();
+        let old = account_file(root.path());
+        fs::write(&old, "old").unwrap();
+        let dir = root.path().join("ACCOUNT2").join("SavedVariables");
+        fs::create_dir_all(&dir).unwrap();
+        let new = dir.join("GnomishRelay.lua");
+        fs::write(&new, b"[\"results\"] = \"6f6b\", [\"x\"] = \"\xff\"").unwrap();
+        let later = SystemTime::now() + std::time::Duration::from_secs(5);
+        fs::File::options()
+            .write(true)
+            .open(&new)
+            .unwrap()
+            .set_modified(later)
+            .unwrap();
+
+        let (path, text) = newest(root.path(), "GnomishRelay.lua").unwrap();
+
+        assert_eq!(path, new);
+        assert_eq!(hex_fields(&text, "results"), [b"ok".to_vec()]);
     }
 
     #[test]
