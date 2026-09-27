@@ -7,15 +7,16 @@
 //! - The Seatbelt profile holds exactly the expected literals, in order: no path ends its
 //!   literal early or adds a rule. Between the writable paths and the hidden paths come
 //!   only the pinned paths and the folders above a guarded path.
-//! - The `bwrap` arguments bind each writable path and each pinned path, and end with the
-//!   command.
+//! - The `bwrap` arguments of the holder of the run bind each writable path and each
+//!   pinned path, and end with the holder.
 #![no_main]
 
 use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use bridge::action_input::{DESKTOP_PATHS, DESKTOP_WRITES};
-use bridge::command_sandbox::{Walls, bwrap_args, seatbelt_profile};
+use bridge::command_sandbox::{Walls, seatbelt_profile};
+use bridge::holder::holder_args;
 use bridge::story_sandbox::Sandbox;
 use libfuzzer_sys::fuzz_target;
 use protocol::sandbox::{is_hidden, sandbox_policy};
@@ -124,10 +125,9 @@ fn check_escape(bytes: &[u8]) {
     assert_eq!(rest, b" (allow default)");
 }
 
-fn check_tools(walls: &Walls, command: &str) {
-    let shell = Path::new("/bin/bash");
-    let args: Vec<OsString> = bwrap_args(walls, Path::new("/"), shell, command);
-    let tail: [OsString; 4] = ["--".into(), shell.into(), "-c".into(), command.into()];
+fn check_tools(walls: &Walls) {
+    let args: Vec<OsString> = holder_args(walls);
+    let tail: [OsString; 4] = ["--".into(), "sh".into(), "-c".into(), "echo ready && exec sleep infinity".into()];
     assert_eq!(args[args.len() - 4..], tail);
     for w in &walls.writable {
         let bound = args
@@ -191,5 +191,5 @@ fuzz_target!(|data: &[u8]| {
         local_ports: Vec::new(),
         overlays: Vec::new(),
     };
-    check_tools(&walls, &String::from_utf8_lossy(data));
+    check_tools(&walls);
 });

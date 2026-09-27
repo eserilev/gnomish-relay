@@ -110,7 +110,10 @@ fn prepare(m: &Machine, sandbox: &CommandSandbox) -> RunWalls {
         config_dir: &m.config,
         data_dir: &m.data,
     };
-    command_sandbox::prepare(sandbox, &guarded, &m.chat, "chat test").unwrap()
+    let mut run = command_sandbox::prepare(sandbox, &guarded, &m.chat, "chat test").unwrap();
+    // No wall of the agent here, so the bridge starts the one sandbox of the run itself.
+    run.hold().unwrap();
+    run
 }
 
 fn walls(m: &Machine, tool: Sandbox) -> RunWalls {
@@ -466,6 +469,144 @@ fn quotes_line_breaks_and_substitutions_run_inside_the_sandbox() {
     assert!(ran.out.contains("it's"), "{}", ran.out);
     assert!(ran.out.contains("inner tick"), "{}", ran.out);
     assert!(!m.other.join("q").exists());
+}
+
+/// A regression test: `nsenter --wd=<folder>` opened the folder before the join, so
+/// `cd ..` left the walls.
+#[test]
+fn a_command_cannot_climb_out_of_its_folder() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = walls(&m, tool);
+
+    let ran = run(
+        &w,
+        &m,
+        "cd .. && echo x > climbed; cd / && echo x > \"$OLDPWD/../other/y\"",
+    );
+
+    assert!(!ran.ok, "{}", ran.out);
+    assert!(!m.home.join("Code/climbed").exists());
+    assert!(!m.other.join("y").exists());
+}
+
+/// A server that one call starts in the background answers a later call, as in
+/// `npm run dev &` and then `curl`. Only on Linux: Seatbelt starts a sandbox for each
+/// command.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_server_of_one_command_answers_a_later_command_and_nothing_outside() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = walls(&m, tool);
+    let port = TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let server = format!(
+        "python3 -c 'import socket\ns=socket.socket()\ns.bind((\"127.0.0.1\",{port}))\ns.listen()\nwhile True:\n c,_=s.accept(); c.sendall(b\"dev server\\n\"); c.close()' > /dev/null 2>&1 &"
+    );
+
+    let started = run(&w, &m, &server);
+    let later = run(
+        &w,
+        &m,
+        &format!(
+            "for i in $(seq 50); do exec 2>/dev/null 3<>/dev/tcp/127.0.0.1/{port} && break; sleep 0.1; done; head -n 1 <&3"
+        ),
+    );
+
+    assert!(started.ok, "{}", started.out);
+    assert!(later.ok, "{}", later.out);
+    assert_eq!(later.out.trim(), "dev server");
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "the server shows outside"
+    );
+}
+
+/// A process that a command leaves in the background ends with the run.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_background_process_ends_with_the_run() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = walls(&m, tool);
+    let beat = m.chat.join("beat");
+
+    let ran = run(
+        &w,
+        &m,
+        "(while true; do echo x >> beat; sleep 0.1; done) > /dev/null 2>&1 &",
+    );
+    wait_for(|| beat.exists());
+    drop(w);
+    std::thread::sleep(Duration::from_millis(500));
+    let before = fs::read_to_string(&beat).unwrap().len();
+    std::thread::sleep(Duration::from_millis(600));
+    let after = fs::read_to_string(&beat).unwrap().len();
+
+    assert!(ran.ok, "{}", ran.out);
+    assert_eq!(before, after, "the background process still runs");
+}
+
+/// A command that joins the sandbox has no capabilities there, so it cannot take the
+/// walls away with `umount` or a remount.
+#[cfg(target_os = "linux")]
+#[test]
+fn a_command_has_no_capabilities_and_cannot_unmount_a_wall() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = walls(&m, tool);
+    let ssh = m.home.join(".ssh");
+
+    let caps = run(&w, &m, "grep CapEff /proc/self/status");
+    let unmount = run(
+        &w,
+        &m,
+        &format!(
+            "umount '{}' && cat '{}/id_ed25519'",
+            ssh.display(),
+            ssh.display()
+        ),
+    );
+    let remount = run(&w, &m, "mount -o remount,rw / && echo x > ../other/z");
+
+    assert!(caps.out.contains("0000000000000000"), "{}", caps.out);
+    assert!(!unmount.ok, "{}", unmount.out);
+    assert!(!unmount.out.contains("secret"), "{}", unmount.out);
+    assert!(!remount.ok, "{}", remount.out);
+    assert!(!m.other.join("z").exists());
+}
+
+/// With `bwrap`, a run with no holder has no sandbox, so a command does not start.
+#[cfg(target_os = "linux")]
+#[test]
+fn with_no_holder_a_command_does_not_start() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let guarded = Guarded {
+        config_dir: &m.config,
+        data_dir: &m.data,
+    };
+    let w = command_sandbox::prepare(&sandbox(&m, tool), &guarded, &m.chat, "chat test").unwrap();
+
+    let ran = run(&w, &m, "echo ran > ran.txt");
+
+    assert!(!ran.ok, "{}", ran.out);
+    assert!(ran.out.contains("not running"), "{}", ran.out);
+    assert!(!m.chat.join("ran.txt").exists());
+}
+
+fn wait_for(done: impl Fn() -> bool) {
+    for _ in 0..100 {
+        if done() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    panic!("it never happened");
 }
 
 #[test]

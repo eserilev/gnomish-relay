@@ -848,7 +848,24 @@ fn main() -> Result<()> {
         ] => {
             let args: Vec<String> = rest.iter().map(|a| (*a).to_owned()).collect();
             let child = forward::exec_command(Path::new(program), &args);
+            // The sandbox of the commands of the run lives as long as the agent.
+            let _holder = bridge::holder::hold_for_agent();
             forward_then(socket, ports, child)
+        }
+        #[cfg(unix)]
+        [
+            forward::FORWARD_FLAG,
+            socket,
+            ports,
+            bridge::holder::HOLD_FLAG,
+        ] => {
+            let local_ports = forward::parse_ports(ports).map_err(anyhow::Error::msg)?;
+            let forward = forward::Forward {
+                socket: Path::new(socket),
+                port: forward::INNER_PORT,
+                local_ports: &local_ports,
+            };
+            std::process::exit(forward::hold(&forward))
         }
         #[cfg(unix)]
         [forward::FORWARD_FLAG, socket, ports, shell, "-c", command] => forward_then(
