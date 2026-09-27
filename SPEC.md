@@ -988,7 +988,7 @@ Each agent in the config has one permission level:
 
 - At `ask`, only a call that only reads runs with no question. A write inside the chat folder, and a command in the allow table, ask in the game. A tool of the session (6.6.3) counts as a read.
 - For an ACP agent that picks its questions (6.6.3), `ask` and `allow` both ask in the game, at every level.
-- A refusal names its reason to the agent: "It touches the config folder of Gnomish Relay, which the agent never reaches.", "Denied on the desktop.", "No answer on the desktop.", "Denied in the game.", "No answer from the game.", or "Not allowed from the game." when nobody in the game listens.
+- A refusal names its reason to the agent: "It touches the config folder of Gnomish Relay, which the agent never reaches.", "Denied on the desktop.", "No answer on the desktop.", "Denied in the game.", "No answer from the game.", "The player sent a new message.", or "Not allowed from the game." when nobody in the game listens.
 - The game gets Allow and Deny for a game question. A desktop question shows only a notice in the game (6.6.3).
 
 **Raise the level** (asked for by the user, decided with an advisor on 2026-09-26). A chat that asks for more than the config allows, for example `auto-edit` with `permission = "ask"`, gets one desktop dialog. The code is in `crates/bridge/src/raise.rs` and `config_edit.rs`.
@@ -1043,6 +1043,20 @@ Rules:
 - The run timeout stops while the run waits for a permission answer. A separate `permission_timeout_minutes` applies (default 10). After it, the bridge answers "cancelled".
 - If the game closes or reloads, open requests stay in the next publish until they time out.
 - Stop ends an open request as "cancelled", and the run as "Stopped.".
+
+**A new message ends a wait** (asked for by the user, 2026-09-26, with an advisor). While a run waits for an answer, in the game popup or on the desktop, a new message of that chat:
+
+- ends the waiting request. The desktop dialog closes, and the agent gets "The player sent a new message.";
+- stops the turn as Stop does, so the old message ends as "Stopped.";
+- runs next, and resumes the same agent session, so the agent sees the refused call and the new message.
+
+Rules:
+
+- Only a message that the bridge newly accepts counts. A duplicate, a refused message (full body, full queue, or the rate), a list, an attach, and a message of another chat never end a wait.
+- While a run works and waits for nothing, a new message waits in the queue, as before. Else each follow-up would end a long run.
+- A raise that a new message ends counts as no answer (the quiet time of 10 minutes starts).
+- This gives an addon no new power: Stop already ends a run, and the cancel only ever answers no.
+- The other waiting messages of the chat keep their order.
 
 ### 9.4 Agent processes
 

@@ -9,7 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::{Context, Result};
 
-use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopSignal};
+use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal};
 use crate::config::{Permission, Policy};
 use crate::raise::{RaiseGuard, Raised, Raiser};
 use crate::receive::{KeySet, receive, receive_for};
@@ -439,10 +439,17 @@ impl RelayLane {
 
     fn signal_stops(&mut self) {
         for chat in self.relay.take_cancels() {
-            if let Some(stop) = self.stops.get(&chat) {
-                log(&format!("stop {}", chat.0));
-                stop.request();
-            }
+            self.signal(&chat, StopReason::Stop);
+        }
+        for chat in self.relay.take_interrupts() {
+            self.signal(&chat, StopReason::NewMessage);
+        }
+    }
+
+    fn signal(&self, chat: &ChatId, reason: StopReason) {
+        if let Some(stop) = self.stops.get(chat) {
+            log(&format!("stop {}: {reason:?}", chat.0));
+            stop.request_for(reason);
         }
     }
 

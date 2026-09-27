@@ -16,6 +16,7 @@ use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Waiting};
 use crate::turn::{Answer, Turn};
 
 pub const NOT_FROM_THE_GAME: &str = "Not allowed from the game.";
+pub const NEW_MESSAGE: &str = "The player sent a new message.";
 
 /// What a tool call does, for the level `ask`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -223,6 +224,7 @@ impl Gate {
         match answer {
             Answer::Desktop(true) => Ok(()),
             Answer::Desktop(false) => Err(Refusal::by_rule("Denied on the desktop.")),
+            Answer::NewMessage => Err(Refusal::by_rule(NEW_MESSAGE)),
             Answer::Game(_) | Answer::None => Err(Refusal::by_rule("No answer on the desktop.")),
         }
     }
@@ -253,7 +255,7 @@ pub fn wait_on_the_desktop(
     let waiting = match answer {
         Answer::Desktop(true) => Waiting::Approved,
         Answer::Desktop(false) => Waiting::Denied,
-        Answer::Game(_) | Answer::None => Waiting::NoAnswer,
+        Answer::Game(_) | Answer::None | Answer::NewMessage => Waiting::NoAnswer,
     };
     turn.desktop(notice.ended(waiting));
     answer
@@ -280,6 +282,7 @@ fn ask_game(call: &Call, turn: &mut Turn) -> Result<(), Refusal> {
     match turn.ask_game(call.text.clone(), game_choices()) {
         Answer::Game(0) => Ok(()),
         Answer::Game(_) => Err(Refusal::ByUser),
+        Answer::NewMessage => Err(Refusal::by_rule(NEW_MESSAGE)),
         Answer::Desktop(_) | Answer::None => Err(Refusal::by_rule("No answer from the game.")),
     }
 }
@@ -562,6 +565,34 @@ mod tests {
         assert!(lines[0].starts_with("Desktop: wait "), "{lines:?}");
         assert!(lines[0].ends_with(" command"), "{lines:?}");
         assert!(lines[1].starts_with("Desktop: none "), "{lines:?}");
+    }
+
+    #[test]
+    fn a_new_message_ends_a_desktop_wait_and_tells_the_agent_why() {
+        use crate::agent::{Control, StopReason};
+        let s = setup();
+        let control = Control::default();
+        control.stop.request_for(StopReason::NewMessage);
+        let cwd = s.chat.to_string_lossy();
+        let job = Job {
+            agent: "claude",
+            cwd: &cwd,
+            level: Permission::AutoEdit,
+            coverage: Coverage::Every,
+            sandboxing: Sandboxing::On,
+        };
+        let long = std::time::Duration::from_secs(30);
+        let mut turn = Turn::new(long, long, control);
+        let started = std::time::Instant::now();
+
+        let refusal = s
+            .gate
+            .check(&read(s.home.join(".ssh").join("id_rsa")), &job, &mut turn)
+            .unwrap_err();
+
+        assert_eq!(refusal.reason(), "The player sent a new message.");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert!(s.gate.approvals.list().is_empty(), "the request closed");
     }
 
     #[test]

@@ -6,7 +6,7 @@ use std::time::{Duration, Instant};
 
 use serde_json::Value;
 
-use crate::agent::{Choice, Control, Event, Events, Question, StopSignal};
+use crate::agent::{Choice, Control, Event, Events, Question, StopReason, StopSignal};
 use crate::desktop::Notice;
 use crate::process::{AgentProcess, Next};
 
@@ -124,6 +124,9 @@ impl Turn {
     fn wait(&mut self, mut check: impl FnMut() -> Option<Answer>) -> Answer {
         let asked = Instant::now();
         let answer = loop {
+            if self.stop.reason() == Some(StopReason::NewMessage) {
+                break Answer::NewMessage;
+            }
             if self.stop.requested() || asked.elapsed() >= self.permission_timeout {
                 break Answer::None;
             }
@@ -145,4 +148,6 @@ pub enum Answer {
     Desktop(bool),
     /// Nobody answered in time, Stop came, or the game cancelled.
     None,
+    /// The player sent a new message, which ends the wait (SPEC.md 9.3).
+    NewMessage,
 }

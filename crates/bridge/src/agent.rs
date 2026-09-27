@@ -3,7 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicU8, Ordering};
 use std::sync::mpsc::Sender;
 use std::time::Duration;
 
@@ -37,17 +37,49 @@ pub fn exchange_text(prompt: &str, answer: &str) -> String {
     format!("{prompt}\n{answer}")
 }
 
-/// Set by Stop in the game while a run is in progress.
+/// Why a run in progress stops.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum StopReason {
+    /// Stop in the game.
+    Stop,
+    /// The player sent a new message while the run waited for an answer (SPEC.md 9.3).
+    NewMessage,
+}
+
+const RUNNING: u8 = 0;
+const STOP: u8 = 1;
+const NEW_MESSAGE: u8 = 2;
+
+/// Set while a run is in progress: by Stop in the game, or by a new message.
 #[derive(Clone, Default)]
-pub struct StopSignal(Arc<AtomicBool>);
+pub struct StopSignal(Arc<AtomicU8>);
 
 impl StopSignal {
     pub fn request(&self) {
-        self.0.store(true, Ordering::SeqCst);
+        self.request_for(StopReason::Stop);
+    }
+
+    /// The first reason stays.
+    pub fn request_for(&self, reason: StopReason) {
+        let value = match reason {
+            StopReason::Stop => STOP,
+            StopReason::NewMessage => NEW_MESSAGE,
+        };
+        let _ = self
+            .0
+            .compare_exchange(RUNNING, value, Ordering::SeqCst, Ordering::SeqCst);
     }
 
     pub fn requested(&self) -> bool {
-        self.0.load(Ordering::SeqCst)
+        self.reason().is_some()
+    }
+
+    pub fn reason(&self) -> Option<StopReason> {
+        match self.0.load(Ordering::SeqCst) {
+            STOP => Some(StopReason::Stop),
+            NEW_MESSAGE => Some(StopReason::NewMessage),
+            _ => None,
+        }
     }
 }
 
@@ -279,6 +311,16 @@ mod tests {
             ),
             sandbox: crate::command_sandbox::CommandSandbox::none(),
         }
+    }
+
+    #[test]
+    fn the_first_stop_reason_stays() {
+        let stop = StopSignal::default();
+        assert_eq!(stop.reason(), None);
+        stop.request_for(StopReason::NewMessage);
+        stop.request();
+        assert!(stop.requested());
+        assert_eq!(stop.reason(), Some(StopReason::NewMessage));
     }
 
     #[test]

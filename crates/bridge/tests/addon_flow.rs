@@ -10,6 +10,7 @@ use std::fmt::Write;
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo};
 use bridge::config::{Permission, Policy};
+use bridge::desktop::{Notice, Prompted, Waiting};
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::relay::{Folders, Relay};
 use bridge::strip::{self, Image};
@@ -1009,6 +1010,58 @@ fn a_desktop_wait_polls_every_five_seconds_and_stops_after_24_polls() {
         "24 polls in all while the request waits: {gaps:?}"
     );
     assert_eq!(gaps[fast], 60, "then the normal schedule: {gaps:?}");
+}
+
+/// The records of the last strip, read by the bridge from its screenshot.
+fn records_of_last_shot(game: &Game, now: u32) -> Vec<Record> {
+    let png = screenshot_png(&game.shot_rows(game.shots()));
+    let keys = KeySet::new(StripKey::from_hex(&common::hex(KEY)).unwrap(), None).unwrap();
+    let tag_checks = |bytes: &[u8]| receive(bytes, &keys, now).is_ok();
+    let bytes = strip::read_with(&Image::from_png(&png).unwrap(), tag_checks)
+        .expect("the bridge finds the strip");
+    receive(&bytes, &keys, now).unwrap().1
+}
+
+#[test]
+fn a_new_message_in_the_game_ends_the_wait_on_the_desktop() {
+    let game = Game::start();
+    let now = 1_790_211_080;
+    let mut relay = Relay::new(Policy {
+        folders: Folders {
+            roots: vec![b"/home/x".to_vec()],
+            base: b"/home/x".to_vec(),
+        },
+        agents: [("claude".to_owned(), Permission::AutoEdit)].into(),
+        default_agent: "claude".into(),
+    });
+    game.send("read my key");
+    game.advance(1.0);
+    relay.on_frame(&records_of_last_shot(&game, now), now);
+    let job = relay.next_job().unwrap();
+    relay.desktop(
+        &job.chat,
+        job.id,
+        Notice {
+            id: "a1b2c3d4e5f6".into(),
+            prompted: Prompted::Dialog,
+            waiting: Waiting::Open,
+            raise: None,
+        },
+    );
+    game.wow
+        .set("body", game.lua.create_string(relay.body(now)).unwrap())
+        .unwrap();
+    game.wow
+        .set("live", game.lua.create_string(relay.live_file()).unwrap())
+        .unwrap();
+    game.advance(5.0);
+    assert_eq!(whispers_with(&game, "Approve on your desktop."), 1);
+
+    game.send("no, do this instead");
+    game.advance(1.0);
+    relay.on_frame(&records_of_last_shot(&game, now), now);
+
+    assert_eq!(relay.take_interrupts(), [job.chat]);
 }
 
 /// A request with an "allow" option that the agent labels "Reject".

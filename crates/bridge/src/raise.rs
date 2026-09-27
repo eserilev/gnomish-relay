@@ -151,7 +151,7 @@ impl Raiser {
                 }
             },
             Answer::Desktop(false) => Raised::DeniedOnTheDesktop,
-            Answer::Game(_) | Answer::None => Raised::NotRaised,
+            Answer::Game(_) | Answer::None | Answer::NewMessage => Raised::NotRaised,
         }
     }
 }

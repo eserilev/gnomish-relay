@@ -149,6 +149,8 @@ pub struct Relay {
     sessions: Vec<AgentSession>,
     /// Chats whose run in progress got a Stop. The bridge signals each run.
     cancels: Vec<ChatId>,
+    /// Chats whose run waited for an answer when a new message came (SPEC.md 9.3).
+    interrupts: Vec<ChatId>,
     /// Chats that the game deleted. A run of one that ends later leaves no trace.
     deleted: Vec<ChatId>,
     listed: Vec<Listed>,
@@ -207,6 +209,7 @@ impl Relay {
             restore_for: None,
             sessions: Vec::new(),
             cancels: Vec::new(),
+            interrupts: Vec::new(),
             deleted: Vec::new(),
             listed: Vec::new(),
             activity: Activity::default(),
@@ -339,7 +342,8 @@ impl Relay {
         };
         let asked = flags.level.unwrap_or(*permission);
         let permission = permission.ceiling(flags.level);
-        self.enqueue_job(Job {
+        let waits = self.running.contains(&chat) && self.activity.waits(&chat);
+        let outcome = self.enqueue_job(Job {
             token: text(&r.token),
             chat,
             id: MessageId(r.id),
@@ -356,7 +360,13 @@ impl Relay {
             text: text(&r.text),
             work: Work::Prompt,
             new_folder,
-        })
+        });
+        // The player never has to answer an old question first. A run that only works
+        // keeps working, and the message waits (SPEC.md 9.3).
+        if outcome == Outcome::Accepted && waits {
+            self.interrupts.push(ChatId(text(&r.chat)));
+        }
+        outcome
     }
 
     fn enqueue_list(&mut self, r: &Record, chat: ChatId, kind: ListKind) -> Outcome {
@@ -502,6 +512,10 @@ impl Relay {
 
     pub fn take_cancels(&mut self) -> Vec<ChatId> {
         std::mem::take(&mut self.cancels)
+    }
+
+    pub fn take_interrupts(&mut self) -> Vec<ChatId> {
+        std::mem::take(&mut self.interrupts)
     }
 
     pub fn keep_session(&mut self, job: &Job, id: Option<String>) {
@@ -1162,6 +1176,98 @@ mod tests {
         relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
         assert_eq!(relay.take_cancels(), [ChatId("c1".into())]);
         assert!(relay.take_cancels().is_empty());
+    }
+
+    fn open_notice() -> Notice {
+        Notice {
+            id: "a1b2c3d4e5f6".into(),
+            prompted: crate::desktop::Prompted::Dialog,
+            waiting: crate::desktop::Waiting::Open,
+            raise: None,
+        }
+    }
+
+    #[test]
+    fn a_new_message_while_a_run_waits_for_the_desktop_interrupts_the_run() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "read my key")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.desktop(&job.chat, job.id, open_notice());
+
+        assert_eq!(
+            relay.on_frame(&[record("c1", 2, "", "no, do this")], NOW),
+            [Outcome::Accepted]
+        );
+
+        assert_eq!(relay.take_interrupts(), [ChatId("c1".into())]);
+        assert!(relay.take_cancels().is_empty(), "no Stop");
+    }
+
+    #[test]
+    fn a_new_message_while_a_run_waits_for_the_game_interrupts_the_run() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "clean up")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.ask(&job.chat, job.id, b"rm -rf build".to_vec(), Vec::new(), NOW);
+
+        relay.on_frame(&[record("c1", 2, "", "no, do this")], NOW);
+
+        assert_eq!(relay.take_interrupts(), [ChatId("c1".into())]);
+    }
+
+    #[test]
+    fn a_new_message_while_a_run_only_works_waits_in_the_queue() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "long task")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.step(&job.chat, job.id, "edit a.rs".into());
+        let mut ended = open_notice();
+        ended.waiting = crate::desktop::Waiting::Approved;
+        relay.desktop(&job.chat, job.id, ended);
+
+        relay.on_frame(&[record("c1", 2, "", "and then this")], NOW);
+
+        assert!(relay.take_interrupts().is_empty());
+        assert!(relay.next_job().is_none(), "the run goes on");
+    }
+
+    #[test]
+    fn a_duplicate_a_refused_message_or_another_chat_never_interrupts() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "read my key")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.desktop(&job.chat, job.id, open_notice());
+
+        relay.on_frame(&[record("c1", 1, "", "read my key")], NOW);
+        relay.on_frame(&[record("c2", 3, "", "other chat")], NOW);
+        relay.on_frame(&[record("c1", 0, "list", "")], NOW);
+        assert!(relay.take_interrupts().is_empty());
+
+        for id in 100..130 {
+            let at = NOW + (id - 100) * 7;
+            relay.on_frame(&[record(&format!("x{id}"), id, "", "x")], at);
+        }
+        run_all(&mut relay);
+        let refused = relay.on_frame(&[record("c1", 99, "", "late")], NOW + 400);
+        assert_eq!(refused, [Outcome::Refused]);
+        assert!(relay.take_interrupts().is_empty());
+    }
+
+    #[test]
+    fn after_an_interrupt_the_new_message_runs_next_and_resumes_the_session() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "n", "read my key")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.desktop(&job.chat, job.id, open_notice());
+        relay.on_frame(&[record("c1", 2, "", "no, do this")], NOW);
+        relay.take_interrupts();
+
+        relay.keep_session(&job, Some("s1".into()));
+        relay.finish(&job, Err("Stopped.".into()));
+
+        let next = relay.next_job().unwrap();
+        assert_eq!(next.id, MessageId(2));
+        assert_eq!(next.resume.as_deref(), Some("s1"));
     }
 
     #[test]

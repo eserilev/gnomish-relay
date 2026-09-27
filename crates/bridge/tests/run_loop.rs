@@ -323,6 +323,36 @@ fn a_permission_request_waits_for_the_answer_from_the_game() {
     assert!(live_request(&f.addons).is_none());
 }
 
+#[test]
+fn a_new_message_ends_a_waiting_request_and_runs_next() {
+    let f = folders();
+    let root = tempfile::tempdir().unwrap();
+    let mut bridge = acp_bridge(&f, &root, "permission");
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        strip_png(KEY, "clean up"),
+    )
+    .unwrap();
+    assert!(step_until(&mut bridge, || live_request(&f.addons).is_some()));
+    let (first, _) = live_request(&f.addons).unwrap();
+
+    let payload = "tok\x1fc1\x1f8\x1f\x1f\x1f\x1fno, keep the build";
+    let second = signed_frame(now(), payload.as_bytes(), KEY);
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        screenshot_png(&strip_rows(&second)),
+    )
+    .unwrap();
+
+    let asked_again = step_until(&mut bridge, || {
+        live_request(&f.addons).is_some_and(|(request, _)| request != first)
+    });
+    assert!(asked_again, "{}", live_text(&f.addons));
+    let body = slot_body(&f.addons);
+    assert!(body.contains("id = 7, status = \"error\""), "{body}");
+    assert!(body.contains("id = 8, status = \"working\""), "{body}");
+}
+
 /// An agent that works until the test lets it go.
 struct Held(Arc<std::sync::atomic::AtomicBool>);
 
