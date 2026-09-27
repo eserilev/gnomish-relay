@@ -148,6 +148,10 @@ fn run_ac(sec: &SecurityCapabilities, exe: &Path, cmdline: &str, cwd: &Path, env
     Ran { code, out: format!("{s}{e}") }
 }
 
+fn psec_of(p: &rappct::AppContainerProfile) -> SecurityCapabilities {
+    SecurityCapabilities { package: p.sid.clone(), caps: vec![], lpac: false }
+}
+
 fn run_ac_noenv(sec: &SecurityCapabilities, exe: &Path, cmdline: &str, cwd: &Path) -> Ran {
     let opts = LaunchOptions {
         exe: exe.to_path_buf(),
@@ -213,7 +217,27 @@ fn outer() {
     match rappct::AppContainerProfile::ensure("gnomish.spike.profile", "spike", None) {
         Ok(p) => {
             let psec = SecurityCapabilities { package: p.sid.clone(), caps: vec![], lpac: false };
-            show("profile cmd echo", &run_ac(&psec, &cmd, "cmd /c echo hello", Path::new("C:\\Windows\\System32"), &env));
+            let tcaps = rappct::SecurityCapabilitiesBuilder::new(&p.sid)
+                .with_known(&[rappct::KnownCapability::InternetClient])
+                .build()
+                .unwrap();
+            for (label, stdio) in [("pipe", StdioConfig::Pipe), ("inherit", StdioConfig::Inherit), ("null", StdioConfig::Null)] {
+                let o = LaunchOptions {
+                    exe: PathBuf::from("C:/Windows/System32/cmd.exe"),
+                    cmdline: Some(" /C echo hello".to_string()),
+                    stdio,
+                    ..Default::default()
+                };
+                match launch_in_container_with_io(&tcaps, &o) {
+                    Ok(io) => println!("=== their test {label}: ok code {:?}", io.wait(Some(Duration::from_secs(10)))),
+                    Err(e) => println!("=== their test {label}: {e:?}"),
+                }
+                match launch_in_container_with_io(&psec_of(&p), &o) {
+                    Ok(io) => println!("=== their test nocaps {label}: ok code {:?}", io.wait(Some(Duration::from_secs(10)))),
+                    Err(e) => println!("=== their test nocaps {label}: {e:?}"),
+                }
+            }
+            show("profile cmd echo",&run_ac(&psec, &cmd, "cmd /c echo hello", Path::new("C:\\Windows\\System32"), &env));
             show("profile cmd echo chat", &run_ac(&psec, &cmd, "cmd /c echo hello", &chat, &env));
             let _ = p.delete();
         }
