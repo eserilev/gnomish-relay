@@ -471,7 +471,7 @@ fn quotes_line_breaks_and_substitutions_run_inside_the_sandbox() {
 /// The spike of SPEC.md 6.6.4 ("macOS"), run on the macOS runner of CI on 2026-09-27:
 /// inside a profile that allows everything, `sandbox-exec` starts again, but inside a
 /// profile that denies the network, as a wall of the agent does, it fails with
-/// "sandbox_apply: Operation not permitted". So the agent has no wall on macOS: its
+/// `sandbox_apply: Operation not permitted`. So the agent has no wall on macOS: its
 /// commands use Seatbelt. If the second check fails, nesting works, and macOS can get a
 /// wall.
 #[cfg(target_os = "macos")]
