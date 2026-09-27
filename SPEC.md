@@ -68,7 +68,7 @@ The bridge treats all four as untrusted input.
 
 | Attacker | How | Defense |
 |---|---|---|
-| Another window over the game (browser, video, overlay) | Shows a fake strip | WoW takes the screenshot itself, so other windows are not in it. With the capture fallback, capture reads the window content. Each strip carries a MAC. |
+| Another window over the game (browser, video, overlay) | Shows a fake strip | WoW takes the screenshot itself, so other windows are not in it. Each strip carries a MAC. |
 | A local program | Drops a crafted PNG into the Screenshots folder, or replaces a slot folder with a symbolic link | MAC (6.3) and freshness check (S11). Image size limit before decoding. No writes or deletes through symbolic links (6.2). |
 | A local program | Connects to the hook socket and sends fake pings | Socket mode 0600. Size limit and rate limit. Ping text goes through the same escapes as agent text. |
 | A malicious or prompt-injected agent | Writes a reply that injects Lua or fakes WoW chat links. Asks for permission with a false label. Writes a huge reply. | Lua escape and UI escape (S8 to S10). Honest permission popup (6.4). Size limits (S12). |
@@ -583,7 +583,6 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - The addon sets the `screenshotFormat` CVar to `png` at login.
 - The addon hides the "Screen captured" text for its own screenshots through the `ActionStatus` frame. Normal screenshots still show it.
 - The bridge ignores screenshots with no valid strip. Those are the screenshots of the user.
-- Screen capture of the window (section 11) is a fallback for a client that blocks `Screenshot()`.
 
 **Frame layout (bytes):**
 
@@ -595,7 +594,7 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - `version` is the protocol version, 1 for this spec.
 - `time` is the Unix time from `time()` in the game, big-endian. The bridge uses it for the freshness check (S11).
 - `frame id` is the message id modulo 65536. It only tells frames apart. The record ids are the real keys.
-- Fletcher-16 covers version to payload. It catches capture errors.
+- Fletcher-16 covers version to payload. It catches damaged pixels.
 - The MAC covers magic to checksum. It stops fake strips (6.3).
 - `len` is at most 3200. The addon refuses longer text and tells the user.
 
@@ -874,7 +873,7 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 
 | Direction | Interface | Channels, in order |
 |---|---|---|
-| Out (game to bridge) | Addon `Out.Send(frame)`, bridge `trait FrameSource` | Strip by `Screenshot()`, strip by screen capture (section 11), reload outbox (7.5) |
+| Out (game to bridge) | Addon `Out.Send(frame)`, bridge `trait FrameSource` | Strip by `Screenshot()`, reload outbox (7.5) |
 | In (bridge to game) | Addon `In.Poll()`, bridge `trait Publisher` | Slots (7.3), fonts (a spike in 15), reload inbox (7.5) |
 
 - The protocol core, the model, and the proofs work on frames and records. They do not change when a channel changes.
@@ -917,7 +916,7 @@ A client patch can break either one. So a patch costs a day of work, not the pro
         │ pixels           │ slot files, signals
  ┌──────▼──────────────────┴────────────┐
  │  gnomish-relay bridge (Rust)         │
- │   capture → decode → policy → queue  │
+ │   PNG → decode → policy → queue      │
  │   agent runner → publisher           │
  │   hook socket ◄── terminal sessions  │
  └──────┬───────────────────────────────┘
@@ -935,9 +934,8 @@ gnomish-relay/
   addon/transport/      the shared Lua transport of every app (9.7). Install copies it into each addon.
   crates/
     protocol/           frames, records, slot body, escapes, dedup, counters. No I/O. Verified with Aeneas.
-    capture/            trait Capture + one backend per platform
     agents/             trait Agent + ACP, native, and command backends
-    bridge/             the daemon: capture loop, policy, queue, publisher, state
+    bridge/             the daemon: screenshot reader, policy, queue, publisher, state
     hook/               small CLI that terminal agent hooks call
   proofs/               Lean project with the Aeneas output and the proofs
   models/               Quint model of the transport
@@ -1536,34 +1534,25 @@ Codex `notify` accepts only one program. If the user already has one, the hook C
 
 ## 11. Platforms
 
-`Screenshot()` makes the capture layer a fallback, so only a few paths change per platform. All other code is shared.
-The capture rows in this table apply only to the fallback.
+Only a few paths change per platform. All other code is shared.
 
 | Part | Linux | Windows | macOS |
 |---|---|---|---|
-| Capture | Wayland portal with PipeWire (`ashpd`), or X11 (`x11rb`) | Windows.Graphics.Capture | ScreenCaptureKit |
-| Capture permission | One portal prompt. The bridge stores the restore token (`persist_mode = 2`), so the prompt does not repeat. | None | One "Screen Recording" prompt |
-| Find the WoW window | Process `WowB.exe` (Wine PID through `_NET_WM_PID`) or `WM_CLASS` | Process `WowB.exe` | Window owner name |
 | WoW folder | Inside the Wine prefix | `Program Files (x86)\World of Warcraft\_classic_beta_` | `/Applications/World of Warcraft/_classic_beta_` |
 | Hook socket | Unix socket | Named pipe | Unix socket |
 | Replace a file that the game has open | Rename always works | Rename can fail. Retry with backoff, then log. | Rename always works |
-
-Do not match the window by the title "World of Warcraft". That title also matches "World of Warcraft Launcher".
 
 ### 11.1 Linux notes (the first target)
 
 The development machine runs Wayland with XWayland. The home file system is ext4.
 
 - WoW can run on D3D12 through vkd3d-proton, or on D3D11 through DXVK.
-- If Wine uses its native Wayland driver, X11 capture cannot see the window. Then only the portal works. The bridge detects this case.
-- X11 capture of a Vulkan window under XWayland can return a black image. The spike tests this.
 - The bridge finds `Interface/AddOns` and `WTF/Account/<ACCOUNT>` without regard to case. It never makes a second folder that differs only in case, for example `Addons` next to `AddOns`.
 - The game makes `Interface/` and `WTF/` only after its first start. The setup step makes `Interface/AddOns` if it is missing.
 
 ### 11.2 Other platform notes
 
 - **File system:** any file system works except FAT32 and exFAT. (`wow-claude` says NTFS. That line comes from `wow-forever-codex`, which stores 65,535 font files. It has no reason in `wow-claude`.)
-- **Exclusive fullscreen** blocks capture. WoW must run windowed or borderless.
 - **HDR** is not tested.
 - **The `claude` command on Windows** is `claude.cmd` in some installs. The bridge finds the path with the `which` crate.
 - **Claude on native Windows has no sandbox** for its commands (6.6.4, "Windows"). Every command asks in the game. For commands that run with no question, use Codex, which has its own Windows sandbox, or Claude under WSL2.
@@ -1718,10 +1707,6 @@ default_agent = "claude"
 
 [wow]
 path = "~/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_"
-
-[capture]
-backend = "auto"            # auto | portal | x11 | windows | macos
-process = "WowB.exe"
 
 [agents.claude]
 kind = "claude"
@@ -2038,7 +2023,7 @@ Write the model before the bridge state machine. The Rust state machine follows 
 - **Fuzzing:** `cargo-fuzz` on the frame decoder and the record parser. No panic and no hang on any input.
 - **Fake agent and fake capture** for the bridge loop. No test needs the game or a real LLM, except live tests marked `#[ignore]`.
 - **Coverage gates:** `protocol` 95% of lines, `bridge` and `agents` 80%.
-- **CI** on Linux, Windows, and macOS. CI runs everything except live capture.
+- **CI** on Linux, Windows, and macOS. CI runs everything except the live tests.
 - **CI time.** Each fuzz target runs in its own job for 15 seconds. The proofs and the model run only when `crates/protocol`, `proofs/`, or `models/` change (`scripts/ci-changes.sh`). A weekly run and the nightly run check everything. The rust jobs keep a build cache and run the tests with `cargo nextest`, which runs the test binaries side by side.
 
 #### 14.3.1 The self-test of the game
@@ -2154,8 +2139,8 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 ## 15. Build order
 
 0. **Start WoW once.** This makes `Interface/` and `WTF/Account/`.
-1. **Done: `Screenshot()` spike.** A test addon draws a strip and calls `Screenshot()` from an event, with no key press. If a PNG appears, WoW writes the strip image itself, and the capture layer (section 11) becomes a fallback. The addon hides the "Screen captured" text through the `ActionStatus` frame.
-2. **Skipped: capture spike.** Step 1 passed. Capture the top-left 800×192 pixels of the WoW window content 4 times per second. Save one frame as PNG. Test the portal and X11 paths.
+1. **Done: `Screenshot()` spike.** A test addon draws a strip and calls `Screenshot()` from an event, with no key press. If a PNG appears, WoW writes the strip image itself, and the bridge needs no screen capture. The addon hides the "Screen captured" text through the `ActionStatus` frame.
+2. **Cut: capture spike.** Step 1 passed, so the bridge has no screen capture.
 3. **Done: Wine rules spike.** Test the five rules in 7.2 under Wine: the `ctl` self-test, a fresh read of a load-on-demand file, and "a new file is not found". Results in `spikes/README.md`. The HMAC-SHA256 cost in WoW Lua is not measured yet.
 4. **Done: `protocol` crate with Aeneas.** Frame, cells, records, slot body, escapes, and every theorem in 14.1. `VERIFICATION.md` has the status.
 5. **Done: slot writer.** Publish a fixed reply. Make sure that it shows in the game. Passed in the game on 2026-09-24: `install`, then `say`, then `/relay poll` showed the reply. The steps are in `addon/README.md`.
@@ -2165,11 +2150,10 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Next:** a live test with a real agent in the game.
 10. **`note` signal and pings:** the hook CLI and the socket.
 11. **`native-*` and `command` backends.**
-12. **Windows and macOS capture backends.** Mark them experimental until a tester on each OS makes sure that they work.
-13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
-14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
-15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 7, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. **Next:** step 8, setup for two apps, and versions.
-16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Next:** the agent process behind the proxy (6.6.4, "The agent process behind the proxy"). S33 to S35 wait for the approval of the user. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
+12. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
+13. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
+14. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 7, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. **Next:** step 8, setup for two apps, and versions.
+15. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Next:** the agent process behind the proxy (6.6.4, "The agent process behind the proxy"). S33 to S35 wait for the approval of the user. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
@@ -2191,7 +2175,6 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 - Can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?
 - Two WoW accounts on one computer have two tokens. A hello from the second account starts a restore, and its `restored` flag retires the first token. How does the bridge tell two accounts from a saved-data wipe?
 
-1. Does X11 capture of the WoW window work under XWayland? (Only for the fallback.)
 2. Can font files replace the `.wav` signals?
 3. How fast is HMAC-SHA256 in WoW Lua for a 3200-byte strip?
 4. What are the ACP mode IDs of `claude-agent-acp` and `codex-acp`?
