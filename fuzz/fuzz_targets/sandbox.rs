@@ -5,8 +5,10 @@
 //!   hidden, and it hides each `deny` folder.
 //! - Each field reads back from its SBPL literal, as the model of `Spec/Sbpl.lean` reads.
 //! - The Seatbelt profile holds exactly the expected literals, in order: no path ends its
-//!   literal early or adds a rule.
-//! - The `bwrap` arguments bind each writable path and end with the command.
+//!   literal early or adds a rule. Between the writable paths and the hidden paths come
+//!   only the pinned paths and the folders above a guarded path.
+//! - The `bwrap` arguments bind each writable path and each pinned path, and end with the
+//!   command.
 #![no_main]
 
 use std::ffi::OsString;
@@ -133,6 +135,14 @@ fn check_tools(walls: &Walls, command: &str) {
             .any(|a| a[0] == "--bind" && a[1] == w.as_os_str() && a[2] == w.as_os_str());
         assert!(bound);
     }
+    for p in &walls.pinned {
+        let bound = args.windows(3).any(|a| {
+            (a[0] == "--bind" || a[0] == "--ro-bind")
+                && a[1] == p.as_os_str()
+                && a[2] == p.as_os_str()
+        });
+        assert!(bound);
+    }
     let Ok(profile) = seatbelt_profile(walls) else {
         return;
     };
@@ -141,8 +151,26 @@ fn check_tools(walls: &Walls, command: &str) {
     let writable: Vec<Vec<u8>> = walls.writable.iter().map(|p| bytes_of(p)).collect();
     let hidden: Vec<Vec<u8>> = walls.hidden.iter().map(|p| bytes_of(p)).collect();
     assert_eq!(found[fixed..fixed + writable.len()], writable[..]);
-    let at = fixed + writable.len();
-    assert_eq!(found[at..at + hidden.len()], hidden[..]);
+    let from = fixed + writable.len();
+    let at = (from..=found.len() - hidden.len())
+        .find(|&i| found[i..i + hidden.len()] == hidden[..])
+        .expect("the hidden paths follow");
+    for literal in &found[from..at] {
+        assert!(is_fixed(walls, &path_of(literal)));
+    }
+}
+
+/// A pinned path, or a folder strictly between a writable path and a guarded path in it.
+fn is_fixed(walls: &Walls, path: &Path) -> bool {
+    if walls.pinned.iter().any(|p| p == path) {
+        return true;
+    }
+    let guarded = walls.hidden.iter().chain(&walls.pinned);
+    guarded.into_iter().any(|g| {
+        walls.writable.iter().any(|w| {
+            g.starts_with(w) && path.starts_with(w) && path != w && g.starts_with(path) && g != path
+        })
+    })
 }
 
 fuzz_target!(|data: &[u8]| {
@@ -157,6 +185,7 @@ fuzz_target!(|data: &[u8]| {
         writable: vec![path_of(chat), path_of(temp)],
         temp: path_of(temp),
         hidden: deny.iter().map(|d| path_of(d)).collect(),
+        pinned: deny.iter().map(|d| path_of(d)).collect(),
         empty: PathBuf::from("/data/empty"),
         proxy: None,
         overlays: Vec::new(),

@@ -736,7 +736,8 @@ pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
 fn fixed_paths(walls: &Walls) -> Vec<PathBuf> {
     let mut fixed = walls.pinned.clone();
     for path in walls.hidden.iter().chain(&walls.pinned) {
-        let Some(root) = walls.writable.iter().find(|w| path.starts_with(w)) else {
+        let inside = |w: &&PathBuf| path.starts_with(w) && path != *w;
+        let Some(root) = walls.writable.iter().find(inside) else {
             continue;
         };
         let above = path.ancestors().skip(1).take_while(|a| a != root);
@@ -1240,6 +1241,17 @@ mod tests {
         }
         assert!(!profile.contains("(literal \"/home/x/Code/app\")"));
         assert!(!profile.contains("(literal \"/home/x/Code/app/.env\")"));
+    }
+
+    #[test]
+    fn seatbelt_keeps_no_folder_above_a_pinned_path_that_is_a_writable_path() {
+        let mut walls = sample();
+        walls.pinned = vec![PathBuf::from("/tmp/run1")];
+
+        let profile = String::from_utf8(seatbelt_profile(&walls).unwrap()).unwrap();
+
+        assert!(!profile.contains("(literal \"/tmp\")"), "{profile}");
+        assert!(!profile.contains("(literal \"\")"), "{profile}");
     }
 
     #[test]
