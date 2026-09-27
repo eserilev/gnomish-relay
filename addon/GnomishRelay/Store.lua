@@ -17,6 +17,8 @@ function Store.Load()
 	db.forget = db.forget or {}
 	db.restored = db.restored or false
 	db.whisperColor = db.whisperColor or "f0a860"
+	-- The desktop requests that already got their whisper line.
+	db.desktopWhispered = db.desktopWhispered or {}
 	Store.db = db
 end
 

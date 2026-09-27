@@ -7,6 +7,7 @@ use std::time::{Duration, Instant};
 use serde_json::Value;
 
 use crate::agent::{Choice, Control, Event, Events, Question, StopSignal};
+use crate::desktop::Notice;
 use crate::process::{AgentProcess, Next};
 
 pub const STOPPED: &str = "Stopped.";
@@ -81,51 +82,53 @@ impl Turn {
         if self.stopping { STOPPED } else { TIMED_OUT }
     }
 
-    /// Shows a question in the game and waits for the index of the answer. `None` means
-    /// no answer: nobody listens, Stop came, or `permission_timeout` passed. The run
-    /// timeout stops while the question waits (SPEC.md 9.3).
-    pub fn ask_game(&mut self, text: Vec<u8>, choices: Vec<Choice>) -> Option<usize> {
-        match self.ask(text, choices, None) {
-            Answer::Game(chosen) => Some(chosen),
-            Answer::Desktop(_) | Answer::None => None,
-        }
+    /// Tells the bridge where a desktop request of the run stands.
+    pub fn desktop(&self, notice: Notice) {
+        self.events.send(Event::Desktop(notice));
     }
 
-    /// `ask_game`, and also a wait for `desktop`, which gives `Some` once the desktop
-    /// answers. With a desktop, the wait goes on when nobody in the game listens.
-    pub fn ask(
-        &mut self,
-        text: Vec<u8>,
-        choices: Vec<Choice>,
-        desktop: Option<&dyn Fn() -> Option<bool>>,
-    ) -> Answer {
+    /// Shows a question in the game and waits for the answer. `Answer::None` means no
+    /// answer: nobody listens, Stop came, or `permission_timeout` passed. The run
+    /// timeout stops while the question waits (SPEC.md 9.3).
+    pub fn ask_game(&mut self, text: Vec<u8>, choices: Vec<Choice>) -> Answer {
         let (answer, answers) = channel();
         let shown = self.events.send(Event::Question(Question {
             text,
             choices,
             answer,
         }));
-        if !shown && desktop.is_none() {
+        if !shown {
             return Answer::None;
         }
+        self.wait(|| match answers.recv_timeout(POLL) {
+            Ok(Some(chosen)) => Some(Answer::Game(chosen)),
+            Err(RecvTimeoutError::Timeout) => None,
+            Ok(None) | Err(RecvTimeoutError::Disconnected) => Some(Answer::None),
+        })
+    }
+
+    /// Waits for `desktop`, which gives `Some` once the desktop answers. The game
+    /// cannot answer, so the wait goes on when nobody in the game listens.
+    pub fn wait_desktop(&mut self, desktop: &dyn Fn() -> Option<bool>) -> Answer {
+        self.wait(|| {
+            let answer = desktop().map(Answer::Desktop);
+            if answer.is_none() {
+                std::thread::sleep(POLL);
+            }
+            answer
+        })
+    }
+
+    /// Calls `check` about every `POLL` until it answers, Stop comes, or the
+    /// permission timeout passes. The run timeout stops meanwhile.
+    fn wait(&mut self, mut check: impl FnMut() -> Option<Answer>) -> Answer {
         let asked = Instant::now();
-        let mut game = shown.then_some(answers);
         let answer = loop {
             if self.stop.requested() || asked.elapsed() >= self.permission_timeout {
                 break Answer::None;
             }
-            if let Some(allowed) = desktop.and_then(|d| d()) {
-                break Answer::Desktop(allowed);
-            }
-            let Some(answers) = &game else {
-                std::thread::sleep(POLL);
-                continue;
-            };
-            match answers.recv_timeout(POLL) {
-                Ok(Some(chosen)) => break Answer::Game(chosen),
-                Err(RecvTimeoutError::Timeout) => {}
-                Err(RecvTimeoutError::Disconnected) if desktop.is_some() => game = None,
-                Ok(None) | Err(RecvTimeoutError::Disconnected) => break Answer::None,
+            if let Some(answer) = check() {
+                break answer;
             }
         };
         self.deadline += asked.elapsed();

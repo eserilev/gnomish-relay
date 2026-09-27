@@ -313,7 +313,7 @@ fn each_tool_call_becomes_a_progress_line_and_the_text_is_the_reply() {
         .into_iter()
         .filter_map(|e| match e {
             Event::Progress(line) => Some(line),
-            Event::Question(_) | Event::Raised { .. } => None,
+            Event::Question(_) | Event::Desktop(_) | Event::Raised { .. } => None,
         })
         .collect();
     assert_eq!(lines, ["$ cargo test", "Edit src/main.rs"]);

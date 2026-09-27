@@ -170,7 +170,7 @@ fn a_read_of_the_strip_key_is_denied_at_every_level() {
 }
 
 #[test]
-fn a_read_of_an_ssh_key_from_the_game_never_runs_and_asks_on_the_desktop() {
+fn a_read_of_an_ssh_key_from_the_game_asks_on_the_desktop_and_sends_no_game_request() {
     let home = home("");
     let key = home.path.join(".ssh/id_rsa");
     let approvals = home.gate.approvals.clone();
@@ -193,17 +193,7 @@ fn a_read_of_an_ssh_key_from_the_game_never_runs_and_asks_on_the_desktop() {
     );
     assert!(reply.starts_with("deny: Denied on the desktop."), "{reply}");
     assert!(desktop.join().unwrap().contains("id_rsa"));
-    let labels: Vec<&str> = questions[0]
-        .choices
-        .iter()
-        .map(|c| c.label.as_str())
-        .collect();
-    assert_eq!(labels, ["Deny"], "the game cannot allow a desktop call");
-    assert!(
-        questions[0]
-            .text
-            .starts_with(b"Approve on your desktop. No prompt? Run: gnomish-relay approve ")
-    );
+    assert!(questions.is_empty(), "the game gets no request to answer");
 }
 
 #[test]
@@ -510,6 +500,7 @@ fn live_the_hook_of_claude_fires_for_a_read() {
         .map(|(_, _, e)| match e {
             Event::Progress(line) => line,
             Event::Question(q) => String::from_utf8_lossy(&q.text).into_owned(),
+            Event::Desktop(notice) => notice.line(),
             Event::Raised { .. } => String::new(),
         })
         .collect();
@@ -518,9 +509,7 @@ fn live_the_hook_of_claude_fires_for_a_read() {
     assert!(reply.contains("banana"), "the read inside the folder ran");
     assert!(!reply.contains("debug"), "the read of .env did not run");
     assert!(
-        steps
-            .iter()
-            .any(|s| s.starts_with("Approve on your desktop")),
+        steps.iter().any(|s| s.starts_with("Desktop: wait ")),
         "the read of .env asked the desktop"
     );
 }

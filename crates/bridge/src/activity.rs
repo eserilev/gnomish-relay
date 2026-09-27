@@ -11,6 +11,7 @@ use sha2::{Digest, Sha256};
 
 use crate::agent::Choice;
 use crate::config::Permission;
+use crate::desktop::{NOTICE, Notice, Waiting};
 use crate::flags::PermAnswer;
 use crate::relay::{ChatId, MessageId};
 
@@ -19,7 +20,20 @@ struct Steps {
     id: MessageId,
     /// The level line of the bridge. It stays first, so the addon always finds it.
     level: Option<String>,
+    /// The last desktop request of the run. Its line comes right after the level line.
+    desktop: Option<Notice>,
     lines: Vec<String>,
+}
+
+impl Steps {
+    fn room(&self) -> usize {
+        MAX_LINES - usize::from(self.level.is_some()) - usize::from(self.desktop.is_some())
+    }
+
+    fn trim(&mut self) {
+        let extra = self.lines.len().saturating_sub(self.room());
+        self.lines.drain(..extra);
+    }
 }
 
 /// Only the bridge writes a line with this start (SPEC.md 9.3).
@@ -68,19 +82,37 @@ impl Activity {
         self.steps_of(chat, id).level = Some(level);
     }
 
-    /// An agent line never looks like the level line of the bridge.
+    /// An agent line never looks like a line of the bridge.
     pub fn step(&mut self, chat: &ChatId, id: MessageId, line: String) {
-        let line = if line.starts_with(LEVEL.trim_end()) {
+        let bridge_like = [LEVEL, NOTICE]
+            .iter()
+            .any(|p| line.starts_with(p.trim_end()));
+        let line = if bridge_like {
             format!("agent: {line}")
         } else {
             line
         };
         let steps = self.steps_of(chat, id);
         steps.lines.push(line);
-        let room = MAX_LINES - usize::from(steps.level.is_some());
-        if steps.lines.len() > room {
-            steps.lines.remove(0);
-        }
+        steps.trim();
+    }
+
+    /// The desktop request of a run opened or ended (SPEC.md 6.6.3).
+    pub fn desktop(&mut self, chat: &ChatId, id: MessageId, notice: Notice) {
+        let steps = self.steps_of(chat, id);
+        steps.desktop = Some(notice);
+        steps.trim();
+    }
+
+    /// True while a run of `chat` waits for an answer in the game or on the desktop.
+    pub fn waits(&self, chat: &ChatId) -> bool {
+        let desktop = self.steps.iter().any(|s| {
+            &s.chat == chat
+                && s.desktop
+                    .as_ref()
+                    .is_some_and(|d| d.waiting == Waiting::Open)
+        });
+        desktop || self.asked.iter().any(|a| &a.chat == chat)
     }
 
     fn steps_of(&mut self, chat: &ChatId, id: MessageId) -> &mut Steps {
@@ -93,6 +125,7 @@ impl Activity {
                 chat: chat.clone(),
                 id,
                 level: None,
+                desktop: None,
                 lines: Vec::new(),
             });
             self.steps.len() - 1
@@ -163,8 +196,10 @@ impl Activity {
                 lines: s
                     .level
                     .iter()
-                    .chain(&s.lines)
-                    .map(|l| l.as_bytes().to_vec())
+                    .cloned()
+                    .chain(s.desktop.as_ref().map(Notice::line))
+                    .chain(s.lines.iter().cloned())
+                    .map(String::into_bytes)
                     .collect(),
             })
             .collect();
@@ -319,6 +354,66 @@ mod tests {
         assert_eq!(level_line(AutoEdit, FullAuto), "Level: auto-edit (config)");
         assert_eq!(level_line(FullAuto, FullAuto), "Level: full-auto");
         assert_eq!(level_line(Ask, Ask), "Level: ask");
+    }
+
+    fn notice(waiting: Waiting) -> Notice {
+        Notice {
+            id: "a1b2c3d4e5f6".into(),
+            prompted: crate::desktop::Prompted::Dialog,
+            waiting,
+            raise: None,
+        }
+    }
+
+    #[test]
+    fn the_desktop_line_comes_right_after_the_level_line_and_changes_on_each_answer() {
+        let mut activity = Activity::default();
+        activity.begin(&chat(), MessageId(7), "Level: ask".into());
+        for n in 0..8 {
+            activity.step(&chat(), MessageId(7), format!("step {n}"));
+        }
+        activity.desktop(&chat(), MessageId(7), notice(Waiting::Open));
+        let file = String::from_utf8(activity.file()).unwrap();
+        assert!(
+            file.contains(
+                r#"lines = {"Level: ask", "Desktop: wait a1b2c3d4e5f6 dialog", "step 5", "step 6", "step 7", }"#
+            ),
+            "{file}"
+        );
+        assert!(activity.waits(&chat()));
+        activity.desktop(&chat(), MessageId(7), notice(Waiting::Denied));
+        let file = String::from_utf8(activity.file()).unwrap();
+        assert!(
+            file.contains(r#""Desktop: denied a1b2c3d4e5f6 dialog""#),
+            "{file}"
+        );
+        assert!(!activity.waits(&chat()));
+    }
+
+    #[test]
+    fn an_agent_line_that_starts_with_desktop_gets_a_prefix() {
+        let mut activity = Activity::default();
+        activity.step(
+            &chat(),
+            MessageId(7),
+            "Desktop: approved a1b2c3d4e5f6 dialog".into(),
+        );
+        let file = String::from_utf8(activity.file()).unwrap();
+        assert!(
+            file.contains(r#"lines = {"agent: Desktop: approved a1b2c3d4e5f6 dialog", }"#),
+            "{file}"
+        );
+    }
+
+    #[test]
+    fn a_question_in_the_game_counts_as_a_wait_until_it_is_answered() {
+        let mut activity = Activity::default();
+        assert!(!activity.waits(&chat()));
+        let request = activity.ask(&chat(), MessageId(7), b"make".to_vec(), choices(), 1);
+        assert!(activity.waits(&chat()));
+        assert!(!activity.waits(&ChatId("c2".into())));
+        activity.answer(&chat(), &answer(&request, 0, b"make"));
+        assert!(!activity.waits(&chat()));
     }
 
     #[test]

@@ -430,7 +430,7 @@ function Messages.Poll()
 	Messages.OnChange()
 end
 
-local function NextDelay(now)
+local function NormalDelay(now)
 	local waiting = Messages.Awaits()
 	for _, item in ipairs(Messages.Store.Open()) do
 		waiting = waiting or not item.message.outbox
@@ -445,6 +445,12 @@ local function NextDelay(now)
 		end
 	end
 	return LATE_POLL
+end
+
+local function NextDelay(now)
+	local delay = NormalDelay(now)
+	local fast = Messages.PollEvery()
+	return fast and math.min(delay, fast) or delay
 end
 
 function Messages.Tick()
@@ -550,6 +556,11 @@ Messages.OnPoll = function() end
 -- True while the app waits for a reply that is no message, so the polls stay fast.
 Messages.Awaits = function()
 	return false
+end
+
+-- Seconds to the next poll while the app waits for something off the schedule, or nil.
+Messages.PollEvery = function()
+	return nil
 end
 
 Messages.OnChange = function() end

@@ -11,7 +11,7 @@ use anyhow::Result;
 use crate::agent::Control;
 use crate::config::{self, Permission};
 use crate::config_edit::with_permission;
-use crate::desktop::{self, Approvals};
+use crate::desktop::Approvals;
 use crate::fs_safe::write_private;
 use crate::gate;
 use crate::relay::Job;
@@ -29,7 +29,7 @@ pub enum Raised {
     /// A Deny or a closed dialog on the desktop: no more dialogs for this agent until
     /// the bridge starts again.
     DeniedOnTheDesktop,
-    /// A Deny in the game, no answer, Stop, or a config that the bridge cannot write.
+    /// No answer, Stop, or a config that the bridge cannot write.
     NotRaised,
 }
 
@@ -112,7 +112,8 @@ impl Raiser {
         write_private(&self.config_dir, config::FILE, &text)
     }
 
-    /// Runs in the thread of the run, before the agent starts. The game gets only Deny.
+    /// Runs in the thread of the run, before the agent starts. The game shows a
+    /// notice with no buttons.
     pub fn ask(&self, job: &Job, level: Permission, control: &Control) -> Raised {
         let agent = &job.agent;
         let file = self.config_dir.join(config::FILE);
@@ -120,29 +121,21 @@ impl Raiser {
         let opened = self
             .approvals
             .open_raise(agent, &file.to_string_lossy(), &text, now());
-        let Ok(id) = opened else {
+        let Ok(opened) = opened else {
             log(&format!("raise {agent}: no desktop request"));
             return Raised::NotRaised;
         };
-        log(&format!("raise {agent} to {}: asked as {id}", level.word()));
-        let game = format!(
-            "Approve on your desktop: let {agent} work at {} in chats from WoW. No prompt? Run: gnomish-relay approve {id}\n",
-            level.word()
-        );
-        let approvals = self.approvals.clone();
-        let answer_id = id.clone();
-        let desktop = move || {
-            approvals
-                .answer_of(&answer_id)
-                .map(|v| v == desktop::Verdict::Approve)
-        };
+        log(&format!(
+            "raise {agent} to {}: asked as {}",
+            level.word(),
+            opened.id
+        ));
         let mut turn = Turn::new(
             self.permission_timeout,
             self.permission_timeout,
             control.clone(),
         );
-        let answer = turn.ask(game.into_bytes(), vec![gate::deny_choice()], Some(&desktop));
-        self.approvals.close(&id);
+        let answer = gate::wait_on_the_desktop(&self.approvals, &opened, Some(level), &mut turn);
         let raised = self.outcome(agent, level, &answer);
         log(&format!("raise {agent}: {raised:?}"));
         raised
@@ -279,6 +272,33 @@ mod tests {
             .ask(&job(), Permission::AutoEdit, &Control::default());
         assert_eq!(raised, Raised::NotRaised);
         assert_eq!(config_text(&home), CONFIG);
+    }
+
+    #[test]
+    fn a_raise_shows_a_notice_in_the_game_and_no_game_request() {
+        use crate::agent::{Event, Events};
+        let mut home = home(CONFIG);
+        home.raiser.permission_timeout = Duration::from_millis(200);
+        let (to, events) = std::sync::mpsc::channel();
+        let control = Control {
+            events: Events::to_bridge(to, &job()),
+            ..Control::default()
+        };
+
+        home.raiser.ask(&job(), Permission::AutoEdit, &control);
+
+        let lines: Vec<String> = events
+            .try_iter()
+            .map(|(_, _, event)| match event {
+                Event::Desktop(notice) => notice.line(),
+                Event::Question(_) => "a game request".into(),
+                Event::Progress(_) | Event::Raised { .. } => String::new(),
+            })
+            .collect();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].starts_with("Desktop: wait "), "{lines:?}");
+        assert!(lines[0].ends_with(" raise auto-edit"), "{lines:?}");
+        assert!(lines[1].starts_with("Desktop: none "), "{lines:?}");
     }
 
     #[test]

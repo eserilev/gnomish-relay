@@ -14,6 +14,7 @@ use crate::claude::ClaudeAgent;
 use crate::claude_sessions;
 use crate::codex::CodexAgent;
 use crate::config::{AgentSpec, Kind, Permission, RelayConfig};
+use crate::desktop::Notice;
 use crate::gate::Gate;
 use crate::raise::Raised;
 use crate::relay::{ChatId, Job, MessageId};
@@ -68,6 +69,8 @@ pub enum Event {
     /// One step of the agent, for the activity panel.
     Progress(String),
     Question(Question),
+    /// A desktop request of the run opened or ended (SPEC.md 6.6.3).
+    Desktop(Notice),
     /// The end of a raise of the level in the config (SPEC.md 9.3). `level` is the
     /// level of the run after it.
     Raised {

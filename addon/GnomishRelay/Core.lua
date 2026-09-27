@@ -39,11 +39,7 @@ local function Snippet(text)
 	return line
 end
 
-local function Whisper(chat, reply)
-	local shown = ns.Window.Showing(chat.id)
-	if not shown then
-		chat.unread = true
-	end
+local function WhisperLine(chat, text)
 	DEFAULT_CHAT_FRAME:AddMessage(
 		string.format(
 			"|cff%s|Hgnomishrelay:%s|h[%s]|h whispers: [%s] %s|r",
@@ -51,10 +47,28 @@ local function Whisper(chat, reply)
 			chat.id,
 			Relay.AgentName(chat.agent),
 			Relay.Plain(chat.name),
-			Relay.Plain(Snippet(reply.text))
+			Relay.Plain(text)
 		)
 	)
 	PlaySound(SOUNDKIT.TELL_MESSAGE)
+end
+
+local function Whisper(chat, reply)
+	local shown = ns.Window.Showing(chat.id)
+	if not shown then
+		chat.unread = true
+	end
+	WhisperLine(chat, Snippet(reply.text))
+end
+
+-- The id comes from the bridge, so no agent text is in this line.
+local function DesktopText(chat, notice)
+	if notice.how == "command" then
+		return "Run: gnomish-relay approve " .. notice.id
+	elseif notice.raise then
+		return string.format("Approve on your desktop: let %s work at %s.", Relay.AgentName(chat.agent), notice.raise)
+	end
+	return "Approve on your desktop."
 end
 
 local function SetCVarValue(name, value)
@@ -137,6 +151,9 @@ events:SetScript("OnEvent", function(_, event, name)
 		ns.Transport.OnReply = function(chat, reply)
 			Whisper(chat, reply)
 			ns.Window.Refresh()
+		end
+		ns.Transport.OnDesktop = function(chat, notice)
+			WhisperLine(chat, DesktopText(chat, notice))
 		end
 		ns.Transport.Init()
 		C_Timer.NewTicker(1, ns.Transport.Tick)

@@ -841,6 +841,176 @@ fn a_level_line_that_is_not_first_does_not_change_the_header() {
     );
 }
 
+/// Puts a working record and a desktop line of the bridge into every slot.
+fn wait_on_desktop(game: &Game, line: &str) {
+    let id = first_message_id(game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    let progress = Progress {
+        chat: game.chat_id().into_bytes(),
+        id,
+        lines: vec![
+            b"Level: auto-edit".to_vec(),
+            line.as_bytes().to_vec(),
+            b"Read ~/.ssh/id_rsa".to_vec(),
+        ],
+    };
+    game.wow
+        .set(
+            "live",
+            game.lua.create_string(live(&[progress], &[])).unwrap(),
+        )
+        .unwrap();
+}
+
+fn whispers_with(game: &Game, text: &str) -> usize {
+    game.printed()
+        .iter()
+        .filter(|l| l.contains("whispers:") && l.contains(text))
+        .count()
+}
+
+const WAIT: &str = "Desktop: wait a1b2c3d4e5f6 dialog";
+
+#[test]
+fn a_desktop_request_shows_a_row_and_no_popup() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    wait_on_desktop(&game, WAIT);
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"Approve on desktop".to_owned()),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t.starts_with("Desktop:")),
+        "{texts:?}"
+    );
+    let popup = game.run("return GnomishRelayPopup and GnomishRelayPopup:IsShown() or false");
+    assert_eq!(
+        popup,
+        Value::Boolean(false),
+        "no popup for a desktop request"
+    );
+}
+
+#[test]
+fn the_desktop_row_changes_on_each_answer() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    for (state, row) in [
+        ("wait", "Approve on desktop"),
+        ("approved", "Approved on desktop"),
+        ("denied", "Denied on desktop"),
+        ("none", "No answer on desktop"),
+    ] {
+        wait_on_desktop(&game, &format!("Desktop: {state} a1b2c3d4e5f6 dialog"));
+        game.run("local ns = ... ns.Transport.Poll()");
+        let texts = texts_of(&game, "FontString");
+        assert!(texts.contains(&row.to_owned()), "{state}: {texts:?}");
+    }
+}
+
+#[test]
+fn the_whisper_line_prints_once_per_desktop_request_also_after_a_reload() {
+    let game = Game::start();
+    game.send("read my key");
+    game.advance(1.0);
+    wait_on_desktop(&game, WAIT);
+    game.advance(30.0);
+    assert_eq!(whispers_with(&game, "] Approve on your desktop."), 1);
+
+    let game = game.reload();
+    wait_on_desktop(&game, WAIT);
+    game.advance(30.0);
+    assert_eq!(whispers_with(&game, "Approve on your desktop"), 0);
+
+    wait_on_desktop(&game, "Desktop: wait 0123456789ab dialog");
+    game.advance(10.0);
+    assert_eq!(whispers_with(&game, "] Approve on your desktop."), 1);
+}
+
+#[test]
+fn with_no_dialog_the_whisper_line_names_the_command_and_a_raise_names_the_level() {
+    let game = Game::start();
+    game.send("read my key");
+    game.advance(1.0);
+    wait_on_desktop(&game, "Desktop: wait a1b2c3d4e5f6 command");
+    game.run("local ns = ... ns.Transport.Poll()");
+    wait_on_desktop(&game, "Desktop: wait 0123456789ab dialog raise auto-edit");
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(
+        whispers_with(&game, "] Run: gnomish-relay approve a1b2c3d4e5f6"),
+        1
+    );
+    assert_eq!(
+        whispers_with(
+            &game,
+            "] Approve on your desktop: let Claude work at auto-edit."
+        ),
+        1
+    );
+}
+
+#[test]
+fn a_desktop_line_in_the_wrong_place_or_shape_is_only_a_step() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    show_progress(&game, &[b"Level: auto-edit", b"edit a.rs", WAIT.as_bytes()]);
+    wait_on_desktop(&game, "Desktop: wait a1b2 dialog");
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        !texts.contains(&"Approve on desktop".to_owned()),
+        "{texts:?}"
+    );
+    assert_eq!(whispers_with(&game, "desktop"), 0);
+}
+
+/// The seconds between the polls of the game, from a clock that ticks each second.
+fn poll_gaps(game: &Game, seconds: usize) -> Vec<usize> {
+    let mut at = Vec::new();
+    let mut last = loaded_slots(game);
+    for second in 1..=seconds {
+        game.advance(1.0);
+        let now = loaded_slots(game);
+        if now != last {
+            at.push(second);
+            last = now;
+        }
+    }
+    at.windows(2).map(|w| w[1] - w[0]).collect()
+}
+
+#[test]
+fn a_desktop_wait_polls_every_five_seconds_and_stops_after_24_polls() {
+    let game = Game::start();
+    game.send("read my key");
+    game.advance(1.0);
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    game.advance(400.0);
+    wait_on_desktop(&game, WAIT);
+
+    let gaps = poll_gaps(&game, 300);
+
+    let fast = gaps.iter().take_while(|g| **g == 5).count();
+    assert_eq!(
+        fast, 23,
+        "24 polls in all while the request waits: {gaps:?}"
+    );
+    assert_eq!(gaps[fast], 60, "then the normal schedule: {gaps:?}");
+}
+
 /// A request with an "allow" option that the agent labels "Reject".
 fn request(game: &Game, text: &str) -> LiveRequest {
     let option = |id: &[u8], kind, label: &[u8]| PermOption {

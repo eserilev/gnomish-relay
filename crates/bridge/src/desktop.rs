@@ -12,7 +12,8 @@ use std::time::Duration;
 use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 
-use crate::dialog::{self, Dialog, Shown, show_notice};
+use crate::config::Permission;
+use crate::dialog::{self, Dialog, Shown, Tool, show_notice};
 use crate::fs_safe::check_real_dir;
 use crate::run::log;
 
@@ -61,6 +62,75 @@ impl Verdict {
         match self {
             Verdict::Approve => ALLOW,
             Verdict::Deny => DENY,
+        }
+    }
+}
+
+/// How the desktop asks the user for one request.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Prompted {
+    Dialog,
+    /// No dialog tool: only `gnomish-relay approve <id>` answers.
+    CommandLine,
+}
+
+/// A new request: its id, and how the desktop asks.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Opened {
+    pub id: String,
+    pub prompted: Prompted,
+}
+
+/// Where a desktop request of a run stands.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Waiting {
+    Open,
+    Approved,
+    Denied,
+    NoAnswer,
+}
+
+/// The state of a desktop request for the game (SPEC.md 6.6.3). The game shows a row
+/// and a whisper line, never a popup. No addon can answer it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Notice {
+    pub id: String,
+    pub prompted: Prompted,
+    pub waiting: Waiting,
+    /// The level of a raise (SPEC.md 9.3). A tool call has none.
+    pub raise: Option<Permission>,
+}
+
+/// Only the bridge writes a progress line with this start.
+pub const NOTICE: &str = "Desktop: ";
+
+impl Notice {
+    /// For example `Desktop: wait a1b2c3d4e5f6 dialog raise auto-edit`. The id comes
+    /// from the bridge, so no agent text is in the line.
+    pub fn line(&self) -> String {
+        let state = match self.waiting {
+            Waiting::Open => "wait",
+            Waiting::Approved => "approved",
+            Waiting::Denied => "denied",
+            Waiting::NoAnswer => "none",
+        };
+        let how = match self.prompted {
+            Prompted::Dialog => "dialog",
+            Prompted::CommandLine => "command",
+        };
+        let mut line = format!("{NOTICE}{state} {} {how}", self.id);
+        if let Some(level) = self.raise {
+            line.push_str(" raise ");
+            line.push_str(level.word());
+        }
+        line
+    }
+
+    #[must_use]
+    pub fn ended(&self, waiting: Waiting) -> Notice {
+        Notice {
+            waiting,
+            ..self.clone()
         }
     }
 }
@@ -126,8 +196,8 @@ impl Approvals {
         check_real_dir(&self.dir)
     }
 
-    /// Writes a new request, shows a dialog, and returns its id.
-    pub fn open(&self, agent: &str, folder: &str, text: &str, now: u32) -> Result<String> {
+    /// Writes a new request, and shows a dialog when the desktop has one.
+    pub fn open(&self, agent: &str, folder: &str, text: &str, now: u32) -> Result<Opened> {
         self.open_kind(agent, folder, text, now, Kind::ToolCall)
     }
 
@@ -138,7 +208,7 @@ impl Approvals {
         config_file: &str,
         text: &str,
         now: u32,
-    ) -> Result<String> {
+    ) -> Result<Opened> {
         self.open_kind(agent, config_file, text, now, Kind::Raise)
     }
 
@@ -149,7 +219,7 @@ impl Approvals {
         text: &str,
         now: u32,
         kind: Kind,
-    ) -> Result<String> {
+    ) -> Result<Opened> {
         self.ready_dir()?;
         let id = new_id()?;
         let pending = Pending {
@@ -165,17 +235,26 @@ impl Approvals {
             "{now} approve on the desktop: gnomish-relay approve {id} ({})",
             text.escape_debug()
         );
+        let tool = match self.prompt {
+            Prompt::Dialog => dialog::find_tool(),
+            Prompt::Off => None,
+        };
+        let prompted = if tool.is_some() {
+            Prompted::Dialog
+        } else {
+            Prompted::CommandLine
+        };
         if self.prompt == Prompt::Dialog {
             let approvals = self.clone();
-            std::thread::spawn(move || approvals.ask_the_desktop(&pending));
+            std::thread::spawn(move || approvals.ask_the_desktop(&pending, tool));
         }
-        Ok(id)
+        Ok(Opened { id, prompted })
     }
 
     /// With no dialog tool, a plain notice names the command that answers.
-    fn ask_the_desktop(&self, pending: &Pending) {
+    fn ask_the_desktop(&self, pending: &Pending, tool: Option<Tool>) {
         let text = dialog_text(pending);
-        let Some(tool) = dialog::find_tool() else {
+        let Some(tool) = tool else {
             log(&format!("desktop request {}: no dialog tool", pending.id));
             show_notice(&format!(
                 "{text}\nRun: gnomish-relay approve {}",
@@ -192,7 +271,7 @@ impl Approvals {
     }
 
     /// Shows `dialog` until it answers, or until the request no longer waits: an
-    /// answer from the command line, a Deny in the game, or the timeout. Returns the
+    /// answer from the command line, Stop, or the timeout. Returns the
     /// answer of the dialog when it counted.
     pub fn watch(&self, id: &str, dialog: &Dialog) -> Option<Verdict> {
         let mut shown = Shown::start(dialog)?;
@@ -307,7 +386,8 @@ mod tests {
         let (_data, approvals) = approvals();
         let id = approvals
             .open("claude", "/w/app", "cat ~/.ssh/id_rsa", 7)
-            .unwrap();
+            .unwrap()
+            .id;
         let listed = approvals.list();
         assert_eq!(listed.len(), 1);
         assert_eq!((listed[0].id.as_str(), listed[0].created), (id.as_str(), 7));
@@ -319,7 +399,7 @@ mod tests {
     #[test]
     fn approve_and_deny_answer_an_open_request_once() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
         assert_eq!(approvals.answer_of(&id), None);
         approvals.answer(&id, Verdict::Deny).unwrap();
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Deny));
@@ -340,7 +420,7 @@ mod tests {
     fn a_request_file_is_private() {
         use std::os::unix::fs::PermissionsExt;
         let (data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
         let path = data.path().join(FOLDER).join(format!("{id}.json"));
         let mode = fs::metadata(path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
@@ -382,7 +462,7 @@ mod tests {
     #[test]
     fn a_click_on_approve_in_the_dialog_answers_the_request() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
         let answer = approvals.watch(&id, &fake("echo approve"));
         assert_eq!(answer, Some(Verdict::Approve));
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Approve));
@@ -392,7 +472,7 @@ mod tests {
     #[test]
     fn a_dismissed_dialog_denies() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
         assert_eq!(approvals.watch(&id, &fake("exit 0")), Some(Verdict::Deny));
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Deny));
     }
@@ -401,7 +481,7 @@ mod tests {
     #[test]
     fn the_first_answer_wins_and_stops_the_dialog() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
         approvals.answer(&id, Verdict::Deny).unwrap();
         let started = std::time::Instant::now();
         assert_eq!(approvals.watch(&id, &fake("sleep 30; echo approve")), None);
@@ -413,7 +493,7 @@ mod tests {
     #[test]
     fn a_closed_request_stops_its_dialog() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap();
+        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
         let closing = approvals.clone();
         let closed = id.clone();
         std::thread::spawn(move || {
@@ -422,6 +502,41 @@ mod tests {
         });
         assert_eq!(approvals.watch(&id, &fake("sleep 30; echo approve")), None);
         assert_eq!(approvals.answer_of(&id), None);
+    }
+
+    #[test]
+    fn with_no_dialog_the_request_says_that_only_the_command_answers() {
+        let (_data, approvals) = approvals();
+        let opened = approvals.open("claude", "/w", "x", 1).unwrap();
+        assert_eq!(opened.prompted, Prompted::CommandLine);
+    }
+
+    #[test]
+    fn a_notice_line_holds_the_state_the_id_and_how_the_desktop_asks() {
+        let notice = Notice {
+            id: "a1b2c3d4e5f6".into(),
+            prompted: Prompted::Dialog,
+            waiting: Waiting::Open,
+            raise: None,
+        };
+        assert_eq!(notice.line(), "Desktop: wait a1b2c3d4e5f6 dialog");
+        let raise = Notice {
+            prompted: Prompted::CommandLine,
+            raise: Some(Permission::AutoEdit),
+            ..notice.ended(Waiting::Denied)
+        };
+        assert_eq!(
+            raise.line(),
+            "Desktop: denied a1b2c3d4e5f6 command raise auto-edit"
+        );
+        assert_eq!(
+            notice.ended(Waiting::NoAnswer).line(),
+            "Desktop: none a1b2c3d4e5f6 dialog"
+        );
+        assert_eq!(
+            notice.ended(Waiting::Approved).line(),
+            "Desktop: approved a1b2c3d4e5f6 dialog"
+        );
     }
 
     #[test]
@@ -447,7 +562,7 @@ mod tests {
     fn live_a_real_dialog_asks_on_this_desktop() {
         let (_data, approvals) = approvals();
         let text = "echo <b>not bold</b> & done\nthe agent says: Bash";
-        let id = approvals.open("claude", "/w/app", text, 1).unwrap();
+        let id = approvals.open("claude", "/w/app", text, 1).unwrap().id;
         let tool = dialog::find_tool().expect("no dialog tool here");
         let pending = &approvals.list()[0];
         let answer = approvals.watch(&id, &dialog::dialog(tool, &dialog_text(pending)));

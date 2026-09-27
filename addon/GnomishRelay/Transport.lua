@@ -20,6 +20,21 @@ local LEVELS = {
 	["Level: full-auto"] = "full-auto",
 }
 
+-- The bridge writes this line right after the level line while a run waits for the
+-- desktop, and no agent line can start with "Desktop:" (SPEC.md 6.6.3).
+local DESKTOP_STATES = {
+	wait = "Approve on desktop",
+	approved = "Approved on desktop",
+	denied = "Denied on desktop",
+	none = "No answer on desktop",
+}
+local DESKTOP_HOW = { dialog = true, command = true }
+local RAISE_LEVELS = { ["auto-edit"] = true, ["full-auto"] = true }
+local DESKTOP_POLL = 5
+local DESKTOP_POLLS = 24
+-- Enough to whisper once per request across a /reload, and small enough to stay small.
+local WHISPERED = 16
+
 local state = {
 	working = {},
 	-- The id of the open request of each list, by its chat.
@@ -27,9 +42,13 @@ local state = {
 	-- The permission requests of the last live file, and the ones this session answered.
 	requests = {},
 	answered = {},
+	-- The polls so far of each open desktop request, by its id.
+	desktopPolls = {},
 }
 
 Transport.OnReply = function() end
+-- A new desktop request of a chat: `notice` has `id`, `how`, and `raise`.
+Transport.OnDesktop = function() end
 
 Transport.Init = Messages.Init
 Transport.Tick = Messages.Tick
@@ -262,6 +281,68 @@ local function ValidRequest(r)
 	return #r.options > 0
 end
 
+-- `Desktop: <state> <id> <how>`, and ` raise <level>` for a raise. Nil for any other line.
+local function ParseDesktop(line)
+	local waiting, id, how, rest = tostring(line):match("^Desktop: (%l+) (%x+) (%l+)(.*)$")
+	if not DESKTOP_STATES[waiting] or #id ~= 12 or not DESKTOP_HOW[how] then
+		return nil
+	end
+	local raise = rest:match("^ raise ([%l-]+)$")
+	if rest ~= "" and not RAISE_LEVELS[raise] then
+		return nil
+	end
+	return { state = waiting, id = id, how = how, raise = raise }
+end
+
+local function Whispered(id)
+	local db = ns.Store.db
+	for _, seen in ipairs(db.desktopWhispered) do
+		if seen == id then
+			return true
+		end
+	end
+	table.insert(db.desktopWhispered, id)
+	if #db.desktopWhispered > WHISPERED then
+		table.remove(db.desktopWhispered, 1)
+	end
+	return false
+end
+
+-- The desktop line has a fixed place: right after the level line. The row shows its
+-- meaning, not the raw line.
+local function ApplyDesktop(chat, working, lines)
+	local at = LEVELS[lines[1]] and 2 or 1
+	local notice = ParseDesktop(lines[at])
+	working.desktop = notice
+	if not notice then
+		return
+	end
+	lines[at] = DESKTOP_STATES[notice.state]
+	if notice.state == "wait" and not Whispered(notice.id) then
+		Transport.OnDesktop(chat, notice)
+	end
+end
+
+local function CountDesktopPolls()
+	local polls = {}
+	for _, working in pairs(state.working) do
+		local notice = working.desktop
+		if notice and notice.state == "wait" then
+			polls[notice.id] = (state.desktopPolls[notice.id] or 0) + 1
+		end
+	end
+	state.desktopPolls = polls
+end
+
+-- Fast polls while a desktop request waits, at most DESKTOP_POLLS for each request.
+local function PollEvery()
+	for _, count in pairs(state.desktopPolls) do
+		if count < DESKTOP_POLLS then
+			return DESKTOP_POLL
+		end
+	end
+end
+
 -- Progress goes to the run in progress of its chat. Requests wait for an answer.
 local function ApplyLive(live)
 	if type(live) ~= "table" then
@@ -269,14 +350,16 @@ local function ApplyLive(live)
 	end
 	for _, p in ipairs(type(live.progress) == "table" and live.progress or {}) do
 		local working = type(p) == "table" and state.working[p.chat]
-		if working and working.id == p.id and type(p.lines) == "table" then
+		local chat = working and ns.Store.Chat(p.chat)
+		if chat and working.id == p.id and type(p.lines) == "table" then
 			working.progress = p.lines
-			local chat = ns.Store.Chat(p.chat)
-			if chat and LEVELS[p.lines[1]] then
+			if LEVELS[p.lines[1]] then
 				chat.level = LEVELS[p.lines[1]]
 			end
+			ApplyDesktop(chat, working, p.lines)
 		end
 	end
+	CountDesktopPolls()
 	local requests = {}
 	for _, r in ipairs(type(live.permissions) == "table" and live.permissions or {}) do
 		if ValidRequest(r) then
@@ -323,3 +406,4 @@ Messages.Riders = Forgets
 Messages.OnRidersShown = Forgotten
 Messages.OnPoll = ApplySlot
 Messages.Awaits = Listing
+Messages.PollEvery = PollEvery

@@ -191,7 +191,7 @@ There are four answers, in this order from strict to open:
 | Answer | Meaning |
 |---|---|
 | `deny` | Never runs. Only for the files that guard the relay itself. |
-| `desktop` | The user approves on the desktop. The game popup says "Approve on your desktop". No addon can click a desktop prompt. |
+| `desktop` | The user approves on the desktop. The game shows a notice with no buttons. No addon can click a desktop prompt. |
 | `ask` | The user approves in the game popup (6.4). |
 | `allow` | Runs with no question. |
 
@@ -220,7 +220,12 @@ There are four answers, in this order from strict to open:
 - The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15).
 - `gnomish-relay approve` lists the open requests. `gnomish-relay approve <id>` allows one, and `gnomish-relay deny <id>` refuses one. Each writes an answer file next to the request, with `create_new`, so it never follows a link. A request has at most one answer.
 - The bridge checks for the answer every 100 ms, up to `permission_timeout_minutes`. No answer refuses the call. The bridge then deletes the files. At start it deletes the files of an old bridge.
-- The game popup of the call starts with "Approve on your desktop. No prompt? Run: gnomish-relay approve <id>" and has only Deny. The id comes from the bridge, so the agent cannot put text there. No addon can answer a desktop request, and a Deny from the game refuses the call.
+- **The game gets a notice, not a popup** (decided with a UX advisor on 2026-09-26). The game sends no request for a desktop call, and has no Deny for it. The desktop dialog is the only prompt, so the player never sees two prompts for one call.
+  - The bridge writes one progress line of its own for the last desktop request of the run: `Desktop: <state> <id> <how>`, and ` raise <level>` for a raise (9.3). `<state>` is `wait`, `approved`, `denied`, or `none` (no answer). `<id>` is the 12 hex digits of the request. `<how>` is `dialog`, or `command` when `desktop.rs` finds no dialog tool.
+  - The line comes right after the level line (9.3, "The level in the game"), so S9 and S20 do not change, and `Activity` keeps at most 5 lines. `Activity::step` puts "agent: " in front of an agent line that starts with "Desktop:", as for "Level:". The id comes from the bridge, so no agent text is in the line.
+  - The addon takes the line only at its place, and only with a known state, a 12-digit id, and a known `<how>`. The Activity row then shows "Approve on desktop", "Approved on desktop", "Denied on desktop", or "No answer on desktop".
+  - At a new `wait`, the game prints one whisper line with the whisper sound: `[Claude] whispers: [chat] Approve on your desktop.`, or `Run: gnomish-relay approve <id>` with `command`. The addon keeps the ids of the last 16 requests that got a line in its saved variables, so a `/reload` does not print it again.
+  - While a request waits, the addon loads a slot every 5 seconds, at most 24 times for each request (7.3). Then it goes back to the schedule.
 
 **The dialog** (decided with an advisor on 2026-09-26). In the first test in the game, the user saw only the game popup, and did not know about the command. `crates/bridge/src/dialog.rs` shows the dialog with the tools that the user already has. The bridge installs nothing.
 
@@ -233,7 +238,7 @@ There are four answers, in this order from strict to open:
 - The text of the dialog is "An agent from the game asks to:", the popup text of S15 (the full raw command or path, then "the agent says"), and then "Agent: <name>. Folder: <folder>. Request <id>.". It never shows only text that the agent chose.
 - The text goes in an argument or an environment variable, never into a script. A notice server shows the body as markup, so the bridge escapes `&`, `<`, and `>` for notify-send. Else `<b>` or an S15 escape such as `<U+202E>` hides text. zenity gets `--no-markup`. The markup escape is bridge code, not proved, so a named test covers it.
 - Deny is the default button everywhere, so Enter never approves. A closed, dismissed, or timed-out dialog, and any output that is not the Approve answer, is Deny.
-- The dialog runs in its own thread. Every 100 ms it checks whether its request still waits. When the request has an answer from the command line, or the gate closed it (the timeout, a Deny in the game, or Stop), the thread stops the dialog. It sends SIGTERM through `kill` first, because notify-send then closes its notice, and a kill after 0.5 s.
+- The dialog runs in its own thread. Every 100 ms it checks whether its request still waits. When the request has an answer from the command line, or the gate closed it (the timeout, Stop, or a new message, 9.3), the thread stops the dialog. It sends SIGTERM through `kill` first, because notify-send then closes its notice, and a kill after 0.5 s.
 - The answer of the dialog goes through the same `create_new` answer file as the command line. So the first answer wins. A dialog answer after the request closed can leave an orphan answer file. Nothing reads it, and the next start deletes it.
 - zenity and osascript also give up by themselves after one hour, in case the bridge stops first.
 - Why notify-send first: it needs only the session bus, which the systemd service of the bridge has. GNOME shows a critical notice over a full-screen game and keeps it until a click. With no `actions` capability, a notice has no Approve button and closes as a Deny, so the bridge checks the capability for each dialog.
@@ -653,7 +658,7 @@ Then it loads one every 60 seconds until the reply is done.
 With no message pending, it loads one slot every 10 minutes, for terminal pings and the status light.
 A signal (7.4) makes the addon load a slot at once.
 
-**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not.
+**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3).
 The window never shows the slot count. `/relay diag` shows it.
 Below 20 free slots, the window shows "Reload soon" with a **Reload** button, and the next click on **Send** or on the window does the `/reload` first.
 `ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat, and never on a key press that the user did not aim at the window.
@@ -984,17 +989,17 @@ Each agent in the config has one permission level:
 - At `ask`, only a call that only reads runs with no question. A write inside the chat folder, and a command in the allow table, ask in the game. A tool of the session (6.6.3) counts as a read.
 - For an ACP agent that picks its questions (6.6.3), `ask` and `allow` both ask in the game, at every level.
 - A refusal names its reason to the agent: "It touches the config folder of Gnomish Relay, which the agent never reaches.", "Denied on the desktop.", "No answer on the desktop.", "Denied in the game.", "No answer from the game.", or "Not allowed from the game." when nobody in the game listens.
-- The game gets Allow and Deny for a game question, and only Deny for a desktop question (6.6.3).
+- The game gets Allow and Deny for a game question. A desktop question shows only a notice in the game (6.6.3).
 
 **Raise the level** (asked for by the user, decided with an advisor on 2026-09-26). A chat that asks for more than the config allows, for example `auto-edit` with `permission = "ask"`, gets one desktop dialog. The code is in `crates/bridge/src/raise.rs` and `config_edit.rs`.
 
 - The dialog is a desktop request of 6.6.3 of its own kind. So it has the same dialog, the same `gnomish-relay approve` fallback, the same 0600 request file, and the first answer wins. Its text is fixed text of the bridge and the name of the agent from the config, never text from the game:
   - `auto-edit`: "A chat from WoW asks for more access. Allow <agent> to edit files in the chat folder with no question, in every chat from WoW? Commands still ask in the game. This writes permission = "auto-edit" to config.toml. Approve only if you just sent a message from WoW."
   - `full-auto` gets a stronger warning: "A chat from WoW asks for full access. Allow <agent> to edit files AND run commands with no question, in every chat from WoW? Any addon that can send a chat message can then run code on this computer, inside the sandbox. The Gnomish Relay addon never asks for this by itself. This writes permission = "full-auto" to config.toml." The addon never asks for `full-auto` today, so this dialog means that another addon made the message. The bridge still offers it, because the user asked for a stronger warning, not for no dialog.
-- The run waits for the answer before the agent starts, so an approved run uses the new level. The game popup says "Approve on your desktop: let <agent> work at <level> in chats from WoW. No prompt? Run: gnomish-relay approve <id>", with only Deny. A Deny in the game ends the wait at once. The run timeout stops during the wait, as for any question.
+- The run waits for the answer before the agent starts, so an approved run uses the new level. The game shows the notice of 6.6.3 with ` raise <level>`, and its whisper line is "Approve on your desktop: let <agent> work at <level>." The run timeout stops during the wait, as for any question.
 - On Approve, the bridge reads `config.toml` again with the checks of config load, changes the one line `permission = "..."` of the `[agents.<name>]` table, and keeps the comments and every other line. It then parses the new text: it must load, the agent must have the new level, and every other level must be the same. Else it writes nothing. It writes the file with an atomic rename and mode 0600. Then it sets the new level of that agent in the policy of the running bridge. It reloads nothing else.
 - The bridge checks the edit before it shows the dialog, so the user never approves a change that it cannot write. It refuses a quoted table name, an inline table, dotted keys, a missing or double `permission` line, a value that is not a plain `"..."` string, and a config that does not load. Then there is no dialog, and a log line says what to fix.
-- On Deny, a closed dialog, no answer, Stop, or a write that fails, the run goes on at the level of the config, and the level line of the game shows it (9.3, "The level in the game").
+- On Deny, a closed dialog, no answer, Stop, a new message, or a write that fails, the run goes on at the level of the config, and the level line of the game shows it (9.3, "The level in the game").
 - At most one raise waits at a time. A second chat that needs a raise meanwhile runs at once at the level of the config, with no dialog. So one answer never goes to many runs.
 - Every answer that is not Approve starts 10 quiet minutes with no raise dialog, for every agent. A hostile addon that sends messages then gets at most one dialog in 10 minutes. A Deny on the desktop (or a closed dialog) also ends the raise dialogs for that agent until the bridge starts again: a user who set `ask` on purpose then sees the dialog once, not every 10 minutes.
 - Only a message with work for the agent can raise. A list of sessions and an attach never do.
@@ -1616,7 +1621,7 @@ The mockup is the reference for the layout.
 - **Side tabs:** Chats, Terminal pings, Settings, and Diagnostics.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
 - **Game chat:** a finished reply or a ping shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound.
-- **Permission requests** use the separate popup of 6.4, never the window.
+- **Permission requests** use the separate popup of 6.4, never the window. A desktop request has no popup: an Activity row and one whisper line (6.6.3).
 
 ### 13.2 Code
 
@@ -1654,6 +1659,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 - `OnStatus` gets each record of a known message, also `working`. `OnOther` gets each record of no known message, and its result says whether the addon reports it as read (the session list of the relay).
 - `Control(chat, id, flags)` sends a record once, and starts a strip. `Riders` are records that go only with a strip that goes out anyway, for example the `d` records of the relay. A rider that started a strip would start one every second while the bridge is off. `d` is a coding flag (9.7, decision 6), so the deletes stay in `Transport.lua`.
 - `OnPoll(restore, live)` gets the other files of each slot. `Awaits` keeps the fast poll schedule while the app waits for a reply that is not a message.
+- `PollEvery` gives the seconds to the next poll while the app waits for something off the schedule, or nil. The default is nil, so Timeways does not change. The relay gives 5 while a desktop request waits (6.6.3).
 - The title of the app starts each line of `Health.lua`, and `helloChat` is the chat of a hello.
 
 The folder also holds `JetBrainsMono-Regular.ttf`, the mono font of code boxes, with its license in `JetBrainsMono-OFL.txt` (SIL Open Font License 1.1). Setup installs both.

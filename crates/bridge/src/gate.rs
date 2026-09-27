@@ -12,7 +12,7 @@ use crate::agent::Choice;
 use crate::allow::AllowTable;
 use crate::command_sandbox::CommandSandbox;
 use crate::config::{Permission, RelayConfig};
-use crate::desktop::{self, Approvals, Prompt};
+use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Waiting};
 use crate::turn::{Answer, Turn};
 
 pub const NOT_FROM_THE_GAME: &str = "Not allowed from the game.";
@@ -212,41 +212,51 @@ impl Gate {
         }
     }
 
+    /// The game shows a notice with no buttons: only the desktop answers.
     fn ask_desktop(&self, call: &Call, job: &Job, turn: &mut Turn) -> Result<(), Refusal> {
         let text = String::from_utf8_lossy(&call.text).into_owned();
-        let now = crate::run::now();
-        let id = self
+        let opened = self
             .approvals
-            .open(job.agent, job.cwd, &text, now)
+            .open(job.agent, job.cwd, &text, crate::run::now())
             .map_err(|e| Refusal::by_rule(&format!("No desktop approval: {e:#}")))?;
-        let approvals = self.approvals.clone();
-        let answer_id = id.clone();
-        let desktop = move || {
-            approvals
-                .answer_of(&answer_id)
-                .map(|v| v == desktop::Verdict::Approve)
-        };
-        // The id comes from the bridge, so the agent cannot put text in this line.
-        let mut shown =
-            format!("Approve on your desktop. No prompt? Run: gnomish-relay approve {id}\n")
-                .into_bytes();
-        shown.extend_from_slice(&call.text);
-        let answer = turn.ask(shown, vec![deny_choice()], Some(&desktop));
-        self.approvals.close(&id);
+        let answer = wait_on_the_desktop(&self.approvals, &opened, None, turn);
         match answer {
             Answer::Desktop(true) => Ok(()),
             Answer::Desktop(false) => Err(Refusal::by_rule("Denied on the desktop.")),
-            Answer::Game(_) => Err(Refusal::ByUser),
-            Answer::None => Err(Refusal::by_rule("No answer on the desktop.")),
+            Answer::Game(_) | Answer::None => Err(Refusal::by_rule("No answer on the desktop.")),
         }
     }
 }
 
-pub fn deny_choice() -> Choice {
-    Choice {
-        kind: OptionKind::RejectOnce,
-        label: "Deny".into(),
-    }
+/// Shows the wait in the game, waits for the desktop, and closes the request. `raise`
+/// is the level of a raise (SPEC.md 9.3).
+pub fn wait_on_the_desktop(
+    approvals: &Approvals,
+    opened: &Opened,
+    raise: Option<Permission>,
+    turn: &mut Turn,
+) -> Answer {
+    let notice = Notice {
+        id: opened.id.clone(),
+        prompted: opened.prompted,
+        waiting: Waiting::Open,
+        raise,
+    };
+    turn.desktop(notice.clone());
+    let answer_of = || {
+        approvals
+            .answer_of(&opened.id)
+            .map(|v| v == desktop::Verdict::Approve)
+    };
+    let answer = turn.wait_desktop(&answer_of);
+    approvals.close(&opened.id);
+    let waiting = match answer {
+        Answer::Desktop(true) => Waiting::Approved,
+        Answer::Desktop(false) => Waiting::Denied,
+        Answer::Game(_) | Answer::None => Waiting::NoAnswer,
+    };
+    turn.desktop(notice.ended(waiting));
+    answer
 }
 
 /// Allow and Deny. The game never gets "allow always" (6.6.5).
@@ -256,7 +266,10 @@ pub fn game_choices() -> Vec<Choice> {
             kind: OptionKind::AllowOnce,
             label: "Allow".into(),
         },
-        deny_choice(),
+        Choice {
+            kind: OptionKind::RejectOnce,
+            label: "Deny".into(),
+        },
     ]
 }
 
@@ -265,9 +278,9 @@ fn ask_game(call: &Call, turn: &mut Turn) -> Result<(), Refusal> {
         return Err(Refusal::by_rule(NOT_FROM_THE_GAME));
     }
     match turn.ask_game(call.text.clone(), game_choices()) {
-        Some(0) => Ok(()),
-        Some(_) => Err(Refusal::ByUser),
-        None => Err(Refusal::by_rule("No answer from the game.")),
+        Answer::Game(0) => Ok(()),
+        Answer::Game(_) => Err(Refusal::ByUser),
+        Answer::Desktop(_) | Answer::None => Err(Refusal::by_rule("No answer from the game.")),
     }
 }
 
@@ -498,6 +511,57 @@ mod tests {
             .join("a1b2c3d4e5f6.answer");
         let refusal = check(&s, &read(approval), Permission::FullAuto, SHORT).unwrap_err();
         assert!(refusal.reason().contains("data folder"), "{refusal:?}");
+    }
+
+    #[test]
+    fn a_desktop_request_sends_no_game_request_and_tells_the_game_how_it_ended() {
+        use crate::agent::{Control, Event, Events};
+        use crate::relay::{ChatId, MessageId, Session, Work};
+        let s = setup();
+        let run = crate::relay::Job {
+            token: "tok".into(),
+            chat: ChatId("c1".into()),
+            id: MessageId(1),
+            agent: "claude".into(),
+            permission: Permission::AutoEdit,
+            asked: Permission::AutoEdit,
+            cwd: s.chat.to_string_lossy().into_owned(),
+            session: Session::New,
+            resume: None,
+            text: "hi".into(),
+            work: Work::Prompt,
+            new_folder: false,
+        };
+        let (to, events) = std::sync::mpsc::channel();
+        let control = Control {
+            events: Events::to_bridge(to, &run),
+            ..Control::default()
+        };
+        let job = Job {
+            agent: "claude",
+            cwd: &run.cwd,
+            level: Permission::AutoEdit,
+            coverage: Coverage::Every,
+            sandboxing: Sandboxing::On,
+        };
+        let mut turn = Turn::new(SHORT, SHORT, control);
+        let call = read(s.home.join(".ssh").join("id_rsa"));
+
+        let refusal = s.gate.check(&call, &job, &mut turn).unwrap_err();
+
+        assert_eq!(refusal.reason(), "No answer on the desktop.");
+        let lines: Vec<String> = events
+            .try_iter()
+            .map(|(_, _, event)| match event {
+                Event::Desktop(notice) => notice.line(),
+                Event::Question(_) => "a game request".into(),
+                Event::Progress(_) | Event::Raised { .. } => String::new(),
+            })
+            .collect();
+        assert_eq!(lines.len(), 2, "{lines:?}");
+        assert!(lines[0].starts_with("Desktop: wait "), "{lines:?}");
+        assert!(lines[0].ends_with(" command"), "{lines:?}");
+        assert!(lines[1].starts_with("Desktop: none "), "{lines:?}");
     }
 
     #[test]

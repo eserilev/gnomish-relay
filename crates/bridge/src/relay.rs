@@ -18,6 +18,7 @@ use crate::agent::{Choice, SessionInfo};
 use crate::config::{
     Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
 };
+use crate::desktop::Notice;
 use crate::flags::{self, ListKind, TransportFlags};
 use crate::folder_list::folder_reply;
 use crate::folder_walk::Snapshot;
@@ -546,6 +547,10 @@ impl Relay {
 
     pub fn step(&mut self, chat: &ChatId, id: MessageId, line: String) {
         self.activity.step(chat, id, line);
+    }
+
+    pub fn desktop(&mut self, chat: &ChatId, id: MessageId, notice: Notice) {
+        self.activity.desktop(chat, id, notice);
     }
 
     pub fn ask(

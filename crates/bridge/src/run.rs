@@ -450,6 +450,10 @@ impl RelayLane {
         while let Ok((chat, id, event)) = self.run_events.try_recv() {
             match event {
                 Event::Progress(line) => self.relay.step(&chat, id, line),
+                Event::Desktop(notice) => {
+                    log(&format!("{} #{}: {}", chat.0, id.0, notice.line()));
+                    self.relay.desktop(&chat, id, notice);
+                }
                 Event::Question(question) => {
                     let request = self
                         .relay
