@@ -183,7 +183,7 @@ fn exit_code(status: ExitStatus) -> i32 {
 #[cfg(unix)]
 mod tests {
     use super::*;
-    use std::io::{BufRead, BufReader};
+    use std::io::{BufRead, BufReader, Read};
     use std::os::unix::net::UnixListener;
 
     fn free_port() -> u16 {
@@ -254,6 +254,9 @@ mod tests {
                     reader.read_line(&mut blank).unwrap();
                     let mut stream = stream;
                     write!(stream, "{answer}got {line}").unwrap();
+                    // A real server keeps the connection open until the client ends it.
+                    // On macOS a relay to a socket that its peer closed already fails.
+                    let _ = reader.read_to_end(&mut Vec::new());
                 });
             }
         });
