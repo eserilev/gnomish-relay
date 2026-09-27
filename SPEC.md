@@ -912,7 +912,7 @@ A client patch can break either one. So a patch costs a day of work, not the pro
  │   agent runner → publisher           │
  │   hook socket ◄── terminal sessions  │
  └──────┬───────────────────────────────┘
-        │ ACP / native CLI / command
+        │ ACP / claude / codex / command
  ┌──────▼──────────┐
  │  Coding agents  │  Claude Code, Codex, Gemini CLI, ...
  └─────────────────┘
@@ -926,7 +926,7 @@ gnomish-relay/
   addon/transport/      the shared Lua transport of every app (9.7). Install copies it into each addon.
   crates/
     protocol/           frames, records, slot body, escapes, dedup, counters. No I/O. Verified with Aeneas.
-    agents/             trait Agent + ACP, native, and command backends
+    agents/             trait Agent + the backends of 9.2. Today they are in bridge/.
     bridge/             the daemon: screenshot reader, policy, queue, publisher, state
     hook/               small CLI that terminal agent hooks call
   proofs/               Lean project with the Aeneas output and the proofs
@@ -1000,12 +1000,19 @@ Next, the trait grows events for progress and for permission requests from the g
 
 ### 9.2 Backends
 
+**The goal: one generic backend for any LLM coding harness.** It has two parts:
+
+- `acp` runs any harness that speaks ACP. It exists.
+- `command` runs a harness that has only a command line. It is planned (15).
+
+`claude` and `codex` exist too. Most players have these two harnesses, so the bridge speaks their own protocols, with no Node.
+
 | Backend | How it works | Progress | Live permissions | Allow & retry |
 |---|---|---|---|---|
 | `acp` (main) | Agent Client Protocol: JSON-RPC over stdin and stdout. The bridge is the client. | Yes | Yes | Not necessary |
 | `claude` | `claude -p` with stream-json on stdin and stdout, and `--permission-prompt-tool stdio`. Needs no Node. | Yes | Yes | Not necessary |
 | `codex` | `codex app-server`: JSON-RPC over stdin and stdout, with approval requests. Needs no Node. | Yes | Yes | Not necessary |
-| `command` | A command template. The prompt goes in, plain text comes out. | No | No | No. Fixed level from config. |
+| `command` (planned) | A command template. The prompt goes in, plain text comes out. | No | No | No. Fixed level from config. |
 
 **Support levels.** Any agent with a command line runs. How well the relay protects it depends on what the bridge can see:
 
@@ -1187,7 +1194,7 @@ Rules:
 - `claude`, `codex`, and `command`: one process per run.
 - `max_parallel_runs` counts active runs, not processes.
 - If an ACP process stops, the bridge starts it again and resumes the open sessions. If a session cannot resume, the bridge reports an error for that chat.
-- `cancel` for `native-*` and `command` stops the whole process tree.
+- `cancel` for `command` stops the whole process tree.
 - The bridge declares ACP client capabilities `fs` and `terminal` as false in v1. The agent uses its own tools.
 - `process.rs` starts every agent process: never through a shell, with the allowlist of 6.2 rule 12, a limit of 8 MiB on each line, and the last 2 KiB of stderr for an error. `turn.rs` holds the run timeout, Stop with its 10-second grace, and the wait for an answer from the game. ACP, `claude`, and `codex` share them.
 - If an agent needs a login, the bridge reports "agent needs login" in the game. The bridge never handles credentials.
@@ -2141,7 +2148,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Done (8b):** the action classifier (6.6.3) in `protocol`, with S16, S17, S27, and S28 proved, and the input of the classifier in the bridge. **Done (8c):** every backend calls the classifier through one gate (6.6.3, 9.3): the hook of Claude for every tool call, the approvals of Codex, and the permission requests of ACP agents. The config has its allow table, and `gnomish-relay approve` answers desktop requests.
 9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Next:** a live test with a real agent in the game.
 10. **`note` signal and pings:** the hook CLI and the socket.
-11. **`native-*` and `command` backends.**
+11. **A generic backend for any LLM coding harness (9.2).** **Done:** `acp` for any harness that speaks ACP, and the `claude` and `codex` backends. **Next:** `command`, for a harness that has only a command line.
 12. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 13. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
 14. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 7, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. **Next:** step 8, setup for two apps, and versions.
