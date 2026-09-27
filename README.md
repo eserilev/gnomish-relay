@@ -93,6 +93,20 @@ commands = ["cargo test *"]
 `cargo run -q --bin gnomish-relay -- setup`. For addon work, `scripts/dev-link.sh`
 links `addon/GnomishRelay` into the game first. `CLAUDE.md` has the rules of the code.
 
+### After a game patch
+
+The tests run the addon in a fake game. A self-test addon measures the real game, so
+the fake game acts as the real one (SPEC.md 14.3). Run it after each client patch:
+
+1. Close the game. Run `scripts/selftest-link.sh`.
+2. Start the game and log in. Stay out of combat. When the chat says "done", type `/reload`.
+3. Run `cargo run -q --bin gnomish-relay -- selftest collect` in this folder. Run
+   `cargo test`, and commit `tests/fixtures` and `tests/vectors`.
+
+The first time, collect asks for one more `/reload`: the first session has no saved
+file, so it cannot see the load order. `scripts/selftest-link.sh --remove` takes the
+self-test out of the game.
+
 ## Credits
 
 Code in the game window uses the font JetBrains Mono, under the SIL Open Font License 1.1.

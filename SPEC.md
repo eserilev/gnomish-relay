@@ -1908,16 +1908,67 @@ Write the model before the bridge state machine. The Rust state machine follows 
 ### 14.3 Tests
 
 - **Property tests** (`proptest`) for the codec, with pixel noise, color shift, and a cell pitch of 3 to 8 pixels.
-- **Golden vectors:** run the addon `Codec.lua` under `mlua` to make strip images with noise and gamma. Commit them in `tests/vectors/`. The Rust decoder must decode all of them. (`wow-claude` makes its images at test time and tests them only on Windows.)
+- **Golden vectors:** screenshots of known strips from the real game, in `tests/vectors/<build>/` (14.3.1). The real bridge reader must decode each one, and its tag must check under the public test key. (`wow-claude` makes its images at test time and tests them only on Windows.)
 - **Differential tests:** the Lua encoder and the Rust decoder agree on every vector. The Rust slot writer and a Lua reader agree on every body.
-- **Addon harness:** run the addon in a Lua VM against a stub of the WoW API, as `wow-claude` does with `tests/wow_stub.lua`.
+- **Addon harness:** run the addon in a Lua VM against a fake of the WoW API (`addon/tests/wow.lua`). Where the real game has a choice, the fake takes it from the newest fixture of the self-test (14.3.1).
 - **Fuzzing:** `cargo-fuzz` on the frame decoder and the record parser. No panic and no hang on any input.
 - **Fake agent and fake capture** for the bridge loop. No test needs the game or a real LLM, except live tests marked `#[ignore]`.
 - **Coverage gates:** `protocol` 95% of lines, `bridge` and `agents` 80%.
 - **CI** on Linux, Windows, and macOS. CI runs everything except live capture.
 - **CI time.** Each fuzz target runs in its own job for 15 seconds. The proofs and the model run only when `crates/protocol`, `proofs/`, or `models/` change (`scripts/ci-changes.sh`). A weekly run and the nightly run check everything.
 
-### 14.4 Fuzz targets
+#### 14.3.1 The self-test of the game
+
+The API gate (7.8) makes the fake game strict about names. But the fake game also guesses behavior: the time of a screenshot event, return values, the order of events, and how the screen draws the strip. Bugs came from these guesses, for example a strip that the old bridge read with a wrong tag. So the real game measures itself, and the tests use the measurements.
+
+**The addon.** `addon/GnomishRelaySelfTest` is for developers only. `install.rs` never builds it in, and no release has it (a test checks `install.rs`). `scripts/selftest-link.sh` links it into the game, with three small load-on-demand helpers: `_Slot`, `_Off`, and `_Old` (an old `## Interface` number). It also links the shared `Sha256.lua`, `Codec.lua`, `Saved.lua`, `Health.lua`, and `Strip.lua` into it, so its strips come from the real code path.
+
+The run starts 5 seconds after `PLAYER_ENTERING_WORLD`, when the saved results do not name the current build. `/grst` runs it again, and `/grst scale` also draws each strip at two other UI scales. It measures:
+
+| Part | What it measures |
+|---|---|
+| Client | `GetBuildInfo`, the physical and UI screen size, the UI scale, and the CVars of a screenshot. |
+| Load | The type of the saved variables when the first file runs and at `ADDON_LOADED`, and the order of the login events, for a login and for a `/reload`. |
+| Lua | `_VERSION`, `%q` of control bytes, `bit` results for signed input, and `hooksecurefunc` on a missing global. |
+| Fonts (7.3.1, 13.1) | `SimpleHTML:SetFont` for `h1` to `h3` and `p`, `GetContentHeight` at once, in the next frame, and later, the height of a text with and without `|c` codes, the width of the bullet and of no-break spaces in the body font, and what `FontString:SetFont` returns for a present and a missing file. |
+| Addons (7.3) | What `LoadAddOn` returns for a present, a missing, a disabled, and an out-of-date addon, and for a second load. `IsAddOnLoaded` after a load. A load right after `EnableAddOn`, as `Slots.lua` does. Whether `ADDON_LOADED` fires inside the call. |
+| Secrets | `issecretvalue` of `UnitHealth`, `UnitPower`, `UnitGroupRolesAssigned`, and `UnitDetailedThreatSituation`, and `C_CombatLog.IsCombatLogRestricted` (the tank addon tests T1, T3, T6, T7, and T8). A check that needs combat, a group, a target, or a nameplate says so and measures nothing. The first fight of the session runs the combat checks, and one strip in combat. A secret value never goes into the saved variables. |
+| Timing | `C_Timer.After` for 0, 0.01, 0.1, and 1 second, 10 steps of a ticker, the order of three timers that are due together, and `GetTime` against `time()`. |
+| Screenshots (7.1) | For each shot: the time from `Screenshot()` to each event, and when "Screen captured" shows. |
+| Golden strips | Payloads of 0, 1, 62, 137, 500, and 3200 bytes, and two records as the relay sends them. With 62 and 137, the tag sits alone in the last row (7.1). One more strip hides right after its `Screenshot()` call: it tells whether the picture comes from the call or from the end of the frame. |
+
+**The public test key** is the 32 bytes `gnomish-relay public test key 01`. It signs only the golden strips, never a message. Each strip has the frame time 1790211079 and its own frame id, so each vector is reproducible.
+
+**Collect.** WoW writes saved variables only at a `/reload` or a logout. After the `/reload`, `gnomish-relay selftest collect [folder] [--out <repo>]` does this:
+
+1. It reads `GnomishRelaySelfTest.lua`, the newest one of all accounts, with the limits of `saved.rs`. It refuses results that name another key than the public test key.
+2. It scans the `Screenshots` folder for PNGs from the time of the run. It decodes each one with the real bridge reader and the test key, and keeps a file only when its time, frame id, and payload match a shot. It never takes a path from the saved file.
+3. It writes `tests/fixtures/forever-<build>.json`: the measurements, and the behavior of the fake game that follows from them. It deletes the placeholder fixture.
+4. It writes `tests/vectors/<build>/`: each PNG, `manifest.json` with each payload and the key, and the raw saved file, which shows how WoW writes saved variables.
+
+It reads no key and no config of the relay, and it never deletes a screenshot. A running bridge leaves the test strips alone: their tag fails, so the bridge only logs them.
+
+**The fake game.** The tests load the newest real fixture, or `tests/fixtures/forever-placeholder.json` while none exists. The placeholder holds the guesses of the fake game from before the self-test, and it says so. The fake game takes these values from the fixture: `GetBuildInfo`, the screen size, the delay of the slowest shot, the event of a good shot, when the picture is taken, when "Screen captured" shows, the returns of `LoadAddOn` and `FontString:SetFont`, whether `GetContentHeight` waits for the next frame, whether the saved variables load before or after the files, the login events, the timer order, the `bit` results, and `hooksecurefunc` on a missing global. The addon tests also run the relay in the other behaviors that it depends on: "Screen captured" before and after the event, a picture after the handler, saved variables after the files, a content height in the next frame, a disabled slot with and without a working `EnableAddOn`, an out-of-date slot, and a `hooksecurefunc` that refuses a missing global. A timer order that the fake game has no model for stops it at load. A test also fails when the measured shot delay no longer fits the one-second waits of the addon tests.
+
+**Tests.** `crates/bridge/tests/golden.rs` decodes every committed vector on all three OSes. It skips with a message only while no real fixture exists. When a real fixture exists, a missing vector folder fails, and so does a placeholder that is still there. `crates/bridge/tests/selftest.rs` runs the self-test addon in the fake game, and collect on what it leaves.
+
+**The API gate.** The self-test calls functions that the relay must never call. So it has its own lint list (`selftest.yml`), and `scripts/selftest-api.sh` writes its own API files (`addon/tests/selftest-api.lua` and `selftest-api-signatures.lua`). CI and the nightly job run both gates.
+
+**After a client patch:**
+
+1. Close the game, and run `scripts/selftest-link.sh`.
+2. Start the game and log in. When the chat says "done", type `/reload`.
+3. Run `gnomish-relay selftest collect` in the repo, run the tests, and commit `tests/fixtures` and `tests/vectors`.
+
+The first run ever needs one more `/reload`: its first session has no saved file, so it cannot see the load order. Collect says so.
+
+**Decisions.** An advisor agent and the implementer chose these (2026-09-26):
+
+- The results go into the saved variables as hex of JSON. The bridge reads hex fields as it reads the outbox frames. Plain Lua tables need a Lua parser in Rust, and they depend on the way WoW escapes a string, which the self-test measures only now.
+- Collect finds each screenshot by the frame that it holds, not by a name or a time. WoW names a screenshot by the second, and the saved file is untrusted text.
+- The strips at other UI scales run only on `/grst scale`. `UIParent:SetScale` is allowed out of combat, but a fight that starts before the restore blocks it. The addon then restores the scale at the end of the fight.
+- The run starts after `PLAYER_ENTERING_WORLD`, not at `PLAYER_LOGIN`: a shot at login can catch the loading screen.
+- The placeholder fixture is the only place for the guesses. The fake game has no second copy of them.
 
 Each target runs in CI for a short time and nightly for a long time. Every crash becomes a regression test.
 
@@ -2004,6 +2055,7 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
 - `dev gnomish-relay` opens tmux with nvim, the agent, and a terminal in this folder.
 - Link `addon/GnomishRelay` into `_classic_beta_/Interface/AddOns`. Then an edit plus `/reload` loads the new code, with no copy step. `scripts/dev-link.sh` does this, and also links each file of `addon/transport` into `addon/GnomishRelay`. Git ignores these links.
+- After each client patch, run the self-test of the game (14.3.1): `scripts/selftest-link.sh`, a login and a `/reload`, then `gnomish-relay selftest collect`. Commit the new fixture and vectors. `scripts/selftest-link.sh --remove` takes the self-test out of the game.
 - Run the bridge in the bottom-right pane.
 - Aeneas and Charon are built in `~/verif`. `proofs/TOOLS` pins their commits, and CI builds the same commits with Nix.
 
