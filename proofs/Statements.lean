@@ -34,6 +34,8 @@ import Protocol.Spec.Sandbox
 import Protocol.Sandbox
 import Protocol.Spec.Sbpl
 import Protocol.Sbpl
+import Protocol.Spec.Always
+import Protocol.Always
 
 /-!
 # The theorems, stated
@@ -455,6 +457,41 @@ def S28_capped : Prop :=
     (∃ s ∈ script.simples.val, runner (words s) ∨ network (words s)) →
     action.classify (.Command raw cwd) policy rules ⦃ v => rankV v ≤ rankV .Ask ⦄
 
+/-! ## "Always allow" (SPEC 6.6.5) -/
+
+/-- **S36, proposal shape.** `propose` never panics. A rule is the first 1 or 2 words of
+its command, so it covers that command. Each word is plain (`plainWord`: printable ASCII
+with no space and no shell syntax, 1 to 64 bytes, not starting with `-` or `+`), and the
+first word holds no `/`. -/
+def S36_propose : Prop :=
+  ∀ s : shell.Simple, always.propose s ⦃ o => ∀ r, o = some r →
+    ∃ k, (k = 1 ∨ k = 2) ∧ r.val = s.words.val.take k ∧
+      (∀ w ∈ r.val, plainWord (bytes w.val)) ∧ ∀ h ∈ r.val.head?, ¬ hasSlash (bytes h.val) ⦄
+
+/-- **S37, no proposal for the capped.** A `desktop` command, a "never always" command, a
+tool that runs any program, and a command that publishes (`noRuleTool`) get no rule. -/
+def S37_no_proposal : Prop :=
+  ∀ s : shell.Simple, (desktopSimple s ∨ neverAlways (words s) ∨ noRuleTool (words s)) →
+    always.propose s ⦃ o => o = none ⦄
+
+/-- **S38, an offer allows exactly its call.** `offer` never panics. An offer has 1 to 3
+rules. With them added to the rules, the classifier gives `allow` for the call, and each
+rule covers a simple command of the call. -/
+def S38_offer : Prop :=
+  ∀ (call : action.ToolCall) (policy : action.Policy) (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8))),
+    always.offer call policy rules ⦃ o => ∀ rs, o = some rs →
+      1 ≤ rs.val.length ∧ rs.val.length ≤ 3 ∧
+      (∀ all : Slice (alloc.vec.Vec (alloc.vec.Vec U8)), all.val = rules.val ++ rs.val →
+        action.classify call policy all = .ok .Allow) ∧
+      ∀ r ∈ rs.val, ∃ s, inCall call s ∧ ruleMatches (strs r.val) (words s) ⦄
+
+/-- **S39, an offer stays under the ceiling.** A call gets an offer only when the ceiling
+of the config is `allow`, so no rule list from the game reaches past the config. -/
+def S39_ceiling : Prop :=
+  ∀ (call : action.ToolCall) (policy : action.Policy) (rules : Slice (alloc.vec.Vec (alloc.vec.Vec U8)))
+    (rs : alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec U8))),
+    always.offer call policy rules = .ok (some rs) → action.ceiling call policy = .ok .Allow
+
 /-! ## The sandbox of the commands of a run from the game -/
 
 /-- **S31, sandbox policy.** For every config: each `deny` and `desktop` path is hidden,
@@ -540,6 +577,11 @@ theorem check_S28_no_parse : S28_no_parse := Protocol.Action.classify_no_parse
 theorem check_S28_substitution : S28_substitution := Protocol.Action.classify_substitution
 theorem check_S28_desktop : S28_desktop := Protocol.Action.classify_desktop
 theorem check_S28_capped : S28_capped := Protocol.Action.classify_capped
+
+theorem check_S36_propose : S36_propose := Protocol.Always.propose_shape
+theorem check_S37_no_proposal : S37_no_proposal := Protocol.Always.propose_none
+theorem check_S38_offer : S38_offer := Protocol.Always.offer_allows
+theorem check_S39_ceiling : S39_ceiling := Protocol.Always.offer_within_ceiling
 
 theorem check_S31_sandbox_policy : S31_sandbox_policy := Protocol.Sandbox.sandbox_policy_spec
 theorem check_S32_sbpl_string : S32_sbpl_string := Protocol.Sbpl.sbpl_string_spec

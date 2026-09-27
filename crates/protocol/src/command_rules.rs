@@ -73,7 +73,7 @@ fn without_exe(name: Vec<u8>) -> Vec<u8> {
     out
 }
 
-fn name_of(word: &[u8]) -> Vec<u8> {
+pub(crate) fn name_of(word: &[u8]) -> Vec<u8> {
     let mut name = Vec::new();
     let mut i = 0;
     while i < word.len() {
@@ -159,7 +159,7 @@ fn is_network(words: &[Vec<u8>]) -> bool {
 }
 
 /// The "never always" commands. They get `ask` at most, even from the config.
-fn is_capped(words: &[Vec<u8>]) -> bool {
+pub(crate) fn is_capped(words: &[Vec<u8>]) -> bool {
     is_runner(words)
         || is_network(words)
         || any_word(words, Test::Name, &NEVER_ALWAYS)
@@ -167,7 +167,7 @@ fn is_capped(words: &[Vec<u8>]) -> bool {
         || (head_is(words, &GIT) && any_word(words, Test::GitForce, &NO_LIST))
 }
 
-fn is_desktop(simple: &Simple) -> bool {
+pub(crate) fn is_desktop(simple: &Simple) -> bool {
     any_word(&simple.words, Test::Name, &DESKTOP_NAMES)
         || (simple.link == Link::Pipe && any_word(&simple.words, Test::Name, &SHELLS))
 }
@@ -187,7 +187,7 @@ fn rule_matches(rule: &[Vec<u8>], words: &[Vec<u8>]) -> bool {
     same
 }
 
-fn matches_any(rules: &[Vec<Vec<u8>>], words: &[Vec<u8>]) -> bool {
+pub(crate) fn matches_any(rules: &[Vec<Vec<u8>>], words: &[Vec<u8>]) -> bool {
     let mut found = false;
     let mut i = 0;
     while !found && i < rules.len() {
@@ -197,7 +197,12 @@ fn matches_any(rules: &[Vec<Vec<u8>>], words: &[Vec<u8>]) -> bool {
     found
 }
 
-fn is_covered(words: &[Vec<u8>], policy: &Policy, rules: &[Vec<Vec<u8>>], cover: Cover) -> bool {
+pub(crate) fn is_covered(
+    words: &[Vec<u8>],
+    policy: &Policy,
+    rules: &[Vec<Vec<u8>>],
+    cover: Cover,
+) -> bool {
     matches_any(&policy.allow, words) || cover == Cover::Every || matches_any(rules, words)
 }
 

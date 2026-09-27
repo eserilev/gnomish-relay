@@ -18,6 +18,7 @@
 )]
 
 pub mod action;
+pub mod always;
 pub mod apps;
 pub mod ascii;
 pub mod cell;

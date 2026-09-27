@@ -184,3 +184,10 @@ path = "fuzz_targets/public_ip.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "always"
+path = "fuzz_targets/always.rs"
+test = false
+doc = false
+bench = false

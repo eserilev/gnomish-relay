@@ -1402,7 +1402,7 @@ def command_rules.matches_any
   command_rules.matches_any_loop rules words false 0#usize
 
 /-- [protocol::command_rules::is_covered]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 200:0-202:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 200:0-207:1 -/
 def command_rules.is_covered
   (words : Slice (alloc.vec.Vec Std.U8)) (policy : action.Policy)
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
@@ -2075,7 +2075,7 @@ def command_rules.is_capped
           else ok false
 
 /-- [protocol::command_rules::simple_verdict]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 204:0-221:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 209:0-226:1 -/
 def command_rules.simple_verdict
   (simple : shell.Simple) (policy : action.Policy)
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
@@ -2203,7 +2203,7 @@ def command_rules.FOLDER_CHANGES : Array Std.U8 15#usize :=
     ]
 
 /-- [protocol::command_rules::changes_folder]: loop body 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 227:11-228:63 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 232:11-233:63 -/
 @[rust_loop_body]
 def command_rules.changes_folder_loop.body
   (simples : Slice shell.Simple) (found : Bool) (i : Std.Usize) :
@@ -2224,7 +2224,7 @@ def command_rules.changes_folder_loop.body
     else ok (done false)
 
 /-- [protocol::command_rules::changes_folder]: loop 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 227:11-228:63 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 232:11-233:63 -/
 @[rust_loop]
 def command_rules.changes_folder_loop
   (simples : Slice shell.Simple) (found : Bool) (i : Std.Usize) :
@@ -2236,7 +2236,7 @@ def command_rules.changes_folder_loop
     (found, i)
 
 /-- [protocol::command_rules::changes_folder]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 224:0-232:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 229:0-237:1 -/
 @[reducible]
 def command_rules.changes_folder
   (simples : Slice shell.Simple) : Result Bool := do
@@ -3185,6 +3185,473 @@ def action.ceiling
     alloc.vec.Vec.deref (alloc.vec.Vec.new (alloc.vec.Vec (alloc.vec.Vec
       Std.U8)))
   action.verdict call policy s action.Cover.Every
+
+/-- [protocol::always::MAX_OFFER]
+    Source: 'crates/protocol/src/always.rs', lines 13:0-13:31
+    Visibility: public -/
+@[global_simps, irreducible] def always.MAX_OFFER : Std.Usize := 3#usize
+
+/-- [protocol::always::MAX_WORD]
+    Source: 'crates/protocol/src/always.rs', lines 15:0-15:31
+    Visibility: public -/
+@[global_simps, irreducible] def always.MAX_WORD : Std.Usize := 64#usize
+
+/-- [protocol::always::MAX_RULES]
+    Source: 'crates/protocol/src/always.rs', lines 18:0-18:34
+    Visibility: public -/
+@[global_simps, irreducible] def always.MAX_RULES : Std.Usize := 4096#usize
+
+/-- [protocol::always::SUBCOMMAND_TOOLS]
+    Source: 'crates/protocol/src/always.rs', lines 21:0-22:81 -/
+@[global_simps, irreducible]
+def always.SUBCOMMAND_TOOLS : Array Std.U8 72#usize :=
+  Array.make 72#usize [
+    32#u8, 103#u8, 105#u8, 116#u8, 32#u8, 99#u8, 97#u8, 114#u8, 103#u8, 111#u8,
+    32#u8, 110#u8, 112#u8, 109#u8, 32#u8, 112#u8, 110#u8, 112#u8, 109#u8,
+    32#u8, 121#u8, 97#u8, 114#u8, 110#u8, 32#u8, 103#u8, 111#u8, 32#u8, 117#u8,
+    118#u8, 32#u8, 112#u8, 105#u8, 112#u8, 32#u8, 112#u8, 111#u8, 101#u8,
+    116#u8, 114#u8, 121#u8, 32#u8, 103#u8, 114#u8, 97#u8, 100#u8, 108#u8,
+    101#u8, 32#u8, 109#u8, 118#u8, 110#u8, 32#u8, 100#u8, 111#u8, 116#u8,
+    110#u8, 101#u8, 116#u8, 32#u8, 114#u8, 117#u8, 115#u8, 116#u8, 117#u8,
+    112#u8, 32#u8, 106#u8, 117#u8, 115#u8, 116#u8, 32#u8
+    ]
+
+/-- [protocol::always::NO_RULE_TOOLS]
+    Source: 'crates/protocol/src/always.rs', lines 25:0-25:72 -/
+@[global_simps, irreducible]
+def always.NO_RULE_TOOLS : Array Std.U8 35#usize :=
+  Array.make 35#usize [
+    32#u8, 110#u8, 112#u8, 120#u8, 32#u8, 98#u8, 117#u8, 110#u8, 120#u8, 32#u8,
+    117#u8, 118#u8, 120#u8, 32#u8, 112#u8, 105#u8, 112#u8, 120#u8, 32#u8,
+    100#u8, 111#u8, 99#u8, 107#u8, 101#u8, 114#u8, 32#u8, 116#u8, 119#u8,
+    105#u8, 110#u8, 101#u8, 32#u8, 103#u8, 104#u8, 32#u8
+    ]
+
+/-- [protocol::always::NO_RULE_PAIRS]
+    Source: 'crates/protocol/src/always.rs', lines 27:0-27:139 -/
+@[global_simps, irreducible]
+def always.NO_RULE_PAIRS : Array Std.U8 101#usize :=
+  Array.make 101#usize [
+    32#u8, 110#u8, 112#u8, 109#u8, 58#u8, 101#u8, 120#u8, 101#u8, 99#u8, 32#u8,
+    112#u8, 110#u8, 112#u8, 109#u8, 58#u8, 101#u8, 120#u8, 101#u8, 99#u8,
+    32#u8, 112#u8, 110#u8, 112#u8, 109#u8, 58#u8, 100#u8, 108#u8, 120#u8,
+    32#u8, 121#u8, 97#u8, 114#u8, 110#u8, 58#u8, 100#u8, 108#u8, 120#u8, 32#u8,
+    121#u8, 97#u8, 114#u8, 110#u8, 58#u8, 101#u8, 120#u8, 101#u8, 99#u8, 32#u8,
+    117#u8, 118#u8, 58#u8, 114#u8, 117#u8, 110#u8, 32#u8, 112#u8, 111#u8,
+    101#u8, 116#u8, 114#u8, 121#u8, 58#u8, 114#u8, 117#u8, 110#u8, 32#u8,
+    103#u8, 105#u8, 116#u8, 58#u8, 112#u8, 117#u8, 115#u8, 104#u8, 32#u8,
+    99#u8, 97#u8, 114#u8, 103#u8, 111#u8, 58#u8, 112#u8, 117#u8, 98#u8, 108#u8,
+    105#u8, 115#u8, 104#u8, 32#u8, 110#u8, 112#u8, 109#u8, 58#u8, 112#u8,
+    117#u8, 98#u8, 108#u8, 105#u8, 115#u8, 104#u8, 32#u8
+    ]
+
+/-- [protocol::always::SPECIAL]
+    Source: 'crates/protocol/src/always.rs', lines 29:0-29:54 -/
+@[global_simps, irreducible]
+def always.SPECIAL : Array Std.U8 21#usize :=
+  Array.make 21#usize [
+    42#u8, 63#u8, 91#u8, 93#u8, 36#u8, 96#u8, 39#u8, 34#u8, 92#u8, 59#u8,
+    38#u8, 124#u8, 60#u8, 62#u8, 40#u8, 41#u8, 123#u8, 125#u8, 126#u8, 35#u8,
+    61#u8
+    ]
+
+/-- [protocol::always::is_plain_byte]:
+    Source: 'crates/protocol/src/always.rs', lines 32:0-34:1 -/
+def always.is_plain_byte (b : Std.U8) : Result Bool := do
+  if 33#u8 <= b
+  then
+    if b <= 126#u8
+    then
+      let s ← lift (Array.to_slice always.SPECIAL)
+      let b1 ← search.has_byte s b
+      ok (¬ b1)
+    else ok false
+  else ok false
+
+/-- [protocol::always::all_plain_bytes]: loop body 0:
+    Source: 'crates/protocol/src/always.rs', lines 39:4-42:5 -/
+@[rust_loop_body]
+def always.all_plain_bytes_loop.body
+  (word : Slice Std.U8) (plain : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if plain
+  then
+    let i1 := Slice.len word
+    if i < i1
+    then
+      let i2 ← Slice.index_usize word i
+      let plain1 ← always.is_plain_byte i2
+      let i3 ← i + 1#usize
+      ok (cont (plain1, i3))
+    else ok (done true)
+  else ok (done false)
+
+/-- [protocol::always::all_plain_bytes]: loop 0:
+    Source: 'crates/protocol/src/always.rs', lines 39:4-42:5 -/
+@[rust_loop]
+def always.all_plain_bytes_loop
+  (word : Slice Std.U8) (plain : Bool) (i : Std.Usize) : Result Bool := do
+  loop
+    (fun (plain1, i1) => always.all_plain_bytes_loop.body word plain1 i1)
+    (plain, i)
+
+/-- [protocol::always::all_plain_bytes]:
+    Source: 'crates/protocol/src/always.rs', lines 36:0-44:1 -/
+@[reducible]
+def always.all_plain_bytes (word : Slice Std.U8) : Result Bool := do
+  always.all_plain_bytes_loop word true 0#usize
+
+/-- [protocol::always::is_plain_word]:
+    Source: 'crates/protocol/src/always.rs', lines 48:0-54:1 -/
+def always.is_plain_word (word : Slice Std.U8) : Result Bool := do
+  let i := Slice.len word
+  if i > 0#usize
+  then
+    let i1 := Slice.len word
+    if i1 <= always.MAX_WORD
+    then
+      let i2 ← Slice.index_usize word 0#usize
+      if i2 != 45#u8
+      then if i2 != 43#u8
+           then always.all_plain_bytes word
+           else ok false
+      else ok false
+    else ok false
+  else ok false
+
+/-- [protocol::always::pair_of]:
+    Source: 'crates/protocol/src/always.rs', lines 57:0-62:1 -/
+def always.pair_of
+  («name» : Slice Std.U8) (second : Slice Std.U8) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  let pair ← ascii.copy_bytes «name»
+  let pair1 ← alloc.vec.Vec.push pair 58#u8
+  ascii.push_bytes pair1 second
+
+/-- [protocol::always::is_short]:
+    Source: 'crates/protocol/src/always.rs', lines 65:0-67:1 -/
+def always.is_short («name» : Slice Std.U8) : Result Bool := do
+  let i := Slice.len «name»
+  let s ← lift (Array.to_slice always.NO_RULE_PAIRS)
+  let i1 := Slice.len s
+  ok (i < i1)
+
+/-- [protocol::always::is_no_rule_pair]:
+    Source: 'crates/protocol/src/always.rs', lines 69:0-75:1 -/
+def always.is_no_rule_pair
+  («name» : Slice Std.U8) (words : Slice (alloc.vec.Vec Std.U8)) :
+  Result Bool
+  := do
+  let i := Slice.len words
+  if i < 2#usize
+  then ok false
+  else
+    let b ← always.is_short «name»
+    if b
+    then
+      let v ← Slice.index_usize words 1#usize
+      let s := alloc.vec.Vec.deref v
+      let second ← command_rules.name_of s
+      let s1 := alloc.vec.Vec.deref second
+      let b1 ← always.is_short s1
+      if b1
+      then
+        let s2 ← lift (Array.to_slice always.NO_RULE_PAIRS)
+        let s3 := alloc.vec.Vec.deref second
+        let v1 ← always.pair_of «name» s3
+        let s4 := alloc.vec.Vec.deref v1
+        search.listed s2 s4
+      else ok false
+    else ok false
+
+/-- [protocol::always::is_no_rule_tool]:
+    Source: 'crates/protocol/src/always.rs', lines 77:0-83:1 -/
+def always.is_no_rule_tool
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let i := Slice.len words
+  if i = 0#usize
+  then ok false
+  else
+    let v ← Slice.index_usize words 0#usize
+    let s := alloc.vec.Vec.deref v
+    let «name» ← command_rules.name_of s
+    let s1 ← lift (Array.to_slice always.NO_RULE_TOOLS)
+    let s2 := alloc.vec.Vec.deref «name»
+    let b ← search.listed s1 s2
+    if b
+    then ok true
+    else let s3 := alloc.vec.Vec.deref «name»
+         always.is_no_rule_pair s3 words
+
+/-- [protocol::always::has_subcommands]:
+    Source: 'crates/protocol/src/always.rs', lines 85:0-87:1 -/
+def always.has_subcommands (word : Slice Std.U8) : Result Bool := do
+  let s ← lift (Array.to_slice always.SUBCOMMAND_TOOLS)
+  let v ← command_rules.name_of word
+  let s1 := alloc.vec.Vec.deref v
+  search.listed s s1
+
+/-- [protocol::always::first_words]: loop body 0:
+    Source: 'crates/protocol/src/always.rs', lines 93:4-96:5 -/
+@[rust_loop_body]
+def always.first_words_loop.body
+  (words : Slice (alloc.vec.Vec Std.U8)) (n : Std.Usize)
+  (rule : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec Std.U8)) × Std.Usize)
+    (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  := do
+  if i < n
+  then
+    let v ← Slice.index_usize words i
+    let s := alloc.vec.Vec.deref v
+    let v1 ← ascii.copy_bytes s
+    let rule1 ← alloc.vec.Vec.push rule v1
+    let i1 ← i + 1#usize
+    ok (cont (rule1, i1))
+  else ok (done rule)
+
+/-- [protocol::always::first_words]: loop 0:
+    Source: 'crates/protocol/src/always.rs', lines 93:4-96:5 -/
+@[rust_loop]
+def always.first_words_loop
+  (words : Slice (alloc.vec.Vec Std.U8)) (n : Std.Usize)
+  (rule : alloc.vec.Vec (alloc.vec.Vec Std.U8)) (i : Std.Usize) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  loop
+    (fun (rule1, i1) => always.first_words_loop.body words n rule1 i1)
+    (rule, i)
+
+/-- [protocol::always::first_words]:
+    Source: 'crates/protocol/src/always.rs', lines 90:0-98:1 -/
+@[reducible]
+def always.first_words
+  (words : Slice (alloc.vec.Vec Std.U8)) (n : Std.Usize) :
+  Result (alloc.vec.Vec (alloc.vec.Vec Std.U8))
+  := do
+  always.first_words_loop words n (alloc.vec.Vec.new (alloc.vec.Vec Std.U8))
+    0#usize
+
+/-- [protocol::always::is_ruled_out]:
+    Source: 'crates/protocol/src/always.rs', lines 100:0-103:1 -/
+def always.is_ruled_out (simple : shell.Simple) : Result Bool := do
+  let i := alloc.vec.Vec.len simple.words
+  if i = 0#usize
+  then ok true
+  else
+    let b ← command_rules.is_desktop simple
+    if b
+    then ok true
+    else
+      let s := alloc.vec.Vec.deref simple.words
+      let b1 ← command_rules.is_capped s
+      if b1
+      then ok true
+      else let s1 := alloc.vec.Vec.deref simple.words
+           always.is_no_rule_tool s1
+
+/-- [protocol::always::propose]:
+    Source: 'crates/protocol/src/always.rs', lines 108:0-125:1
+    Visibility: public -/
+def always.propose
+  (simple : shell.Simple) :
+  Result (Option (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  := do
+  let b ← always.is_ruled_out simple
+  if b
+  then ok none
+  else
+    let head ←
+      alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice (alloc.vec.Vec
+        Std.U8)) simple.words 0#usize
+    let s := alloc.vec.Vec.deref head
+    let b1 ← search.has_byte s 47#u8
+    if b1
+    then ok none
+    else
+      let s1 := alloc.vec.Vec.deref head
+      let b2 ← always.is_plain_word s1
+      if b2
+      then
+        let s2 := alloc.vec.Vec.deref head
+        let b3 ← always.has_subcommands s2
+        if b3
+        then
+          let i := alloc.vec.Vec.len simple.words
+          if i < 2#usize
+          then ok none
+          else
+            let v ←
+              alloc.vec.Vec.index (core.slice.index.SliceIndexUsizeSlice
+                (alloc.vec.Vec Std.U8)) simple.words 1#usize
+            let s3 := alloc.vec.Vec.deref v
+            let b4 ← always.is_plain_word s3
+            if b4
+            then
+              let s4 := alloc.vec.Vec.deref simple.words
+              let v1 ← always.first_words s4 2#usize
+              ok (some v1)
+            else ok none
+        else
+          let s3 := alloc.vec.Vec.deref simple.words
+          let v ← always.first_words s3 1#usize
+          ok (some v)
+      else ok none
+
+/-- [protocol::always::is_covered_by]:
+    Source: 'crates/protocol/src/always.rs', lines 127:0-134:1 -/
+def always.is_covered_by
+  (words : Slice (alloc.vec.Vec Std.U8)) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  (new : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) :
+  Result Bool
+  := do
+  let b ← command_rules.is_covered words policy rules action.Cover.Listed
+  if b
+  then ok true
+  else command_rules.matches_any new words
+
+/-- [protocol::always::add_rule]:
+    Source: 'crates/protocol/src/always.rs', lines 137:0-153:1 -/
+def always.add_rule
+  (new : alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  (simple : shell.Simple) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))) × Bool)
+  := do
+  let s := alloc.vec.Vec.deref simple.words
+  let s1 := alloc.vec.Vec.deref new
+  let b ← always.is_covered_by s policy rules s1
+  if b
+  then ok (new, true)
+  else
+    let o ← always.propose simple
+    match o with
+    | none => ok (new, false)
+    | some rule => let new1 ← alloc.vec.Vec.push new rule
+                   ok (new1, true)
+
+/-- [protocol::always::new_rules]: loop body 0:
+    Source: 'crates/protocol/src/always.rs', lines 163:4-168:5 -/
+@[rust_loop_body]
+def always.new_rules_loop.body
+  (simples : Slice shell.Simple) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  (new : alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (ok1 : Bool)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+    × Bool × Std.Usize) ((alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec
+    Std.U8))) × Bool))
+  := do
+  if ok1
+  then
+    let i1 := Slice.len simples
+    if i < i1
+    then
+      let s ← Slice.index_usize simples i
+      let (next, added) ← always.add_rule new s policy rules
+      let i2 ← i + 1#usize
+      ok (cont (next, added, i2))
+    else ok (done (new, true))
+  else ok (done (new, false))
+
+/-- [protocol::always::new_rules]: loop 0:
+    Source: 'crates/protocol/src/always.rs', lines 163:4-168:5 -/
+@[rust_loop]
+def always.new_rules_loop
+  (simples : Slice shell.Simple) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  (new : alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (ok1 : Bool)
+  (i : Std.Usize) :
+  Result ((alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))) × Bool)
+  := do
+  loop
+    (fun (new1, ok2, i1) => always.new_rules_loop.body simples policy rules
+      new1 ok2 i1)
+    (new, ok1, i)
+
+/-- [protocol::always::new_rules]:
+    Source: 'crates/protocol/src/always.rs', lines 155:0-170:1 -/
+def always.new_rules
+  (simples : Slice shell.Simple) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) :
+  Result (Option (alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))))
+  := do
+  let (new, ok1) ←
+    always.new_rules_loop simples policy rules (alloc.vec.Vec.new
+      (alloc.vec.Vec (alloc.vec.Vec Std.U8))) true 0#usize
+  if ok1
+  then ok (some new)
+  else ok none
+
+/-- [protocol::always::proposal]:
+    Source: 'crates/protocol/src/always.rs', lines 172:0-180:1 -/
+def always.proposal
+  (call : action.ToolCall) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) :
+  Result (Option (alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))))
+  := do
+  match call with
+  | action.ToolCall.Files _ _ => ok none
+  | action.ToolCall.Command raw _ =>
+    let s := alloc.vec.Vec.deref raw
+    let o ← shell.split s
+    match o with
+    | none => ok none
+    | some script =>
+      let s1 := alloc.vec.Vec.deref script.simples
+      always.new_rules s1 policy rules
+  | action.ToolCall.Unknown => ok none
+
+/-- [protocol::always::allows_with]:
+    Source: 'crates/protocol/src/always.rs', lines 182:0-191:1 -/
+def always.allows_with
+  (call : action.ToolCall) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
+  (new : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) :
+  Result Bool
+  := do
+  let all ←
+    alloc.slice.Slice.to_vec (core.clone.CloneallocvecVec
+      (core.clone.CloneallocvecVec core.clone.CloneU8)) rules
+  let all1 ←
+    alloc.vec.Vec.extend_from_slice (core.clone.CloneallocvecVec
+      (core.clone.CloneallocvecVec core.clone.CloneU8)) all new
+  let s := alloc.vec.Vec.deref all1
+  let v ← action.classify call policy s
+  action.Verdict.Insts.CoreCmpPartialEqVerdict.eq v action.Verdict.Allow
+
+/-- [protocol::always::offer]:
+    Source: 'crates/protocol/src/always.rs', lines 196:0-214:1
+    Visibility: public -/
+def always.offer
+  (call : action.ToolCall) (policy : action.Policy)
+  (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) :
+  Result (Option (alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec Std.U8))))
+  := do
+  let i := Slice.len rules
+  if i > always.MAX_RULES
+  then ok none
+  else
+    let o ← always.proposal call policy rules
+    match o with
+    | none => ok none
+    | some new =>
+      let i1 := alloc.vec.Vec.len new
+      if i1 = 0#usize
+      then ok none
+      else
+        let i2 := alloc.vec.Vec.len new
+        if i2 > always.MAX_OFFER
+        then ok none
+        else
+          let s := alloc.vec.Vec.deref new
+          let b ← always.allows_with call policy rules s
+          if b
+          then ok o
+          else ok none
 
 /-- [protocol::apps::{impl core::clone::Clone for protocol::apps::App}::clone]:
     Source: 'crates/protocol/src/apps.rs', lines 8:9-8:14
