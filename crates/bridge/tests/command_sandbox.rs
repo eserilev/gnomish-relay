@@ -468,41 +468,43 @@ fn quotes_line_breaks_and_substitutions_run_inside_the_sandbox() {
     assert!(!m.other.join("q").exists());
 }
 
-/// The spike of SPEC.md 6.6.4 ("macOS"), run on the macOS runner of CI on 2026-09-27: a
-/// process inside Seatbelt can start `sandbox-exec` again, and the walls of the outer
-/// profile still hold inside. So the agent can get a wall on macOS.
+/// The spike of SPEC.md 6.6.4 ("macOS"), run on the macOS runner of CI on 2026-09-27:
+/// inside a profile that allows everything, `sandbox-exec` starts again, but inside a
+/// profile that denies the network, as a wall of the agent does, it fails with
+/// "sandbox_apply: Operation not permitted". So the agent has no wall on macOS: its
+/// commands use Seatbelt. If the second check fails, nesting works, and macOS can get a
+/// wall.
 #[cfg(target_os = "macos")]
 #[test]
-fn seatbelt_starts_inside_seatbelt_and_the_outer_walls_hold() {
+fn seatbelt_cannot_start_inside_a_seatbelt_wall() {
     let Some(_) = tool() else { return };
-    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = listener.local_addr().unwrap().port();
-    let outer = "(version 1)(allow default)(deny network*)";
-    let inner = "(version 1)(allow default)";
-    let nested = |program: &[&str]| {
-        let mut args = vec!["-p", outer, "/usr/bin/sandbox-exec", "-p", inner];
-        args.extend_from_slice(program);
+    let nested = |outer: &str| {
+        let inner = "(version 1)(allow default)";
         Command::new("/usr/bin/sandbox-exec")
-            .args(args)
+            .args([
+                "-p",
+                outer,
+                "/usr/bin/sandbox-exec",
+                "-p",
+                inner,
+                "/usr/bin/true",
+            ])
             .output()
             .unwrap()
     };
 
-    let started = nested(&["/usr/bin/true"]);
-    let port_text = port.to_string();
-    let connect = nested(&["/usr/bin/nc", "-z", "-G", "2", "127.0.0.1", &port_text]);
+    let open = nested("(version 1)(allow default)");
+    let walled = nested("(version 1)(allow default)(deny network*)");
 
     assert!(
-        started.status.success(),
+        open.status.success(),
         "{}",
-        String::from_utf8_lossy(&started.stderr)
+        String::from_utf8_lossy(&open.stderr)
     );
     assert!(
-        !connect.status.success(),
-        "the outer deny of the network did not hold"
+        !walled.status.success(),
+        "nested Seatbelt works inside a wall"
     );
-    listener.set_nonblocking(true).unwrap();
-    assert!(listener.accept().is_err(), "a connection came in");
 }
 
 #[test]
