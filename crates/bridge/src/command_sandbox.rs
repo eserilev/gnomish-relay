@@ -650,6 +650,10 @@ const PROFILE_START: &str = "(version 1)
 (allow file-write* (literal \"/dev/null\") (literal \"/dev/zero\") (literal \"/dev/tty\") (literal \"/dev/stdout\") (literal \"/dev/stderr\") (literal \"/dev/dtracehelper\") (subpath \"/dev/fd\"))
 ";
 
+/// `git credential-osxkeychain` gives the GitHub token of the user with no prompt, and
+/// the proxy reaches `github.com`. TLS checks go through `trustd`, which stays open.
+const NO_KEYCHAIN: &str = "(deny mach-lookup (global-name \"com.apple.SecurityServer\") (global-name \"com.apple.secd\"))\n";
+
 /// A later rule wins in Seatbelt, so the hidden paths come last. Each path is an escaped
 /// string literal (S32).
 pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
@@ -657,6 +661,7 @@ pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
     if let Some(ProxyEnd::Port(port)) = walls.proxy {
         let rule = format!("(allow network-outbound (remote ip \"localhost:{port}\"))\n");
         out.extend_from_slice(rule.as_bytes());
+        out.extend_from_slice(NO_KEYCHAIN.as_bytes());
     }
     let writable: Vec<&Path> = walls.writable.iter().map(PathBuf::as_path).collect();
     rule(&mut out, "(allow file-write*", &writable)?;
@@ -1102,6 +1107,20 @@ mod tests {
         assert_eq!(profile.matches("(allow network").count(), 1);
         let plain = String::from_utf8(seatbelt_profile(&sample()).unwrap()).unwrap();
         assert!(!plain.contains("(allow network"));
+    }
+
+    #[test]
+    fn with_a_proxy_seatbelt_denies_the_services_of_the_keychain() {
+        let mut walls = sample();
+        walls.proxy = Some(ProxyEnd::Port(41234));
+
+        let profile = String::from_utf8(seatbelt_profile(&walls).unwrap()).unwrap();
+
+        assert!(profile.contains(
+            "(deny mach-lookup (global-name \"com.apple.SecurityServer\") (global-name \"com.apple.secd\"))"
+        ));
+        let plain = String::from_utf8(seatbelt_profile(&sample()).unwrap()).unwrap();
+        assert!(!plain.contains("mach-lookup"));
     }
 
     #[test]

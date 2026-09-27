@@ -442,7 +442,8 @@ fn a_connection_that_skips_the_proxy_fails() {
 }
 
 /// One small fetch over the internet, through the real proxy and the default hosts. It
-/// checks that TLS works inside the sandbox. It skips when this computer is offline.
+/// checks that TLS works inside the sandbox, on macOS also through the Security framework
+/// with the keychain services denied. It skips when this computer is offline.
 #[test]
 fn a_command_fetches_the_index_config_of_crates_io_through_the_real_proxy() {
     let Some(tool) = tool() else { return };
@@ -454,14 +455,62 @@ fn a_command_fetches_the_index_config_of_crates_io_through_the_real_proxy() {
     let hosts = HostList::new(Defaults::Keep, &[]).unwrap();
     let w = prepare(&m, &sandbox(&m, tool).with_proxy(ProxySettings::new(hosts)));
 
+    let fetch = "curl -sS --max-time 60 https://index.crates.io/config.json";
     let ran = run(
         &w,
         &m,
-        "curl -sS --max-time 60 https://index.crates.io/config.json",
+        &format!(
+            "{fetch} && if curl -V | grep -q SecureTransport; then CURL_SSL_BACKEND=secure-transport {fetch}; fi"
+        ),
     );
 
     assert!(ran.ok, "{}", ran.out);
     assert!(ran.out.contains("static.crates.io"), "{}", ran.out);
+}
+
+/// A keychain of the test, unlocked, with one item that any program reads with no prompt.
+/// With the proxy, a command cannot read it; with no proxy, it can.
+#[cfg(target_os = "macos")]
+#[test]
+fn with_the_proxy_a_command_cannot_read_the_keychain() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let keychain = m.home.join("probe.keychain");
+    let keychain = keychain.to_str().unwrap();
+    let security = |args: &[&str]| {
+        let ok = Command::new("/usr/bin/security")
+            .args(args)
+            .status()
+            .unwrap();
+        assert!(ok.success(), "security {args:?}");
+    };
+    security(&["create-keychain", "-p", "pw", keychain]);
+    security(&["unlock-keychain", "-p", "pw", keychain]);
+    security(&[
+        "add-generic-password",
+        "-a",
+        "probe",
+        "-s",
+        "gnomish-relay-probe",
+        "-w",
+        "probe-secret-value",
+        "-A",
+        keychain,
+    ]);
+    let read =
+        format!("/usr/bin/security find-generic-password -s gnomish-relay-probe -w '{keychain}'");
+    let plain = walls(&m, tool.clone());
+    let hosts = HostList::new(Defaults::Keep, &[]).unwrap();
+    let proxied = prepare(&m, &sandbox(&m, tool).with_proxy(ProxySettings::new(hosts)));
+
+    let open = run(&plain, &m, &read);
+    let closed = run(&proxied, &m, &read);
+
+    let _ = Command::new("/usr/bin/security")
+        .args(["delete-keychain", keychain])
+        .status();
+    assert!(open.out.contains("probe-secret-value"), "{}", open.out);
+    assert!(!closed.out.contains("probe-secret-value"), "{}", closed.out);
 }
 
 fn is_online(host: &str) -> bool {
