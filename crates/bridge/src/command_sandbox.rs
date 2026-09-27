@@ -31,6 +31,46 @@ pub const NO_SANDBOX: &str = "(No sandbox on this computer: every command asks i
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// The Unix socket of the proxy, in the temp folder of the run.
 const PROXY_SOCKET: &str = ".gnomish-relay-proxy";
+/// The tools that keep their downloads in the home folder: cargo and rustup.
+const TOOL_HOMES: [&str; 2] = [".cargo", ".rustup"];
+const PROBE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// Whether `bwrap` can lay a copy-on-write view over a folder (bwrap 0.9 and Linux 5.11).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Overlay {
+    Works,
+    Missing,
+}
+
+/// Runs `bwrap --version` inside a sandbox with a copy-on-write view of `/etc`.
+pub fn detect_overlay(tool: &Sandbox) -> Overlay {
+    let Sandbox::Bwrap(bwrap) = tool else {
+        return Overlay::Missing;
+    };
+    let bwrap = bwrap.to_string_lossy().into_owned();
+    let args: Vec<String> = [
+        "--ro-bind",
+        "/",
+        "/",
+        "--overlay-src",
+        "/etc",
+        "--tmp-overlay",
+        "/etc",
+        "--unshare-all",
+        "--die-with-parent",
+        "--",
+        &bwrap,
+        "--version",
+    ]
+    .map(str::to_owned)
+    .into();
+    let out = crate::process::output(std::slice::from_ref(&bwrap), &args, &[], "/", PROBE_TIMEOUT);
+    if out.is_ok_and(|out| out.success) {
+        Overlay::Works
+    } else {
+        Overlay::Missing
+    }
+}
 
 /// The sandbox of this computer, for the commands of runs from the game.
 #[derive(Clone, Debug)]
@@ -41,6 +81,8 @@ pub struct CommandSandbox {
     pub home: Option<PathBuf>,
     /// With no proxy, commands have no network at all.
     pub proxy: Option<ProxySettings>,
+    /// With no overlay, a download of cargo or rustup fails on the read-only home folder.
+    pub overlay: Overlay,
     /// The notice of no sandbox shows once for each start of the bridge.
     told: Arc<AtomicBool>,
 }
@@ -52,6 +94,7 @@ impl CommandSandbox {
             wrapper,
             home,
             proxy: None,
+            overlay: Overlay::Missing,
             told: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -66,7 +109,8 @@ impl CommandSandbox {
     pub fn detect(hosts: HostList) -> CommandSandbox {
         let wrapper = std::env::current_exe().unwrap_or_default();
         let home = std::env::var_os("HOME").map(PathBuf::from);
-        let sandbox = CommandSandbox::new(story_sandbox::detect(), wrapper, home);
+        let mut sandbox = CommandSandbox::new(story_sandbox::detect(), wrapper, home);
+        sandbox.overlay = detect_overlay(&sandbox.tool);
         if hosts.is_empty() {
             return sandbox;
         }
@@ -75,6 +119,23 @@ impl CommandSandbox {
 
     pub fn none() -> CommandSandbox {
         CommandSandbox::new(Sandbox::None, PathBuf::new(), None)
+    }
+
+    /// One line for the log at start.
+    pub fn summary(&self) -> String {
+        let proxy = if self.proxy.is_some() {
+            "the allowed hosts through the proxy"
+        } else {
+            "no network"
+        };
+        let downloads = match (&self.tool, self.overlay) {
+            (Sandbox::Bwrap(_), Overlay::Works) => {
+                ", and downloads of cargo and rustup go to the temp folder of the run"
+            }
+            (Sandbox::None, _) => "",
+            _ => ", and a new download of cargo or rustup fails",
+        };
+        format!("{} with {proxy}{downloads}", self.tool.name())
     }
 
     pub fn is_on(&self) -> bool {
@@ -101,6 +162,18 @@ pub struct Walls {
     pub empty: PathBuf,
     /// The way to the proxy of the run. With none, commands have no network.
     pub proxy: Option<ProxyEnd>,
+    /// Copy-on-write views of the homes of cargo and rustup, only with `bwrap`.
+    pub overlays: Vec<OverlayMount>,
+}
+
+/// A folder that commands see as writable. The writes land in the temp folder of the
+/// run, and the real folder never changes.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
+pub struct OverlayMount {
+    pub folder: PathBuf,
+    /// Both in the temp folder.
+    pub upper: PathBuf,
+    pub work: PathBuf,
 }
 
 /// Where a command inside the sandbox finds the proxy of its run.
@@ -181,6 +254,7 @@ pub fn prepare(
     hidden.retain(|h| !writable.iter().any(|w| w.starts_with(h)));
     let place = guarded.data_dir.join("sandbox");
     let (proxy, end) = start_proxy(sandbox, &temp_path, &hidden, tag)?.unzip();
+    let overlays = tool_overlays(sandbox, &temp_path, &writable, &hidden)?;
     let walls = Walls {
         tool: sandbox.tool.clone(),
         writable,
@@ -188,6 +262,7 @@ pub fn prepare(
         hidden,
         empty: empty_file(&place)?,
         proxy: end,
+        overlays,
     };
     let file = write_walls(&place, &walls)?;
     Ok(RunWalls {
@@ -196,6 +271,42 @@ pub fn prepare(
         _proxy: proxy,
         _temp: temp,
     })
+}
+
+/// cargo and rustup write each download into their home. A folder that is writable or
+/// hidden already, or that holds a writable path, keeps what it has. A hidden file in
+/// the folder stays hidden, because `bwrap` covers it after the overlay.
+fn tool_overlays(
+    sandbox: &CommandSandbox,
+    temp: &Path,
+    writable: &[PathBuf],
+    hidden: &[PathBuf],
+) -> Result<Vec<OverlayMount>, String> {
+    let (Overlay::Works, Some(home)) = (sandbox.overlay, &sandbox.home) else {
+        return Ok(Vec::new());
+    };
+    let mut mounts = Vec::new();
+    for name in TOOL_HOMES {
+        let Ok(folder) = home.join(name).canonicalize() else {
+            continue;
+        };
+        let meets = |other: &PathBuf| folder.starts_with(other) || other.starts_with(&folder);
+        let in_hidden = hidden.iter().any(|h| folder.starts_with(h));
+        if !folder.is_dir() || in_hidden || writable.iter().any(meets) {
+            continue;
+        }
+        let upper = temp.join(format!("overlay{name}"));
+        let work = temp.join(format!("overlay{name}-work"));
+        for dir in [&upper, &work] {
+            std::fs::create_dir(dir).map_err(|e| format!("No folder for the overlay: {e}"))?;
+        }
+        mounts.push(OverlayMount {
+            folder,
+            upper,
+            work,
+        });
+    }
+    Ok(mounts)
 }
 
 /// The proxy of the run and the way to it, or `None` with no hosts or no sandbox.
@@ -461,6 +572,17 @@ pub fn bwrap_args(walls: &Walls, cwd: &Path, shell: &Path, command: &str) -> Vec
     }
     for path in &walls.writable {
         args.extend(["--bind".into(), path.into(), path.into()]);
+    }
+    // Before the hidden paths, so a hidden file in the folder stays hidden.
+    for mount in &walls.overlays {
+        args.extend([
+            "--overlay-src".into(),
+            mount.folder.clone().into(),
+            "--overlay".into(),
+            mount.upper.clone().into(),
+            mount.work.clone().into(),
+            mount.folder.clone().into(),
+        ]);
     }
     for path in &walls.hidden {
         if path.is_dir() {
@@ -892,6 +1014,7 @@ mod tests {
             ],
             empty: PathBuf::from("/data/sandbox/empty"),
             proxy: None,
+            overlays: Vec::new(),
         }
     }
 
@@ -1083,6 +1206,119 @@ mod tests {
             error.contains("inside a folder that the sandbox hides"),
             "{error}"
         );
+    }
+
+    #[test]
+    fn bwrap_lays_each_overlay_after_the_writable_paths_and_before_the_hidden_paths() {
+        let mut walls = sample();
+        walls.overlays = vec![OverlayMount {
+            folder: PathBuf::from("/home/x/.cargo"),
+            upper: PathBuf::from("/tmp/run1/overlay.cargo"),
+            work: PathBuf::from("/tmp/run1/overlay.cargo-work"),
+        }];
+        walls
+            .hidden
+            .push(PathBuf::from("/home/x/.cargo/credentials.toml"));
+
+        let args = strings(&bwrap_args(
+            &walls,
+            Path::new("/"),
+            Path::new("/bin/bash"),
+            "x",
+        ));
+
+        let bind = position(&args, &["--bind", "/tmp/run1", "/tmp/run1"]);
+        let overlay = position(
+            &args,
+            &[
+                "--overlay-src",
+                "/home/x/.cargo",
+                "--overlay",
+                "/tmp/run1/overlay.cargo",
+                "/tmp/run1/overlay.cargo-work",
+                "/home/x/.cargo",
+            ],
+        );
+        let hide = position(
+            &args,
+            &[
+                "--ro-bind",
+                "/data/sandbox/empty",
+                "/home/x/.cargo/credentials.toml",
+            ],
+        );
+        assert!(bind < overlay && overlay < hide);
+    }
+
+    #[test]
+    fn a_run_with_a_working_overlay_views_the_homes_of_cargo_and_rustup_through_the_temp_folder() {
+        let h = folders();
+        std::fs::create_dir_all(h.home.join(".cargo/registry")).unwrap();
+        std::fs::create_dir_all(h.home.join(".rustup")).unwrap();
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+        let mut sandbox = sandbox(&h, Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")));
+        sandbox.overlay = Overlay::Works;
+
+        let run = prepare(&sandbox, &guarded, &h.chat, "chat test").unwrap();
+
+        let folders: Vec<&PathBuf> = run.walls.overlays.iter().map(|m| &m.folder).collect();
+        assert_eq!(folders, [&h.home.join(".cargo"), &h.home.join(".rustup")]);
+        for mount in &run.walls.overlays {
+            assert!(mount.upper.starts_with(&run.walls.temp) && mount.upper.is_dir());
+            assert!(mount.work.starts_with(&run.walls.temp) && mount.work.is_dir());
+        }
+    }
+
+    #[test]
+    fn with_no_overlay_or_a_home_in_the_chat_folder_a_run_gets_no_overlay() {
+        let h = folders();
+        std::fs::create_dir_all(h.home.join(".cargo")).unwrap();
+        std::fs::create_dir_all(h.chat.join(".cargo")).unwrap();
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+        let mut in_chat = sandbox(&h, Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")));
+        in_chat.overlay = Overlay::Works;
+        in_chat.home = Some(h.chat.clone());
+
+        let missing = run_walls(&h, &h.chat).unwrap();
+        let in_chat = prepare(&in_chat, &guarded, &h.chat, "chat test").unwrap();
+
+        assert!(missing.walls.overlays.is_empty());
+        assert!(in_chat.walls.overlays.is_empty());
+    }
+
+    #[test]
+    fn the_summary_names_the_tool_the_network_and_the_downloads() {
+        let bwrap = Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap"));
+        let mut sandbox = CommandSandbox::new(bwrap, PathBuf::new(), None);
+        assert_eq!(
+            sandbox.summary(),
+            "bwrap with no network, and a new download of cargo or rustup fails"
+        );
+        sandbox.overlay = Overlay::Works;
+        let hosts = HostList::new(crate::allow_hosts::Defaults::Keep, &[]).unwrap();
+        let sandbox = sandbox.with_proxy(ProxySettings::new(hosts));
+        assert_eq!(
+            sandbox.summary(),
+            "bwrap with the allowed hosts through the proxy, and downloads of cargo and rustup go to the temp folder of the run"
+        );
+        assert_eq!(
+            CommandSandbox::none().summary(),
+            "no sandbox with no network"
+        );
+    }
+
+    #[test]
+    fn a_tool_that_is_not_bwrap_has_no_overlay() {
+        assert_eq!(detect_overlay(&Sandbox::Seatbelt), Overlay::Missing);
+        assert_eq!(detect_overlay(&Sandbox::None), Overlay::Missing);
+        let missing = Sandbox::Bwrap(PathBuf::from("/no/such/bwrap"));
+        assert_eq!(detect_overlay(&missing), Overlay::Missing);
     }
 
     #[test]

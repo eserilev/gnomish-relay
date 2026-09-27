@@ -606,10 +606,7 @@ fn start_relay(relay: RelayConfig, paths: &Paths) -> Result<(Policy, Agents, Rai
     }
     let gate = Gate::new(&relay, &config_dir()?, &paths.state, Prompt::Dialog);
     gate.approvals.clear();
-    println!(
-        "commands from the game run in: {}",
-        gate.sandbox.tool.name()
-    );
+    println!("commands from the game run in: {}", gate.sandbox.summary());
     let agents = agent::from_config(&relay, &gate);
     let raiser = Raiser {
         approvals: gate.approvals.clone(),

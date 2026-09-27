@@ -471,8 +471,10 @@ fn is_online(host: &str) -> bool {
     TcpStream::connect_timeout(&addr, Duration::from_secs(5)).is_ok()
 }
 
-/// A live run of `cargo fetch` for a small crate, with the real proxy and the default
-/// hosts. It needs the internet and `cargo`.
+/// A live run of `cargo fetch` for a small crate, with the real proxy, the default
+/// hosts, and the real home folder. It needs the internet and `cargo`. On Linux the
+/// crate lands in the copy-on-write view of `~/.cargo`; macOS has none, so there the
+/// command puts cargo in the chat folder.
 #[test]
 #[ignore = "live: fetches a crate from crates.io"]
 fn cargo_fetch_of_a_small_crate_works_inside_the_sandbox() {
@@ -481,20 +483,89 @@ fn cargo_fetch_of_a_small_crate_works_inside_the_sandbox() {
     fs::create_dir_all(m.chat.join("src")).unwrap();
     fs::write(
         m.chat.join("Cargo.toml"),
-        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nitoa = \"=1.0.9\"\n",
+        "[package]\nname = \"probe\"\nversion = \"0.1.0\"\nedition = \"2021\"\n\n[dependencies]\nitoa = \"=1.0.2\"\n",
     )
     .unwrap();
     fs::write(m.chat.join("src/main.rs"), "fn main() {}\n").unwrap();
-    let hosts = HostList::new(Defaults::Keep, &[]).unwrap();
-    let w = prepare(&m, &sandbox(&m, tool).with_proxy(ProxySettings::new(hosts)));
+    let home = PathBuf::from(std::env::var_os("HOME").unwrap());
+    let cached = |home: &Path| crate_files(home, "itoa-1.0.2.crate");
+    let before = cached(&home);
+    let mut sandbox = sandbox(&m, tool.clone()).with_proxy(ProxySettings::new(
+        HostList::new(Defaults::Keep, &[]).unwrap(),
+    ));
+    sandbox.home = Some(home.clone());
+    sandbox.overlay = command_sandbox::detect_overlay(&tool);
+    let w = prepare(&m, &sandbox);
+    let cargo_home = if cfg!(target_os = "macos") {
+        "CARGO_HOME=\"$PWD/.cargo-home\" "
+    } else {
+        ""
+    };
 
-    let home = std::env::var("HOME").unwrap();
-    let ran = run(
-        &w,
-        &m,
-        &format!("HOME='{home}' CARGO_HOME=\"$PWD/.cargo-home\" cargo fetch"),
-    );
+    let command = format!("HOME='{}' {cargo_home}cargo fetch", home.display());
+    let ran = run(&w, &m, &command);
 
     assert!(ran.ok, "{}", ran.out);
     assert!(m.chat.join("Cargo.lock").exists());
+    assert_eq!(cached(&home), before, "the real home folder changed");
+}
+
+/// The crate files of that name in the cache of cargo under `home`.
+fn crate_files(home: &Path, name: &str) -> usize {
+    let cache = home.join(".cargo/registry/cache");
+    let Ok(indexes) = fs::read_dir(cache) else {
+        return 0;
+    };
+    indexes
+        .flatten()
+        .filter(|index| index.path().join(name).exists())
+        .count()
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_download_into_the_home_of_cargo_lands_in_the_temp_folder_and_the_home_never_changes() {
+    let Some(tool) = tool() else { return };
+    if command_sandbox::detect_overlay(&tool) == command_sandbox::Overlay::Missing {
+        assert!(
+            std::env::var_os(REQUIRE).is_none(),
+            "bwrap has no overlay, and {REQUIRE} is set"
+        );
+        eprintln!("skipped: bwrap has no overlay");
+        return;
+    }
+    let m = machine();
+    let registry = m.home.join(".cargo/registry");
+    fs::create_dir_all(&registry).unwrap();
+    fs::write(registry.join("old.crate"), "old crate").unwrap();
+    fs::write(m.home.join(".cargo/credentials.toml"), "secret token").unwrap();
+    let mut sandbox = sandbox(&m, tool.clone());
+    sandbox.overlay = command_sandbox::Overlay::Works;
+    let w = prepare(&m, &sandbox);
+    let cargo = m
+        .home
+        .join(".cargo")
+        .display()
+        .to_string()
+        .replace('\'', "'\\''");
+
+    let ran = run(
+        &w,
+        &m,
+        &format!(
+            "cd '{cargo}' && cat registry/old.crate && echo new > registry/new.crate && cat registry/new.crate credentials.toml"
+        ),
+    );
+
+    assert!(ran.ok, "{}", ran.out);
+    assert!(
+        ran.out.contains("old crate") && ran.out.contains("new"),
+        "{}",
+        ran.out
+    );
+    assert!(!ran.out.contains("secret"), "{}", ran.out);
+    assert!(!registry.join("new.crate").exists());
+    let upper = &w.walls.overlays[0].upper;
+    assert!(upper.starts_with(&w.walls.temp));
+    assert!(upper.join("registry/new.crate").exists());
 }
