@@ -3805,6 +3805,1137 @@ def command_rules.Test.Insts.CoreCmpEq : core.cmp.Eq command_rules.Test := {
     command_rules.Test.Insts.CoreCmpEq.assert_fields_are_eq
 }
 
+/-- [protocol::connect::SPACE]
+    Source: 'crates/protocol/src/connect.rs', lines 8:0-8:23 -/
+@[global_simps, irreducible] def connect.SPACE : Std.U8 := 32#u8
+
+/-- [protocol::connect::COLON]
+    Source: 'crates/protocol/src/connect.rs', lines 9:0-9:23 -/
+@[global_simps, irreducible] def connect.COLON : Std.U8 := 58#u8
+
+/-- [protocol::connect::DOT]
+    Source: 'crates/protocol/src/connect.rs', lines 10:0-10:21 -/
+@[global_simps, irreducible] def connect.DOT : Std.U8 := 46#u8
+
+/-- [protocol::connect::CR]
+    Source: 'crates/protocol/src/connect.rs', lines 11:0-11:21 -/
+@[global_simps, irreducible] def connect.CR : Std.U8 := 13#u8
+
+/-- [protocol::connect::LF]
+    Source: 'crates/protocol/src/connect.rs', lines 12:0-12:21 -/
+@[global_simps, irreducible] def connect.LF : Std.U8 := 10#u8
+
+/-- [protocol::connect::CONNECT]
+    Source: 'crates/protocol/src/connect.rs', lines 13:0-13:37 -/
+@[global_simps, irreducible]
+def connect.CONNECT : Array Std.U8 7#usize :=
+  Array.make 7#usize [ 67#u8, 79#u8, 78#u8, 78#u8, 69#u8, 67#u8, 84#u8 ]
+
+/-- [protocol::connect::HTTP_1]
+    Source: 'crates/protocol/src/connect.rs', lines 14:0-14:36 -/
+@[global_simps, irreducible]
+def connect.HTTP_1 : Array Std.U8 7#usize :=
+  Array.make 7#usize [ 72#u8, 84#u8, 84#u8, 80#u8, 47#u8, 49#u8, 46#u8 ]
+
+/-- [protocol::connect::LOCALHOST]
+    Source: 'crates/protocol/src/connect.rs', lines 15:0-15:41 -/
+@[global_simps, irreducible]
+def connect.LOCALHOST : Array Std.U8 9#usize :=
+  Array.make 9#usize [
+    108#u8, 111#u8, 99#u8, 97#u8, 108#u8, 104#u8, 111#u8, 115#u8, 116#u8
+    ]
+
+/-- [protocol::connect::DANGEROUS_PORTS]
+    Source: 'crates/protocol/src/connect.rs', lines 17:0-17:53 -/
+@[global_simps, irreducible]
+def connect.DANGEROUS_PORTS : Array Std.U16 3#usize :=
+  Array.make 3#usize [ 2375#u16, 2376#u16, 9222#u16 ]
+
+/-- [protocol::connect::{impl core::clone::Clone for protocol::connect::Mode}::clone]:
+    Source: 'crates/protocol/src/connect.rs', lines 20:9-20:14
+    Visibility: public -/
+def connect.Mode.Insts.CoreCloneClone.clone
+  (self : connect.Mode) : Result connect.Mode := do
+  ok self
+
+/-- Trait implementation: [protocol::connect::{impl core::clone::Clone for protocol::connect::Mode}]
+    Source: 'crates/protocol/src/connect.rs', lines 20:9-20:14 -/
+@[reducible]
+def connect.Mode.Insts.CoreCloneClone : core.clone.Clone connect.Mode := {
+  clone := connect.Mode.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::connect::{impl core::marker::Copy for protocol::connect::Mode}]
+    Source: 'crates/protocol/src/connect.rs', lines 20:16-20:20 -/
+@[reducible]
+def connect.Mode.Insts.CoreMarkerCopy : core.marker.Copy connect.Mode := {
+  cloneInst := connect.Mode.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::connect::{impl core::marker::StructuralPartialEq for protocol::connect::Mode}]
+    Source: 'crates/protocol/src/connect.rs', lines 20:22-20:31 -/
+@[reducible]
+def connect.Mode.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq connect.Mode := {
+}
+
+/-- [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Mode> for protocol::connect::Mode}::eq]:
+    Source: 'crates/protocol/src/connect.rs', lines 20:22-20:31
+    Visibility: public -/
+def connect.Mode.Insts.CoreCmpPartialEqMode.eq
+  (self : connect.Mode) (other : connect.Mode) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Mode> for protocol::connect::Mode}]
+    Source: 'crates/protocol/src/connect.rs', lines 20:22-20:31 -/
+@[reducible]
+impl_def connect.Mode.Insts.CoreCmpPartialEqMode : core.cmp.PartialEq
+  connect.Mode connect.Mode := {
+  eq := connect.Mode.Insts.CoreCmpPartialEqMode.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    connect.Mode.Insts.CoreCmpPartialEqMode
+}
+
+/-- [protocol::connect::{impl core::cmp::Eq for protocol::connect::Mode}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/connect.rs', lines 20:33-20:35
+    Visibility: public -/
+def connect.Mode.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : connect.Mode) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::connect::{impl core::cmp::Eq for protocol::connect::Mode}]
+    Source: 'crates/protocol/src/connect.rs', lines 20:33-20:35 -/
+@[reducible]
+def connect.Mode.Insts.CoreCmpEq : core.cmp.Eq connect.Mode := {
+  partialEqInst := connect.Mode.Insts.CoreCmpPartialEqMode
+  assert_fields_are_eq := connect.Mode.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- Trait implementation: [protocol::connect::{impl core::marker::StructuralPartialEq for protocol::connect::Target}]
+    Source: 'crates/protocol/src/connect.rs', lines 29:9-29:18 -/
+@[reducible]
+def connect.Target.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq connect.Target := {
+}
+
+/-- [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Target> for protocol::connect::Target}::eq]:
+    Source: 'crates/protocol/src/connect.rs', lines 29:9-29:18
+    Visibility: public -/
+def connect.Target.Insts.CoreCmpPartialEqTarget.eq
+  (self : connect.Target) (other : connect.Target) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  if self1 = other1
+  then
+    match self with
+    | connect.Target.Remote __self_0 __self_1 =>
+      match other with
+      | connect.Target.Remote __arg1_0 __arg1_1 =>
+        let b ← lift (core.cmp.impls.PartialEqU16.eq __self_1 __arg1_1)
+        if b
+        then
+          alloc.vec.partial_eq.PartialEqVec.eq core.cmp.PartialEqU8 __self_0
+            __arg1_0
+        else ok false
+      | connect.Target.Local _ => fail panic
+    | connect.Target.Local __self_0 =>
+      match other with
+      | connect.Target.Remote _ _ => fail panic
+      | connect.Target.Local __arg1_0 =>
+        lift (core.cmp.impls.PartialEqU16.eq __self_0 __arg1_0)
+  else ok false
+
+/-- Trait implementation: [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Target> for protocol::connect::Target}]
+    Source: 'crates/protocol/src/connect.rs', lines 29:9-29:18 -/
+@[reducible]
+impl_def connect.Target.Insts.CoreCmpPartialEqTarget : core.cmp.PartialEq
+  connect.Target connect.Target := {
+  eq := connect.Target.Insts.CoreCmpPartialEqTarget.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    connect.Target.Insts.CoreCmpPartialEqTarget
+}
+
+/-- [protocol::connect::{impl core::cmp::Eq for protocol::connect::Target}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/connect.rs', lines 29:20-29:22
+    Visibility: public -/
+def connect.Target.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : connect.Target) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::connect::{impl core::cmp::Eq for protocol::connect::Target}]
+    Source: 'crates/protocol/src/connect.rs', lines 29:20-29:22 -/
+@[reducible]
+def connect.Target.Insts.CoreCmpEq : core.cmp.Eq connect.Target := {
+  partialEqInst := connect.Target.Insts.CoreCmpPartialEqTarget
+  assert_fields_are_eq := connect.Target.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::connect::{impl core::clone::Clone for protocol::connect::Refusal}::clone]:
+    Source: 'crates/protocol/src/connect.rs', lines 38:9-38:14
+    Visibility: public -/
+def connect.Refusal.Insts.CoreCloneClone.clone
+  (self : connect.Refusal) : Result connect.Refusal := do
+  ok self
+
+/-- Trait implementation: [protocol::connect::{impl core::clone::Clone for protocol::connect::Refusal}]
+    Source: 'crates/protocol/src/connect.rs', lines 38:9-38:14 -/
+@[reducible]
+def connect.Refusal.Insts.CoreCloneClone : core.clone.Clone connect.Refusal
+  := {
+  clone := connect.Refusal.Insts.CoreCloneClone.clone
+}
+
+/-- Trait implementation: [protocol::connect::{impl core::marker::Copy for protocol::connect::Refusal}]
+    Source: 'crates/protocol/src/connect.rs', lines 38:16-38:20 -/
+@[reducible]
+def connect.Refusal.Insts.CoreMarkerCopy : core.marker.Copy connect.Refusal
+  := {
+  cloneInst := connect.Refusal.Insts.CoreCloneClone
+}
+
+/-- Trait implementation: [protocol::connect::{impl core::marker::StructuralPartialEq for protocol::connect::Refusal}]
+    Source: 'crates/protocol/src/connect.rs', lines 38:22-38:31 -/
+@[reducible]
+def connect.Refusal.Insts.CoreMarkerStructuralPartialEq :
+  core.marker.StructuralPartialEq connect.Refusal := {
+}
+
+/-- [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Refusal> for protocol::connect::Refusal}::eq]:
+    Source: 'crates/protocol/src/connect.rs', lines 38:22-38:31
+    Visibility: public -/
+def connect.Refusal.Insts.CoreCmpPartialEqRefusal.eq
+  (self : connect.Refusal) (other : connect.Refusal) : Result Bool := do
+  let self1 := read_discriminant self
+  let other1 := read_discriminant other
+  ok (self1 = other1)
+
+/-- Trait implementation: [protocol::connect::{impl core::cmp::PartialEq<protocol::connect::Refusal> for protocol::connect::Refusal}]
+    Source: 'crates/protocol/src/connect.rs', lines 38:22-38:31 -/
+@[reducible]
+impl_def connect.Refusal.Insts.CoreCmpPartialEqRefusal : core.cmp.PartialEq
+  connect.Refusal connect.Refusal := {
+  eq := connect.Refusal.Insts.CoreCmpPartialEqRefusal.eq
+  ne := core.cmp.PartialEq.ne.trait_default
+    connect.Refusal.Insts.CoreCmpPartialEqRefusal
+}
+
+/-- [protocol::connect::{impl core::cmp::Eq for protocol::connect::Refusal}::assert_fields_are_eq]:
+    Source: 'crates/protocol/src/connect.rs', lines 38:33-38:35
+    Visibility: public -/
+def connect.Refusal.Insts.CoreCmpEq.assert_fields_are_eq
+  (self : connect.Refusal) : Result Unit := do
+  ok ()
+
+/-- Trait implementation: [protocol::connect::{impl core::cmp::Eq for protocol::connect::Refusal}]
+    Source: 'crates/protocol/src/connect.rs', lines 38:33-38:35 -/
+@[reducible]
+def connect.Refusal.Insts.CoreCmpEq : core.cmp.Eq connect.Refusal := {
+  partialEqInst := connect.Refusal.Insts.CoreCmpPartialEqRefusal
+  assert_fields_are_eq := connect.Refusal.Insts.CoreCmpEq.assert_fields_are_eq
+}
+
+/-- [protocol::connect::line_end]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 58:4-63:5 -/
+@[rust_loop_body]
+def connect.line_end_loop.body
+  (head : Slice Std.U8) («at» : Std.Usize) (found : Bool) :
+  Result (ControlFlow (Std.Usize × Bool) (Std.Usize × Bool))
+  := do
+  if found
+  then ok (done («at», true))
+  else
+    let i ← «at» + 1#usize
+    let i1 := Slice.len head
+    if i < i1
+    then
+      let i2 ← Slice.index_usize head «at»
+      let found1 ←
+        if i2 = connect.CR
+        then do
+             let i3 ← Slice.index_usize head i
+             ok (i3 = connect.LF)
+        else ok false
+      if found1
+      then ok (cont («at», true))
+      else ok (cont (i, false))
+    else ok (done («at», false))
+
+/-- [protocol::connect::line_end]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 58:4-63:5 -/
+@[rust_loop]
+def connect.line_end_loop
+  (head : Slice Std.U8) («at» : Std.Usize) (found : Bool) :
+  Result (Std.Usize × Bool)
+  := do
+  loop
+    (fun (at1, found1) => connect.line_end_loop.body head at1 found1)
+    («at», found)
+
+/-- [protocol::connect::line_end]:
+    Source: 'crates/protocol/src/connect.rs', lines 55:0-65:1 -/
+def connect.line_end (head : Slice Std.U8) : Result Std.Usize := do
+  let («at», found) ← connect.line_end_loop head 0#usize false
+  if found
+  then ok «at»
+  else ok (Slice.len head)
+
+/-- [protocol::connect::next_space]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 70:4-72:5 -/
+@[rust_loop_body]
+def connect.next_space_loop.body
+  (line : Slice Std.U8) («end» : Std.Usize) («at» : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  if «at» < «end»
+  then
+    let i ← Slice.index_usize line «at»
+    if i != connect.SPACE
+    then let at1 ← «at» + 1#usize
+         ok (cont at1)
+    else ok (done «at»)
+  else ok (done «at»)
+
+/-- [protocol::connect::next_space]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 70:4-72:5 -/
+@[rust_loop]
+def connect.next_space_loop
+  (line : Slice Std.U8) («end» : Std.Usize) («at» : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun at1 => connect.next_space_loop.body line «end» at1)
+    «at»
+
+/-- [protocol::connect::next_space]:
+    Source: 'crates/protocol/src/connect.rs', lines 68:0-74:1 -/
+@[reducible]
+def connect.next_space
+  (line : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  connect.next_space_loop line «end» «from»
+
+/-- [protocol::connect::is_digit]:
+    Source: 'crates/protocol/src/connect.rs', lines 124:0-126:1 -/
+def connect.is_digit (b : Std.U8) : Result Bool := do
+  if 48#u8 <= b
+  then ok (b <= 57#u8)
+  else ok false
+
+/-- [protocol::connect::is_version]:
+    Source: 'crates/protocol/src/connect.rs', lines 77:0-81:1 -/
+def connect.is_version
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result Bool
+  := do
+  let i ← «end» - start
+  let s ← lift (Array.to_slice connect.HTTP_1)
+  let i1 := Slice.len s
+  let i2 ← i1 + 1#usize
+  if i = i2
+  then
+    let s1 ← lift (Array.to_slice connect.HTTP_1)
+    let s2 ← lift (Array.to_slice connect.HTTP_1)
+    let i3 := Slice.len s2
+    let b ← search.equal_run bytes start s1 i3
+    if b
+    then
+      let i4 ← «end» - 1#usize
+      let i5 ← Slice.index_usize bytes i4
+      connect.is_digit i5
+    else ok false
+  else ok false
+
+/-- [protocol::connect::equals_at]:
+    Source: 'crates/protocol/src/connect.rs', lines 83:0-85:1 -/
+def connect.equals_at
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize)
+  (word : Slice Std.U8) :
+  Result Bool
+  := do
+  let i ← «end» - start
+  let i1 := Slice.len word
+  if i = i1
+  then let i2 := Slice.len word
+       search.equal_run bytes start word i2
+  else ok false
+
+/-- [protocol::connect::copy_range]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 90:4-93:5 -/
+@[rust_loop_body]
+def connect.copy_range_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize bytes i
+    let out1 ← alloc.vec.Vec.push out i1
+    let i2 ← i + 1#usize
+    ok (cont (out1, i2))
+  else ok (done out)
+
+/-- [protocol::connect::copy_range]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 90:4-93:5 -/
+@[rust_loop]
+def connect.copy_range_loop
+  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => connect.copy_range_loop.body bytes «end» out1 i1)
+    (out, i)
+
+/-- [protocol::connect::copy_range]:
+    Source: 'crates/protocol/src/connect.rs', lines 87:0-95:1 -/
+@[reducible]
+def connect.copy_range
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  connect.copy_range_loop bytes «end» (alloc.vec.Vec.new Std.U8) start
+
+/-- [protocol::connect::lower]:
+    Source: 'crates/protocol/src/connect.rs', lines 97:0-99:1 -/
+def connect.lower (b : Std.U8) : Result Std.U8 := do
+  if 65#u8 <= b
+  then if b <= 90#u8
+       then b + 32#u8
+       else ok b
+  else ok b
+
+/-- [protocol::connect::lower_range]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 104:4-107:5 -/
+@[rust_loop_body]
+def connect.lower_range_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize bytes i
+    let i2 ← connect.lower i1
+    let out1 ← alloc.vec.Vec.push out i2
+    let i3 ← i + 1#usize
+    ok (cont (out1, i3))
+  else ok (done out)
+
+/-- [protocol::connect::lower_range]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 104:4-107:5 -/
+@[rust_loop]
+def connect.lower_range_loop
+  (bytes : Slice Std.U8) («end» : Std.Usize) (out : alloc.vec.Vec Std.U8)
+  (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => connect.lower_range_loop.body bytes «end» out1 i1)
+    (out, i)
+
+/-- [protocol::connect::lower_range]:
+    Source: 'crates/protocol/src/connect.rs', lines 101:0-109:1 -/
+@[reducible]
+def connect.lower_range
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  connect.lower_range_loop bytes «end» (alloc.vec.Vec.new Std.U8) start
+
+/-- [protocol::connect::last_colon]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 115:4-120:5 -/
+@[rust_loop_body]
+def connect.last_colon_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (found : Std.Usize)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize bytes i
+    let found1 ← if i1 = connect.COLON
+                   then ok i
+                   else ok found
+    let i2 ← i + 1#usize
+    ok (cont (found1, i2))
+  else ok (done found)
+
+/-- [protocol::connect::last_colon]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 115:4-120:5 -/
+@[rust_loop]
+def connect.last_colon_loop
+  (bytes : Slice Std.U8) («end» : Std.Usize) (found : Std.Usize)
+  (i : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun (found1, i1) => connect.last_colon_loop.body bytes «end» found1 i1)
+    (found, i)
+
+/-- [protocol::connect::last_colon]:
+    Source: 'crates/protocol/src/connect.rs', lines 112:0-122:1 -/
+@[reducible]
+def connect.last_colon
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  connect.last_colon_loop bytes «end» «end» start
+
+/-- [protocol::connect::parse_port]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 136:4-142:5 -/
+@[rust_loop_body]
+def connect.parse_port_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (value : Std.U32) (ok1 : Bool)
+  (i : Std.Usize) :
+  Result (ControlFlow (Std.U32 × Bool × Std.Usize) (Std.U32 × Bool))
+  := do
+  if ok1
+  then
+    if i < «end»
+    then
+      let i1 ← Slice.index_usize bytes i
+      let ok2 ← connect.is_digit i1
+      let value1 ←
+        if ok2
+        then
+          do
+          let i2 ← value * 10#u32
+          let i3 ← i1 - 48#u8
+          let i4 ← lift (UScalar.cast .U32 i3)
+          i2 + i4
+        else ok value
+      let i2 ← i + 1#usize
+      ok (cont (value1, ok2, i2))
+    else ok (done (value, true))
+  else ok (done (value, false))
+
+/-- [protocol::connect::parse_port]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 136:4-142:5 -/
+@[rust_loop]
+def connect.parse_port_loop
+  (bytes : Slice Std.U8) («end» : Std.Usize) (value : Std.U32) (ok1 : Bool)
+  (i : Std.Usize) :
+  Result (Std.U32 × Bool)
+  := do
+  loop
+    (fun (value1, ok2, i1) => connect.parse_port_loop.body bytes «end» value1
+      ok2 i1)
+    (value, ok1, i)
+
+/-- [protocol::connect::parse_port]:
+    Source: 'crates/protocol/src/connect.rs', lines 129:0-148:1 -/
+def connect.parse_port
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result (Option Std.U16)
+  := do
+  if «end» <= start
+  then ok none
+  else
+    let i ← «end» - start
+    if i > 5#usize
+    then ok none
+    else
+      let (value, ok1) ←
+        connect.parse_port_loop bytes «end» 0#u32 true start
+      if ok1
+      then
+        if value > 65535#u32
+        then ok none
+        else let i1 ← lift (UScalar.cast .U16 value)
+             ok (some i1)
+      else ok none
+
+/-- [protocol::connect::looks_like_ip]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 155:4-163:5 -/
+@[rust_loop_body]
+def connect.looks_like_ip_loop.body
+  (bytes : Slice Std.U8) («end» : Std.Usize) (last : Std.Usize)
+  (colon : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Std.Usize × Bool × Std.Usize) (Std.Usize × Bool))
+  := do
+  if i < «end»
+  then
+    let i1 ← Slice.index_usize bytes i
+    let last1 ← if i1 = connect.DOT
+                  then i + 1#usize
+                  else ok last
+    let colon1 ← if i1 = connect.COLON
+                   then ok true
+                   else ok colon
+    let i2 ← i + 1#usize
+    ok (cont (last1, colon1, i2))
+  else ok (done (last, colon))
+
+/-- [protocol::connect::looks_like_ip]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 155:4-163:5 -/
+@[rust_loop]
+def connect.looks_like_ip_loop
+  (bytes : Slice Std.U8) («end» : Std.Usize) (last : Std.Usize)
+  (colon : Bool) (i : Std.Usize) :
+  Result (Std.Usize × Bool)
+  := do
+  loop
+    (fun (last1, colon1, i1) => connect.looks_like_ip_loop.body bytes «end»
+      last1 colon1 i1)
+    (last, colon, i)
+
+/-- [protocol::connect::looks_like_ip]:
+    Source: 'crates/protocol/src/connect.rs', lines 151:0-165:1 -/
+def connect.looks_like_ip
+  (bytes : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result Bool
+  := do
+  let (last, colon) ←
+    connect.looks_like_ip_loop bytes «end» start false start
+  if colon
+  then ok true
+  else
+    if last < «end»
+    then let i ← Slice.index_usize bytes last
+         connect.is_digit i
+    else ok false
+
+/-- [protocol::connect::is_listed_port]: loop body 0:
+    Source: 'crates/protocol/src/connect.rs', lines 170:4-173:5 -/
+@[rust_loop_body]
+def connect.is_listed_port_loop.body
+  (ports : Slice Std.U16) (port : Std.U16) (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len ports
+    if i < i1
+    then
+      let i2 ← Slice.index_usize ports i
+      let i3 ← i + 1#usize
+      ok (cont (i2 = port, i3))
+    else ok (done false)
+
+/-- [protocol::connect::is_listed_port]: loop 0:
+    Source: 'crates/protocol/src/connect.rs', lines 170:4-173:5 -/
+@[rust_loop]
+def connect.is_listed_port_loop
+  (ports : Slice Std.U16) (port : Std.U16) (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => connect.is_listed_port_loop.body ports port found1 i1)
+    (found, i)
+
+/-- [protocol::connect::is_listed_port]:
+    Source: 'crates/protocol/src/connect.rs', lines 167:0-175:1 -/
+@[reducible]
+def connect.is_listed_port
+  (ports : Slice Std.U16) (port : Std.U16) : Result Bool := do
+  connect.is_listed_port_loop ports port false 0#usize
+
+/-- [protocol::connect::local_target]:
+    Source: 'crates/protocol/src/connect.rs', lines 177:0-185:1 -/
+def connect.local_target
+  (ports : Slice Std.U16) (port : Std.U16) :
+  Result (core.result.Result connect.Target connect.Refusal)
+  := do
+  let s ← lift (Array.to_slice connect.DANGEROUS_PORTS)
+  let b ← connect.is_listed_port s port
+  if b
+  then ok (core.result.Result.Err connect.Refusal.LocalPortDangerous)
+  else
+    let b1 ← connect.is_listed_port ports port
+    if b1
+    then ok (core.result.Result.Ok (connect.Target.Local port))
+    else ok (core.result.Result.Err connect.Refusal.LocalPortClosed)
+
+/-- [protocol::hosts::lower_copy]: loop body 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 70:4-73:5 -/
+@[rust_loop_body]
+def hosts.lower_copy_loop.body
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
+    Std.U8))
+  := do
+  let i1 := Slice.len bytes
+  if i < i1
+  then
+    let i2 ← Slice.index_usize bytes i
+    let i3 ← ascii.to_lower i2
+    let out1 ← alloc.vec.Vec.push out i3
+    let i4 ← i + 1#usize
+    ok (cont (out1, i4))
+  else ok (done out)
+
+/-- [protocol::hosts::lower_copy]: loop 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 70:4-73:5 -/
+@[rust_loop]
+def hosts.lower_copy_loop
+  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  loop
+    (fun (out1, i1) => hosts.lower_copy_loop.body bytes out1 i1)
+    (out, i)
+
+/-- [protocol::hosts::lower_copy]:
+    Source: 'crates/protocol/src/hosts.rs', lines 67:0-75:1 -/
+@[reducible]
+def hosts.lower_copy
+  (bytes : Slice Std.U8) (start : Std.Usize) :
+  Result (alloc.vec.Vec Std.U8)
+  := do
+  hosts.lower_copy_loop bytes (alloc.vec.Vec.new Std.U8) start
+
+/-- [protocol::hosts::DOT]
+    Source: 'crates/protocol/src/hosts.rs', lines 8:0-8:21 -/
+@[global_simps, irreducible] def hosts.DOT : Std.U8 := 46#u8
+
+/-- [protocol::hosts::last_label_start]: loop body 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 58:4-63:5 -/
+@[rust_loop_body]
+def hosts.last_label_start_loop.body
+  (host : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) :
+  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
+  := do
+  let i1 := Slice.len host
+  if i < i1
+  then
+    let i2 ← Slice.index_usize host i
+    let start1 ← if i2 = hosts.DOT
+                   then i + 1#usize
+                   else ok start
+    let i3 ← i + 1#usize
+    ok (cont (start1, i3))
+  else ok (done start)
+
+/-- [protocol::hosts::last_label_start]: loop 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 58:4-63:5 -/
+@[rust_loop]
+def hosts.last_label_start_loop
+  (host : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun (start1, i1) => hosts.last_label_start_loop.body host start1 i1)
+    (start, i)
+
+/-- [protocol::hosts::last_label_start]:
+    Source: 'crates/protocol/src/hosts.rs', lines 55:0-65:1 -/
+@[reducible]
+def hosts.last_label_start (host : Slice Std.U8) : Result Std.Usize := do
+  hosts.last_label_start_loop host 0#usize 0#usize
+
+/-- [protocol::hosts::is_letter]:
+    Source: 'crates/protocol/src/hosts.rs', lines 12:0-14:1 -/
+def hosts.is_letter (b : Std.U8) : Result Bool := do
+  if 97#u8 <= b
+  then
+    if b <= 122#u8
+    then ok true
+    else if 65#u8 <= b
+         then ok (b <= 90#u8)
+         else ok false
+  else if 65#u8 <= b
+       then ok (b <= 90#u8)
+       else ok false
+
+/-- [protocol::hosts::LOCALHOST]
+    Source: 'crates/protocol/src/hosts.rs', lines 10:0-10:41 -/
+@[global_simps, irreducible]
+def hosts.LOCALHOST : Array Std.U8 9#usize :=
+  Array.make 9#usize [
+    108#u8, 111#u8, 99#u8, 97#u8, 108#u8, 104#u8, 111#u8, 115#u8, 116#u8
+    ]
+
+/-- [protocol::hosts::last_label_ok]:
+    Source: 'crates/protocol/src/hosts.rs', lines 79:0-85:1 -/
+def hosts.last_label_ok (host : Slice Std.U8) : Result Bool := do
+  let start ← hosts.last_label_start host
+  let i := Slice.len host
+  if start >= i
+  then ok false
+  else
+    let i1 ← Slice.index_usize host start
+    let b ← hosts.is_letter i1
+    if b
+    then
+      let v ← hosts.lower_copy host start
+      let s := alloc.vec.Vec.deref v
+      let s1 ← lift (Array.to_slice hosts.LOCALHOST)
+      let b1 ← ascii.bytes_equal s s1
+      ok (¬ b1)
+    else ok false
+
+/-- [protocol::hosts::DASH]
+    Source: 'crates/protocol/src/hosts.rs', lines 9:0-9:22 -/
+@[global_simps, irreducible] def hosts.DASH : Std.U8 := 45#u8
+
+/-- [protocol::hosts::is_label_byte]:
+    Source: 'crates/protocol/src/hosts.rs', lines 16:0-18:1 -/
+def hosts.is_label_byte (b : Std.U8) : Result Bool := do
+  let b1 ← hosts.is_letter b
+  if b1
+  then ok true
+  else
+    if 48#u8 <= b
+    then if b <= 57#u8
+         then ok true
+         else ok (b = hosts.DASH)
+    else ok (b = hosts.DASH)
+
+/-- [protocol::hosts::all_label_bytes]: loop body 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 23:4-26:5 -/
+@[rust_loop_body]
+def hosts.all_label_bytes_loop.body
+  (host : Slice Std.U8) («end» : Std.Usize) (ok1 : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if ok1
+  then
+    if i < «end»
+    then
+      let i1 ← Slice.index_usize host i
+      let ok2 ← hosts.is_label_byte i1
+      let i2 ← i + 1#usize
+      ok (cont (ok2, i2))
+    else ok (done true)
+  else ok (done false)
+
+/-- [protocol::hosts::all_label_bytes]: loop 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 23:4-26:5 -/
+@[rust_loop]
+def hosts.all_label_bytes_loop
+  (host : Slice Std.U8) («end» : Std.Usize) (ok1 : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (ok2, i1) => hosts.all_label_bytes_loop.body host «end» ok2 i1)
+    (ok1, i)
+
+/-- [protocol::hosts::all_label_bytes]:
+    Source: 'crates/protocol/src/hosts.rs', lines 20:0-28:1 -/
+@[reducible]
+def hosts.all_label_bytes
+  (host : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result Bool
+  := do
+  hosts.all_label_bytes_loop host «end» true start
+
+/-- [protocol::hosts::MAX_LABEL]
+    Source: 'crates/protocol/src/hosts.rs', lines 7:0-7:28 -/
+@[global_simps, irreducible] def hosts.MAX_LABEL : Std.Usize := 63#usize
+
+/-- [protocol::hosts::label_ok]:
+    Source: 'crates/protocol/src/hosts.rs', lines 31:0-36:1 -/
+def hosts.label_ok
+  (host : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
+  Result Bool
+  := do
+  if «end» <= start
+  then ok false
+  else
+    let i ← «end» - start
+    if i > hosts.MAX_LABEL
+    then ok false
+    else
+      let i1 ← Slice.index_usize host start
+      if i1 != hosts.DASH
+      then
+        let i2 ← «end» - 1#usize
+        let i3 ← Slice.index_usize host i2
+        if i3 != hosts.DASH
+        then hosts.all_label_bytes host start «end»
+        else ok false
+      else ok false
+
+/-- [protocol::hosts::labels_ok]: loop body 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 44:4-51:5 -/
+@[rust_loop_body]
+def hosts.labels_ok_loop.body
+  (host : Slice Std.U8) (ok1 : Bool) (labels : Std.Usize) (start : Std.Usize)
+  (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize × Std.Usize × Std.Usize) (Bool ×
+    Std.Usize))
+  := do
+  if ok1
+  then
+    let i1 := Slice.len host
+    if i <= i1
+    then
+      let i2 := Slice.len host
+      let (ok2, labels1, start1) ←
+        if i = i2
+        then
+          do
+          let ok3 ← hosts.label_ok host start i
+          let labels2 ← labels + 1#usize
+          let start2 ← i + 1#usize
+          ok (ok3, labels2, start2)
+        else
+          do
+          let i3 ← Slice.index_usize host i
+          if i3 = hosts.DOT
+          then
+            let ok3 ← hosts.label_ok host start i
+            let labels2 ← labels + 1#usize
+            let start2 ← i + 1#usize
+            ok (ok3, labels2, start2)
+          else ok (true, labels, start)
+      let i3 ← i + 1#usize
+      ok (cont (ok2, labels1, start1, i3))
+    else ok (done (true, labels))
+  else ok (done (false, labels))
+
+/-- [protocol::hosts::labels_ok]: loop 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 44:4-51:5 -/
+@[rust_loop]
+def hosts.labels_ok_loop
+  (host : Slice Std.U8) (ok1 : Bool) (labels : Std.Usize) (start : Std.Usize)
+  (i : Std.Usize) :
+  Result (Bool × Std.Usize)
+  := do
+  loop
+    (fun (ok2, labels1, start1, i1) => hosts.labels_ok_loop.body host ok2
+      labels1 start1 i1)
+    (ok1, labels, start, i)
+
+/-- [protocol::hosts::labels_ok]:
+    Source: 'crates/protocol/src/hosts.rs', lines 39:0-53:1 -/
+def hosts.labels_ok (host : Slice Std.U8) : Result Bool := do
+  let (ok1, labels) ← hosts.labels_ok_loop host true 0#usize 0#usize 0#usize
+  if ok1
+  then ok (labels >= 2#usize)
+  else ok false
+
+/-- [protocol::hosts::MAX_NAME]
+    Source: 'crates/protocol/src/hosts.rs', lines 6:0-6:28 -/
+@[global_simps, irreducible] def hosts.MAX_NAME : Std.Usize := 253#usize
+
+/-- [protocol::hosts::good_host_name]:
+    Source: 'crates/protocol/src/hosts.rs', lines 89:0-94:1
+    Visibility: public -/
+def hosts.good_host_name (host : Slice Std.U8) : Result Bool := do
+  let i := Slice.len host
+  if i = 0#usize
+  then ok false
+  else
+    let i1 := Slice.len host
+    if i1 > hosts.MAX_NAME
+    then ok false
+    else
+      let b ← hosts.labels_ok host
+      if b
+      then hosts.last_label_ok host
+      else ok false
+
+/-- [protocol::hosts::host_allowed]: loop body 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 105:4-108:5
+    Visibility: public -/
+@[rust_loop_body]
+def hosts.host_allowed_loop.body
+  (list : Slice (alloc.vec.Vec Std.U8)) (lower : alloc.vec.Vec Std.U8)
+  (found : Bool) (i : Std.Usize) :
+  Result (ControlFlow (Bool × Std.Usize) Bool)
+  := do
+  if found
+  then ok (done true)
+  else
+    let i1 := Slice.len list
+    if i < i1
+    then
+      let v ← Slice.index_usize list i
+      let s := alloc.vec.Vec.deref v
+      let v1 ← hosts.lower_copy s 0#usize
+      let s1 := alloc.vec.Vec.deref v1
+      let s2 := alloc.vec.Vec.deref lower
+      let found1 ← ascii.bytes_equal s1 s2
+      let i2 ← i + 1#usize
+      ok (cont (found1, i2))
+    else ok (done false)
+
+/-- [protocol::hosts::host_allowed]: loop 0:
+    Source: 'crates/protocol/src/hosts.rs', lines 105:4-108:5
+    Visibility: public -/
+@[rust_loop]
+def hosts.host_allowed_loop
+  (list : Slice (alloc.vec.Vec Std.U8)) (lower : alloc.vec.Vec Std.U8)
+  (found : Bool) (i : Std.Usize) :
+  Result Bool
+  := do
+  loop
+    (fun (found1, i1) => hosts.host_allowed_loop.body list lower found1 i1)
+    (found, i)
+
+/-- [protocol::hosts::host_allowed]:
+    Source: 'crates/protocol/src/hosts.rs', lines 98:0-110:1
+    Visibility: public -/
+def hosts.host_allowed
+  (list : Slice (alloc.vec.Vec Std.U8)) (host : Slice Std.U8) :
+  Result Bool
+  := do
+  let b ← hosts.good_host_name host
+  if b
+  then
+    let lower ← hosts.lower_copy host 0#usize
+    hosts.host_allowed_loop list lower false 0#usize
+  else ok false
+
+/-- [protocol::connect::remote_target]:
+    Source: 'crates/protocol/src/connect.rs', lines 187:0-201:1 -/
+def connect.remote_target
+  (mode : connect.Mode) (list : Slice (alloc.vec.Vec Std.U8))
+  (host : Slice Std.U8) (port : Std.U16) :
+  Result (core.result.Result connect.Target connect.Refusal)
+  := do
+  let b ← hosts.good_host_name host
+  if b
+  then
+    if port != 443#u16
+    then
+      if port != 80#u16
+      then ok (core.result.Result.Err connect.Refusal.BadPort)
+      else
+        let b1 ←
+          connect.Mode.Insts.CoreCmpPartialEqMode.eq mode connect.Mode.Listed
+        if b1
+        then
+          let b2 ← hosts.host_allowed list host
+          if b2
+          then
+            let i := Slice.len host
+            let v ← connect.lower_range host 0#usize i
+            ok (core.result.Result.Ok (connect.Target.Remote v port))
+          else ok (core.result.Result.Err connect.Refusal.NotListed)
+        else
+          let i := Slice.len host
+          let v ← connect.lower_range host 0#usize i
+          ok (core.result.Result.Ok (connect.Target.Remote v port))
+    else
+      let b1 ←
+        connect.Mode.Insts.CoreCmpPartialEqMode.eq mode connect.Mode.Listed
+      if b1
+      then
+        let b2 ← hosts.host_allowed list host
+        if b2
+        then
+          let i := Slice.len host
+          let v ← connect.lower_range host 0#usize i
+          ok (core.result.Result.Ok (connect.Target.Remote v port))
+        else ok (core.result.Result.Err connect.Refusal.NotListed)
+      else
+        let i := Slice.len host
+        let v ← connect.lower_range host 0#usize i
+        ok (core.result.Result.Ok (connect.Target.Remote v port))
+  else ok (core.result.Result.Err connect.Refusal.BadHost)
+
+/-- [protocol::connect::check_host_port]:
+    Source: 'crates/protocol/src/connect.rs', lines 204:0-234:1 -/
+def connect.check_host_port
+  (mode : connect.Mode) (list : Slice (alloc.vec.Vec Std.U8))
+  (ports : Slice Std.U16) (line : Slice Std.U8) (start : Std.Usize)
+  («end» : Std.Usize) :
+  Result (core.result.Result connect.Target connect.Refusal)
+  := do
+  if start < «end»
+  then
+    let i ← Slice.index_usize line start
+    if i = 91#u8
+    then ok (core.result.Result.Err connect.Refusal.IpAddress)
+    else
+      let colon ← connect.last_colon line start «end»
+      if colon = «end»
+      then ok (core.result.Result.Err connect.Refusal.NoPort)
+      else
+        let i1 ← colon + 1#usize
+        let o ← connect.parse_port line i1 «end»
+        match o with
+        | none => ok (core.result.Result.Err connect.Refusal.NoPort)
+        | some port =>
+          let v ← connect.lower_range line start colon
+          let s := alloc.vec.Vec.deref v
+          let i2 ← colon - start
+          let s1 ← lift (Array.to_slice connect.LOCALHOST)
+          let b ← connect.equals_at s 0#usize i2 s1
+          if b
+          then connect.local_target ports port
+          else
+            let b1 ← connect.looks_like_ip line start colon
+            if b1
+            then ok (core.result.Result.Err connect.Refusal.IpAddress)
+            else
+              let v1 ← connect.copy_range line start colon
+              let s2 := alloc.vec.Vec.deref v1
+              connect.remote_target mode list s2 port
+  else
+    let colon ← connect.last_colon line start «end»
+    if colon = «end»
+    then ok (core.result.Result.Err connect.Refusal.NoPort)
+    else
+      let i ← colon + 1#usize
+      let o ← connect.parse_port line i «end»
+      match o with
+      | none => ok (core.result.Result.Err connect.Refusal.NoPort)
+      | some port =>
+        let v ← connect.lower_range line start colon
+        let s := alloc.vec.Vec.deref v
+        let i1 ← colon - start
+        let s1 ← lift (Array.to_slice connect.LOCALHOST)
+        let b ← connect.equals_at s 0#usize i1 s1
+        if b
+        then connect.local_target ports port
+        else
+          let b1 ← connect.looks_like_ip line start colon
+          if b1
+          then ok (core.result.Result.Err connect.Refusal.IpAddress)
+          else
+            let v1 ← connect.copy_range line start colon
+            let s2 := alloc.vec.Vec.deref v1
+            connect.remote_target mode list s2 port
+
+/-- [protocol::connect::check_target]:
+    Source: 'crates/protocol/src/connect.rs', lines 243:0-268:1
+    Visibility: public -/
+def connect.check_target
+  (mode : connect.Mode) (list : Slice (alloc.vec.Vec Std.U8))
+  (ports : Slice Std.U16) (head : Slice Std.U8) :
+  Result (core.result.Result connect.Target connect.Refusal)
+  := do
+  let «end» ← connect.line_end head
+  let i := Slice.len head
+  if «end» = i
+  then ok (core.result.Result.Err connect.Refusal.NotHttp)
+  else
+    let first ← connect.next_space head 0#usize «end»
+    if first = «end»
+    then ok (core.result.Result.Err connect.Refusal.NotHttp)
+    else
+      let i1 ← first + 1#usize
+      let second ← connect.next_space head i1 «end»
+      if second = «end»
+      then ok (core.result.Result.Err connect.Refusal.NotHttp)
+      else
+        let i2 ← second + 1#usize
+        let v ← connect.copy_range head i2 «end»
+        let s := alloc.vec.Vec.deref v
+        let b ← search.has_byte s connect.SPACE
+        if b
+        then ok (core.result.Result.Err connect.Refusal.NotHttp)
+        else
+          let b1 ← connect.is_version head i2 «end»
+          if b1
+          then
+            let s1 ← lift (Array.to_slice connect.CONNECT)
+            let b2 ← connect.equals_at head 0#usize first s1
+            if b2
+            then connect.check_host_port mode list ports head i1 second
+            else ok (core.result.Result.Err connect.Refusal.NotConnect)
+          else ok (core.result.Result.Err connect.Refusal.NotHttp)
+
 /-- [protocol::frame::MAGIC]
     Source: 'crates/protocol/src/frame.rs', lines 13:0-13:40
     Visibility: public -/
@@ -4121,338 +5252,6 @@ def frame.check_frame
       then ok (core.result.Result.Err frame.Reject.Future)
       else ok (core.result.Result.Ok ())
   else ok (core.result.Result.Err frame.Reject.BadTag)
-
-/-- [protocol::hosts::MAX_NAME]
-    Source: 'crates/protocol/src/hosts.rs', lines 6:0-6:28 -/
-@[global_simps, irreducible] def hosts.MAX_NAME : Std.Usize := 253#usize
-
-/-- [protocol::hosts::MAX_LABEL]
-    Source: 'crates/protocol/src/hosts.rs', lines 7:0-7:28 -/
-@[global_simps, irreducible] def hosts.MAX_LABEL : Std.Usize := 63#usize
-
-/-- [protocol::hosts::DOT]
-    Source: 'crates/protocol/src/hosts.rs', lines 8:0-8:21 -/
-@[global_simps, irreducible] def hosts.DOT : Std.U8 := 46#u8
-
-/-- [protocol::hosts::DASH]
-    Source: 'crates/protocol/src/hosts.rs', lines 9:0-9:22 -/
-@[global_simps, irreducible] def hosts.DASH : Std.U8 := 45#u8
-
-/-- [protocol::hosts::LOCALHOST]
-    Source: 'crates/protocol/src/hosts.rs', lines 10:0-10:41 -/
-@[global_simps, irreducible]
-def hosts.LOCALHOST : Array Std.U8 9#usize :=
-  Array.make 9#usize [
-    108#u8, 111#u8, 99#u8, 97#u8, 108#u8, 104#u8, 111#u8, 115#u8, 116#u8
-    ]
-
-/-- [protocol::hosts::is_letter]:
-    Source: 'crates/protocol/src/hosts.rs', lines 12:0-14:1 -/
-def hosts.is_letter (b : Std.U8) : Result Bool := do
-  if 97#u8 <= b
-  then
-    if b <= 122#u8
-    then ok true
-    else if 65#u8 <= b
-         then ok (b <= 90#u8)
-         else ok false
-  else if 65#u8 <= b
-       then ok (b <= 90#u8)
-       else ok false
-
-/-- [protocol::hosts::is_label_byte]:
-    Source: 'crates/protocol/src/hosts.rs', lines 16:0-18:1 -/
-def hosts.is_label_byte (b : Std.U8) : Result Bool := do
-  let b1 ← hosts.is_letter b
-  if b1
-  then ok true
-  else
-    if 48#u8 <= b
-    then if b <= 57#u8
-         then ok true
-         else ok (b = hosts.DASH)
-    else ok (b = hosts.DASH)
-
-/-- [protocol::hosts::all_label_bytes]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 23:4-26:5 -/
-@[rust_loop_body]
-def hosts.all_label_bytes_loop.body
-  (host : Slice Std.U8) («end» : Std.Usize) (ok1 : Bool) (i : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  if ok1
-  then
-    if i < «end»
-    then
-      let i1 ← Slice.index_usize host i
-      let ok2 ← hosts.is_label_byte i1
-      let i2 ← i + 1#usize
-      ok (cont (ok2, i2))
-    else ok (done true)
-  else ok (done false)
-
-/-- [protocol::hosts::all_label_bytes]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 23:4-26:5 -/
-@[rust_loop]
-def hosts.all_label_bytes_loop
-  (host : Slice Std.U8) («end» : Std.Usize) (ok1 : Bool) (i : Std.Usize) :
-  Result Bool
-  := do
-  loop
-    (fun (ok2, i1) => hosts.all_label_bytes_loop.body host «end» ok2 i1)
-    (ok1, i)
-
-/-- [protocol::hosts::all_label_bytes]:
-    Source: 'crates/protocol/src/hosts.rs', lines 20:0-28:1 -/
-@[reducible]
-def hosts.all_label_bytes
-  (host : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
-  Result Bool
-  := do
-  hosts.all_label_bytes_loop host «end» true start
-
-/-- [protocol::hosts::label_ok]:
-    Source: 'crates/protocol/src/hosts.rs', lines 31:0-36:1 -/
-def hosts.label_ok
-  (host : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) :
-  Result Bool
-  := do
-  if «end» <= start
-  then ok false
-  else
-    let i ← «end» - start
-    if i > hosts.MAX_LABEL
-    then ok false
-    else
-      let i1 ← Slice.index_usize host start
-      if i1 != hosts.DASH
-      then
-        let i2 ← «end» - 1#usize
-        let i3 ← Slice.index_usize host i2
-        if i3 != hosts.DASH
-        then hosts.all_label_bytes host start «end»
-        else ok false
-      else ok false
-
-/-- [protocol::hosts::labels_ok]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 44:4-51:5 -/
-@[rust_loop_body]
-def hosts.labels_ok_loop.body
-  (host : Slice Std.U8) (ok1 : Bool) (labels : Std.Usize) (start : Std.Usize)
-  (i : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize × Std.Usize × Std.Usize) (Bool ×
-    Std.Usize))
-  := do
-  if ok1
-  then
-    let i1 := Slice.len host
-    if i <= i1
-    then
-      let i2 := Slice.len host
-      let (ok2, labels1, start1) ←
-        if i = i2
-        then
-          do
-          let ok3 ← hosts.label_ok host start i
-          let labels2 ← labels + 1#usize
-          let start2 ← i + 1#usize
-          ok (ok3, labels2, start2)
-        else
-          do
-          let i3 ← Slice.index_usize host i
-          if i3 = hosts.DOT
-          then
-            let ok3 ← hosts.label_ok host start i
-            let labels2 ← labels + 1#usize
-            let start2 ← i + 1#usize
-            ok (ok3, labels2, start2)
-          else ok (true, labels, start)
-      let i3 ← i + 1#usize
-      ok (cont (ok2, labels1, start1, i3))
-    else ok (done (true, labels))
-  else ok (done (false, labels))
-
-/-- [protocol::hosts::labels_ok]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 44:4-51:5 -/
-@[rust_loop]
-def hosts.labels_ok_loop
-  (host : Slice Std.U8) (ok1 : Bool) (labels : Std.Usize) (start : Std.Usize)
-  (i : Std.Usize) :
-  Result (Bool × Std.Usize)
-  := do
-  loop
-    (fun (ok2, labels1, start1, i1) => hosts.labels_ok_loop.body host ok2
-      labels1 start1 i1)
-    (ok1, labels, start, i)
-
-/-- [protocol::hosts::labels_ok]:
-    Source: 'crates/protocol/src/hosts.rs', lines 39:0-53:1 -/
-def hosts.labels_ok (host : Slice Std.U8) : Result Bool := do
-  let (ok1, labels) ← hosts.labels_ok_loop host true 0#usize 0#usize 0#usize
-  if ok1
-  then ok (labels >= 2#usize)
-  else ok false
-
-/-- [protocol::hosts::last_label_start]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 58:4-63:5 -/
-@[rust_loop_body]
-def hosts.last_label_start_loop.body
-  (host : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) :
-  Result (ControlFlow (Std.Usize × Std.Usize) Std.Usize)
-  := do
-  let i1 := Slice.len host
-  if i < i1
-  then
-    let i2 ← Slice.index_usize host i
-    let start1 ← if i2 = hosts.DOT
-                   then i + 1#usize
-                   else ok start
-    let i3 ← i + 1#usize
-    ok (cont (start1, i3))
-  else ok (done start)
-
-/-- [protocol::hosts::last_label_start]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 58:4-63:5 -/
-@[rust_loop]
-def hosts.last_label_start_loop
-  (host : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) :
-  Result Std.Usize
-  := do
-  loop
-    (fun (start1, i1) => hosts.last_label_start_loop.body host start1 i1)
-    (start, i)
-
-/-- [protocol::hosts::last_label_start]:
-    Source: 'crates/protocol/src/hosts.rs', lines 55:0-65:1 -/
-@[reducible]
-def hosts.last_label_start (host : Slice Std.U8) : Result Std.Usize := do
-  hosts.last_label_start_loop host 0#usize 0#usize
-
-/-- [protocol::hosts::lower_copy]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 70:4-73:5 -/
-@[rust_loop_body]
-def hosts.lower_copy_loop.body
-  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
-  Result (ControlFlow ((alloc.vec.Vec Std.U8) × Std.Usize) (alloc.vec.Vec
-    Std.U8))
-  := do
-  let i1 := Slice.len bytes
-  if i < i1
-  then
-    let i2 ← Slice.index_usize bytes i
-    let i3 ← ascii.to_lower i2
-    let out1 ← alloc.vec.Vec.push out i3
-    let i4 ← i + 1#usize
-    ok (cont (out1, i4))
-  else ok (done out)
-
-/-- [protocol::hosts::lower_copy]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 70:4-73:5 -/
-@[rust_loop]
-def hosts.lower_copy_loop
-  (bytes : Slice Std.U8) (out : alloc.vec.Vec Std.U8) (i : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  loop
-    (fun (out1, i1) => hosts.lower_copy_loop.body bytes out1 i1)
-    (out, i)
-
-/-- [protocol::hosts::lower_copy]:
-    Source: 'crates/protocol/src/hosts.rs', lines 67:0-75:1 -/
-@[reducible]
-def hosts.lower_copy
-  (bytes : Slice Std.U8) (start : Std.Usize) :
-  Result (alloc.vec.Vec Std.U8)
-  := do
-  hosts.lower_copy_loop bytes (alloc.vec.Vec.new Std.U8) start
-
-/-- [protocol::hosts::last_label_ok]:
-    Source: 'crates/protocol/src/hosts.rs', lines 79:0-85:1 -/
-def hosts.last_label_ok (host : Slice Std.U8) : Result Bool := do
-  let start ← hosts.last_label_start host
-  let i := Slice.len host
-  if start >= i
-  then ok false
-  else
-    let i1 ← Slice.index_usize host start
-    let b ← hosts.is_letter i1
-    if b
-    then
-      let v ← hosts.lower_copy host start
-      let s := alloc.vec.Vec.deref v
-      let s1 ← lift (Array.to_slice hosts.LOCALHOST)
-      let b1 ← ascii.bytes_equal s s1
-      ok (¬ b1)
-    else ok false
-
-/-- [protocol::hosts::good_host_name]:
-    Source: 'crates/protocol/src/hosts.rs', lines 89:0-94:1
-    Visibility: public -/
-def hosts.good_host_name (host : Slice Std.U8) : Result Bool := do
-  let i := Slice.len host
-  if i = 0#usize
-  then ok false
-  else
-    let i1 := Slice.len host
-    if i1 > hosts.MAX_NAME
-    then ok false
-    else
-      let b ← hosts.labels_ok host
-      if b
-      then hosts.last_label_ok host
-      else ok false
-
-/-- [protocol::hosts::host_allowed]: loop body 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 105:4-108:5
-    Visibility: public -/
-@[rust_loop_body]
-def hosts.host_allowed_loop.body
-  (list : Slice (alloc.vec.Vec Std.U8)) (lower : alloc.vec.Vec Std.U8)
-  (found : Bool) (i : Std.Usize) :
-  Result (ControlFlow (Bool × Std.Usize) Bool)
-  := do
-  if found
-  then ok (done true)
-  else
-    let i1 := Slice.len list
-    if i < i1
-    then
-      let v ← Slice.index_usize list i
-      let s := alloc.vec.Vec.deref v
-      let v1 ← hosts.lower_copy s 0#usize
-      let s1 := alloc.vec.Vec.deref v1
-      let s2 := alloc.vec.Vec.deref lower
-      let found1 ← ascii.bytes_equal s1 s2
-      let i2 ← i + 1#usize
-      ok (cont (found1, i2))
-    else ok (done false)
-
-/-- [protocol::hosts::host_allowed]: loop 0:
-    Source: 'crates/protocol/src/hosts.rs', lines 105:4-108:5
-    Visibility: public -/
-@[rust_loop]
-def hosts.host_allowed_loop
-  (list : Slice (alloc.vec.Vec Std.U8)) (lower : alloc.vec.Vec Std.U8)
-  (found : Bool) (i : Std.Usize) :
-  Result Bool
-  := do
-  loop
-    (fun (found1, i1) => hosts.host_allowed_loop.body list lower found1 i1)
-    (found, i)
-
-/-- [protocol::hosts::host_allowed]:
-    Source: 'crates/protocol/src/hosts.rs', lines 98:0-110:1
-    Visibility: public -/
-def hosts.host_allowed
-  (list : Slice (alloc.vec.Vec Std.U8)) (host : Slice Std.U8) :
-  Result Bool
-  := do
-  let b ← hosts.good_host_name host
-  if b
-  then
-    let lower ← hosts.lower_copy host 0#usize
-    hosts.host_allowed_loop list lower false 0#usize
-  else ok false
 
 /-- [protocol::inline::{impl core::clone::Clone for protocol::inline::Escape}::clone]:
     Source: 'crates/protocol/src/inline.rs', lines 10:9-10:14

@@ -160,6 +160,37 @@ inductive apps.Unrouted where
 | BadTag : apps.Unrouted
 | Ambiguous : apps.Unrouted
 
+/-- [protocol::connect::Mode]
+    Source: 'crates/protocol/src/connect.rs', lines 22:0-27:1
+    Visibility: public -/
+@[discriminant isize]
+inductive connect.Mode where
+| Listed : connect.Mode
+| Public : connect.Mode
+
+/-- [protocol::connect::Target]
+    Source: 'crates/protocol/src/connect.rs', lines 31:0-36:1
+    Visibility: public -/
+@[discriminant isize]
+inductive connect.Target where
+| Remote : alloc.vec.Vec Std.U8 → Std.U16 → connect.Target
+| Local : Std.U16 → connect.Target
+
+/-- [protocol::connect::Refusal]
+    Source: 'crates/protocol/src/connect.rs', lines 40:0-52:1
+    Visibility: public -/
+@[discriminant isize]
+inductive connect.Refusal where
+| NotHttp : connect.Refusal
+| NotConnect : connect.Refusal
+| NoPort : connect.Refusal
+| IpAddress : connect.Refusal
+| BadHost : connect.Refusal
+| NotListed : connect.Refusal
+| BadPort : connect.Refusal
+| LocalPortClosed : connect.Refusal
+| LocalPortDangerous : connect.Refusal
+
 /-- [protocol::frame::Frame]
     Source: 'crates/protocol/src/frame.rs', lines 26:0-31:1
     Visibility: public -/

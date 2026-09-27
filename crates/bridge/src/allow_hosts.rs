@@ -53,6 +53,10 @@ impl HostList {
         host_allowed(&self.names, host.as_bytes())
     }
 
+    pub fn names(&self) -> &[Vec<u8>] {
+        &self.names
+    }
+
     pub fn is_empty(&self) -> bool {
         self.names.is_empty()
     }

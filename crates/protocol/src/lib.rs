@@ -22,6 +22,7 @@ pub mod apps;
 pub mod ascii;
 pub mod cell;
 pub(crate) mod command_rules;
+pub mod connect;
 pub mod folder;
 pub mod frame;
 pub mod hosts;

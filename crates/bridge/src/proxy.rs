@@ -1,10 +1,11 @@
-//! The proxy of the sandbox (SPEC.md 6.6.4): the only way out for a command of a game
-//! run. It takes `CONNECT` to a host of the allow list on port 443 or 80, and it never
-//! looks inside the TLS. It resolves the name once, checks every address, and connects
-//! to a checked address, so no second lookup can lead somewhere else.
+//! The proxy of the bridge (SPEC.md 6.6.4): the only way out for the agent of a game run
+//! and for its commands. It takes `CONNECT` on port 443 or 80 to a host that its mode
+//! allows, or to a port of `local_ports`, and it never looks inside the TLS. It resolves
+//! a name once, checks every address, and connects to a checked address, so no second
+//! lookup can lead somewhere else.
 
 use std::io::{self, Write};
-use std::net::{SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 #[cfg(unix)]
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -12,12 +13,12 @@ use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+use protocol::connect::{Mode, Refusal, Target, check_target};
+
 use crate::allow_hosts::HostList;
-use crate::connect_line::{BadRequest, MAX_HEAD, Target, head_end, parse_connect};
+use crate::connect_line::{MAX_HEAD, head_end, reason, status};
 use crate::pipe::{Pipe, relay};
 use crate::public_ip::is_public;
-
-pub const PORTS: [u16; 2] = [443, 80];
 
 /// How the proxy finds and reaches a host. Tests put a fake server behind a public address.
 #[derive(Clone, Copy)]
@@ -67,20 +68,55 @@ impl Default for Limits {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct ProxySettings {
+    /// `Listed` takes only `hosts`. `Public` takes any public host (SPEC.md 6.6.4).
+    pub mode: Mode,
     pub hosts: Arc<HostList>,
+    /// The ports of this computer that `localhost:<port>` reaches.
+    pub local_ports: Arc<Vec<u16>>,
     pub net: Net,
     pub limits: Limits,
 }
 
 impl ProxySettings {
+    /// The proxy of the commands, and of the agent in `strict` mode.
     pub fn new(hosts: HostList) -> ProxySettings {
         ProxySettings {
+            mode: Mode::Listed,
             hosts: Arc::new(hosts),
+            local_ports: Arc::new(Vec::new()),
             net: Net::system(),
             limits: Limits::default(),
         }
+    }
+
+    /// The proxy of the agent in `open` mode.
+    pub fn public() -> ProxySettings {
+        ProxySettings {
+            mode: Mode::Public,
+            ..ProxySettings::new(HostList::default())
+        }
+    }
+
+    #[must_use]
+    pub fn with_local_ports(mut self, ports: &[u16]) -> ProxySettings {
+        self.local_ports = Arc::new(ports.to_vec());
+        self
+    }
+}
+
+impl std::fmt::Debug for ProxySettings {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let mode = match self.mode {
+            Mode::Listed => "Listed",
+            Mode::Public => "Public",
+        };
+        f.debug_struct("ProxySettings")
+            .field("mode", &mode)
+            .field("hosts", &self.hosts)
+            .field("local_ports", &self.local_ports)
+            .finish_non_exhaustive()
     }
 }
 
@@ -194,21 +230,35 @@ impl Context {
             self.refuse(&mut client, "400 Bad Request", "no request head");
             return;
         };
-        let target = match parse_connect(&head) {
+        let settings = &self.settings;
+        let checked = check_target(
+            settings.mode,
+            settings.hosts.names(),
+            &settings.local_ports,
+            &head,
+        );
+        let target = match checked {
             Ok(target) => target,
-            Err(bad) => {
-                self.refuse_request(&mut client, &head, &bad);
+            Err(refusal) => {
+                self.refuse_request(&mut client, &head, refusal);
                 return;
             }
         };
-        let server = match self.open_server(&target) {
+        let (what, opened) = match target {
+            Target::Remote { host, port } => {
+                let host = String::from_utf8_lossy(&host).into_owned();
+                (format!("{host}:{port}"), self.open_remote(&host, port))
+            }
+            Target::Local { port } => (format!("localhost:{port}"), self.open_local(port)),
+        };
+        let server = match opened {
             Ok(server) => server,
             Err((status, why)) => {
-                let what = format!("{}:{}: {why}", target.host, target.port);
-                self.refuse(&mut client, status, &what);
+                self.refuse(&mut client, status, &format!("{what}: {why}"));
                 return;
             }
         };
+        crate::run::log(&format!("proxy of {}: opened {what}", self.tag));
         let _ = self.tunnel(client, server, &rest);
     }
 
@@ -218,28 +268,21 @@ impl Context {
         relay(client, server, self.settings.limits.idle)
     }
 
-    /// The connection to the host, or the status and the reason of a refusal.
-    fn open_server(&self, target: &Target) -> Result<TcpStream, (&'static str, String)> {
-        let forbidden = |why: &str| ("403 Forbidden", why.to_owned());
-        if !PORTS.contains(&target.port) {
-            return Err(forbidden("the proxy takes only ports 443 and 80"));
-        }
-        if !self.settings.hosts.allows(&target.host) {
-            return Err(forbidden(
-                "not on the allow list; add it to allow_hosts in [sandbox] of config.toml",
-            ));
-        }
+    /// The connection to a checked address of the host, or the status and the reason of
+    /// a refusal. One lookup only, so the check and the connection see the same address.
+    fn open_remote(&self, host: &str, port: u16) -> Result<TcpStream, (&'static str, String)> {
         let net = self.settings.net;
-        let addrs = (net.resolve)(&target.host, target.port)
+        let addrs = (net.resolve)(host, port)
             .map_err(|e| ("502 Bad Gateway", format!("no address: {e}")))?;
         if addrs.is_empty() {
             return Err(("502 Bad Gateway", "no address".into()));
         }
         if let Some(inside) = addrs.iter().find(|a| !is_public(a.ip())) {
-            return Err(forbidden(&format!(
+            let why = format!(
                 "resolves to {}, which is not on the public internet",
                 inside.ip()
-            )));
+            );
+            return Err(("403 Forbidden", why));
         }
         addrs
             .iter()
@@ -247,15 +290,29 @@ impl Context {
             .ok_or(("502 Bad Gateway", "no connection".into()))
     }
 
-    fn refuse_request<S: Pipe>(&self, client: &mut S, head: &[u8], bad: &BadRequest) {
+    /// A port of `local_ports`: `127.0.0.1` first, and `::1` only when nothing listens
+    /// there. No lookup.
+    fn open_local(&self, port: u16) -> Result<TcpStream, (&'static str, String)> {
+        let net = self.settings.net;
+        let limit = self.settings.limits.connect;
+        let v4 = SocketAddr::from((Ipv4Addr::LOCALHOST, port));
+        match (net.connect)(&v4, limit) {
+            Ok(stream) => return Ok(stream),
+            Err(e) if e.kind() != io::ErrorKind::ConnectionRefused => {
+                return Err(("502 Bad Gateway", format!("no connection: {e}")));
+            }
+            Err(_) => {}
+        }
+        let v6 = SocketAddr::from((Ipv6Addr::LOCALHOST, port));
+        (net.connect)(&v6, limit)
+            .map_err(|e| ("502 Bad Gateway", format!("nothing listens there: {e}")))
+    }
+
+    fn refuse_request<S: Pipe>(&self, client: &mut S, head: &[u8], refusal: Refusal) {
         let line = head.split(|&b| b == b'\r').next().unwrap_or_default();
         let line = String::from_utf8_lossy(&line[..line.len().min(200)]).into_owned();
-        let status = match bad {
-            BadRequest::NotConnect => "405 Method Not Allowed",
-            BadRequest::IpAddress | BadRequest::BadHost => "403 Forbidden",
-            BadRequest::NotHttp | BadRequest::NoPort => "400 Bad Request",
-        };
-        self.refuse(client, status, &format!("{line:?}: {}", bad.reason()));
+        let why = format!("{line:?}: {}", reason(refusal));
+        self.refuse(client, status(refusal), &why);
     }
 
     fn refuse<S: Pipe>(&self, client: &mut S, status: &str, what: &str) {
@@ -361,7 +418,6 @@ mod tests {
         ];
         let names: Vec<String> = names.iter().map(|n| (*n).to_owned()).collect();
         ProxySettings {
-            hosts: Arc::new(HostList::new(Defaults::Off, &names).unwrap()),
             net: Net {
                 resolve: fake_resolve,
                 connect: fake_connect,
@@ -370,7 +426,104 @@ mod tests {
                 connections,
                 ..Limits::default()
             },
+            ..ProxySettings::new(HostList::new(Defaults::Off, &names).unwrap())
         }
+    }
+
+    fn public_settings() -> ProxySettings {
+        ProxySettings {
+            mode: Mode::Public,
+            ..settings(8)
+        }
+    }
+
+    /// A server on the loopback of this computer that answers `local ` and a line.
+    fn local_server() -> u16 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let port = listener.local_addr().unwrap().port();
+        std::thread::spawn(move || {
+            for mut stream in listener.incoming().flatten() {
+                let mut line = String::new();
+                let _ = io::BufReader::new(&stream).read_line(&mut line);
+                let _ = write!(stream, "local {line}");
+            }
+        });
+        port
+    }
+
+    #[test]
+    fn the_public_mode_reaches_a_public_host_that_is_on_no_list() {
+        let mut settings = public_settings();
+        settings.hosts = Arc::new(HostList::default());
+        let (_proxy, port) = listen_tcp(settings, "chat test".into()).unwrap();
+
+        let back = connect_to(port, "allowed.test:443");
+
+        assert!(back.ends_with("hello ping\n"), "{back}");
+    }
+
+    #[test]
+    fn the_public_mode_still_refuses_this_computer_its_network_and_other_ports() {
+        let (_proxy, port) = listen_tcp(public_settings(), "chat test".into()).unwrap();
+
+        for host in ["local.test", "private.test", "mapped.test", "mixed.test"] {
+            let back = connect_to(port, &format!("{host}:443"));
+            assert!(
+                back.contains("not on the public internet"),
+                "{host}: {back}"
+            );
+        }
+        assert!(connect_to(port, "allowed.test:22").starts_with("HTTP/1.1 403 "));
+        assert!(connect_to(port, "127.0.0.1:443").contains("IP address"));
+    }
+
+    #[test]
+    fn a_listed_local_port_reaches_the_loopback_of_this_computer() {
+        let local = local_server();
+        let settings = settings(8).with_local_ports(&[local]);
+        let (_proxy, port) = listen_tcp(settings, "chat test".into()).unwrap();
+
+        let back = connect_to(port, &format!("localhost:{local}"));
+
+        assert!(back.starts_with("HTTP/1.1 200 "), "{back}");
+        assert!(back.ends_with("local ping\n"), "{back}");
+    }
+
+    #[test]
+    fn a_local_port_that_is_not_listed_or_runs_any_code_is_refused() {
+        let local = local_server();
+        let settings = public_settings().with_local_ports(&[2375]);
+        let (_proxy, port) = listen_tcp(settings, "chat test".into()).unwrap();
+
+        let closed = connect_to(port, &format!("localhost:{local}"));
+        let docker = connect_to(port, "localhost:2375");
+
+        assert!(closed.starts_with("HTTP/1.1 403 "), "{closed}");
+        assert!(closed.contains("local_ports"), "{closed}");
+        assert!(docker.starts_with("HTTP/1.1 403 "), "{docker}");
+        assert!(docker.contains("Docker"), "{docker}");
+    }
+
+    #[test]
+    fn a_listed_local_port_with_no_server_gets_a_bad_gateway() {
+        let free = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let settings = settings(8).with_local_ports(&[free]);
+        let (_proxy, port) = listen_tcp(settings, "chat test".into()).unwrap();
+
+        assert!(connect_to(port, &format!("localhost:{free}")).starts_with("HTTP/1.1 502 "));
+    }
+
+    #[test]
+    fn the_settings_show_their_mode_and_lists() {
+        let text = format!("{:?}", ProxySettings::public().with_local_ports(&[5432]));
+
+        assert!(text.contains("Public"), "{text}");
+        assert!(text.contains("5432"), "{text}");
+        assert!(format!("{:?}", settings(1)).contains("Listed"));
     }
 
     /// Sends `head` and then `then`, and gives all that comes back.
@@ -471,7 +624,9 @@ mod tests {
             assert!(back.contains("not on the public internet"), "{back}");
         }
         let tried = connected().lock().unwrap().clone();
-        assert!(tried.iter().all(|a| is_public(a.ip())), "{tried:?}");
+        // The tests of local ports connect to the loopback on other ports, at the same time.
+        let remote = tried.iter().filter(|a| a.port() == 443);
+        assert!(remote.clone().all(|a| is_public(a.ip())), "{tried:?}");
     }
 
     #[test]

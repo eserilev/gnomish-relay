@@ -12,7 +12,7 @@ use std::io::{self, BufRead, Write};
 use std::net::{IpAddr, SocketAddr, TcpListener, TcpStream, ToSocketAddrs};
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use std::sync::{Arc, OnceLock};
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use bridge::allow_hosts::{Defaults, HostList};
@@ -164,12 +164,12 @@ fn fake_connect(addr: &SocketAddr, limit: Duration) -> io::Result<TcpStream> {
 fn proxied_walls(m: &Machine, tool: Sandbox) -> RunWalls {
     let names = ["allowed.test", "local.test", "private.test"].map(String::from);
     let settings = ProxySettings {
-        hosts: Arc::new(HostList::new(Defaults::Off, &names).unwrap()),
         net: Net {
             resolve: fake_resolve,
             connect: fake_connect,
         },
         limits: Limits::default(),
+        ..ProxySettings::new(HostList::new(Defaults::Off, &names).unwrap())
     };
     prepare(m, &sandbox(m, tool).with_proxy(settings))
 }
