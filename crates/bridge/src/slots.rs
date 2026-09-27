@@ -11,7 +11,7 @@ use protocol::restore::restore_body;
 use protocol::slot::{SLOT_WINDOW, SLOTS, slot_body};
 
 use crate::app_files::addon_name;
-use crate::fs_safe::{check_real_dir, write_atomic, write_atomic_unsynced};
+use crate::fs_safe::{check_real_dir, write_atomic_if_changed, write_atomic_unsynced};
 
 pub const BODY_FILE: &str = "Inbox.lua";
 pub const RESTORE_FILE: &str = "Restore.lua";
@@ -80,7 +80,8 @@ pub fn install(addons: &Path, app: App, files: &Files) -> Result<()> {
 }
 
 /// Writes the files into the window of slots that starts at `next`, the next slot
-/// that the addon reported (SPEC.md 7.3). Slots past the last one are skipped.
+/// that the addon reported (SPEC.md 7.3). Slots past the last one are skipped, and so
+/// is a file that did not change.
 pub fn publish(addons: &Path, app: App, files: &Files, next: usize) -> Result<()> {
     let first = next.clamp(1, SLOTS);
     let last = (first + SLOT_WINDOW - 1).min(SLOTS);
@@ -88,7 +89,9 @@ pub fn publish(addons: &Path, app: App, files: &Files, next: usize) -> Result<()
         let dir = addons.join(slot_name(app, n));
         let not_ready =
             || format!("slot {n} is not ready. Run `gnomish-relay install` with the game closed.");
-        files.write(&dir, write_atomic).with_context(not_ready)?;
+        files
+            .write(&dir, write_atomic_if_changed)
+            .with_context(not_ready)?;
     }
     Ok(())
 }
@@ -168,6 +171,24 @@ mod tests {
         assert_eq!(read(100), body(b"hello"));
         assert_eq!(read(100 + SLOT_WINDOW - 1), body(b"hello"));
         assert_eq!(read(100 + SLOT_WINDOW), body(b""));
+    }
+
+    #[test]
+    fn publish_writes_a_changed_file_and_leaves_an_unchanged_one_alone() {
+        let addons = tempfile::tempdir().unwrap();
+        install(addons.path(), App::Relay, &files(b"")).unwrap();
+        let slot = addons.path().join(slot_name(App::Relay, 1));
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        for file in [BODY_FILE, RESTORE_FILE] {
+            let open = fs::File::options().write(true).open(slot.join(file));
+            open.unwrap().set_modified(old).unwrap();
+        }
+
+        publish(addons.path(), App::Relay, &files(b"hello"), 1).unwrap();
+
+        let modified = |file| fs::metadata(slot.join(file)).unwrap().modified().unwrap();
+        assert_ne!(modified(BODY_FILE), old);
+        assert_eq!(modified(RESTORE_FILE), old);
     }
 
     #[test]

@@ -598,6 +598,7 @@ The spike tested the rules under Wine (2026-09-23). Rules 1, 2, and 3 hold. Rule
 There are 1000 slots. The addon loads them in order, from the first slot that it has not loaded in this UI session.
 
 The bridge writes each body only into a window of 30 slots, with an atomic rename per file.
+It syncs each file before the rename, and skips a file that already holds the same bytes: a sync costs milliseconds on Windows, and the restore and live files seldom change.
 The window starts at the next slot that the addon reported (`next` flag, 7.1.1).
 Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 3 seconds is 20 MB per publish.
 

@@ -52,6 +52,22 @@ pub fn write_atomic_unsynced(dir: &Path, name: &str, bytes: &[u8]) -> Result<()>
     write(dir, name, bytes, Durability::Cached)
 }
 
+/// `write_atomic` that skips a file that already holds `bytes`. A slot publish writes 90
+/// files, most of them unchanged, and a sync costs milliseconds on Windows.
+pub fn write_atomic_if_changed(dir: &Path, name: &str, bytes: &[u8]) -> Result<()> {
+    check_real_dir(dir)?;
+    if file_holds(&dir.join(name), bytes) {
+        return Ok(());
+    }
+    write_atomic(dir, name, bytes)
+}
+
+/// A link never holds the bytes, so the write replaces it.
+fn file_holds(path: &Path, bytes: &[u8]) -> bool {
+    let is_file = fs::symlink_metadata(path).is_ok_and(|m| m.is_file());
+    is_file && fs::read(path).is_ok_and(|old| old == bytes)
+}
+
 fn write(dir: &Path, name: &str, bytes: &[u8], durability: Durability) -> Result<()> {
     check_real_dir(dir)?;
     let tmp = dir.join(format!(".{name}.tmp"));
@@ -92,6 +108,80 @@ mod tests {
         write_atomic_unsynced(dir.path(), "a.lua", b"new").unwrap();
         assert_eq!(fs::read(dir.path().join("a.lua")).unwrap(), b"new");
         assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
+    }
+
+    fn modified(path: &Path) -> std::time::SystemTime {
+        fs::metadata(path).unwrap().modified().unwrap()
+    }
+
+    /// A time far in the past, so any write gives the file a different time.
+    fn make_old(path: &Path) -> std::time::SystemTime {
+        let old = std::time::SystemTime::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        let file = fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(old).unwrap();
+        old
+    }
+
+    #[test]
+    fn a_write_of_the_same_bytes_leaves_the_file_alone() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.lua");
+        write_atomic(dir.path(), "a.lua", b"same").unwrap();
+        let old = make_old(&path);
+
+        write_atomic_if_changed(dir.path(), "a.lua", b"same").unwrap();
+
+        assert_eq!(modified(&path), old);
+    }
+
+    #[test]
+    fn a_write_of_other_bytes_replaces_the_file() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.lua");
+        write_atomic(dir.path(), "a.lua", b"old").unwrap();
+        let old = make_old(&path);
+
+        write_atomic_if_changed(dir.path(), "a.lua", b"new").unwrap();
+
+        assert_eq!(fs::read(&path).unwrap(), b"new");
+        assert_ne!(modified(&path), old);
+    }
+
+    #[test]
+    fn a_write_if_changed_makes_a_missing_file() {
+        let dir = tempfile::tempdir().unwrap();
+
+        write_atomic_if_changed(dir.path(), "a.lua", b"new").unwrap();
+
+        assert_eq!(fs::read(dir.path().join("a.lua")).unwrap(), b"new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_file_with_the_same_bytes_is_replaced() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target.lua");
+        fs::write(&target, b"same").unwrap();
+        let link = dir.path().join("a.lua");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        write_atomic_if_changed(dir.path(), "a.lua", b"same").unwrap();
+
+        assert!(!fs::symlink_metadata(&link).unwrap().is_symlink());
+        assert_eq!(fs::read(&link).unwrap(), b"same");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_if_changed_into_a_folder_that_is_a_link_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        fs::create_dir(&target).unwrap();
+        fs::write(target.join("a.lua"), b"same").unwrap();
+        let link = dir.path().join("link");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert!(write_atomic_if_changed(&link, "a.lua", b"same").is_err());
     }
 
     #[test]
