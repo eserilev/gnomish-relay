@@ -451,16 +451,19 @@ fn setup_config(
         Vec::new()
     };
     let wants_story = timeways && lacks_story;
-    let models = if wants_story {
+    // A local model is also for the agents: the relay part opens its port.
+    let models = if wants_story || !roots.is_empty() {
         model_setup::find_models(&path_var)
     } else {
         Vec::new()
     };
+    let local_ports = model_setup::local_ports(&models);
     let parts = setup::ConfigParts {
         wow,
         relay: (!roots.is_empty()).then_some(RelayPart {
             agents: &agents,
             roots: &roots,
+            local_ports: &local_ports,
         }),
         story: wants_story.then_some(models.as_slice()),
     };

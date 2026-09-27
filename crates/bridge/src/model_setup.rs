@@ -44,6 +44,19 @@ pub fn find_models(path_var: &OsStr) -> Vec<FoundModel> {
     found
 }
 
+/// The loopback port of each local model that setup found. The relay part of the config
+/// opens them in `local_ports`, so an agent that uses a local model reaches it from its
+/// wall (SPEC.md 6.6.4).
+pub fn local_ports(models: &[FoundModel]) -> Vec<u16> {
+    models
+        .iter()
+        .filter_map(|m| match m {
+            FoundModel::Local { url, .. } => url.rsplit(':').next()?.parse().ok(),
+            FoundModel::Claude => None,
+        })
+        .collect()
+}
+
 /// The first model of a local server, with the same `curl` flags as a model call.
 pub fn probe(curl: &Path, url: &str) -> Option<String> {
     let seconds = PROBE_TIME.as_secs().to_string();
@@ -85,6 +98,24 @@ mod tests {
     use super::*;
     use std::io::{Read, Write};
     use std::net::TcpListener;
+
+    #[test]
+    fn each_local_model_gives_its_port_and_claude_gives_none() {
+        let models = [
+            FoundModel::Claude,
+            FoundModel::Local {
+                url: OLLAMA.into(),
+                model: "llama3.2".into(),
+            },
+            FoundModel::Local {
+                url: LM_STUDIO.into(),
+                model: "qwen".into(),
+            },
+        ];
+
+        assert_eq!(local_ports(&models), vec![11434, 1234]);
+        assert!(local_ports(&[FoundModel::Claude]).is_empty());
+    }
 
     #[test]
     fn the_first_chat_model_skips_embedding_models_and_bad_names() {

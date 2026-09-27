@@ -80,6 +80,7 @@ impl Computer {
             relay: (relay == Relay::On).then_some(RelayPart {
                 agents: &agents,
                 roots: &roots,
+                local_ports: &[],
             }),
             story,
         };

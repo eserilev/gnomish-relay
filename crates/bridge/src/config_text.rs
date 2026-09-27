@@ -11,6 +11,8 @@ use crate::model_setup::{CLAUDE_MODEL, FoundModel};
 pub struct RelayPart<'a> {
     pub agents: &'a [Found<'a>],
     pub roots: &'a [String],
+    /// The ports of the local models that setup found (`model_setup::local_ports`).
+    pub local_ports: &'a [u16],
 }
 
 fn quote(text: &str) -> String {
@@ -59,6 +61,27 @@ fn relay_tables(relay: &RelayPart) -> String {
         "\n# Any ACP agent is one entry. Run `gnomish-relay check-agent <name>` to test it.\n\
          # [agents.gemini]\n# kind = \"acp\"\n# command = [\"gemini\", \"--acp\"]\n\
          # permission = \"auto-edit\"\n# env = [\"GEMINI_API_KEY\"]\n",
+    );
+    text.push_str(&sandbox_table(relay.local_ports));
+    text
+}
+
+/// The agents reach any public host through their proxy, and this computer only on the
+/// ports of `local_ports`: here the local models that setup found (SPEC.md 6.6.4).
+fn sandbox_table(local_ports: &[u16]) -> String {
+    let mut text = String::from(
+        "\n# The ports of this computer that the agents and their commands reach.\n\
+         # agent_network = \"strict\" limits the agents to their model hosts.\n",
+    );
+    if local_ports.is_empty() {
+        text.push_str("# [sandbox]\n# local_ports = [5432, 3000]\n");
+        return text;
+    }
+    let ports: Vec<String> = local_ports.iter().map(u16::to_string).collect();
+    let _ = write!(
+        text,
+        "# A local model that setup found listens on these.\n[sandbox]\nlocal_ports = [{}]\n",
+        ports.join(", ")
     );
     text
 }
@@ -149,6 +172,28 @@ mod tests {
     }
 
     #[test]
+    fn the_port_of_a_local_model_that_setup_found_goes_into_local_ports() {
+        let home = home();
+        let agents: [Found; 1] = [("claude", Kind::Claude, &["claude"])];
+        let roots = roots();
+        let with_model = RelayPart {
+            agents: &agents,
+            roots: &roots,
+            local_ports: &[11434],
+        };
+        let without = RelayPart {
+            local_ports: &[],
+            ..with_model
+        };
+
+        let found = parsed(&relay_config(&home.path().join("wow"), &with_model), &home);
+        let none = parsed(&relay_config(&home.path().join("wow"), &without), &home);
+
+        assert_eq!(found.require_relay().unwrap().local_ports, vec![11434]);
+        assert!(none.require_relay().unwrap().local_ports.is_empty());
+    }
+
+    #[test]
     fn the_relay_config_parses_and_every_agent_edits_the_chat_folder_with_no_question() {
         let home = home();
         // A quote and a backslash in the folder name must not break the TOML string.
@@ -165,6 +210,7 @@ mod tests {
         let relay = RelayPart {
             agents: &agents,
             roots: &roots,
+            local_ports: &[],
         };
         let config = parsed(&relay_config(Path::new(wow), &relay), &home);
         let relay = config.require_relay().unwrap();
@@ -184,6 +230,7 @@ mod tests {
         let relay = RelayPart {
             agents: &[],
             roots: &roots,
+            local_ports: &[],
         };
         let config = parsed(&relay_config(&home.path().join("wow"), &relay), &home);
         let relay = config.require_relay().unwrap();
@@ -244,6 +291,7 @@ mod tests {
         let relay = RelayPart {
             agents: &[],
             roots: &roots,
+            local_ports: &[],
         };
         let old = relay_config(&home.path().join("wow"), &relay);
         let text = with_story(&old, &[FoundModel::Claude]);
@@ -261,6 +309,7 @@ mod tests {
         let relay = RelayPart {
             agents: &[],
             roots: &roots,
+            local_ports: &[],
         };
         let text = with_relay(&old, &relay);
         assert!(text.contains(&old));
