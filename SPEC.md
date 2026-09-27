@@ -1,6 +1,6 @@
 # Gnomish Relay: Specification
 
-Status: draft 3, 2026-09-23. Nothing is built yet.
+Status: draft 3, 2026-09-23. Section 15 shows what is built.
 Draft 2 applies a review against the `wow-claude` source code.
 Draft 3 applies the spike results in `spikes/README.md`: the strip goes out through `Screenshot()`, and `.wav` signals do not work.
 
@@ -866,7 +866,7 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 | Direction | Interface | Channels, in order |
 |---|---|---|
 | Out (game to bridge) | Addon `Out.Send(frame)`, bridge `trait FrameSource` | Strip by `Screenshot()`, reload outbox (7.5) |
-| In (bridge to game) | Addon `In.Poll()`, bridge `trait Publisher` | Slots (7.3), fonts (a spike in 15), reload inbox (7.5) |
+| In (bridge to game) | Addon `In.Poll()`, bridge `trait Publisher` | Slots (7.3), fonts (17), reload inbox (7.5) |
 
 - The protocol core, the model, and the proofs work on frames and records. They do not change when a channel changes.
 - A new channel is one new module on each side, with its own tests. Nothing else changes.
@@ -2143,10 +2143,10 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 3. **Done: Wine rules spike.** Test the five rules in 7.2 under Wine: the `ctl` self-test, a fresh read of a load-on-demand file, and "a new file is not found". Results in `spikes/README.md`. The HMAC-SHA256 cost in WoW Lua is not measured yet.
 4. **Done: `protocol` crate with Aeneas.** Frame, cells, records, slot body, escapes, and every theorem in 14.1. `VERIFICATION.md` has the status.
 5. **Done: slot writer.** Publish a fixed reply. Make sure that it shows in the game. Passed in the game on 2026-09-24: `install`, then `say`, then `/relay poll` showed the reply. The steps are in `addon/README.md`.
-6. **Addon port** with the stub harness and the differential tests.
+6. **Done: addon port** with the stub harness (the fake game, `addon/tests/wow.lua`) and the differential tests (`crates/bridge/tests/addon_codec.rs`).
 7. **Done: Quint model** of the transport. **Done (7a):** the bridge reads strips from screenshots, checks the tag and the time, queues per chat, runs an echo agent, and publishes. Tests run one message around the whole loop. **Done (7b, part):** the addon signs each message at send, and the bridge reads the signed outbox frames from the saved variables. **Done (7b):** `state.json` and the restore bundle in `Restore.lua`. Passed in the game on 2026-09-24: a message went out as a strip, and the echo came back through the slots.
-8. **Threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Done (8b):** the action classifier (6.6.3) in `protocol`, with S16, S17, S27, and S28 proved, and the input of the classifier in the bridge. **Done (8c):** every backend calls the classifier through one gate (6.6.3, 9.3): the hook of Claude for every tool call, the approvals of Codex, and the permission requests of ACP agents. The config has its allow table, and `gnomish-relay approve` answers desktop requests.
-9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Next:** a live test with a real agent in the game.
+8. **Done: threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Done (8b):** the action classifier (6.6.3) in `protocol`, with S16, S17, S27, and S28 proved, and the input of the classifier in the bridge. **Done (8c):** every backend calls the classifier through one gate (6.6.3, 9.3): the hook of Claude for every tool call, the approvals of Codex, and the permission requests of ACP agents. The config has its allow table, and `gnomish-relay approve` answers desktop requests.
+9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Done:** live tests with Claude in the game on 2026-09-26 (9.3).
 10. **Next: "Always allow" (6.6.5, 9.3).** One click in the game adds a rule that the sandbox bounds. Until then, the bridge does not offer `allow_always`.
 11. **`note` signal and pings:** the hook CLI and the socket.
 12. **A generic backend for any LLM coding harness (9.2).** **Done:** `acp` for any harness that speaks ACP, and the `claude` and `codex` backends. **Next:** `command`, for a harness that has only a command line.
@@ -2172,10 +2172,7 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 - Does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
 - Can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?
 - Two WoW accounts on one computer have two tokens. A hello from the second account starts a restore, and its `restored` flag retires the first token. How does the bridge tell two accounts from a saved-data wipe?
-
-2. Can font files replace the `.wav` signals?
-3. How fast is HMAC-SHA256 in WoW Lua for a 3200-byte strip?
-4. What are the ACP mode IDs of `claude-agent-acp` and `codex-acp`?
-5. Does Gemini CLI have hooks for pings?
-6. How large is the hitch at a higher window size? (The "Screen captured" hide works.)
-7. Does the Aeneas standard library model cover the `Vec` and slice functions that the core needs?
+- Can font files replace the `.wav` signals?
+- How fast is HMAC-SHA256 in WoW Lua for a 3200-byte strip?
+- Does Gemini CLI have hooks for pings?
+- How large is the hitch at a higher window size? (The "Screen captured" hide works.)
