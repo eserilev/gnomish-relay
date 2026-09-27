@@ -4,14 +4,20 @@ on:
     branches: [spike-appcontainer]
 jobs:
   win:
-    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-2022, windows-2025, windows-11-arm]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: stable
       - run: cargo build --manifest-path spikes/appcontainer/Cargo.toml
-      - run: spikes/appcontainer/asuser.ps1
+      - run: Get-Service AppXSvc, StateRepository, AppInfo -ErrorAction Continue | Format-Table Name, Status, StartType
         shell: pwsh
       - run: spikes/appcontainer/target/debug/acspike.exe outer
         shell: bash
+        env:
+          RAPPCT_DEBUG_LAUNCH: "1"
