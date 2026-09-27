@@ -162,6 +162,10 @@ fn fake_connect(addr: &SocketAddr, limit: Duration) -> io::Result<TcpStream> {
 /// The walls of a run whose proxy knows `allowed.test` and two names that lead back to
 /// this computer or its network.
 fn proxied_walls(m: &Machine, tool: Sandbox) -> RunWalls {
+    walls_with_local_ports(m, tool, &[])
+}
+
+fn walls_with_local_ports(m: &Machine, tool: Sandbox, local_ports: &[u16]) -> RunWalls {
     let names = ["allowed.test", "local.test", "private.test"].map(String::from);
     let settings = ProxySettings {
         net: Net {
@@ -171,6 +175,7 @@ fn proxied_walls(m: &Machine, tool: Sandbox) -> RunWalls {
         limits: Limits::default(),
         ..ProxySettings::new(HostList::new(Defaults::Off, &names).unwrap())
     };
+    let settings = settings.with_local_ports(local_ports);
     prepare(m, &sandbox(m, tool).with_proxy(settings))
 }
 
@@ -545,6 +550,42 @@ fn a_connection_that_skips_the_proxy_fails() {
 
     assert!(!direct.ok, "{}", direct.out);
     assert!(!no_proxy.ok, "{}", no_proxy.out);
+    listener.set_nonblocking(true).unwrap();
+    assert!(listener.accept().is_err(), "a connection came in");
+}
+
+#[test]
+fn a_command_reaches_a_listed_local_port_of_this_computer_as_localhost() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let local = server().port();
+    let w = walls_with_local_ports(&m, tool, &[local]);
+
+    let ran = run(
+        &w,
+        &m,
+        &format!("curl -sS --max-time 20 http://localhost:{local}/db"),
+    );
+
+    assert!(ran.ok, "{}", ran.out);
+    assert_eq!(ran.out, "hello GET /db HTTP/1.1");
+}
+
+#[test]
+fn a_local_port_that_is_not_listed_stays_closed() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = walls_with_local_ports(&m, tool, &[server().port()]);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+
+    let ran = run(
+        &w,
+        &m,
+        &format!("curl -sS --max-time 20 http://localhost:{port}/"),
+    );
+
+    assert!(!ran.ok, "{}", ran.out);
     listener.set_nonblocking(true).unwrap();
     assert!(listener.accept().is_err(), "a connection came in");
 }

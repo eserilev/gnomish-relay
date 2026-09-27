@@ -188,6 +188,7 @@ fuzz_target!(|data: &[u8]| {
         pinned: deny.iter().map(|d| path_of(d)).collect(),
         empty: PathBuf::from("/data/empty"),
         proxy: None,
+        local_ports: Vec::new(),
         overlays: Vec::new(),
     };
     check_tools(&walls, &String::from_utf8_lossy(data));

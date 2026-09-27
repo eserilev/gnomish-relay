@@ -779,13 +779,14 @@ fn main() -> Result<()> {
             std::process::exit(command_sandbox::run_wrapped(command))
         }
         #[cfg(unix)]
-        [forward::FORWARD_FLAG, socket, shell, "-c", command] => {
-            std::process::exit(forward::run_forwarder(
-                Path::new(socket),
-                forward::INNER_PORT,
-                Path::new(shell),
-                command,
-            ))
+        [forward::FORWARD_FLAG, socket, ports, shell, "-c", command] => {
+            let local_ports = forward::parse_ports(ports).map_err(anyhow::Error::msg)?;
+            let forward = forward::Forward {
+                socket: Path::new(socket),
+                port: forward::INNER_PORT,
+                local_ports: &local_ports,
+            };
+            std::process::exit(forward::run_forwarder(&forward, Path::new(shell), command))
         }
         _ => bail!("{USAGE}"),
     }

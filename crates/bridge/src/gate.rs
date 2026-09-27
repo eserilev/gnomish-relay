@@ -186,7 +186,7 @@ impl Gate {
             data_dir: data_dir.to_owned(),
             allow: std::sync::Arc::new(config.allow.clone()),
             approvals: Approvals::new(data_dir, prompt),
-            sandbox: CommandSandbox::detect(config.hosts.clone()),
+            sandbox: CommandSandbox::detect(config.hosts.clone(), &config.local_ports),
         }
     }
 

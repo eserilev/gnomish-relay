@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::action_input::{DESKTOP_PATHS, DESKTOP_WRITES, resolve, resolved_bytes};
 use crate::allow_hosts::HostList;
-use crate::forward::{FORWARD_FLAG, INNER_PORT};
+use crate::forward::{FORWARD_FLAG, INNER_PORT, ports_arg};
 use crate::process::BASE_ENV;
 use crate::proxy::{self, Proxy, ProxySettings};
 use crate::story_sandbox::{self, Sandbox};
@@ -109,15 +109,15 @@ impl CommandSandbox {
     }
 
     /// Windows has none: Git Bash cannot start in an `AppContainer` (SPEC.md 6.6.4).
-    pub fn detect(hosts: HostList) -> CommandSandbox {
+    pub fn detect(hosts: HostList, local_ports: &[u16]) -> CommandSandbox {
         let wrapper = std::env::current_exe().unwrap_or_default();
         let home = std::env::var_os("HOME").map(PathBuf::from);
         let mut sandbox = CommandSandbox::new(story_sandbox::detect(), wrapper, home);
         sandbox.overlay = detect_overlay(&sandbox.tool);
-        if hosts.is_empty() {
+        if hosts.is_empty() && local_ports.is_empty() {
             return sandbox;
         }
-        sandbox.with_proxy(ProxySettings::new(hosts))
+        sandbox.with_proxy(ProxySettings::new(hosts).with_local_ports(local_ports))
     }
 
     pub fn none() -> CommandSandbox {
@@ -168,6 +168,8 @@ pub struct Walls {
     pub empty: PathBuf,
     /// The way to the proxy of the run. With none, commands have no network.
     pub proxy: Option<ProxyEnd>,
+    /// The ports of this computer that `localhost:<port>` reaches through the proxy.
+    pub local_ports: Vec<u16>,
     /// Copy-on-write views of the homes of cargo and rustup, only with `bwrap`.
     pub overlays: Vec<OverlayMount>,
 }
@@ -269,6 +271,10 @@ pub fn prepare(
         hidden,
         pinned: scan.pinned,
         empty: empty_file(&place)?,
+        local_ports: match (&proxy, &sandbox.proxy) {
+            (Some(_), Some(settings)) => settings.local_ports.to_vec(),
+            _ => Vec::new(),
+        },
         proxy: end,
         overlays,
     };
@@ -657,7 +663,13 @@ pub fn bwrap_args(walls: &Walls, cwd: &Path, shell: &Path, command: &str) -> Vec
         "--",
     ]));
     if let Some(ProxyEnd::Socket { socket, forwarder }) = &walls.proxy {
-        args.extend([forwarder.into(), FORWARD_FLAG.into(), socket.into()]);
+        let ports = ports_arg(&walls.local_ports);
+        args.extend([
+            forwarder.into(),
+            FORWARD_FLAG.into(),
+            socket.into(),
+            ports.into(),
+        ]);
     }
     args.extend([shell.into(), "-c".into(), command.into()]);
     args
@@ -714,6 +726,10 @@ pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
         let rule = format!("(allow network-outbound (remote ip \"localhost:{port}\"))\n");
         out.extend_from_slice(rule.as_bytes());
         out.extend_from_slice(NO_KEYCHAIN.as_bytes());
+    }
+    for port in &walls.local_ports {
+        let rule = format!("(allow network-outbound (remote ip \"localhost:{port}\"))\n");
+        out.extend_from_slice(rule.as_bytes());
     }
     let writable: Vec<&Path> = walls.writable.iter().map(PathBuf::as_path).collect();
     rule(&mut out, "(allow file-write*", "subpath", &writable)?;
@@ -828,7 +844,11 @@ const PROXY_VARS: [&str; 8] = [
     "npm_config_proxy",
 ];
 
-/// No host skips the proxy, and a command has no other way out.
+/// Only the loopback skips the proxy: the loopback of the sandbox on Linux, where the
+/// forwarder relays each port of `local_ports`, and the ports that Seatbelt allows on
+/// macOS. A command has no other way out.
+pub const NO_PROXY: &str = "localhost,127.0.0.1,::1";
+
 fn proxy_env(end: &ProxyEnd) -> Vec<(String, OsString)> {
     let port = match end {
         ProxyEnd::Socket { .. } => INNER_PORT,
@@ -839,8 +859,8 @@ fn proxy_env(end: &ProxyEnd) -> Vec<(String, OsString)> {
         .iter()
         .map(|name| ((*name).to_owned(), url.clone()))
         .collect();
-    env.push(("NO_PROXY".into(), OsString::new()));
-    env.push(("no_proxy".into(), OsString::new()));
+    env.push(("NO_PROXY".into(), NO_PROXY.into()));
+    env.push(("no_proxy".into(), NO_PROXY.into()));
     env
 }
 
@@ -1136,6 +1156,7 @@ mod tests {
             pinned: Vec::new(),
             empty: PathBuf::from("/data/sandbox/empty"),
             proxy: None,
+            local_ports: Vec::new(),
             overlays: Vec::new(),
         }
     }
@@ -1262,6 +1283,8 @@ mod tests {
             forwarder: PathBuf::from("/usr/bin/gnomish-relay"),
         });
 
+        walls.local_ports = vec![5432, 3000];
+
         let args = strings(&bwrap_args(
             &walls,
             Path::new("/"),
@@ -1270,18 +1293,35 @@ mod tests {
         ));
 
         assert_eq!(
-            args[args.len() - 7..],
+            args[args.len() - 8..],
             [
                 "--",
                 "/usr/bin/gnomish-relay",
                 FORWARD_FLAG,
                 "/tmp/run1/.gnomish-relay-proxy",
+                "5432,3000",
                 "/bin/bash",
                 "-c",
                 "cargo fetch",
             ][..]
         );
         assert!(args.contains(&"--unshare-all".to_owned()));
+    }
+
+    #[test]
+    fn seatbelt_allows_each_local_port_and_no_other_port_of_this_computer() {
+        let mut walls = sample();
+        walls.proxy = Some(ProxyEnd::Port(41234));
+        walls.local_ports = vec![5432];
+
+        let profile = String::from_utf8(seatbelt_profile(&walls).unwrap()).unwrap();
+
+        let deny = profile.find("(deny network*)").unwrap();
+        let local = profile
+            .find("(allow network-outbound (remote ip \"localhost:5432\"))")
+            .unwrap();
+        assert!(deny < local);
+        assert_eq!(profile.matches("(allow network").count(), 2);
     }
 
     #[test]
@@ -1316,7 +1356,7 @@ mod tests {
     }
 
     #[test]
-    fn with_a_proxy_a_command_gets_the_proxy_in_every_name_and_no_host_skips_it() {
+    fn with_a_proxy_a_command_gets_the_proxy_in_every_name_and_only_the_loopback_skips_it() {
         let mut walls = sample();
         walls.proxy = Some(ProxyEnd::Socket {
             socket: PathBuf::from("/tmp/run1/.gnomish-relay-proxy"),
@@ -1333,8 +1373,9 @@ mod tests {
                 "{name}"
             );
         }
-        assert_eq!(value("NO_PROXY"), Some(OsString::new()));
-        assert_eq!(value("no_proxy"), Some(OsString::new()));
+        let loopback = Some(OsString::from("localhost,127.0.0.1,::1"));
+        assert_eq!(value("NO_PROXY"), loopback);
+        assert_eq!(value("no_proxy"), loopback);
         walls.proxy = Some(ProxyEnd::Port(41234));
         let env = command_env(&walls, |_| None);
         assert!(env.contains(&(
@@ -1407,7 +1448,11 @@ mod tests {
         let run = run_walls(&h, &h.chat).unwrap();
 
         assert_eq!(run.walls.proxy, None);
-        assert!(CommandSandbox::detect(HostList::default()).proxy.is_none());
+        assert!(
+            CommandSandbox::detect(HostList::default(), &[])
+                .proxy
+                .is_none()
+        );
     }
 
     #[test]
@@ -1708,7 +1753,7 @@ mod tests {
     fn on_windows_there_is_no_command_sandbox_so_every_command_asks() {
         use crate::gate::{Effect, Sandboxing, Step, without_sandbox};
 
-        let sandbox = CommandSandbox::detect(HostList::default());
+        let sandbox = CommandSandbox::detect(HostList::default(), &[]);
 
         let sandboxing = if sandbox.is_on() {
             Sandboxing::On

@@ -122,6 +122,8 @@ pub struct RelayConfig {
     pub allow: AllowTable,
     /// The hosts that commands reach through the proxy of the sandbox (SPEC.md 6.6.4).
     pub hosts: HostList,
+    /// The ports of this computer that the agent and its commands reach.
+    pub local_ports: Vec<u16>,
 }
 
 /// The story program of Timeways (SPEC.md 9.8).
@@ -201,10 +203,28 @@ struct SandboxFile {
     /// `false` leaves only `allow_hosts`. No host at all turns the proxy off.
     #[serde(default = "keep_defaults")]
     default_hosts: bool,
+    #[serde(default)]
+    local_ports: Vec<u16>,
 }
 
 fn keep_defaults() -> bool {
     true
+}
+
+/// Docker over TCP and the debug port of a browser run any code, so no config opens
+/// them. The forwarder inside each sandbox holds `INNER_PORT`.
+const CLOSED_PORTS: [u16; 5] = [0, 2375, 2376, 9222, crate::forward::INNER_PORT];
+
+fn local_ports(file: Option<&SandboxFile>) -> Result<Vec<u16>> {
+    let mut ports = file.map(|f| f.local_ports.clone()).unwrap_or_default();
+    if let Some(port) = ports.iter().find(|p| CLOSED_PORTS.contains(p)) {
+        bail!(
+            "[sandbox] local_ports: port {port} stays closed: 2375 and 2376 (Docker) and 9222 (a browser debugger) run any code, and the sandbox uses 3128 itself"
+        );
+    }
+    ports.sort_unstable();
+    ports.dedup();
+    Ok(ports)
 }
 
 fn hosts(file: Option<&SandboxFile>) -> Result<HostList> {
@@ -615,6 +635,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         .collect();
     let allow = allow::parse(&file.allow.unwrap_or_default(), home)?;
     let hosts = hosts(file.sandbox.as_ref())?;
+    let local_ports = local_ports(file.sandbox.as_ref())?;
     Ok(Some(RelayConfig {
         policy: Policy {
             folders: Folders { roots, base },
@@ -626,6 +647,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         permission_timeout,
         allow,
         hosts,
+        local_ports,
     }))
 }
 
@@ -882,6 +904,30 @@ mod tests {
         ] {
             let text = format!("{GOOD}\n[sandbox]\n{section}\n");
             assert!(home.parse(&text).is_err(), "{section}");
+        }
+    }
+
+    #[test]
+    fn the_local_ports_come_sorted_and_once_each() {
+        let home = Home::new();
+        let text = format!("{GOOD}\n[sandbox]\nlocal_ports = [5432, 3000, 5432]\n");
+
+        let config = home.parse(&text).unwrap();
+
+        assert_eq!(
+            config.require_relay().unwrap().local_ports,
+            vec![3000, 5432]
+        );
+        let plain = home.parse(GOOD).unwrap();
+        assert!(plain.require_relay().unwrap().local_ports.is_empty());
+    }
+
+    #[test]
+    fn a_local_port_that_runs_any_code_or_that_the_sandbox_uses_is_an_error() {
+        let home = Home::new();
+        for port in ["2375", "2376", "9222", "3128", "0", "70000", "\"5432\""] {
+            let text = format!("{GOOD}\n[sandbox]\nlocal_ports = [{port}]\n");
+            assert!(home.parse(&text).is_err(), "{port}");
         }
     }
 

@@ -336,9 +336,9 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 - **The proxy** (`proxy.rs`) runs in the bridge, outside the sandbox, one for each run. It takes only HTTP `CONNECT` to a host of the allow list on port 443 or 80. It never ends the TLS, so it sees only the host name. It takes no plain `GET http://...`: the tools use https, and a forward of plain HTTP needs a second parser.
 - **The host check.** The name must be on the list, compared exactly and without ASCII case. An IP address in any form (`[::1]`, `127.1`, `0x7f000001`) is refused before any lookup, and `localhost` is only for `local_ports`. The first line must be exactly `CONNECT <host>:<port> HTTP/1.<digit>`. `hosts.rs` and `connect.rs` in `protocol` hold these rules. The proxy resolves the name once and refuses it when any address is not on the public internet: loopback, private, link-local, shared (100.64/10), multicast, reserved, the IPv6 forms that hold such an IPv4 address, and the local NAT64 range `64:ff9b:1::/48` with the rest of `64:ff9b::/32` outside `64:ff9b::/96` (`ip.rs` in `protocol`, fuzzed against a table of ranges). It then connects to a checked address. No second lookup happens, so a name cannot resolve to a public address for the check and to an inside address for the connection.
 - **Limits.** At most 64 connections at once for each run, 10 seconds for the request head (at most 8 KiB) and for the connection, and 5 minutes with no byte in either way. Each refusal writes a log line with the chat, the host, and the reason, and the command gets `403` with the reason.
-- **Linux.** `bwrap --unshare-all` leaves the command a network with only its own loopback. The proxy listens on a Unix socket in the temp folder of the run, which the sandbox already binds at the same path. The wrapper starts `gnomish-relay --sandbox-forward <socket> bash -c <command>` inside the sandbox. This forwarder listens on `127.0.0.1:3128` of that network, relays each connection to the socket, runs the command, and exits with its status. No `socat` and no `unsafe`.
+- **Linux.** `bwrap --unshare-all` leaves the command a network with only its own loopback. The proxy listens on a Unix socket in the temp folder of the run, which the sandbox already binds at the same path. The wrapper starts `gnomish-relay --sandbox-forward <socket> <local ports> bash -c <command>` inside the sandbox. This forwarder listens on `127.0.0.1:3128` of that network and on each port of `local_ports`, relays each connection to the socket, runs the command, and exits with its status. No `socat` and no `unsafe`.
 - **macOS.** The proxy listens on a free loopback port. The profile allows only that port, after `(deny network*)`, and denies the services of the keychain (see "macOS: `sandbox-exec`"). Other programs of the user can also reach the port, but they already have the full network, and the proxy gives them nothing more.
-- **The variables.** The command gets `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`, `ALL_PROXY`, `CARGO_HTTP_PROXY`, `npm_config_https_proxy`, and `npm_config_proxy` with `http://127.0.0.1:<port>`, and an empty `NO_PROXY` and `no_proxy`. A command that clears them has no way out: the OS network stays off. The caches of npm and pip in the home folder are read-only, so `npm_config_cache` and `PIP_CACHE_DIR` point into the temp folder of the run.
+- **The variables.** The command gets `HTTPS_PROXY`, `https_proxy`, `HTTP_PROXY`, `http_proxy`, `ALL_PROXY`, `CARGO_HTTP_PROXY`, `npm_config_https_proxy`, and `npm_config_proxy` with `http://127.0.0.1:<port>`, and `NO_PROXY` and `no_proxy` set to `localhost,127.0.0.1,::1`: the loopback of the sandbox on Linux, and the ports of `local_ports` that Seatbelt allows on macOS. A command that clears them has no way out: the OS network stays off. The caches of npm and pip in the home folder are read-only, so `npm_config_cache` and `PIP_CACHE_DIR` point into the temp folder of the run.
 - **The default hosts,** each checked against what the tool fetches:
 
 | Host | Why |
@@ -1677,7 +1677,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, or the relay part with `--relay` (11.3).
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts` and `default_hosts`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, and `local_ports`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -1744,10 +1744,12 @@ commands = ["cargo test *", "cargo fmt --check"]
 [sandbox]
 allow_hosts = ["nodejs.org"]   # added to the default hosts of 6.6.4
 default_hosts = true           # false leaves only allow_hosts
+local_ports = [5432, 3000]     # ports of this computer for the agent and its commands
 ```
 
 - A host is an exact name, compared without ASCII case. It has at least one dot, and its last label starts with a letter. A `*`, a port, a scheme, an IP address in any form, and `localhost` are errors, so a typo never opens more than one name.
-- With `default_hosts = false` and no `allow_hosts`, the proxy does not start, and commands have no network at all.
+- With `default_hosts = false`, no `allow_hosts`, and no `local_ports`, the proxy does not start, and commands have no network at all.
+- `local_ports` (6.6.4, "`local_ports`") lists ports of the loopback of this computer, for example a database or a dev server. 2375, 2376 (Docker), 9222 (the debugger of a browser), and 3128 (the forwarder of the sandbox) are errors.
 - Hosts that a user can add: `nodejs.org` (headers for native modules of npm), `proxy.golang.org` and `sum.golang.org` (Go modules).
 - Only the desktop changes `config.toml` (6.6.2), so no message from the game adds a host.
 
