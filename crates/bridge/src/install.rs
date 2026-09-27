@@ -18,7 +18,7 @@ pub const KEY_FILE: &str = "Key.lua";
 /// The addon, built into the program, so one download installs everything. The files of
 /// `addon/transport` are shared with other apps (SPEC.md 9.7, decision 14). They go into
 /// this addon here, so the repo never holds a copy of them.
-pub const ADDON_FILES: [(&str, &[u8]); 23] = [
+pub const ADDON_FILES: [(&str, &[u8]); 24] = [
     (
         "GnomishRelay.toc",
         include_bytes!("../../../addon/GnomishRelay/GnomishRelay.toc"),
@@ -102,6 +102,11 @@ pub const ADDON_FILES: [(&str, &[u8]); 23] = [
     (
         "Core.lua",
         include_bytes!("../../../addon/GnomishRelay/Core.lua"),
+    ),
+    // The game reads it from the folder by itself: the key binding of the window.
+    (
+        "Bindings.xml",
+        include_bytes!("../../../addon/GnomishRelay/Bindings.xml"),
     ),
     // The mono font of code boxes, under the SIL Open Font License.
     (

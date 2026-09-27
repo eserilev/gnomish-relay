@@ -1,0 +1,5 @@
+<Bindings>
+	<Binding name="GNOMISHRELAY_TOGGLE" header="GNOMISHRELAY" category="ADDONS">
+		GnomishRelay_Toggle()
+	</Binding>
+</Bindings>

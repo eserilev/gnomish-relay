@@ -206,9 +206,11 @@ LUA = set("assert error ipairs next pairs pcall print rawget rawset select setme
 
 
 def own_prefixes():
-    """The globals of the addon itself, such as `GnomishRelay_SlotData` and `SLASH_GNOMISHRELAY1`."""
+    """The globals of the addon itself, such as `GnomishRelay_SlotData`, `SLASH_GNOMISHRELAY1`,
+    and the names of its key bindings, `BINDING_HEADER_GNOMISHRELAY` and `BINDING_NAME_GNOMISHRELAY_*`."""
     names = addon_names()
-    return tuple(names + ["SLASH_" + name.upper() for name in names])
+    prefixes = ["SLASH_", "BINDING_HEADER_", "BINDING_NAME_"]
+    return tuple(names + [prefix + name.upper() for name in names for prefix in prefixes])
 
 
 def lint_globals(path):

@@ -2764,3 +2764,18 @@ fn the_settings_parser_reads_the_list_of_the_bridge() {
         ("claude", 2, "ask", "~/Code/lighthouse", false)
     );
 }
+
+#[test]
+fn the_key_binding_opens_and_closes_the_window() {
+    let game = Game::start();
+    let bindings = repo_file("addon/GnomishRelay/Bindings.xml");
+    assert!(bindings.contains("GnomishRelay_Toggle()"), "{bindings}");
+    game.run("GnomishRelay_Toggle()");
+    assert!(shown_by_name(&game, "GnomishRelayFrame"));
+    game.run("GnomishRelay_Toggle()");
+    assert!(!shown_by_name(&game, "GnomishRelayFrame"));
+    assert_eq!(
+        text_of(&game, "BINDING_NAME_GNOMISHRELAY_TOGGLE"),
+        "Open or close the window"
+    );
+}

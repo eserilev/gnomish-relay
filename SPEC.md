@@ -1648,6 +1648,7 @@ The mockup is the reference for the layout.
   - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
   - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "No data yet.". A click asks for a new list.
 - **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
+- **Key binding:** `Bindings.xml` adds "Open or close the window" under "Gnomish Relay" in the Key Bindings menu of the game. It calls the global `GnomishRelay_Toggle`.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
 - **Game chat:** a finished reply or a ping shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game.
 - **Permission requests** use the separate popup of 6.4, never the window. A desktop request has no popup: an Activity row and one whisper line (6.6.3).
@@ -1702,6 +1703,8 @@ Message ids start from the clock, so the ids after a saved-data wipe never repea
 The tests run the addon in a real Lua 5.1 with a fake WoW API (`addon/tests/wow.lua`), from `crates/bridge/tests`.
 They decode each strip with the proved Rust decoder and check its tag against the Rust HMAC.
 They also check the SHA code against both kinds of `bit` results: unsigned as in WoW, and signed as in LuaJIT.
+
+The folder also holds `Bindings.xml`, the key binding of 13.1. The game reads it from the folder by itself, so the TOC does not list it.
 
 **Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place of the window, and the agent and level of new chats. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
 

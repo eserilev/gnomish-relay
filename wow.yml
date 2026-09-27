@@ -58,6 +58,12 @@ globals:
     property: full-write
   SLASH_GNOMISHRELAYASK1:
     property: full-write
+  BINDING_HEADER_GNOMISHRELAY:
+    property: full-write
+  BINDING_NAME_GNOMISHRELAY_TOGGLE:
+    property: full-write
+  GnomishRelay_Toggle:
+    property: full-write
 structs:
   BitLib:
     band: {args: [{type: number}, {type: "..."}]}
