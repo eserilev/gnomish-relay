@@ -295,6 +295,114 @@ fn a_command_cannot_change_a_git_hook() {
 }
 
 #[test]
+fn a_command_cannot_move_or_remove_the_git_folder() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = walls(&m, tool);
+
+    let moved = run(&w, &m, "mv .git .git-old");
+    let removed = run(&w, &m, "rm -rf .git");
+
+    assert!(!moved.ok, "{}", moved.out);
+    assert!(!removed.ok, "{}", removed.out);
+    assert_eq!(
+        fs::read_to_string(m.chat.join(".git/hooks/pre-commit")).unwrap(),
+        "old hook"
+    );
+}
+
+#[test]
+fn a_command_can_still_write_the_objects_of_the_git_folder() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    fs::create_dir_all(m.chat.join(".git/objects")).unwrap();
+    let w = walls(&m, tool);
+
+    let ran = run(
+        &w,
+        &m,
+        "echo blob > .git/objects/new && echo ref > .git/HEAD",
+    );
+
+    assert!(ran.ok, "{}", ran.out);
+    assert_eq!(
+        fs::read_to_string(m.chat.join(".git/HEAD")).unwrap(),
+        "ref\n"
+    );
+}
+
+#[test]
+fn a_command_cannot_change_a_git_file_that_points_to_the_git_folder() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let lib = m.chat.join("lib");
+    fs::create_dir_all(&lib).unwrap();
+    fs::write(lib.join(".git"), "gitdir: ../.git/modules/lib\n").unwrap();
+    let w = walls(&m, tool);
+
+    let written = run(&w, &m, "echo 'gitdir: ../elsewhere' > lib/.git");
+    let moved = run(&w, &m, "mv lib/.git lib/old");
+
+    assert!(!written.ok, "{}", written.out);
+    assert!(!moved.ok, "{}", moved.out);
+    assert_eq!(
+        fs::read_to_string(lib.join(".git")).unwrap(),
+        "gitdir: ../.git/modules/lib\n"
+    );
+}
+
+#[test]
+fn a_command_cannot_change_the_config_or_hooks_of_a_submodule() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let module = m.chat.join(".git/modules/lib");
+    fs::create_dir_all(module.join("hooks")).unwrap();
+    fs::write(module.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+    fs::write(module.join("config"), "old config").unwrap();
+    let w = walls(&m, tool);
+
+    let config = run(&w, &m, "echo evil >> .git/modules/lib/config");
+    let hook = run(&w, &m, "echo evil > .git/modules/lib/hooks/pre-commit");
+
+    assert!(!config.ok, "{}", config.out);
+    assert!(!hook.ok, "{}", hook.out);
+    assert_eq!(
+        fs::read_to_string(module.join("config")).unwrap(),
+        "old config"
+    );
+    assert!(!module.join("hooks/pre-commit").exists());
+}
+
+#[test]
+fn a_move_of_the_folder_above_a_hidden_file_shows_no_secret() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let app = m.chat.join("packages/app");
+    fs::create_dir_all(&app).unwrap();
+    fs::write(app.join(".env"), "secret nested env").unwrap();
+    let w = walls(&m, tool);
+
+    let ran = run(
+        &w,
+        &m,
+        "mv packages moved; cat moved/app/.env packages/app/.env",
+    );
+
+    assert!(!ran.out.contains("secret"), "{}", ran.out);
+}
+
+#[test]
+fn a_hard_link_to_a_hidden_file_shows_no_secret() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = walls(&m, tool);
+
+    let ran = run(&w, &m, "ln .env copy; cat copy");
+
+    assert!(!ran.out.contains("secret"), "{}", ran.out);
+}
+
+#[test]
 fn a_child_process_stays_inside_the_sandbox() {
     let Some(tool) = tool() else { return };
     let m = machine();

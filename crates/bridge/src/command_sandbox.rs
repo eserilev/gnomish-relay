@@ -27,6 +27,9 @@ pub const WALLS_VAR: &str = "GNOMISH_RELAY_SANDBOX";
 const MARKER: &str = ".gnomish-relay-sandbox";
 /// A folder with more is too large to check at the start of each run.
 const MAX_WALK: usize = 1_000_000;
+/// Git outside the sandbox runs what these name, so a git folder in the chat folder hides
+/// them. `commondir` points a linked worktree at its repository.
+const GIT_FOLDER_GUARDED: [&str; 4] = ["config", "hooks", "commondir", "config.worktree"];
 pub const NO_SANDBOX: &str = "(No sandbox on this computer: every command asks in the game.)";
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// The Unix socket of the proxy, in the temp folder of the run.
@@ -158,6 +161,9 @@ pub struct Walls {
     pub temp: PathBuf,
     /// Each one exists, and none of them holds a writable path.
     pub hidden: Vec<PathBuf>,
+    /// Each `.git` in the chat folder. A command cannot move, remove, or replace one, so
+    /// git outside the sandbox never finds a new one there. A `.git` file is read-only.
+    pub pinned: Vec<PathBuf>,
     /// An empty file that shows in place of a hidden file.
     pub empty: PathBuf,
     /// The way to the proxy of the run. With none, commands have no network.
@@ -250,7 +256,8 @@ pub fn prepare(
     check_writable(&policy, &chat, &temp_path)?;
     let writable = vec![chat.clone(), temp_path.clone()];
     check_wrapper(&sandbox.wrapper, &writable)?;
-    let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), &chat)?;
+    let scan = scan_chat(&policy, &chat)?;
+    let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), scan.hidden);
     hidden.retain(|h| !writable.iter().any(|w| w.starts_with(h)));
     let place = guarded.data_dir.join("sandbox");
     let (proxy, end) = start_proxy(sandbox, &temp_path, &hidden, tag)?.unzip();
@@ -260,6 +267,7 @@ pub fn prepare(
         writable,
         temp: temp_path,
         hidden,
+        pinned: scan.pinned,
         empty: empty_file(&place)?,
         proxy: end,
         overlays,
@@ -415,21 +423,21 @@ fn hides(policy: &SandboxPolicy, path: &Path) -> bool {
 }
 
 /// The paths that the policy hides and that exist: the `deny` folders, the `desktop`
-/// paths in the home folder, and the ones in the chat folder.
-pub fn hidden_paths(
+/// paths in the home folder, and the ones that the walk of the chat folder found.
+fn hidden_paths(
     policy: &SandboxPolicy,
     deny: &[PathBuf],
     home: Option<&Path>,
-    chat: &Path,
-) -> Result<Vec<PathBuf>, String> {
+    in_chat: Vec<PathBuf>,
+) -> Vec<PathBuf> {
     let mut found: Vec<PathBuf> = deny.iter().filter_map(|d| d.canonicalize().ok()).collect();
     if let Some(home) = home {
         found.extend(home_matches(policy, home));
     }
-    found.extend(walk_matches(policy, chat)?);
+    found.extend(in_chat);
     found.sort();
     found.dedup();
-    Ok(found)
+    found
 }
 
 /// A pattern such as `.config/gh` names one path in the home folder. A last `*` needs
@@ -480,14 +488,40 @@ fn could_match(name: &str, lasts: &[String]) -> bool {
     })
 }
 
-/// The hidden paths in the chat folder. The walk does not follow links, but a link with
-/// a hidden name hides its target.
-fn walk_matches(policy: &SandboxPolicy, chat: &Path) -> Result<Vec<PathBuf>, String> {
+/// What the walk of the chat folder finds.
+#[derive(Debug, Default)]
+struct ChatScan {
+    hidden: Vec<PathBuf>,
+    pinned: Vec<PathBuf>,
+}
+
+/// macOS sees `.GIT` as `.git`.
+fn is_git_name(name: &std::ffi::OsStr) -> bool {
+    name.eq_ignore_ascii_case(".git")
+}
+
+/// A `.git` folder, or a folder of a submodule or a worktree inside one.
+fn is_git_folder(chat: &Path, folder: &Path) -> bool {
+    let inside_git = folder
+        .strip_prefix(chat)
+        .is_ok_and(|rest| rest.iter().any(is_git_name));
+    inside_git && folder.join("HEAD").is_file()
+}
+
+/// The hidden paths and the `.git` entries in the chat folder. The walk does not follow
+/// links, but a link with a hidden name hides its target. A link named `.git` stops the
+/// run: a command could replace the link, and a mount cannot pin it.
+fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
     let lasts = last_parts();
-    let mut found = Vec::new();
+    let mut scan = ChatScan::default();
     let mut folders = vec![chat.to_path_buf()];
     let mut seen = 0;
     while let Some(folder) = folders.pop() {
+        if is_git_folder(chat, &folder) {
+            for name in GIT_FOLDER_GUARDED {
+                push_real(&mut scan.hidden, &folder.join(name));
+            }
+        }
         for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
             seen += 1;
             if seen > MAX_WALK {
@@ -497,14 +531,26 @@ fn walk_matches(policy: &SandboxPolicy, chat: &Path) -> Result<Vec<PathBuf>, Str
             }
             let path = entry.path();
             let name = entry.file_name();
+            let kind = entry
+                .file_type()
+                .map_err(|e| format!("{}: {e}", path.display()))?;
+            if is_git_name(&name) {
+                if kind.is_symlink() {
+                    return Err(format!(
+                        "{} is a link, and the sandbox cannot guard a .git link.",
+                        path.display()
+                    ));
+                }
+                scan.pinned.push(path.clone());
+            }
             if could_match(&name.to_string_lossy(), &lasts) && hides(policy, &path) {
-                push_real(&mut found, &path);
-            } else if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                push_real(&mut scan.hidden, &path);
+            } else if kind.is_dir() {
                 folders.push(path);
             }
         }
     }
-    Ok(found)
+    Ok(scan)
 }
 
 /// Runs at the same time share the file, so each one only makes it when it is missing.
@@ -573,6 +619,11 @@ pub fn bwrap_args(walls: &Walls, cwd: &Path, shell: &Path, command: &str) -> Vec
     for path in &walls.writable {
         args.extend(["--bind".into(), path.into(), path.into()]);
     }
+    // A mount point cannot be moved or removed. Before the hidden paths, which lie inside.
+    for path in &walls.pinned {
+        let how = if path.is_dir() { "--bind" } else { "--ro-bind" };
+        args.extend([how.into(), path.into(), path.into()]);
+    }
     // Before the hidden paths, so a hidden file in the folder stays hidden.
     for mount in &walls.overlays {
         args.extend([
@@ -628,14 +679,14 @@ fn raw_bytes(path: &Path) -> Vec<u8> {
     crate::config::path_bytes(path)
 }
 
-/// One rule with one `subpath` filter for each path. No path gives no rule.
-fn rule(out: &mut Vec<u8>, head: &str, paths: &[&Path]) -> Result<(), String> {
+/// One rule with one filter, `subpath` or `literal`, for each path. No path gives no rule.
+fn rule(out: &mut Vec<u8>, head: &str, filter: &str, paths: &[&Path]) -> Result<(), String> {
     if paths.is_empty() {
         return Ok(());
     }
     out.extend_from_slice(head.as_bytes());
     for path in paths {
-        out.extend_from_slice(b" (subpath ");
+        out.extend_from_slice(format!(" ({filter} ").as_bytes());
         out.extend(literal(path)?);
         out.push(b')');
     }
@@ -665,7 +716,10 @@ pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
         out.extend_from_slice(NO_KEYCHAIN.as_bytes());
     }
     let writable: Vec<&Path> = walls.writable.iter().map(PathBuf::as_path).collect();
-    rule(&mut out, "(allow file-write*", &writable)?;
+    rule(&mut out, "(allow file-write*", "subpath", &writable)?;
+    let fixed = fixed_paths(walls);
+    let fixed: Vec<&Path> = fixed.iter().map(PathBuf::as_path).collect();
+    rule(&mut out, "(deny file-write*", "literal", &fixed)?;
     let private = private_folders(walls).into_iter().map(Path::new);
     let hidden: Vec<&Path> = walls
         .hidden
@@ -673,8 +727,24 @@ pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
         .map(PathBuf::as_path)
         .chain(private)
         .collect();
-    rule(&mut out, "(deny file-read* file-write*", &hidden)?;
+    rule(&mut out, "(deny file-read* file-write*", "subpath", &hidden)?;
     Ok(out)
+}
+
+/// Seatbelt rules name paths, so a move of a folder above a hidden or pinned path would
+/// take the path out of its rule. Each such folder in a writable folder stays in place.
+fn fixed_paths(walls: &Walls) -> Vec<PathBuf> {
+    let mut fixed = walls.pinned.clone();
+    for path in walls.hidden.iter().chain(&walls.pinned) {
+        let Some(root) = walls.writable.iter().find(|w| path.starts_with(w)) else {
+            continue;
+        };
+        let above = path.ancestors().skip(1).take_while(|a| a != root);
+        fixed.extend(above.map(Path::to_path_buf));
+    }
+    fixed.sort();
+    fixed.dedup();
+    fixed
 }
 
 /// How the wrapper starts one command inside the walls. Each tool of the sandbox is one
@@ -1006,6 +1076,50 @@ mod tests {
         assert!(error.contains("inside the chat folder"), "{error}");
     }
 
+    #[test]
+    fn the_walls_pin_each_git_entry_and_hide_the_guarded_files_of_a_submodule() {
+        let h = folders();
+        let module = h.chat.join(".git/modules/lib");
+        std::fs::create_dir_all(module.join("hooks")).unwrap();
+        std::fs::write(module.join("HEAD"), "ref: refs/heads/main").unwrap();
+        std::fs::write(module.join("config"), "").unwrap();
+        std::fs::create_dir_all(h.chat.join("lib")).unwrap();
+        std::fs::write(h.chat.join("lib/.git"), "gitdir: ../.git/modules/lib").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        let mut pinned = run.walls.pinned.clone();
+        pinned.sort();
+        assert_eq!(pinned, [h.chat.join(".git"), h.chat.join("lib/.git")]);
+        assert!(run.walls.hidden.contains(&module.join("config")));
+        assert!(run.walls.hidden.contains(&module.join("hooks")));
+        assert!(!run.walls.hidden.contains(&module.join("commondir")));
+    }
+
+    #[test]
+    fn a_folder_with_no_head_inside_the_git_folder_keeps_its_config() {
+        let h = folders();
+        let other = h.chat.join(".git/other");
+        std::fs::create_dir_all(&other).unwrap();
+        std::fs::write(other.join("config"), "").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        assert!(!run.walls.hidden.contains(&other.join("config")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_git_link_in_the_chat_folder_stops_the_run() {
+        let h = folders();
+        std::fs::create_dir_all(h.chat.join("lib")).unwrap();
+        std::os::unix::fs::symlink(h.chat.join(".git"), h.chat.join("lib/.git")).unwrap();
+
+        let error = run_walls(&h, &h.chat).err().unwrap();
+
+        assert!(error.contains("cannot guard a .git link"), "{error}");
+    }
+
     fn sample() -> Walls {
         Walls {
             tool: Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")),
@@ -1018,6 +1132,7 @@ mod tests {
                 PathBuf::from("/home/x/.ssh"),
                 PathBuf::from("/home/x/Code/app/.env"),
             ],
+            pinned: Vec::new(),
             empty: PathBuf::from("/data/sandbox/empty"),
             proxy: None,
             overlays: Vec::new(),
@@ -1061,6 +1176,70 @@ mod tests {
             args[args.len() - 4..],
             ["--", "/bin/bash", "-c", "cargo test"]
         );
+    }
+
+    #[test]
+    fn bwrap_pins_each_git_entry_after_the_writable_paths_and_before_the_hidden_paths() {
+        let mut walls = sample();
+        walls.pinned = vec![
+            PathBuf::from("/home/x/Code/app/.git"),
+            PathBuf::from("/home/x/Code/app/lib/.git"),
+        ];
+
+        let args = strings(&bwrap_args(
+            &walls,
+            Path::new("/"),
+            Path::new("/bin/bash"),
+            "make",
+        ));
+
+        let bind = position(&args, &["--bind", "/tmp/run1", "/tmp/run1"]);
+        let pin = position(
+            &args,
+            &[
+                "--ro-bind",
+                "/home/x/Code/app/.git",
+                "/home/x/Code/app/.git",
+            ],
+        );
+        position(
+            &args,
+            &[
+                "--ro-bind",
+                "/home/x/Code/app/lib/.git",
+                "/home/x/Code/app/lib/.git",
+            ],
+        );
+        let hide = position(&args, &["--ro-bind", "/data/sandbox/empty", "/home/x/.ssh"]);
+        assert!(bind < pin && pin < hide);
+    }
+
+    #[test]
+    fn seatbelt_keeps_each_pinned_path_and_each_folder_above_a_guarded_path_in_place() {
+        let mut walls = sample();
+        walls
+            .hidden
+            .push(PathBuf::from("/home/x/Code/app/web/api/.env"));
+        walls.pinned = vec![PathBuf::from("/home/x/Code/app/lib/.git")];
+
+        let profile = String::from_utf8(seatbelt_profile(&walls).unwrap()).unwrap();
+
+        let allow = profile.find("(allow file-write* (subpath").unwrap();
+        let fixed = profile.find("(deny file-write* (literal").unwrap();
+        assert!(allow < fixed);
+        for path in [
+            "/home/x/Code/app/lib/.git",
+            "/home/x/Code/app/lib",
+            "/home/x/Code/app/web",
+            "/home/x/Code/app/web/api",
+        ] {
+            assert!(
+                profile.contains(&format!("(literal \"{path}\")")),
+                "{path}: {profile}"
+            );
+        }
+        assert!(!profile.contains("(literal \"/home/x/Code/app\")"));
+        assert!(!profile.contains("(literal \"/home/x/Code/app/.env\")"));
     }
 
     #[test]
