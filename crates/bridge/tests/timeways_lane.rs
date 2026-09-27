@@ -111,10 +111,15 @@ fn show_strip(f: &Dirs, name: &str, frame: &[u8]) -> PathBuf {
     path
 }
 
-fn saved_variables(f: &Dirs, app: App, frame: &[u8]) {
+/// The bridge takes the frames of one file in their order, in one step.
+fn saved_variables(f: &Dirs, app: App, frames: &[Vec<u8>]) {
     let dir = f.accounts.join("ACCOUNT1/SavedVariables");
     fs::create_dir_all(&dir).unwrap();
-    let text = format!("DB = {{\n\t[\"frame\"] = \"{}\",\n}}\n", hex(frame));
+    let entries: Vec<String> = frames
+        .iter()
+        .map(|frame| format!("\t{{ [\"frame\"] = \"{}\" }},\n", hex(frame)))
+        .collect();
+    let text = format!("DB = {{\n{}}}\n", entries.concat());
     fs::write(dir.join(bridge::app_files::saved_variables_file(app)), text).unwrap();
 }
 
@@ -125,11 +130,6 @@ fn slot_file(addons: &Path, app: App, file: &str) -> String {
 /// On a busy Windows runner the story program takes more than 30 seconds to start.
 fn step_until(bridge: &mut Bridge, done: impl Fn() -> bool) -> bool {
     step_while(bridge, Duration::from_secs(90), done)
-}
-
-/// Steps for two seconds, for a test that checks that nothing happens.
-fn step_a_while(bridge: &mut Bridge) {
-    step_while(bridge, Duration::from_secs(2), || false);
 }
 
 fn step_while(bridge: &mut Bridge, limit: Duration, done: impl Fn() -> bool) -> bool {
@@ -207,13 +207,13 @@ fn no_timeways_key_means_no_timeways_lane_and_no_change_in_behavior() {
         &frame(RELAY_KEY, "tok", 8, "", "hi"),
     );
 
+    // The bridge scans both strips in one step, so this echo comes after it refused the story.
     assert!(step_until(&mut bridge, || slot_file(
         &f.addons,
         App::Relay,
         BODY_FILE
     )
     .contains("echo: hi")));
-    step_a_while(&mut bridge);
 
     assert!(story.exists(), "a strip with no known key stays");
     assert!(!f.state.join(TIMEWAYS_DIR).exists());
@@ -268,13 +268,19 @@ fn a_relay_key_frame_in_the_timeways_saved_variables_is_refused() {
     let f = folders(true);
     let runs = runs();
     let mut bridge = bridge(&f, both_keys(), &runs);
+    let marker = frame(TIMEWAYS_KEY, "tok", 8, "", "story");
     saved_variables(
         &f,
         App::Timeways,
-        &frame(RELAY_KEY, "tok", 7, "", "rm -rf ~"),
+        &[frame(RELAY_KEY, "tok", 7, "", "rm -rf ~"), marker],
     );
 
-    step_a_while(&mut bridge);
+    assert!(step_until(&mut bridge, || slot_file(
+        &f.addons,
+        App::Timeways,
+        BODY_FILE
+    )
+    .contains(NO_STORY)));
 
     assert_eq!(runs.0.load(Ordering::SeqCst), 0);
     assert!(!slot_file(&f.addons, App::Timeways, BODY_FILE).contains("id = 7"));
@@ -286,9 +292,19 @@ fn a_timeways_key_frame_in_the_relay_saved_variables_is_refused() {
     let f = folders(true);
     let runs = runs();
     let mut bridge = bridge(&f, both_keys(), &runs);
-    saved_variables(&f, App::Relay, &frame(TIMEWAYS_KEY, "tok", 7, "", "story"));
+    let marker = frame(RELAY_KEY, "tok", 8, "", "hi");
+    saved_variables(
+        &f,
+        App::Relay,
+        &[frame(TIMEWAYS_KEY, "tok", 7, "", "story"), marker],
+    );
 
-    step_a_while(&mut bridge);
+    assert!(step_until(&mut bridge, || slot_file(
+        &f.addons,
+        App::Relay,
+        BODY_FILE
+    )
+    .contains("echo: hi")));
 
     assert!(!slot_file(&f.addons, App::Timeways, BODY_FILE).contains("id = 7"));
     assert!(!slot_file(&f.addons, App::Relay, BODY_FILE).contains("id = 7"));
@@ -302,7 +318,7 @@ fn a_timeways_outbox_frame_comes_back_from_the_timeways_slots() {
     saved_variables(
         &f,
         App::Timeways,
-        &frame(TIMEWAYS_KEY, "tok", 7, "", "story"),
+        &[frame(TIMEWAYS_KEY, "tok", 7, "", "story")],
     );
 
     assert!(step_until(&mut bridge, || slot_file(
@@ -431,9 +447,18 @@ fn with_no_timeways_key_the_story_program_never_starts() {
     let runs = runs();
     let keys = KeySet::new(key(RELAY_KEY), None).unwrap();
     let mut bridge = bridge(&f, keys, &runs).with_story(echo_story(&f));
+    show_strip(
+        &f,
+        "WoWScrnShot_1.png",
+        &frame(RELAY_KEY, "tok", 7, "", "hi"),
+    );
 
-    step_a_while(&mut bridge);
-
+    assert!(step_until(&mut bridge, || slot_file(
+        &f.addons,
+        App::Relay,
+        BODY_FILE
+    )
+    .contains("echo: hi")));
     assert!(!f.state.join(TIMEWAYS_DIR).exists());
 }
 

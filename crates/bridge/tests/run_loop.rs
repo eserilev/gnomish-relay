@@ -92,7 +92,11 @@ fn relay_keys() -> KeySet {
 }
 
 fn frame(key: &[u8], text: &str) -> Vec<u8> {
-    let payload = format!("tok\x1fc1\x1f7\x1f\x1f\x1f\x1f{text}");
+    frame_with_id(key, 7, text)
+}
+
+fn frame_with_id(key: &[u8], id: u32, text: &str) -> Vec<u8> {
+    let payload = format!("tok\x1fc1\x1f{id}\x1f\x1f\x1f\x1f{text}");
     signed_frame(now(), payload.as_bytes(), key)
 }
 
@@ -100,13 +104,16 @@ fn strip_png(key: &[u8], text: &str) -> Vec<u8> {
     screenshot_png(&strip_rows(&frame(key, text)))
 }
 
-fn write_saved_variables(f: &Dirs, frame: &[u8]) {
+/// The bridge takes the frames of one file in their order, in one step.
+fn write_saved_variables(f: &Dirs, frames: &[Vec<u8>]) {
     let dir = f.accounts.join("ACCOUNT1/SavedVariables");
     fs::create_dir_all(&dir).unwrap();
-    let text = format!(
-        "GnomishRelayDB = {{\n\t[\"outbox\"] = {{\n\t\t{{\n\t\t\t[\"frame\"] = \"{}\",\n\t\t}},\n\t}},\n}}\n",
-        hex(frame)
-    );
+    let entries: Vec<String> = frames
+        .iter()
+        .map(|frame| format!("\t\t{{ [\"frame\"] = \"{}\" }},\n", hex(frame)))
+        .collect();
+    let outbox = entries.concat();
+    let text = format!("GnomishRelayDB = {{\n\t[\"outbox\"] = {{\n{outbox}\t}},\n}}\n");
     fs::write(dir.join("GnomishRelay.lua"), text).unwrap();
 }
 
@@ -117,11 +124,6 @@ fn slot_body(addons: &Path) -> String {
 /// Steps until `done` holds. A publish syncs 60 files, which is slow on Windows.
 fn step_until(bridge: &mut Bridge, done: impl Fn() -> bool) -> bool {
     step_while(bridge, Duration::from_secs(30), done)
-}
-
-/// Steps for two seconds, for a test that checks that nothing happens.
-fn step_a_while(bridge: &mut Bridge) {
-    step_while(bridge, Duration::from_secs(2), || false);
 }
 
 fn step_while(bridge: &mut Bridge, limit: Duration, done: impl Fn() -> bool) -> bool {
@@ -162,8 +164,13 @@ fn a_normal_screenshot_and_a_strip_with_a_bad_tag_stay_untouched() {
         strip_png(b"another key, 32 bytes long......", "rm -rf ~"),
     )
     .unwrap();
+    // The bridge scans every file of the folder in one step, so this echo comes after it
+    // looked at the other two.
+    let valid = f.screenshots.join("WoWScrnShot_valid.png");
+    fs::write(&valid, strip_png(KEY, "marker")).unwrap();
 
-    step_a_while(&mut bridge);
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("echo: marker")));
     assert!(user.exists());
     assert!(forged.exists());
     assert!(!slot_body(&f.addons).contains("rm -rf"));
@@ -173,7 +180,7 @@ fn a_normal_screenshot_and_a_strip_with_a_bad_tag_stay_untouched() {
 fn an_outbox_frame_in_the_saved_variables_comes_back_as_an_echo() {
     let f = folders();
     let mut bridge = bridge(&f);
-    write_saved_variables(&f, &frame(KEY, "sent by reload"));
+    write_saved_variables(&f, &[frame(KEY, "sent by reload")]);
 
     let answered = step_until(&mut bridge, || {
         slot_body(&f.addons).contains("echo: sent by reload")
@@ -185,9 +192,11 @@ fn an_outbox_frame_in_the_saved_variables_comes_back_as_an_echo() {
 fn an_outbox_frame_with_a_bad_tag_never_runs() {
     let f = folders();
     let mut bridge = bridge(&f);
-    write_saved_variables(&f, &frame(b"another key, 32 bytes long......", "rm -rf ~"));
+    let forged = frame(b"another key, 32 bytes long......", "rm -rf ~");
+    write_saved_variables(&f, &[forged, frame_with_id(KEY, 8, "marker")]);
 
-    step_a_while(&mut bridge);
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("echo: marker")));
     assert!(!slot_body(&f.addons).contains("rm -rf"));
 }
 
@@ -207,15 +216,19 @@ impl Agent for Counting {
 fn a_restarted_bridge_never_runs_an_outbox_frame_again() {
     let f = folders();
     let runs = Arc::new(Counting(AtomicUsize::new(0)));
-    write_saved_variables(&f, &frame(KEY, "only once"));
+    let once = frame(KEY, "only once");
+    write_saved_variables(&f, std::slice::from_ref(&once));
     let mut first = bridge_with(&f, runs.clone());
     assert!(step_until(&mut first, || slot_body(&f.addons)
         .contains("echo: only once")));
     drop(first);
+    // One chat runs its jobs in order, so a second run of the old frame comes before this echo.
+    write_saved_variables(&f, &[once, frame_with_id(KEY, 8, "marker")]);
 
     let mut second = bridge_with(&f, runs.clone());
-    step_a_while(&mut second);
-    assert_eq!(runs.0.load(Ordering::SeqCst), 1);
+    assert!(step_until(&mut second, || slot_body(&f.addons)
+        .contains("echo: marker")));
+    assert_eq!(runs.0.load(Ordering::SeqCst), 2);
     assert!(slot_body(&f.addons).contains("echo: only once"));
 }
 
