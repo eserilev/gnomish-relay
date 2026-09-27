@@ -207,6 +207,7 @@ mod tests {
             resume: None,
             text: "hi".into(),
             work: Work::Prompt,
+            new_folder: false,
         }
     }
 

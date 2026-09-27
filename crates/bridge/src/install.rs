@@ -18,7 +18,7 @@ pub const KEY_FILE: &str = "Key.lua";
 /// The addon, built into the program, so one download installs everything. The files of
 /// `addon/transport` are shared with other apps (SPEC.md 9.7, decision 14). They go into
 /// this addon here, so the repo never holds a copy of them.
-pub const ADDON_FILES: [(&str, &[u8]); 18] = [
+pub const ADDON_FILES: [(&str, &[u8]); 20] = [
     (
         "GnomishRelay.toc",
         include_bytes!("../../../addon/GnomishRelay/GnomishRelay.toc"),
@@ -70,6 +70,14 @@ pub const ADDON_FILES: [(&str, &[u8]); 18] = [
     (
         "Transcript.lua",
         include_bytes!("../../../addon/GnomishRelay/Transcript.lua"),
+    ),
+    (
+        "Folders.lua",
+        include_bytes!("../../../addon/GnomishRelay/Folders.lua"),
+    ),
+    (
+        "Browser.lua",
+        include_bytes!("../../../addon/GnomishRelay/Browser.lua"),
     ),
     (
         "Window.lua",

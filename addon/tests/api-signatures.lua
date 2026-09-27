@@ -87,6 +87,19 @@ return {
 		Screenshot = {},
 	},
 	methods = {
+		["FrameAPICharacterModelBase:SetRotation"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "radians", Type = "number", Nilable = false },
+				{ Name = "animate", Type = "bool", Nilable = false, Default = true },
+			},
+		},
+		["FrameAPICooldown:SetRotation"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "rotationRadians", Type = "number", Nilable = false },
+			},
+		},
 		["FrameAPIModelSceneFrameActorBase:Hide"] = {
 			Arguments = {},
 		},
@@ -112,6 +125,9 @@ return {
 			Arguments = {},
 		},
 		["FrameAPISimpleCheckout:ClearFocus"] = {
+			Arguments = {},
+		},
+		["FrameAPISimpleCheckout:SetFocus"] = {
 			Arguments = {},
 		},
 		["FrameAPITooltip:SetText"] = {
@@ -180,6 +196,9 @@ return {
 		["SimpleBrowserAPI:ClearFocus"] = {
 			Arguments = {},
 		},
+		["SimpleBrowserAPI:SetFocus"] = {
+			Arguments = {},
+		},
 		["SimpleButtonAPI:GetText"] = {
 			SecretReturnsForAspect = { Enum.SecretAspect.Text },
 			Arguments = {},
@@ -225,6 +244,10 @@ return {
 			Arguments = {
 				{ Name = "autoFocus", Type = "bool", Nilable = false, Default = false },
 			},
+		},
+		["SimpleEditBoxAPI:SetFocus"] = {
+			ChecksForbiddenAspects = { { Argument = "self", Aspect = Enum.ForbiddenAspect.ScriptedInput } },
+			Arguments = {},
 		},
 		["SimpleEditBoxAPI:SetFont"] = {
 			RequiresValidFontAsset = true,
@@ -354,6 +377,12 @@ return {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
 				{ Name = "wrap", Type = "bool", Nilable = false },
+			},
+		},
+		["SimpleFontStringAPI:SetRotation"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "radians", Type = "number", Nilable = false },
 			},
 		},
 		["SimpleFontStringAPI:SetText"] = {
@@ -609,6 +638,17 @@ return {
 				{ Name = "enable", Type = "bool", Nilable = false, Default = false },
 			},
 		},
+		["SimpleScriptRegionAPI:GetWidth"] = {
+			ConstSecretAccessor = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretWhenAnchoringSecret = true,
+			Arguments = {
+				{ Name = "ignoreRect", Type = "bool", Nilable = false, Default = false },
+			},
+			Returns = {
+				{ Name = "width", Type = "uiUnit", Nilable = false },
+			},
+		},
 		["SimpleScriptRegionAPI:Hide"] = {
 			Arguments = {},
 		},
@@ -780,6 +820,14 @@ return {
 				{ Name = "colorG", Type = "number", Nilable = false },
 				{ Name = "colorB", Type = "number", Nilable = false },
 				{ Name = "a", Type = "SingleColorValue", Nilable = true },
+			},
+		},
+		["SimpleTextureBaseAPI:SetRotation"] = {
+			SecretArguments = "AllowedWhenTainted",
+			SecretArgumentsAddAspect = { Enum.SecretAspect.Rotation },
+			Arguments = {
+				{ Name = "radians", Type = "number", Nilable = false },
+				{ Name = "normalizedRotationPoint", Type = "vector2", Mixin = "Vector2DMixin", Nilable = true },
 			},
 		},
 		["SimpleTextureBaseAPI:SetTexture"] = {

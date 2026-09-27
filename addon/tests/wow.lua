@@ -192,8 +192,8 @@ function methods:RegisterEvent(event)
 	self.events[event] = true
 end
 
-function methods:CreateTexture()
-	local t = New("Texture", nil, self)
+function methods:CreateTexture(name)
+	local t = New("Texture", name, self)
 	table.insert(wow.textures, t)
 	return t
 end
@@ -215,6 +215,24 @@ function methods:SetText(text)
 		error("SimpleHTML failed")
 	end
 	self.text = text
+	if self.kind == "EditBox" and self.scripts.OnTextChanged then
+		self.scripts.OnTextChanged(self, false)
+	end
+end
+
+-- One edit box at a time has the keyboard.
+function methods:SetFocus()
+	wow.focus = self
+end
+
+function methods:ClearFocus()
+	if wow.focus == self then
+		wow.focus = nil
+	end
+end
+
+function methods:HasFocus()
+	return wow.focus == self
 end
 
 function methods:GetText()

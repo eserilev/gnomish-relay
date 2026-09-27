@@ -19,11 +19,13 @@ use crate::config::{
     Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
 };
 use crate::flags::{self, ListKind, TransportFlags};
+use crate::folder_list::folder_reply;
+use crate::folder_walk::Snapshot;
 use crate::history::{ChatLog, History, Speaker};
 pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
+use crate::new_folder::{NewFolderError, is_folder_name};
 use crate::reply::render_reply;
-use crate::repos::Repo;
 use crate::state::State;
 
 const BAD_FOLDER: &str = "Folder not allowed.";
@@ -38,10 +40,6 @@ const MAX_TITLE: usize = 100;
 /// A session that changed this recently is probably open in a terminal.
 const ACTIVE_FOR: u32 = 300;
 const NO_SESSION: &str = "Session not found. Open Resume again.";
-/// The repositories in one folder list, newest first.
-const MAX_FOLDERS: usize = 50;
-/// The game sends a listed folder back in each message of its chat.
-const MAX_FOLDER: usize = 255;
 
 /// The agent session of a chat. The next message of the chat resumes it, if its
 /// agent and its folder are the same (SPEC.md 9.5).
@@ -66,7 +64,7 @@ pub enum Work {
     Prompt,
     /// The saved sessions of every agent, for Resume in the game.
     ListSessions,
-    /// The git repositories in the roots, for a new chat.
+    /// The folder tree of the roots, for the folder browser.
     ListFolders,
     /// A new chat continues this session. A session that is open in a terminal gets a
     /// fork, so the two never write into one session.
@@ -114,6 +112,9 @@ pub struct Job {
     pub text: String,
     #[serde(default)]
     pub work: Work,
+    /// The bridge makes the last part of `cwd` before the run (SPEC.md 9.9).
+    #[serde(default)]
+    pub new_folder: bool,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -164,16 +165,25 @@ fn field(text: &str) -> String {
         .collect()
 }
 
-/// Tab-separated: the folder relative to the base, and its name. `None` for a folder
-/// that the game cannot send back, or that would break the line.
-fn folder_line(base: &[u8], resolved: &[u8]) -> Option<String> {
-    let folder = String::from_utf8(relative_folder(base, resolved)).ok()?;
-    let fits = folder.len() <= MAX_FOLDER && !folder.chars().any(char::is_control);
-    if !fits || folder_request(folder.as_bytes(), cfg!(windows)).is_none() {
-        return None;
+/// The folder in the form of the resolver, or `None` outside every root.
+pub fn in_roots(folders: &Folders, path: &std::path::Path) -> Option<Vec<u8>> {
+    let mut target = path_bytes(path);
+    // A Windows path starts with its drive. The resolver takes it as absolute only
+    // with a `/` first.
+    if !target.starts_with(b"/") {
+        target.insert(0, b'/');
     }
-    let name = resolved.rsplit(|&b| b == b'/').next().unwrap_or_default();
-    Some(format!("{folder}\t{}", field(&text(name))))
+    resolve_folder(&folders.roots, &folders.base, &target)
+}
+
+/// A new folder comes from the browser: a relative path whose last part is a name.
+/// The bridge checks the rest on the disk when the run starts.
+fn is_new_folder_request(cwd: &[u8]) -> bool {
+    let Ok(cwd) = std::str::from_utf8(cwd) else {
+        return false;
+    };
+    let last = cwd.rsplit(['/', '\\']).next().unwrap_or_default();
+    !cwd.starts_with(['/', '\\']) && is_folder_name(last)
 }
 
 fn cut_chars(text: &str, max: usize) -> &str {
@@ -309,6 +319,13 @@ impl Relay {
             );
             return Outcome::BadFolder;
         };
+        // Only the first message of a chat makes its folder (SPEC.md 9.9).
+        let new_folder = flags.new_folder && flags.new_session;
+        if new_folder && !is_new_folder_request(&r.cwd) {
+            let bad = NewFolderError::BadName.text();
+            self.set_record(&text(&r.token), &chat, MessageId(r.id), Status::Error, bad);
+            return Outcome::BadFolder;
+        }
         let Some(permission) = self.policy.agents.get(&agent) else {
             self.set_record(
                 &text(&r.token),
@@ -337,6 +354,7 @@ impl Relay {
             resume: None,
             text: text(&r.text),
             work: Work::Prompt,
+            new_folder,
         })
     }
 
@@ -357,6 +375,7 @@ impl Relay {
                 ListKind::Sessions => Work::ListSessions,
                 ListKind::Folders => Work::ListFolders,
             },
+            new_folder: false,
         })
     }
 
@@ -386,6 +405,7 @@ impl Relay {
                 session: listed.id,
                 fork: now.saturating_sub(listed.updated) < ACTIVE_FOR,
             },
+            new_folder: false,
         })
     }
 
@@ -595,24 +615,12 @@ impl Relay {
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
 
-    /// The folder in the form of the resolver, or `None` outside every root.
-    fn in_roots(&self, path: &std::path::Path) -> Option<Vec<u8>> {
-        let folders = &self.policy.folders;
-        let mut target = path_bytes(path);
-        // A Windows path starts with its drive. The resolver takes it as absolute only
-        // with a `/` first.
-        if !target.starts_with(b"/") {
-            target.insert(0, b'/');
-        }
-        resolve_folder(&folders.roots, &folders.base, &target)
-    }
-
     fn to_listed(&self, agent: String, info: SessionInfo) -> Option<Listed> {
         if !flags::is_session_id(&info.id) {
             return None;
         }
         let folders = &self.policy.folders;
-        let resolved = self.in_roots(std::path::Path::new(&info.cwd))?;
+        let resolved = in_roots(folders, std::path::Path::new(&info.cwd))?;
         Some(Listed {
             agent,
             id: info.id,
@@ -650,31 +658,12 @@ impl Relay {
         lines.join("\n")
     }
 
-    /// Answers a folder list with the default folder, then the newest repositories
-    /// (SPEC.md 9.9).
-    pub fn finish_folders(&mut self, job: &Job, mut repos: Vec<Repo>) {
+    /// Answers a folder list with the folder tree (SPEC.md 9.9).
+    pub fn finish_folders(&mut self, job: &Job, snapshot: &Snapshot) {
         self.activity.end(&job.chat, job.id);
         self.running.remove(&job.chat);
-        repos.sort_by_key(|r| std::cmp::Reverse(r.updated));
-        let text = self.folder_lines(&repos).join("\n");
+        let text = folder_reply(&self.policy.folders, snapshot);
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
-    }
-
-    fn folder_lines(&self, repos: &[Repo]) -> Vec<String> {
-        let base = &self.policy.folders.base;
-        let mut lines: Vec<String> = folder_line(base, base).into_iter().collect();
-        for repo in repos {
-            if lines.len() > MAX_FOLDERS {
-                break;
-            }
-            let Some(resolved) = self.in_roots(&repo.path) else {
-                continue;
-            };
-            if resolved != *base {
-                lines.extend(folder_line(base, &resolved));
-            }
-        }
-        lines
     }
 
     /// Puts the record of a message at the newest place with its new state.
@@ -1456,15 +1445,24 @@ mod tests {
         assert!(relay.list_text(NOW).contains("\t0\tc1\t"));
     }
 
-    fn repo(path: &str, updated: u32) -> Repo {
-        Repo {
-            path: path.into(),
-            updated,
+    fn snapshot(paths: &[(&str, Option<usize>)]) -> Snapshot {
+        let folders = paths
+            .iter()
+            .map(|(path, parent)| crate::folder_walk::Folder {
+                path: (*path).into(),
+                parent: *parent,
+                repo: false,
+            })
+            .collect();
+        Snapshot {
+            folders,
+            complete: true,
+            home: None,
         }
     }
 
     /// Runs a folder list request of chat `folders` with what the walk found.
-    fn list_folders(relay: &mut Relay, id: u32, found: Vec<Repo>) -> String {
+    fn list_folders(relay: &mut Relay, id: u32, found: &Snapshot) -> String {
         relay.on_frame(&[record("folders", id, "list=folders", "")], NOW);
         let job = relay.next_job().unwrap();
         assert_eq!(job.work, Work::ListFolders);
@@ -1475,57 +1473,20 @@ mod tests {
     }
 
     #[test]
-    fn a_folder_list_shows_the_default_folder_then_the_newest_repositories() {
+    fn a_folder_list_answers_with_the_folder_tree() {
         let mut relay = relay();
-        let text = list_folders(
-            &mut relay,
-            1,
-            vec![
-                repo("/home/x/Code/old", NOW - 7200),
-                repo("/home/x/Code/work/new", NOW - 60),
-                repo("/home/x/Other/app", NOW),
-                repo("/home/x/Code", NOW),
-            ],
-        );
-        assert_eq!(
-            text, "\tCode\nwork/new\tnew\nold\told",
-            "a folder outside the roots never shows, and the default shows once"
-        );
+        let found = snapshot(&[("/home/x/Code", None), ("/home/x/Code/app", Some(0))]);
+        let text = list_folders(&mut relay, 1, &found);
+        assert_eq!(text, "/home/x/Code\n0\t/home/x/Code\t\n1\tapp\t");
     }
 
     #[test]
-    fn a_folder_list_holds_at_most_fifty_repositories() {
+    fn a_folder_of_the_tree_comes_back_as_the_folder_of_a_new_chat() {
         let mut relay = relay();
-        let found = (0..60)
-            .map(|i| repo(&format!("/home/x/Code/r{i}"), NOW - i))
-            .collect();
-        let text = list_folders(&mut relay, 1, found);
-        assert_eq!(text.lines().count(), 1 + MAX_FOLDERS);
-        assert!(text.lines().nth(1).unwrap().starts_with("r0\t"));
-    }
-
-    #[test]
-    fn a_folder_that_would_break_a_line_or_a_strip_is_left_out() {
-        let mut relay = relay();
-        let long = format!("/home/x/Code/{}", "a".repeat(MAX_FOLDER + 1));
-        let text = list_folders(
-            &mut relay,
-            1,
-            vec![
-                repo("/home/x/Code/tab\there", NOW),
-                repo(&long, NOW),
-                repo("/home/x/Code/fine", NOW),
-            ],
-        );
-        assert_eq!(text, "\tCode\nfine\tfine");
-    }
-
-    #[test]
-    fn a_listed_folder_comes_back_as_the_folder_of_a_new_chat() {
-        let mut relay = relay();
-        list_folders(&mut relay, 1, vec![repo("/home/x/Code/work/app", NOW)]);
-        relay.on_frame(&[record_in("work/app", "c1", 2, "n", "hi")], NOW);
-        assert_eq!(relay.next_job().unwrap().cwd, "/home/x/Code/work/app");
+        let found = snapshot(&[("/home/x/Code", None), ("/home/x/Code/app", Some(0))]);
+        list_folders(&mut relay, 1, &found);
+        relay.on_frame(&[record_in("app", "c1", 2, "n", "hi")], NOW);
+        assert_eq!(relay.next_job().unwrap().cwd, "/home/x/Code/app");
     }
 
     #[test]
@@ -1536,9 +1497,55 @@ mod tests {
             1,
             vec![("codex".into(), info("s1", "/home/x/Code", "Work", NOW))],
         );
-        list_folders(&mut relay, 2, Vec::new());
+        list_folders(&mut relay, 2, &snapshot(&[]));
         relay.on_frame(&[record("c9", 3, "attach=s1", "")], NOW);
         assert_eq!(relay.next_job().unwrap().agent, "codex");
+    }
+
+    #[test]
+    fn the_first_message_with_mkdir_asks_the_run_for_a_new_folder() {
+        let mut relay = relay();
+        relay.on_frame(&[record_in("work/new", "c1", 1, "n;mkdir=1", "hi")], NOW);
+        let job = relay.next_job().unwrap();
+        assert!(job.new_folder);
+        assert_eq!(job.cwd, "/home/x/Code/work/new");
+    }
+
+    #[test]
+    fn mkdir_on_a_later_message_is_ignored() {
+        let mut relay = relay();
+        relay.on_frame(&[record_in("work/new", "c1", 1, "mkdir=1", "hi")], NOW);
+        assert!(!relay.next_job().unwrap().new_folder);
+    }
+
+    #[test]
+    fn a_new_folder_with_a_bad_last_part_or_an_absolute_path_never_runs() {
+        for cwd in [
+            "a/b/..",
+            "a/..",
+            ".",
+            "a/.",
+            "/home/x/Code/new",
+            "a/b\u{7}",
+            "",
+        ] {
+            let mut relay = relay();
+            let outcomes = relay.on_frame(&[record_in(cwd, "c1", 1, "n;mkdir=1", "hi")], NOW);
+            assert_eq!(outcomes, [Outcome::BadFolder], "{cwd:?}");
+            assert!(relay.next_job().is_none());
+            assert!(
+                body(&relay).contains("Folder not made: bad name."),
+                "{cwd:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_new_folder_outside_every_root_never_runs() {
+        let mut relay = relay();
+        let outcomes = relay.on_frame(&[record_in("../../new", "c1", 1, "n;mkdir=1", "hi")], NOW);
+        assert_eq!(outcomes, [Outcome::BadFolder]);
+        assert!(body(&relay).contains("Folder not allowed."));
     }
 
     #[test]

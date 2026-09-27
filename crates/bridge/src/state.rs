@@ -94,6 +94,7 @@ mod tests {
                     session: "s1".into(),
                     fork: true,
                 },
+                new_folder: true,
             }],
             restore_for: Some("new".into()),
             ..State::default()

@@ -2,6 +2,7 @@
 //! checks the promises of models/transport.qnt on the real code: no message runs
 //! twice, the body never holds more than 30 records, and no job leaves the root.
 //! Restarts through `state.json` come at random places, and the promises still hold.
+//! A job that makes a new folder is a first message, and the last part of its folder is a name.
 //! A Timeways lane runs next to it (SPEC.md 9.7): each frame goes to one lane, a
 //! Timeways record never becomes a job, and each Timeways message reaches the story once.
 #![no_main]
@@ -9,14 +10,15 @@
 use std::collections::HashSet;
 
 use bridge::config::{Permission, Policy};
-use bridge::relay::{Folders, Relay};
+use bridge::new_folder::is_folder_name;
+use bridge::relay::{Folders, Relay, Session};
 use bridge::timeways::Timeways;
 use libfuzzer_sys::fuzz_target;
 use protocol::record::Record;
 
 const CHATS: [&str; 3] = ["c1", "c2", "relay"];
-const FOLDERS: [&str; 5] = ["", "sub", "../..", "/etc", "a/../../b"];
-const FLAGS: [&str; 10] = [
+const FOLDERS: [&str; 7] = ["", "sub", "../..", "/etc", "a/../../b", "sub/..", "/r/new"];
+const FLAGS: [&str; 12] = [
     "",
     "n",
     "stop",
@@ -27,6 +29,8 @@ const FLAGS: [&str; 10] = [
     "agent=codex",
     "read=1,2,3,4",
     "next=9",
+    "n;mkdir=1",
+    "mkdir=1",
 ];
 
 /// A Timeways record carries this text, so a job with it came from the wrong lane.
@@ -84,6 +88,11 @@ fuzz_target!(|data: &[u8]| {
                     "left the root: {}",
                     job.cwd
                 );
+                if job.new_folder {
+                    assert_eq!(job.session, Session::New, "only a first message makes a folder");
+                    let last = job.cwd.rsplit('/').next().unwrap_or_default();
+                    assert!(is_folder_name(last), "a new folder with a bad name: {}", job.cwd);
+                }
                 let result = if step.len() > 1 && step[1] % 2 == 0 {
                     Ok("ok".into())
                 } else {

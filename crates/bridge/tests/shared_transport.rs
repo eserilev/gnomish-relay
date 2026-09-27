@@ -47,6 +47,8 @@ const RELAY_FILES: &[&str] = &[
     "Transport.lua",
     "Blocks.lua",
     "Transcript.lua",
+    "Folders.lua",
+    "Browser.lua",
     "Window.lua",
     "Popup.lua",
     "Core.lua",

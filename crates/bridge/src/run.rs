@@ -19,8 +19,9 @@ use protocol::record::Record;
 use protocol::version::version_fit;
 
 use crate::action_input::resolve;
+use crate::folder_walk::{self, Snapshot, Walk};
+use crate::new_folder::make_folder;
 use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
-use crate::repos::{self, Repo, Walk};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::slots::{self, Files};
@@ -40,7 +41,7 @@ type Found = Result<Vec<(String, SessionInfo)>, String>;
 enum Finished {
     Run(Job, Run),
     List(Job, Found),
-    Folders(Job, Vec<Repo>),
+    Folders(Job, Snapshot),
 }
 type RunEvent = (ChatId, MessageId, Event);
 
@@ -111,7 +112,7 @@ struct RelayLane {
     relay: Relay,
     files: LaneFiles,
     agents: Agents,
-    /// Where the folder list looks for repositories.
+    /// Where the folder list looks, and where a new folder may go.
     walk: Walk,
     /// The stop signal of each run in progress, by chat.
     stops: BTreeMap<ChatId, StopSignal>,
@@ -357,6 +358,14 @@ impl RelayLane {
             self.relay.begin(&job);
             self.files.changed = true;
         }
+        if let Err(refused) = self.make_new_folder(&job) {
+            let run = Run {
+                reply: Err(refused),
+                session: None,
+            };
+            let _ = finished.send(Finished::Run(job, run));
+            return;
+        }
         let raise = self.raise_for(&job);
         thread::spawn(move || {
             let mut job = job;
@@ -373,6 +382,15 @@ impl RelayLane {
             };
             let _ = finished.send(Finished::Run(job, run));
         });
+    }
+
+    /// The folder is made before the run, so the agent starts in it (SPEC.md 9.9).
+    fn make_new_folder(&self, job: &Job) -> Result<(), String> {
+        if !job.new_folder {
+            return Ok(());
+        }
+        log(&format!("new folder for {} #{}", job.chat.0, job.id.0));
+        make_folder(&self.walk, Path::new(&job.cwd)).map_err(|e| e.text())
     }
 
     /// The raise that a job carries, if any. The config is checked first, so the
@@ -414,7 +432,7 @@ impl RelayLane {
         let walk = self.walk.clone();
         let finished = self.finished.clone();
         thread::spawn(move || {
-            let found = repos::find_repos(&walk, &repos::LIMITS);
+            let found = folder_walk::walk_folders(&walk, &folder_walk::LIMITS);
             let _ = finished.send(Finished::Folders(job, found));
         });
     }
@@ -476,7 +494,7 @@ impl RelayLane {
                     continue;
                 }
                 Finished::Folders(job, found) => {
-                    self.relay.finish_folders(&job, found);
+                    self.relay.finish_folders(&job, &found);
                     self.files.changed = true;
                     continue;
                 }
@@ -666,7 +684,14 @@ fn repo_walk(policy: &Policy, paths: &Paths) -> Walk {
         deny: [&paths.config, &paths.state]
             .map(|d| resolve(d).unwrap_or_else(|| d.clone()))
             .into(),
+        home: home_folder().and_then(|h| resolve(&h)),
     }
+}
+
+fn home_folder() -> Option<PathBuf> {
+    std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(PathBuf::from)
 }
 
 /// An agent that fails to list is left out. Only when every agent fails is the list

@@ -550,12 +550,9 @@ fn two_chats_that_ask_for_more_at_once_get_one_dialog() {
     assert_eq!(answering.join().unwrap(), 1);
 }
 
-#[test]
-fn a_folder_list_comes_back_with_the_repositories_but_never_the_config_folder() {
-    let f = folders();
+/// A bridge whose root and default folder is the temp folder of `f`.
+fn bridge_in_temp(f: &Dirs) -> (Bridge, std::path::PathBuf) {
     let root = f.state.parent().unwrap().canonicalize().unwrap();
-    fs::create_dir_all(root.join("Code/app/.git")).unwrap();
-    fs::create_dir_all(f.state.join("config/.git")).unwrap();
     let base = path_bytes(&root);
     let policy = Policy {
         folders: Folders {
@@ -564,7 +561,15 @@ fn a_folder_list_comes_back_with_the_repositories_but_never_the_config_folder() 
         },
         ..policy()
     };
-    let mut bridge = bridge_in(&f, policy, Arc::new(Echo));
+    (bridge_in(f, policy, Arc::new(Echo)), root)
+}
+
+#[test]
+fn a_folder_list_comes_back_with_the_folder_tree_but_never_the_config_folder() {
+    let f = folders();
+    let (mut bridge, root) = bridge_in_temp(&f);
+    fs::create_dir_all(root.join("Code/app/.git")).unwrap();
+    fs::create_dir_all(f.state.join("config")).unwrap();
     let payload = b"tok\x1ffolders\x1f8\x1f\x1flist=folders\x1f\x1f";
     let png = screenshot_png(&strip_rows(&signed_frame(now(), payload, KEY)));
     fs::write(f.screenshots.join("WoWScrnShot_3.png"), png).unwrap();
@@ -574,6 +579,42 @@ fn a_folder_list_comes_back_with_the_repositories_but_never_the_config_folder() 
         .contains(r#"chat = "folders", id = 8, status = "done""#)));
 
     let body = slot_body(&f.addons);
-    assert!(body.contains("Code/app\\009app"), "{body}");
+    assert!(body.contains("\\009Code\\009"), "{body}");
+    assert!(body.contains("\\009app\\009g"), "{body}");
+    assert!(
+        !body.contains("\\009data\\009"),
+        "the data folder of the bridge is a deny folder"
+    );
     assert!(!body.contains("config"), "{body}");
+}
+
+#[test]
+fn the_first_message_in_a_new_folder_makes_it_and_runs_in_it() {
+    let f = folders();
+    let (mut bridge, root) = bridge_in_temp(&f);
+    fs::create_dir_all(root.join("Code")).unwrap();
+    let payload = b"tok\x1fc1\x1f9\x1fCode/fresh\x1fn;mkdir=1\x1f\x1fhello";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), payload, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_4.png"), png).unwrap();
+
+    let addons = f.addons.clone();
+    assert!(step_until(&mut bridge, || slot_body(&addons).contains("echo: hello")));
+
+    assert!(root.join("Code/fresh").is_dir());
+}
+
+#[test]
+fn a_new_folder_whose_parent_is_missing_ends_as_an_error_and_makes_nothing() {
+    let f = folders();
+    let (mut bridge, root) = bridge_in_temp(&f);
+    let payload = b"tok\x1fc1\x1f9\x1fnone/fresh\x1fn;mkdir=1\x1f\x1fhello";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), payload, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_5.png"), png).unwrap();
+
+    let addons = f.addons.clone();
+    assert!(step_until(&mut bridge, || slot_body(&addons)
+        .contains("Folder not made: its parent is missing.")));
+
+    assert!(!root.join("none").exists());
+    assert!(!slot_body(&f.addons).contains("echo: hello"));
 }

@@ -475,6 +475,18 @@ pub fn native_folder(resolved: Vec<u8>, windows: bool) -> Vec<u8> {
     }
 }
 
+/// The parts of a path in the form of `path_bytes`.
+pub fn path_parts(path: &[u8]) -> Vec<&[u8]> {
+    path.split(|&b| b == b'/')
+        .filter(|p| !p.is_empty())
+        .collect()
+}
+
+/// Both paths in the form of `path_bytes`, so a `\\?\` prefix never makes a difference.
+pub fn is_inside_folder(path: &[u8], folder: &[u8]) -> bool {
+    path_parts(path).starts_with(&path_parts(folder))
+}
+
 /// The path from `base` to `target`, both resolved. The game sends it back, and it
 /// resolves to `target` again. An absolute path can hold a drive, which the game
 /// cannot send on Windows.

@@ -10,7 +10,9 @@ use protocol::apps::App;
 use protocol::version::{VersionFit, newest, oldest, version_fit};
 use libfuzzer_sys::fuzz_target;
 
-const CODING: [&str; 8] = ["perm", "level", "agent", "attach", "list", "d", "n", "stop"];
+const CODING: [&str; 9] = [
+    "perm", "level", "agent", "attach", "list", "d", "n", "stop", "mkdir",
+];
 
 fn is_coding(flag: &str) -> bool {
     let name = flag.split_once('=').map_or(flag, |(name, _)| name);

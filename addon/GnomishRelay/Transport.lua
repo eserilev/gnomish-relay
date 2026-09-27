@@ -50,6 +50,10 @@ local function Fields(chat, message)
 	if chat.fresh then
 		table.insert(flags, "n")
 	end
+	-- The bridge makes the folder only now, so a chat that never sends leaves none.
+	if chat.fresh and chat.newFolder then
+		table.insert(flags, "mkdir=1")
+	end
 	if message.attach then
 		table.insert(flags, "attach=" .. chat.attach)
 	end
@@ -84,7 +88,7 @@ function Transport.ListSessions()
 	List(LIST_CHAT, "list")
 end
 
--- The list is the reply to a message of the chat "folders", one folder per line.
+-- The list is the reply to a message of the chat "folders": the folder tree (Folders.lua).
 function Transport.ListFolders()
 	List(FOLDER_CHAT, "list=folders")
 end
@@ -176,22 +180,11 @@ local function ParseSessions(text)
 	return rows
 end
 
--- Folder, name (SPEC.md 9.9). The first line is the default folder, with no folder.
-function Transport.ParseFolders(text)
-	local rows = {}
-	for line in Lines(text) do
-		local f = Cells(line)
-		if #f == 2 and f[2] ~= "" then
-			table.insert(rows, { folder = f[1], name = f[2] })
-		end
-	end
-	return rows
-end
-
--- The saved variables key and the parser of the reply of each list chat.
+-- The saved variables key, the field, and the parser of the reply of each list chat.
+-- The folder tree stays text: a parsed tree has loops, and saved variables cannot.
 local LISTS = {
-	[LIST_CHAT] = { key = "sessions", Parse = ParseSessions },
-	[FOLDER_CHAT] = { key = "folders", Parse = Transport.ParseFolders },
+	[LIST_CHAT] = { key = "sessions", field = "rows", Parse = ParseSessions },
+	[FOLDER_CHAT] = { key = "folders", field = "text", Parse = tostring },
 }
 
 -- An older list that comes after a newer one changes nothing. Returns whether the
@@ -209,16 +202,20 @@ local function ApplyList(r)
 	if r.id == state.listing[r.chat] then
 		state.listing[r.chat] = nil
 	end
+	local entry = { id = r.id, at = time() }
 	if r.status == "error" then
-		db[list.key] = { id = r.id, at = time(), rows = last and last.rows or {}, error = r.text }
-		return true
+		entry[list.field] = last and last[list.field]
+		entry.error = r.text
+	else
+		entry[list.field] = list.Parse(r.text)
 	end
-	db[list.key] = { id = r.id, at = time(), rows = list.Parse(r.text) }
+	db[list.key] = entry
 	return true
 end
 
 local function ApplyStatus(chat, id, status)
 	chat.fresh = nil
+	chat.newFolder = nil
 	local working = state.working[chat.id]
 	if status == "working" then
 		if not working or working.id ~= id then

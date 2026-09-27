@@ -86,6 +86,7 @@ fn job(home: &Home, permission: Permission) -> Job {
         resume: None,
         text: "go".into(),
         work: Work::Prompt,
+        new_folder: false,
     }
 }
 

@@ -50,6 +50,7 @@ fn job(dir: &tempfile::TempDir, permission: Permission, text: &str) -> Job {
         resume: None,
         text: text.into(),
         work: Work::Prompt,
+        new_folder: false,
     }
 }
 

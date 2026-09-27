@@ -336,6 +336,7 @@ mod tests {
             resume: None,
             text: "hi".into(),
             work: Work::Prompt,
+            new_folder: false,
         };
         let run = agents["echo"].run(&job, &Control::default());
         assert_eq!(run.reply.unwrap(), "echo: hi");

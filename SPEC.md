@@ -498,7 +498,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 
 #### 7.1.1 Flags
 
-The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
+The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `mkdir=1`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
 
 | Flag | Meaning |
 |---|---|
@@ -506,7 +506,8 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 | `h` | Hello only. It announces the token and the addon version. It has no prompt. The addon sends one at login and after it applies a restore bundle (7.6). |
 | `d` | The chat is deleted. The bridge stops its runs, and drops its replies, its session link, and its history. A reply of a deleted chat can never be read, so it must leave the body (7.3). The addon keeps the id in `db.forget`, and sends it with each strip until a strip goes out while the bridge is online. The agent session itself stays, so Resume can bring the chat back. |
 | `list` | Asks for the saved sessions of the agents (9.6). The record is a message of the chat `relay`, and the reply is the list. |
-| `list=folders` | Asks for the folders where a new chat can start (9.9). The record is a message of the chat `folders`, and the reply is the list. Any other `list=` value is ignored. |
+| `list=folders` | Asks for the folder tree of the browser (9.9). The record is a message of the chat `folders`, and the reply is the tree. Any other `list=` value is ignored. |
+| `mkdir=1` | The folder of the record is a new folder. The bridge makes its last part before the run (9.9). Only a record with `n` makes it. Any other `mkdir=` value is ignored. |
 | `attach=<session>` | The first message of a resumed chat. It has no text. The session must be in the last list (9.6). |
 | `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not set up." |
 | `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
@@ -1271,48 +1272,82 @@ scripts/e2e-timeways.sh --claude   # also the case with the real claude
 
 The script builds `timeways-story` and `timeways-pack` into `target/timeways`, so it never shares a build folder with the Timeways repo.
 
-### 9.9 Choose the folder of a new chat
+### 9.9 Choose the folder of a chat
 
-A new chat starts in `default_cwd`. The player can choose a git repository inside `allowed_roots` instead.
+A new chat starts in `default_cwd`. The folder in the chat header is a button. A click opens the folder browser in the center of the window (13.1). The browser shows a tree of the folders inside `allowed_roots`.
 
-**The list.** The addon sends a `list=folders` record of the chat `folders`. The bridge walks the roots in a thread, off the main loop (`repos.rs`), and answers with one line per folder:
+**The request.** Each time the browser opens, the addon sends a `list=folders` record of the chat `folders`. The browser shows the last tree at once, and a small spinner turns until the new tree comes. The bridge walks the roots in a thread, off the main loop (`folder_walk.rs`), and answers with the tree (`folder_list.rs`).
+
+**The reply.** The first line is `default_cwd` as the player reads it. Then comes one line per folder, breadth first:
 
 ```
-folder \t folder name
+parent \t name \t mark
 ```
 
-- The first line is `default_cwd`, with an empty `folder`. Then come the repositories, newest first, at most 50. `default_cwd` shows once, also when it is a repository.
-- A repository is a folder with a `.git` entry: a folder, or a file as in a worktree. The walk never reads the `gitdir:` line of such a file, because it can lead out of the roots.
-- The time of a repository is the newest change of `.git`, `.git/index`, `.git/logs/HEAD`, and `.git/HEAD`. A background fetch changes none of them.
-- `folder` is relative to the base folder, as in the session list (9.6). It resolves to the same folder when the game sends it back.
-- The bridge resolves each repository again with the resolver (S5). A repository outside every root never shows (6.2, rule 1).
-- The walk asks the classifier (6.6.3) for a read of each repository, with the repository as the chat folder. Only a repository with the answer `allow` shows. So the config folder and the data folder of the bridge (`deny`) and credential folders such as `snap/firefox` (`desktop`) never show. This is a filter of the list, not a wall: the classifier still checks every tool call in the chat.
-- A folder whose relative path holds a control character, is not UTF-8, is longer than 255 bytes, or cannot come back from the game (7.1.1, `:` on Windows) is left out.
-- The walk never fails. A folder that it cannot read is left out.
+- `parent` is the line number of the parent folder. The first folder is on line 1. A root has parent 0.
+- `name` is the name of the folder. A root has its whole path as its name.
+- `mark` is `g` for a git repository, else empty.
+- A last line `+` says that the tree is cut.
+- A path in the home folder starts with `~/`, for example `~/Documents/Code`. This form is used only when `default_cwd` and every root are in the home folder. Else every path is whole. So the addon can compare the parts of any two paths.
 
-**The limits of the walk.** A root can be a whole home folder, so the walk has limits. They are constants, not config.
+**The folder of a line.** The addon joins the path of the root and the names down to the folder. The folder that the game sends back is the path from `default_cwd` to that folder, with `..` for each step up. This is the form of 9.6 and of `relative_folder`, so one folder always has one text. The folder resolves again through the resolver (S5), and it resolves to the same folder.
+
+**The walk.**
 
 - Breadth first, with sorted names, so a limit cuts off the deepest folders, and the order is the same on each run.
-- At most 4 levels below a root. A root is level 0, and it can be a repository itself.
-- The walk does not go into a repository. Submodules and nested checkouts stay out, and big repositories cost one visit.
-- It never follows a symbolic link or a Windows junction. Two roots that overlap give each repository once.
+- At most 4 levels below a root. A root is level 0.
+- The walk goes into a repository, so the browser can show its subfolders.
+- It never follows a symbolic link or a Windows junction. Two roots that overlap give each folder once. A root stays a root.
 - It skips hidden folders (a name that starts with `.`) and `node_modules`, `target`, `build`, `dist`, `vendor`, `venv`, `__pycache__`, `Library`, and `AppData`.
-- It reads at most 3000 folders, and stops after 2 seconds. It then lists what it found.
+- It reads at most 3000 folders, and stops after 2 seconds. A stop at one of these two limits cuts the tree. The depth limit does not.
+- A repository is a folder with a `.git` entry: a folder, or a file as in a worktree. The walk never reads the `gitdir:` line of such a file, because it can lead out of the roots.
+- The walk asks the classifier (6.6.3) for a read of each folder, with the folder as the chat folder. Only a folder with the answer `allow` shows, and a folder that does not show hides its subfolders. So the config folder and the data folder of the bridge (`deny`) and credential folders such as `snap/firefox` (`desktop`) never show. This is a filter of the tree, not a wall: the classifier still checks every tool call in the chat.
+- A folder that the game cannot send back is left out with its subfolders: a relative path with a control character, a path that is not UTF-8 or longer than 255 bytes, a name that fails the name rules below, or a `:` on Windows (7.1.1).
+- The walk never fails. A folder that it cannot read is left out.
 
-**Decisions.** An advisor agent and the implementer chose these (2026-09-26):
+**The size cut.** The reply is one record, at most 32 KB after the Lua escape (S12). A tab, a newline, and a byte that is not printable ASCII cost 4 bytes there. The bridge keeps the longest breadth-first start of the tree that fits, and adds the `+` line. So the shallow folders always come.
+
+**The browser.**
+
+- A filter box at the top has the focus when the browser opens. It has no hint text. It matches the folders of the tree, as the game sends them back, by subsequence and without case. Repositories come first, then the shorter paths, at most 16 rows. Each row shows the name, a `git` mark for a repository, and the parent folder in grey at the right. Up and Down move the choice. Enter picks it. Escape clears the focus and closes the browser, so the keys of the game work again. A typed text is only a filter, never a path.
+- With an empty filter, the browser shows at most 5 recent folders: the folders of the newest chats, then the folders of the Resume list (9.6). They need no request. A folder that the last tree does not have is gone, and it does not show. One click on a recent folder sets it.
+- Below them is a gold breadcrumb, for example `Code › Personal › gnomish-relay`. A click on a part goes up to it. The first part is the root, so the player cannot go above the roots. With more than one root, the first part is "Roots", and it lists the roots.
+- Then come the subfolders of the current folder. A click opens one. The folder of the chat is green. **Open** sets the current folder.
+- The last row is "New folder". It opens an edit box in its place. The addon checks the name: it is not empty, `.`, or `..`, it has no `/`, `\`, or control character, it is at most 255 bytes, and no subfolder there has the name (without case). A refused name shows a short reason in red. Enter sets `<current folder>/<name>` as the folder of the chat, and the header marks it "new".
+- The browser opens at the folder of the chat, or at the default folder when the tree does not have it.
+
+**The chat.**
+
+- A choice sets the folder of the chat. The chat takes the name of the folder, with " 2", " 3", and so on when another chat has the name. A chat in the default folder keeps its "Chat N" name.
+- The first message fixes the folder (9.5). After it, the button of the browser says "New Chat here", and each choice makes a new chat in the chosen folder, with the agent of the chat.
+- The header shows the folder as the player reads it, with the folder icon and the dropdown arrow. Before the first tree, it shows the relative folder, and nothing for the default folder.
+
+**A new folder.** The first message of a chat in a new folder has the flag `mkdir=1` next to `n`. The folder of the record is the new folder. The bridge makes it before the run starts, so a chat that never sends leaves no empty folder.
+
+- The bridge takes `mkdir=1` only with `n`. On any other message, the flag does nothing.
+- The relay refuses a new folder whose record folder is absolute, or whose last part fails the name rules. The reply is "Folder not made: bad name.". The folder check of 6.2 rule 1 comes first, as for every message.
+- When the run starts, the bridge makes only the last part, with `create_dir`, never `create_dir_all`. The parent must exist. The bridge resolves the parent with `canonicalize` and checks the roots again, so a link in the path cannot lead out (6.2, rule 10). The new folder must get `allow` from the classifier, as in the walk, so a folder inside a `deny` folder or a `desktop` path is never made.
+- A folder that is already there is fine: a run after a bridge restart asks again. A file with the name is an error.
+- An error ends the message with a reply that starts "Folder not made:", and the run never starts. Each refusal has its own reason.
+
+**Decisions.** The implementer and the coordinator chose these (2026-09-26). The advisor agent did not answer in time, so the coordinator gave the defaults.
 
 1. **`list=folders`, in its own chat `folders`.** The addon routes the reply by chat, so a reply after `/reload` still finds its cache. The bridge runs one job per chat, so a session list and a folder list can run at the same time.
-2. **No version change (7.7).** An older bridge takes `list=folders` as a prompt with no text. But the bridge writes the relay addon again at each start (11.3), so the addon is never newer than its bridge. A version change would also change the proof of S30.
-3. **No age in the reply.** The picker shows none, and the order already shows it.
-4. **The classifier is the filter.** The walk uses the rules that guard the tool calls, so the list and the calls never disagree about a folder.
-5. **No cap on the repositories found.** The walk does not go into a repository, so the repositories are never more than the folders that it reads.
-6. **The picker is the center of an empty chat.** "New Chat" still makes a chat in the default folder with one click. A repository takes one more click, and no new tile or control is needed. A picker that opens first would cost the common case a second click.
-7. **One flat list.** Resume groups its sessions by folder because many sessions share a folder. Each repository is one row, so headings would only take rows.
-8. **The request goes out when "New Chat" is clicked.** Each request costs a strip. A request each time an empty chat is selected would send strips for nothing.
-9. **The addon keeps the last list** in its saved variables (`folders`), as it keeps the session list, so the picker shows at once. A newer list replaces it.
-10. **A chosen folder names the chat**, as a resumed chat takes the title of its session.
+2. **No version change (7.7).** The bridge writes the relay addon again at each start (11.3), so the addon is never newer than its bridge. A version change would also change the proof of S30.
+3. **A compact tree, not one full path per line.** A name costs fewer bytes than a full path, so more folders fit in 32 KB. The line numbers of the parents only point back, so the parser can never build a loop.
+4. **The addon makes the relative folder from the parts of two paths.** A root inside the home folder with `default_cwd` below it would else give two texts for one folder, for example `../../Documents` and `..`. Then the green mark, the recent folders, and the names would disagree.
+5. **A breadth-first cut with a mark.** The shallow folders are the ones that a player opens first. The addon shows the cut tree, and the breadcrumb and the filter still work on it.
+6. **One breadcrumb root per root.** A player with one root never sees a list of roots. With more roots, the list of roots is the top.
+7. **The header shows the path as the player reads it** (`~/Documents/Code`). The old header showed the relative folder, and nothing for the default folder, which a button cannot show.
+8. **`mkdir=1` with the folder of the chat, on the first message only.** The record already carries the folder, so a second field would only repeat it. A later message cannot make a folder, so a lost reply never makes one twice in another place.
+9. **The filter matches the relative folder.** It is the text that the game sends back. Repositories first, because most chats work in a repository.
+10. **Recent folders drop a folder that the tree does not have.** A removed folder would only give an error.
+11. **The walk goes into repositories now.** The browser needs their subfolders. The limits stay the same.
+12. **The classifier is the filter** of the walk and of a new folder, so the tree, a new folder, and the tool calls never disagree about a folder.
+13. **The tree stays text in the saved variables** (`folders.text`). A parsed tree has loops through the parent links, and the game cannot save a loop.
+14. **No Refresh button.** Each open asks for a new tree, and the spinner shows the wait.
 
-**The picker** is in 13.1.
+**The browser** is in 13.1.
 
 ## 10. Pings from terminal sessions
 
@@ -1568,8 +1603,8 @@ The mockup is the reference for the layout.
 
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
-- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tiles are "Start a New Chat" and "Resume". A new chat starts in the default folder. While it has no message, its center shows the folder list of 9.9 in place of the transcript, and the input stays: one row per folder, with its name, and its parent folder in grey at the right. The row of the folder of the chat is green. A click moves the chat to that folder and gives the chat the name of the folder. The first message fixes the folder (9.5). Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
-- **Center:** a dropdown for the agent and the permission mode, the folder, and the bridge light. Below them, the transcript on a black background: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. The mouse wheel scrolls it, and a new entry scrolls it to the bottom.
+- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tiles are "Start a New Chat" and "Resume". A new chat starts in the default folder, and its center shows the empty transcript. Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
+- **Center:** a dropdown for the agent and the permission mode, the folder button, and the bridge light. The folder button shows a small folder icon, the folder of the chat, and a dropdown arrow. It turns gold on hover. A click opens the folder browser of 9.9 in place of the transcript, and the input stays. A second click, a choice, or Escape in the filter closes it. Below them, the transcript on a black background: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. The mouse wheel scrolls it, and a new entry scrolls it to the bottom.
 - **Replies:** a rendered reply (7.3.1) shows its blocks below the name.
   - Headings, paragraphs, list items, and quotes go into one SimpleHTML frame, with real sizes for `h1` to `h3`, and a bullet or the number before each item.
   - Code shows in a black box in the shipped mono font (13.2).
@@ -1601,9 +1636,11 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Strip.lua` (shared) | Takes the shared strip corner in turn with the other apps (7.1.2), draws a frame, and takes one screenshot of it. |
 | `Slots.lua` (shared) | Loads one slot, and takes the three globals of the app. |
 | `Messages.lua` (shared) | The send queue, the signed outbox, retries and give-up, the hello, the report flags (`next`, `read`, `restored`, and the health flags), and the slot poll with the replies. It follows `models/transport.qnt`. It keeps the token and the message ids. An app sets its hooks: the store of its messages, the fields of a record, and the calls for each reply. |
-| `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, the folder list, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
+| `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, the folder tree request, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
 | `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
 | `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks. |
+| `Folders.lua` | The folder tree of 9.9: the parser, the relative folders, the filter, the recent folders, and the name rules. |
+| `Browser.lua` | The folder browser of 9.9 in the center of the window. |
 | `Window.lua` | The window of 13.1. |
 | `Popup.lua` | The permission popup (6.4). Each button names the kind of its option, never the label of the agent. |
 | `Core.lua` | Startup, slash commands, and the whisper line. |
@@ -1805,12 +1842,12 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | UI escape and popup text | Backs up S10 and S15. |
 | `config.toml` parser | A broken or hostile config gives an error, never a wider permission. |
 | Restore and live files, loaded in a real Lua 5.1 VM | Back up S18 to S21: every field loads back as the prepared bytes, and each file stays under its bound. |
-| Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape. A coding flag never changes the transport flags, which are all that the Timeways lane reads. Any `ver=` gets an update text exactly when it is out of the range of its app. |
+| Flags from the game | `perm=`, `level=`, `build=`, and `agent=` take only values of the right shape, and `mkdir=` only `1`. A coding flag never changes the transport flags, which are all that the Timeways lane reads. Any `ver=` gets an update text exactly when it is out of the range of its app. |
 | Messages from an ACP agent | The agent is untrusted. A progress line stays short, a popup text is printable (S15), and the game never gets "allow always". |
 | The Markdown renderer (7.3.1) | Agent text reaches the game window. Each block has its shape, no agent byte starts a WoW code or HTML markup, and the size stays within its bound. |
 | Messages of `codex app-server` | The agent is untrusted. A progress line stays short, and a popup text is printable (S15). |
 | Lines of `claude -p` and Claude Code session files | The agent and its files are untrusted. A progress line stays short, a popup text is printable (S15), and a copy of a session keeps no old id. |
-| The bridge state machine (`relay`) | The promises of the transport model (14.2) on the real code, with a Timeways lane next to the relay lane: no Timeways record becomes a job. |
+| The bridge state machine (`relay`) | The promises of the transport model (14.2) on the real code, with a Timeways lane next to the relay lane: no Timeways record becomes a job. A job that makes a new folder (9.9) is a first message, and the last part of its folder passes the name rules. |
 | The action classifier and the shell splitter (6.6.3) | Backs up S16, S17, S27, and S28 on the compiled code: no panic, no rule list above the ceiling, a file call that runs stays inside its folders, and the command floor holds. |
 | Lines of the story program and batches of the addon (`app_protocol`, 9.8) | Both are untrusted. No line panics a reader. A batch that passes has at most one line with a reply, and each line that goes on is JSON with the `id` of the bridge. An answer that passes is at most 24576 bytes, and its reply for the game is one JSON line with every `\|` doubled (S10) that the slot writer keeps whole (S12). A journal that passes holds no `note`. Both answers to a model call are one JSON line with its `call`. |
 | The sandbox policy, the Seatbelt escape and profile, and the `bwrap` arguments (`sandbox`, 6.6.4) | Backs up S31 and S32 on the compiled code: each writable path is the chat folder or the temp folder and is not hidden, each `deny` folder is hidden, each path reads back from its literal with the model of S32, the profile holds exactly the expected literals in order, and `bwrap` binds each writable path and ends with the command. |

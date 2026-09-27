@@ -33,6 +33,8 @@ pub struct CodingFlags {
     pub agent: Option<String>,
     pub level: Option<Permission>,
     pub perm: Option<PermAnswer>,
+    /// `mkdir=1`: the first message of a chat in a new folder (SPEC.md 9.9).
+    pub new_folder: bool,
 }
 
 /// What a list request asks for: `list` or `list=folders`.
@@ -40,7 +42,7 @@ pub struct CodingFlags {
 pub enum ListKind {
     /// The saved sessions that the game can resume (SPEC.md 9.6).
     Sessions,
-    /// The repositories where a new chat can start (SPEC.md 9.9).
+    /// The folder tree of the roots, for the folder browser (SPEC.md 9.9).
     Folders,
 }
 
@@ -142,6 +144,7 @@ pub fn coding(bytes: &[u8]) -> CodingFlags {
                 _ => {}
             },
             Some(("list", "folders")) => flags.list = Some(ListKind::Folders),
+            Some(("mkdir", "1")) => flags.new_folder = true,
             Some(("level", word)) => flags.level = Some(Permission::from_game(word)),
             Some(("perm", value)) => flags.perm = perm_answer(value),
             Some(("attach", id)) if is_session_id(id) => flags.attach = Some(id.to_owned()),
@@ -158,7 +161,7 @@ pub fn coding(bytes: &[u8]) -> CodingFlags {
 mod tests {
     use super::*;
 
-    const EVERY_FLAG: &[u8] = b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop;build=70009;out=shot;in=missing;ver=1;d;list;attach=3f2a-9c_1";
+    const EVERY_FLAG: &[u8] = b"agent=claude;level=auto-edit;n;next=42;read=7,9;restored;h;stop;build=70009;out=shot;in=missing;ver=1;d;list;attach=3f2a-9c_1;mkdir=1";
 
     #[test]
     fn every_transport_flag_parses() {
@@ -190,6 +193,7 @@ mod tests {
                 agent: Some("claude".into()),
                 level: Some(Permission::AutoEdit),
                 perm: None,
+                new_folder: true,
             }
         );
     }
@@ -197,7 +201,7 @@ mod tests {
     #[test]
     fn the_transport_parser_ignores_every_coding_flag() {
         let only_coding =
-            b"perm=p5f3a1:o2:0123456789abcdef;level=full-auto;agent=claude;attach=s1;list;d;n;stop";
+            b"perm=p5f3a1:o2:0123456789abcdef;level=full-auto;agent=claude;attach=s1;list;d;n;stop;mkdir=1";
         assert_eq!(transport(only_coding), TransportFlags::default());
     }
 
@@ -244,6 +248,14 @@ mod tests {
     fn a_folder_list_parses_and_an_unknown_list_is_ignored() {
         assert_eq!(coding(b"list=folders").list, Some(ListKind::Folders));
         assert_eq!(coding(b"list=files").list, None);
+    }
+
+    #[test]
+    fn only_mkdir_1_asks_for_a_new_folder() {
+        assert!(coding(b"n;mkdir=1").new_folder);
+        for other in ["mkdir", "mkdir=0", "mkdir=yes", "mkdir=1x"] {
+            assert!(!coding(other.as_bytes()).new_folder, "{other}");
+        }
     }
 
     #[test]

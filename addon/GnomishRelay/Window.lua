@@ -14,6 +14,9 @@ local PICK_ROW_HEIGHT = 19
 local GREEN = "1eff00"
 local MAX_INPUT = 3000
 local EMBLEM = "Interface\\Icons\\INV_Misc_Wrench_01"
+local FOLDER_ICON = "Interface\\Icons\\INV_Misc_Bag_10"
+local ARROW = "Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up"
+local NEW = "9fe39f"
 local STATUS_BAR = "Interface\\TargetingFrame\\UI-StatusBar"
 
 local frame
@@ -36,6 +39,7 @@ end
 
 local function Select(chatId)
 	ui.picking = false
+	ns.Browser.Close()
 	MarkSelected(chatId)
 	Window.Refresh()
 end
@@ -162,11 +166,16 @@ end
 local function RefreshStatus(chat)
 	if chat then
 		ui.agent:SetText(ns.Relay.AgentName(chat.agent) .. " · " .. (chat.level or chat.mode))
-		ui.folder:SetText(chat.cwd ~= "" and ns.Relay.Plain(chat.cwd) or "")
+		local folder = ns.Relay.Plain(ns.Folders.Display(ns.Folders.Tree(), chat.cwd))
+		if chat.newFolder then
+			folder = folder .. " |cff" .. NEW .. "new|r"
+		end
+		ui.folder:SetText(folder)
+		ui.folderButton:SetWidth(ui.folder:GetUnboundedStringWidth() + 40)
 	else
 		ui.agent:SetText("")
-		ui.folder:SetText("")
 	end
+	ui.folderButton:SetShown(chat ~= nil)
 	local problem = ns.Transport.Problem()
 	if problem == "missing" then
 		ui.bridge:SetText("|cffff2020Slots missing|r")
@@ -252,86 +261,60 @@ local function RefreshPicker()
 	ui.pickNote:SetText(note)
 end
 
--- The parent of a folder, to tell two repositories with one name apart.
-local function Parent(folder)
-	return folder:match("^(.*)/[^/]*$") or ""
-end
-
-local function ShowFolderRow(button, row, chat)
-	button.row = row
-	if not row then
-		button:Hide()
-		return
-	end
-	local name = ns.Relay.Plain(row.name)
-	if row.folder == chat.cwd then
-		name = "|cff" .. GREEN .. name .. "|r"
-	end
-	button.text:SetText(name)
-	button.right:SetText(ns.Relay.Plain(Parent(row.folder)))
-	button:Show()
-end
-
-local function RefreshFolders(chat)
-	local folders = ns.Store.db.folders
-	local rows = folders and folders.rows or {}
-	ui.folderOffset = math.max(0, math.min(ui.folderOffset or 0, #rows - PICK_ROWS))
-	for i, button in ipairs(ui.folderRows) do
-		ShowFolderRow(button, rows[ui.folderOffset + i], chat)
-	end
-	local note = ""
-	if folders and folders.error then
-		note = "|cffff2020" .. ns.Relay.Plain(folders.error) .. "|r"
-	elseif #rows == 0 and ns.Transport.ListingFolders() then
-		note = "Loading..."
-	end
-	ui.folderNote:SetText(note)
-end
-
--- A chat with no message yet can still change its folder (SPEC.md 9.9).
-local function ChoosingFolder(chat)
-	return not ui.picking and chat ~= nil and #chat.history == 0
-end
-
 function Window.Refresh()
 	if not frame or not frame:IsShown() then
 		return
 	end
 	local chat = Selected()
-	local choosing = ChoosingFolder(chat)
+	local browsing = not ui.picking and ns.Browser.IsOpen()
 	RefreshTiles(chat)
-	ui.log:SetShown(not ui.picking and not choosing)
-	ui.folders:SetShown(choosing)
+	ui.log:SetShown(not ui.picking and not browsing)
 	ui.input:SetShown(not ui.picking)
 	ui.picker:SetShown(ui.picking == true)
+	ns.Browser.Show(browsing)
 	if ui.picking then
 		RefreshPicker()
-	elseif choosing then
-		RefreshFolders(chat)
-	else
+	elseif not browsing then
 		ns.Transcript.Show(chat)
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
 end
 
--- The chat starts in the default folder. Its empty center lists the other folders.
+-- The chat starts in the default folder. The folder button changes it (SPEC.md 9.9).
 function Window.NewChat()
 	local chat = ns.Store.NewChat()
-	ui.folderOffset = 0
-	ns.Transport.ListFolders()
 	Select(chat.id)
 end
 
-function Window.ChooseFolder(row)
-	local chat = Selected()
-	if ChoosingFolder(chat) then
-		ns.Store.SetFolder(chat, row)
+Window.SelectedChat = Selected
+
+function Window.ToggleBrowser()
+	if ns.Browser.IsOpen() then
+		ns.Browser.Close()
+	else
+		ns.Browser.Open(Selected())
 	end
 	Window.Refresh()
 end
 
+function Window.CloseBrowser()
+	ns.Browser.Close()
+	Window.Refresh()
+end
+
+-- The first message fixes the folder of a chat, so a later choice makes a new chat.
+function Window.ChooseFolder(folder, name, isNew)
+	local chat = Selected()
+	if not chat or #chat.history > 0 then
+		chat = ns.Store.NewChat(chat and chat.agent)
+	end
+	ns.Store.SetFolder(chat, folder, name, isNew)
+	Select(chat.id)
+end
+
 function Window.ShowSessions()
+	ns.Browser.Close()
 	ui.picking = true
 	ui.pickOffset = 0
 	ns.Transport.ListSessions()
@@ -352,6 +335,7 @@ end
 -- Returns false, and shows an error, for a message that does not fit in one strip.
 function Window.Send(text)
 	ui.picking = false
+	ns.Browser.Close()
 	local chat = Selected() or ns.Store.NewChat()
 	ns.Store.db.selected = chat.id
 	if not ns.Transport.Send(chat, text) then
@@ -390,12 +374,37 @@ local function PickRows(parent, name, width, choose)
 	return rows
 end
 
+-- The folder of the chat, as a button like the agent dropdown. Gold on hover.
+local function BuildFolderButton(x)
+	local button = CreateFrame("Button", "GnomishRelayFolderButton", frame)
+	button:SetPoint("TOPLEFT", frame, "TOPLEFT", x, -61)
+	button:SetHeight(18)
+	local icon = button:CreateTexture(nil, "ARTWORK")
+	icon:SetSize(14, 14)
+	icon:SetPoint("LEFT", button, "LEFT", 0, 0)
+	icon:SetTexture(FOLDER_ICON)
+	ui.folder = Label(button, "GameFontDisableSmall", "LEFT", 18, 0)
+	local arrow = button:CreateTexture(nil, "ARTWORK")
+	arrow:SetSize(16, 16)
+	arrow:SetPoint("LEFT", ui.folder, "RIGHT", 2, 0)
+	arrow:SetTexture(ARROW)
+	button:SetScript("OnEnter", function()
+		ui.folder:SetTextColor(1, 0.82, 0)
+	end)
+	button:SetScript("OnLeave", function()
+		ui.folder:SetTextColor(0.5, 0.5, 0.5)
+	end)
+	button:SetScript("OnClick", Window.ToggleBrowser)
+	button.text = ui.folder
+	ui.folderButton = button
+end
+
 local function BuildCenter()
 	local left = SIDE + 14
 	local width = WIDTH - 2 * SIDE - 28
 
 	ui.agent = Label(frame, "GameFontNormal", "TOPLEFT", left, -64)
-	ui.folder = Label(frame, "GameFontDisableSmall", "TOPLEFT", left + 170, -66)
+	BuildFolderButton(left + 170)
 	ui.bridge = Label(frame, "GameFontNormalSmall", "TOPRIGHT", -SIDE - 14, -66)
 
 	local log = Inset(frame, left, -84, width, 72)
@@ -414,16 +423,7 @@ local function BuildCenter()
 	end)
 	ui.picker:Hide()
 
-	ui.folders = Inset(frame, left, -84, width, 72)
-	ui.folderNote = ui.folders:CreateFontString("GnomishRelayFolderNote", "OVERLAY", "GameFontDisable")
-	ui.folderNote:SetPoint("TOPLEFT", ui.folders, "TOPLEFT", 12, -12)
-	ui.folderRows = PickRows(ui.folders, "GnomishRelayFolder", width, Window.ChooseFolder)
-	ui.folders:EnableMouseWheel(true)
-	ui.folders:SetScript("OnMouseWheel", function(_, delta)
-		ui.folderOffset = (ui.folderOffset or 0) - delta * 3
-		Window.Refresh()
-	end)
-	ui.folders:Hide()
+	ns.Browser.Build(frame, left, width, 72)
 
 	ui.banner = CreateFrame("Frame", nil, frame)
 	ui.banner:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left, 44)
@@ -605,6 +605,7 @@ function Window.Open(chatId)
 	end
 	if chatId then
 		ui.picking = false
+		ns.Browser.Close()
 		MarkSelected(chatId)
 	end
 	frame:Show()

@@ -33,9 +33,12 @@ function Store.Chat(id)
 end
 
 function Store.NewChat(agent)
+	local name = "Chat " .. (#Store.db.chats + 1)
 	local chat = {
 		id = ns.Messages.RandomId(10),
-		name = "Chat " .. (#Store.db.chats + 1),
+		name = name,
+		-- The name comes back when the chat goes back to the default folder.
+		defaultName = name,
 		agent = agent or DEFAULT_AGENT,
 		mode = DEFAULT_MODE,
 		cwd = "",
@@ -46,10 +49,35 @@ function Store.NewChat(agent)
 	return chat
 end
 
--- A row of the folder list (SPEC.md 9.9). The chat takes the name of its folder.
-function Store.SetFolder(chat, row)
-	chat.cwd = row.folder
-	chat.name = row.name
+local function NameTaken(name, except)
+	for _, chat in ipairs(Store.db.chats) do
+		if chat ~= except and chat.name == name then
+			return true
+		end
+	end
+	return false
+end
+
+-- Two chats in folders with one name get "app" and "app 2".
+local function FreeName(name, chat)
+	local free, n = name, 1
+	while NameTaken(free, chat) do
+		n = n + 1
+		free = name .. " " .. n
+	end
+	return free
+end
+
+-- The chat takes the name of its folder, and a chat in the default folder keeps
+-- "Chat N" (SPEC.md 9.9). A new folder waits for the first message.
+function Store.SetFolder(chat, folder, name, isNew)
+	chat.cwd = folder
+	chat.newFolder = isNew or nil
+	if folder == "" then
+		chat.name = chat.defaultName or chat.name
+	else
+		chat.name = FreeName(name, chat)
+	end
 end
 
 -- A chat that continues a saved session of an agent. Its first message asks the
