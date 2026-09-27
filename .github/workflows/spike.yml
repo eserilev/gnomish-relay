@@ -1,0 +1,17 @@
+name: spike
+on:
+  push:
+    branches: [spike-appcontainer]
+jobs:
+  win:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+      - run: cargo build --manifest-path spikes/appcontainer/Cargo.toml
+      - run: spikes/appcontainer/target/debug/acspike.exe outer
+        shell: bash
+      - run: spikes\appcontainer\target\debug\acspike.exe outer
+        shell: cmd

@@ -1,0 +1,10 @@
+[package]
+name = "acspike"
+version = "0.1.0"
+edition = "2024"
+
+[workspace]
+
+[dependencies]
+rappct = "=0.13.3"
+socket2 = { version = "0.6", features = ["all"] }
