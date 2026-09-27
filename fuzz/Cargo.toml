@@ -198,3 +198,10 @@ path = "fuzz_targets/agent_wall.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "rules_file"
+path = "fuzz_targets/rules_file.rs"
+test = false
+doc = false
+bench = false

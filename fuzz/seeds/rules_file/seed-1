@@ -1,0 +1,1 @@
+{"rules": [{"id": "zz", "folder": "../x", "scope": "all", "words": ["rm -rf"]}, 1, null]}

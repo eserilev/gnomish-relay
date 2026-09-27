@@ -45,7 +45,8 @@ fn all_plain_bytes(word: &[u8]) -> bool {
 
 /// A word that `parse_pattern` of the bridge reads back as the same word, and that is
 /// not a flag or a toolchain such as `+nightly`.
-fn is_plain_word(word: &[u8]) -> bool {
+#[must_use]
+pub fn is_plain_word(word: &[u8]) -> bool {
     word.len() > 0
         && word.len() <= MAX_WORD
         && word[0] != b'-'
