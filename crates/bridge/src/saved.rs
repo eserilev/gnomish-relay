@@ -71,8 +71,8 @@ impl Watcher {
                 continue;
             }
             self.seen.insert(path.clone(), modified);
-            if let Ok(text) = fs::read_to_string(&path) {
-                texts.push(text);
+            if let Ok(bytes) = fs::read(&path) {
+                texts.push(String::from_utf8_lossy(&bytes).into_owned());
             }
         }
         texts
@@ -119,6 +119,19 @@ mod tests {
             .set_modified(later)
             .unwrap();
         assert_eq!(watcher.changed(), ["two"]);
+    }
+
+    /// A Lua string can hold any byte, so WoW can write one that is not UTF-8.
+    #[test]
+    fn a_file_with_a_byte_that_is_not_utf8_still_gives_its_frames() {
+        let root = tempfile::tempdir().unwrap();
+        let file = account_file(root.path());
+        fs::write(&file, b"[\"name\"] = \"\xff\", [\"frame\"] = \"6e52\"").unwrap();
+
+        let texts = Watcher::new(root.path(), App::Relay).changed();
+
+        assert_eq!(texts.len(), 1);
+        assert_eq!(frames(&texts[0]), [vec![0x6e, 0x52]]);
     }
 
     #[test]
