@@ -11,11 +11,16 @@ fi
 out=$(mktemp -d)
 trap 'rm -rf "$out"' EXIT
 
-# Each simulation takes seconds, and they share nothing, so they all start at once.
+# The simulations share nothing, so they run side by side, one per core.
+cores=$(nproc 2>/dev/null || sysctl -n hw.ncpu)
+
 # simulate <model> <steps> <invariant> <seed>
 simulate() {
+  while [ "$(jobs -rp | wc -l)" -ge "$cores" ]; do
+    wait -n
+  done
   quint run "$1" --invariant="$3" --max-samples=20000 --max-steps="$2" --seed="$4" \
-    > "$out/$(basename "$1").$3.$4" 2>&1 || true
+    > "$out/$(basename "$1").$3.$4" 2>&1 || true &
 }
 
 # start <model> <max steps> "<properties>" "<witnesses>"
@@ -24,11 +29,11 @@ start() {
   quint typecheck "$model"
   for property in $properties; do
     for seed in 1 2 3; do
-      simulate "$model" "$steps" "$property" "$seed" &
+      simulate "$model" "$steps" "$property" "$seed"
     done
   done
   for witness in $witnesses; do
-    simulate "$model" "$steps" "$witness" 1 &
+    simulate "$model" "$steps" "$witness" 1
   done
 }
 
@@ -40,6 +45,7 @@ verify() {
   for property in $properties; do
     for seed in 1 2 3; do
       if ! grep -q "No violation found" "$out/$name.$property.$seed"; then
+        tail -20 "$out/$name.$property.$seed" >&2
         echo "error: $property fails (seed $seed). Run: quint run $model --invariant=$property --seed=$seed" >&2
         exit 1
       fi
@@ -50,6 +56,7 @@ verify() {
   # A witness that holds means the simulator never reached a hard state.
   for witness in $witnesses; do
     if ! grep -q "\[violation\] Found an issue" "$out/$name.$witness.1"; then
+      tail -20 "$out/$name.$witness.1" >&2
       echo "error: witness $witness of $model was never reached" >&2
       exit 1
     fi
