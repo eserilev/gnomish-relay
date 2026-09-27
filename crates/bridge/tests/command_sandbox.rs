@@ -468,32 +468,41 @@ fn quotes_line_breaks_and_substitutions_run_inside_the_sandbox() {
     assert!(!m.other.join("q").exists());
 }
 
-/// The spike of SPEC.md 6.6.4 ("macOS"): a process inside Seatbelt cannot start
-/// `sandbox-exec` again. So the agent has no wall on macOS: its commands and the sandbox
-/// of Codex use Seatbelt. If this test fails, nesting works, and macOS can get a wall.
+/// The spike of SPEC.md 6.6.4 ("macOS"), run on the macOS runner of CI on 2026-09-27: a
+/// process inside Seatbelt can start `sandbox-exec` again, and the walls of the outer
+/// profile still hold inside. So the agent can get a wall on macOS.
 #[cfg(target_os = "macos")]
 #[test]
-fn seatbelt_cannot_start_inside_seatbelt() {
+fn seatbelt_starts_inside_seatbelt_and_the_outer_walls_hold() {
     let Some(_) = tool() else { return };
-    let profile = "(version 1)(allow default)";
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let outer = "(version 1)(allow default)(deny network*)";
+    let inner = "(version 1)(allow default)";
+    let nested = |program: &[&str]| {
+        let mut args = vec!["-p", outer, "/usr/bin/sandbox-exec", "-p", inner];
+        args.extend_from_slice(program);
+        Command::new("/usr/bin/sandbox-exec")
+            .args(args)
+            .output()
+            .unwrap()
+    };
 
-    let nested = Command::new("/usr/bin/sandbox-exec")
-        .args([
-            "-p",
-            profile,
-            "/usr/bin/sandbox-exec",
-            "-p",
-            profile,
-            "/usr/bin/true",
-        ])
-        .output()
-        .unwrap();
+    let started = nested(&["/usr/bin/true"]);
+    let port_text = port.to_string();
+    let connect = nested(&["/usr/bin/nc", "-z", "-G", "2", "127.0.0.1", &port_text]);
 
     assert!(
-        !nested.status.success(),
-        "nested Seatbelt works: {}",
-        String::from_utf8_lossy(&nested.stderr)
+        started.status.success(),
+        "{}",
+        String::from_utf8_lossy(&started.stderr)
     );
+    assert!(
+        !connect.status.success(),
+        "the outer deny of the network did not hold"
+    );
+    listener.set_nonblocking(true).unwrap();
+    assert!(listener.accept().is_err(), "a connection came in");
 }
 
 #[test]
