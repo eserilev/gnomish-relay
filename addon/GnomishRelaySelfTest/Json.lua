@@ -37,7 +37,7 @@ local function Number(n)
 		return "null"
 	end
 	if n == math.floor(n) and math.abs(n) < 2 ^ 53 then
-		return string.format("%d", n)
+		return string.format("%.0f", n)
 	end
 	return string.format("%.17g", n)
 end

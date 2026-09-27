@@ -369,3 +369,21 @@ fn results_signed_with_another_key_are_refused() {
 
     assert!(format!("{error:#}").contains("another key"));
 }
+
+/// `%d` in Lua 5.1 goes through a C `long`, which has 32 bits on Windows, the OS of WoW.
+#[test]
+fn the_json_writer_keeps_integers_above_32_bits() {
+    let lua = common::lua(common::Bits::Unsigned);
+    let ns = lua.create_table().unwrap();
+    load_addon(&lua, ADDON, &ns, &["Json.lua"]);
+    let encode: Function = ns.get::<Table>("Json").unwrap().get("Encode").unwrap();
+
+    let text: String = encode
+        .call(
+            lua.create_sequence_from([2_147_483_648.0, 9_007_199_254_740_991.0, -12.0])
+                .unwrap(),
+        )
+        .unwrap();
+
+    assert_eq!(text, "[2147483648,9007199254740991,-12]");
+}
