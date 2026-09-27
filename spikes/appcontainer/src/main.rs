@@ -183,7 +183,8 @@ fn outer() {
     std::fs::write(chat.join(".git/hooks/pre-commit"), "old hook").unwrap();
     std::fs::write(other.join("o.txt"), "other text").unwrap();
 
-    let pkg = derive_sid_from_name(&format!("gnomish.spike.{}", std::process::id())).unwrap();
+    let prof = rappct::AppContainerProfile::ensure(&format!("gnomish.spike.{}", std::process::id()), "spike", Some("spike run")).unwrap();
+    let pkg = prof.sid.clone();
     println!("package {pkg}");
     let cap_chat = cap("gnomishRelayChatSpike");
     let cap_cmd = cap("gnomishRelayCommand");
@@ -214,7 +215,7 @@ fn outer() {
     let bare = SecurityCapabilities { package: pkg.clone(), caps: vec![], lpac: false };
     show("cmd echo no caps", &run_ac(&bare, &cmd, "cmd /c echo hello", &chat, &env));
     show("cmd echo no caps system32", &run_ac(&bare, &cmd, "cmd /c echo hello", Path::new("C:\\Windows\\System32"), &env));
-    match rappct::AppContainerProfile::ensure("gnomish.spike.profile", "spike", None) {
+    match rappct::AppContainerProfile::ensure("gnomish.spike.profile", "spike", Some("spike")) {
         Ok(p) => {
             let psec = SecurityCapabilities { package: p.sid.clone(), caps: vec![], lpac: false };
             let tcaps = rappct::SecurityCapabilitiesBuilder::new(&p.sid)
@@ -274,6 +275,27 @@ fn outer() {
     println!(".env exists {}", chat.join(".env").exists());
     show("git init+status", &run_ac(&sec, &b, "bash -c 'mkdir -p sub && cd sub && git init -q && git status && echo GITOK'", &chat, &env));
     show("bash subshell fork", &run_ac(&sec, &b, "bash -c '(echo sub1); echo $(echo sub2) | cat; sh -c \"echo sh3\"'", &chat, &env));
+
+    // Does a new inherited grant on a folder follow a junction inside it?
+    let jroot = root.join("jroot");
+    let jtarget = root.join("jtarget");
+    std::fs::create_dir_all(&jroot).unwrap();
+    std::fs::create_dir_all(jtarget.join("deep")).unwrap();
+    std::fs::write(jtarget.join("deep/f.txt"), "x").unwrap();
+    let mk = Command::new("cmd").args(["/c", "mklink", "/J"]).arg(jroot.join("j")).arg(&jtarget).output().unwrap();
+    println!("mklink {}", String::from_utf8_lossy(&mk.stdout).trim());
+    let cap_j = cap("gnomishRelayJunctionProbe");
+    icacls(&[&jroot.display().to_string(), "/grant", &format!("*{cap_j}:(OI)(CI)M")]);
+    icacls(&[&jtarget.display().to_string()]);
+    icacls(&[&jtarget.join("deep/f.txt").display().to_string()]);
+    icacls(&[&jroot.join("j").display().to_string()]);
+    match prof.folder_path() {
+        Ok(f) => {
+            println!("profile folder {}", f.display());
+            show("write profile folder", &run_ac(&sec, &b, &format!("bash -c 'echo p > \"{}/AC/Temp/p.txt\" && echo WROTE; ls \"{}\"'", f.display().to_string().replace('\\', "/"), f.display().to_string().replace('\\', "/")), &chat, &env));
+        }
+        Err(e) => println!("profile folder err {e:?}"),
+    }
 
     // Exe inside the container.
     show("exe serve", &run_ac(&sec, &exe, "acspike serve", &chat, &env));
