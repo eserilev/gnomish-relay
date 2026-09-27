@@ -15,7 +15,8 @@ use crate::agent::{
     Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
     exchange_text,
 };
-use crate::config::Permission;
+use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
+use crate::config::{Kind, Permission};
 use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Work};
@@ -33,6 +34,8 @@ pub struct CodexAgent {
     /// How long a question waits for the game. The run timeout stops meanwhile.
     pub permission_timeout: Duration,
     pub gate: Gate,
+    /// The wall of the agent process, with the hosts of Codex (SPEC.md 6.6.4).
+    pub wall: AgentWall,
 }
 
 /// `untrusted` asks before every command and every change, so each one reaches the
@@ -119,10 +122,9 @@ impl CodexAgent {
         let (thread, note) = codex.open_thread(&job.cwd, job.resume.as_deref(), job.permission)?;
         *session = Some(thread.clone());
         let reply = codex.turn(&thread, &job.text)?;
-        Ok(match note {
-            Some(note) => format!("{note}\n\n{reply}"),
-            None => reply,
-        })
+        let notes: Vec<&str> = note.into_iter().chain(self.wall.notice()).collect();
+        let after = codex.made_notice(self.wall.home.as_deref());
+        Ok(with_notes(reply, &notes, after))
     }
 
     /// Reads the saved thread, and forks it first if the terminal has it open. Neither
@@ -411,6 +413,8 @@ struct Connection {
     changes: HashMap<String, Vec<String>>,
     said: Vec<String>,
     ended: Option<Result<(), String>>,
+    /// The wall of the agent process and its proxy (SPEC.md 6.6.4), after the process.
+    wall: Option<RunWall>,
     /// The private temp folder of the run. It goes away with the run.
     _temp: tempfile::TempDir,
 }
@@ -418,10 +422,16 @@ struct Connection {
 impl Connection {
     fn start(agent: &CodexAgent, cwd: &str, control: Control) -> Result<Connection, String> {
         let (temp, temp_path) = crate::command_sandbox::make_temp()?;
-        let vars = [("TMPDIR".to_owned(), temp_path.into())];
+        let wall = agent
+            .wall
+            .prepare(&[Path::new(cwd), &temp_path], "agent of codex")?;
+        let mut vars = vec![("TMPDIR".to_owned(), temp_path.into())];
+        vars.extend(agent_env(Kind::Codex, Walled::of(wall.as_ref())));
         let args = ["app-server".to_owned()];
+        let process =
+            AgentProcess::start_in(&agent.command, &args, &agent.env, &vars, cwd, wall.as_ref())?;
         Ok(Connection {
-            process: AgentProcess::start_with(&agent.command, &args, &agent.env, &vars, cwd)?,
+            process,
             turn: Turn::new(agent.timeout, agent.permission_timeout, control),
             next_id: 1,
             permission: Permission::Ask,
@@ -433,8 +443,19 @@ impl Connection {
             changes: HashMap::new(),
             said: Vec::new(),
             ended: None,
+            wall,
             _temp: temp,
         })
+    }
+
+    /// The note of the startup files that the agent made during the run.
+    fn made_notice(&self, home: Option<&Path>) -> Option<String> {
+        let made = self
+            .wall
+            .as_ref()
+            .map(RunWall::made_startup_files)
+            .unwrap_or_default();
+        made_notice(&made, home)
     }
 
     fn initialize(&mut self) -> Result<(), String> {

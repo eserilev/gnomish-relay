@@ -50,6 +50,7 @@ fn home(allow_toml: &str) -> Home {
             std::path::PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
             None,
         ),
+        wall: bridge::agent_wall::AgentWall::none(),
     };
     Home {
         _tmp: tmp,
@@ -70,6 +71,7 @@ fn claude(home: &Home, args: &[&str], permission_timeout: Duration) -> ClaudeAge
         permission_timeout,
         projects: home.path.join("projects"),
         gate: home.gate.clone(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 

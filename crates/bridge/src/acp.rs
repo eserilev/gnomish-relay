@@ -16,7 +16,8 @@ use crate::agent::{
     Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
     exchange_text,
 };
-use crate::config::Permission;
+use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
+use crate::config::{Kind, Permission};
 use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::process::{AgentProcess, cut};
 use crate::relay::{Job, Work};
@@ -34,6 +35,8 @@ pub struct AcpAgent {
     /// How long a question waits for the game. The run timeout stops meanwhile.
     pub permission_timeout: Duration,
     pub gate: Gate,
+    /// The wall of the agent process, with the `agent_hosts` of its entry (SPEC.md 6.6.4).
+    pub wall: AgentWall,
 }
 
 impl Agent for AcpAgent {
@@ -121,10 +124,14 @@ impl AcpAgent {
             agent.set_mode(&session.id, mode, &session.modes)?;
         }
         let reply = agent.prompt(&session.id, &job.text, job.permission)?;
-        Ok(match note {
-            Some(note) => format!("{note}\n\n{reply}"),
-            None => reply,
-        })
+        let notes: Vec<&str> = note.into_iter().chain(self.wall.notice()).collect();
+        let made = agent
+            .wall
+            .as_ref()
+            .map(RunWall::made_startup_files)
+            .unwrap_or_default();
+        let after = made_notice(&made, self.wall.home.as_deref());
+        Ok(with_notes(reply, &notes, after))
     }
 }
 
@@ -393,12 +400,18 @@ struct Connection {
     session: Option<String>,
     /// Set while `session/load` replays a session for an attach.
     replay: Option<Replay>,
+    /// The wall of the agent process and its proxy (SPEC.md 6.6.4), after the process.
+    wall: Option<RunWall>,
 }
 
 impl Connection {
     fn start(agent: &AcpAgent, cwd: &str, control: Control) -> Result<Connection, String> {
+        let wall = agent.wall.prepare(&[Path::new(cwd)], "agent of acp")?;
+        let vars = agent_env(Kind::Acp, Walled::of(wall.as_ref()));
+        let process =
+            AgentProcess::start_in(&agent.command, &[], &agent.env, &vars, cwd, wall.as_ref())?;
         Ok(Connection {
-            process: AgentProcess::start(&agent.command, &[], &agent.env, cwd)?,
+            process,
             turn: Turn::new(agent.timeout, agent.permission_timeout, control),
             next_id: 1,
             reply: String::new(),
@@ -409,6 +422,7 @@ impl Connection {
             cwd: cwd.to_owned(),
             session: None,
             replay: None,
+            wall,
         })
     }
 

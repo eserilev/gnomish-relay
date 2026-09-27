@@ -168,7 +168,7 @@ Every message from the game (a strip or the reload outbox) runs under one ceilin
 | Write | The chat folder only (the `auto-edit` level of 9.3) |
 | Read | `allowed_roots` |
 | Commands | The allow table of the config, and (proposed, 6.6.5) the "Always allow" rules of the folder. All others ask. |
-| Network | For commands, only through the bridge proxy, to the allowed hosts (6.6.4). The agent process keeps the network of the user for its API, and each network tool of the agent asks on the desktop (6.6.4). |
+| Network | For commands, only through the bridge proxy, to the allowed hosts (6.6.4). The agent process reaches public hosts through a proxy of its own, and none of this computer but `local_ports` (6.6.4, "The agent process behind the proxy"). Each network tool of the agent asks on the desktop (6.6.3). |
 
 - The `full-auto` level (6.2 rule 5) skips the questions of the game only. `deny` and `desktop` answers of the classifier still apply, and so does the sandbox.
 - The allow table of the config (12) covers commands. A command that it covers runs with no question at `auto-edit` and `full-auto`. It never covers a `deny`, `desktop`, or "never always" command (S17).
@@ -288,7 +288,7 @@ The bridge runs every command of an agent run from the game inside a sandbox. Th
 |---|---|
 | Write | The chat folder, and a private temp folder of the run |
 | Read | The system, except the `deny` paths and both lists of `desktop` paths of 6.6.3, which are hidden |
-| Network | Only through the bridge proxy, to the allowed hosts (see "Network: the proxy"). The agent process itself is outside the sandbox and outside the proxy (see "Where the wall is"). |
+| Network | Only through the bridge proxy, to the allowed hosts (see "Network: the proxy"). The agent process itself is outside this sandbox, behind a wall of its own (see "Where the wall is" and "The agent process behind the proxy"). |
 | Children | Every child process, for example `cargo test`, is inside the same sandbox |
 
 The sandbox closes the hole that a classifier cannot close: an allowed command such as `cargo test` runs code that the agent can edit first.
@@ -357,10 +357,10 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 - **S31 stays as it is.** S31 is about hidden paths and writable paths, and the proxy adds neither: the socket lies in the temp folder. `Network::Off` of the policy stays true at the OS level: `bwrap` gives no network but a private loopback, and Seatbelt denies all network but one loopback port. The proxy is a channel of the bridge beside the policy, not a part of it.
 - **What the list does not stop.** A list limits where a command connects. It does not stop data that leaves to an allowed host. A command with a token of its own can push to `github.com` or publish to npm. Without an end of the TLS in the bridge, nothing closes this. So the tokens of these tools are hidden (6.6.3), and the list stays short.
 - **Build scripts.** A command such as `cargo build` runs a `build.rs` or an npm install script that the agent can edit. It reaches the allowed hosts too. The short list keeps this small.
-- **Not yet:** the agent process itself is still outside the proxy, with the normal network of the user. The network tools of the agent (web fetch, web search, MCP tools) are unknown tools, so each one asks on the desktop (6.6.3). "The agent process behind the proxy" below is the plan, being built.
+- The agent process has a proxy of its own, with other rules: see "The agent process behind the proxy" below.
 - With no host in the list (12), the proxy does not start, and commands have no network at all.
 
-**The agent process behind the proxy** (asked for by the user on 2026-09-27, decided by the user with an advisor on 2026-09-27; being built). The new Lean statements S33 to S35 wait for the approval of the user. A part that is not built yet says so.
+**The agent process behind the proxy** (asked for by the user on 2026-09-27, decided by the user with an advisor on 2026-09-27; built on Linux). The new Lean statements S33 to S35 wait for the approval of the user. A part that is not built yet says so.
 
 *What it gives.* Without a wall, a hostile prompt can make the agent process send data anywhere: with WebFetch that the user approves by mistake, with an MCP server, or with any command that runs in the tree of the agent with no sandbox. For Claude the gain is small, because WebFetch and MCP already ask or are off, and its commands already go through the command proxy. For ACP agents the gain is large: their commands run in the tree of the agent with no sandbox (6.6.4, "Other ACP agents"), so the wall of the agent is the only network wall of those commands. The same holds for the commands of Codex that an `allow` rule of Codex runs outside its sandbox. The wall also keeps the agent away from this computer: its loopback, its network, the sockets of the desktop, and the other processes of the user.
 
@@ -409,7 +409,8 @@ An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts i
 - A socket at a path elsewhere still works across namespaces, for example `~/.docker/desktop/docker.sock` (`docker run --network host` is a full way out), the sockets of Lima, Colima, and Podman machines, of terminal programs, and of editors. At the start of each run, the bridge looks for socket files in the top 3 levels of the home folder, and binds `/dev/null` over each one. A socket in another place stays reachable. This is a named limit.
 - Stop: with `--unshare-pid`, the whole tree ends when `bwrap` ends, also a grandchild. The 10-second grace of Stop (9.4) still comes first, so a session file is not cut short.
 - The variables: the allowlist of 6.2 rule 12, the `env` list of the entry, the proxy variables of "The variables" with port 3128, `NO_PROXY` and `no_proxy` set to `localhost,127.0.0.1,::1` (see `local_ports`), and for Claude `CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1`.
-- `gnomish-relay check-agent` runs the agent inside the same wall.
+- `gnomish-relay check-agent` starts a Codex or ACP agent inside the same wall. The check of Claude makes no model call (`--version` and `auth status`), so it runs with no wall.
+- Tests: `crates/bridge/tests/agent_wall.rs` runs `fake-claude`, `fake-codex`, and `fake-acp-agent` in the real wall, with the network probes of `src/bin/shared/net_probe.rs`. The fuzz target `agent_wall` reads the `bwrap` arguments as `bwrap` does.
 
 *The socket of the agent proxy.* Each run has a second proxy for the agent, with the rules of the agent:
 
@@ -1677,7 +1678,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, or the relay part with `--relay` (11.3).
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, and `modes`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, and `local_ports`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, and `agent_hosts`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -1745,6 +1746,7 @@ commands = ["cargo test *", "cargo fmt --check"]
 allow_hosts = ["nodejs.org"]   # added to the default hosts of 6.6.4
 default_hosts = true           # false leaves only allow_hosts
 local_ports = [5432, 3000]     # ports of this computer for the agent and its commands
+agent_network = "open"         # "strict": the agent reaches only its model hosts and agent_hosts
 ```
 
 - A host is an exact name, compared without ASCII case. It has at least one dot, and its last label starts with a letter. A `*`, a port, a scheme, an IP address in any form, and `localhost` are errors, so a typo never opens more than one name.

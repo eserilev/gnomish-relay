@@ -1,6 +1,9 @@
 //! A scripted ACP agent for the tests of `acp.rs`. The first argument names the script.
 //! It is test code: nothing in the bridge starts it.
 
+#[path = "shared/net_probe.rs"]
+mod net_probe;
+
 use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
@@ -87,6 +90,9 @@ fn prompt_reply(script: &str, params: &Value, mode: &str, resumed: &str) -> Opti
         .pointer("/prompt/0/text")
         .and_then(Value::as_str)
         .unwrap_or("");
+    if let Some(answer) = net_probe::answer(text) {
+        return Some(answer);
+    }
     match script {
         "hang" => loop {
             std::thread::park();

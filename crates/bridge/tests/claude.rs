@@ -27,6 +27,7 @@ fn agent(script: &str, projects: &Path) -> ClaudeAgent {
         permission_timeout: Duration::from_secs(20),
         projects: projects.to_owned(),
         gate: gate(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 
@@ -46,6 +47,7 @@ fn gate() -> Gate {
             std::path::PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
             None,
         ),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 

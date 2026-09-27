@@ -14,9 +14,10 @@ use protocol::popup::popup_text;
 use crate::agent::{
     Agent, Control, Events, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo, StopSignal,
 };
+use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
 use crate::claude_sessions;
 use crate::command_sandbox::{self, Guarded, RunWalls};
-use crate::config::Permission;
+use crate::config::{Kind, Permission};
 use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Work};
@@ -55,6 +56,8 @@ pub struct ClaudeAgent {
     /// Where Claude Code keeps its sessions (`claude_sessions::projects_dir`).
     pub projects: PathBuf,
     pub gate: Gate,
+    /// The wall of the agent process, with the hosts of Claude (SPEC.md 6.6.4).
+    pub wall: AgentWall,
 }
 
 /// The hook decides every call, so the mode matters only when the hook fails. Then
@@ -130,17 +133,41 @@ impl ClaudeAgent {
                 .then(|| self.gate.sandbox.notice())
                 .flatten()
         });
+        let temp = walls.as_ref().map(|w| w.walls.temp.clone());
+        let mut binds = vec![Path::new(&job.cwd)];
+        binds.extend(temp.as_deref());
+        let wall = match self
+            .wall
+            .prepare(&binds, &format!("agent of chat {}", job.chat.0))
+        {
+            Ok(wall) => wall,
+            Err(e) => {
+                return Run {
+                    reply: Err(e),
+                    session: job.resume.clone(),
+                };
+            }
+        };
+        let notes: Vec<&str> = note.into_iter().chain(self.wall.notice()).collect();
         let mut args = self.args(job.permission, resume);
         args.extend(game_run_flags(
             walls
                 .is_some()
                 .then_some(self.gate.sandbox.wrapper.as_path()),
         ));
-        let vars = walls
+        let mut vars = walls
             .as_ref()
             .map(|w| w.claude_vars(&self.gate.sandbox.wrapper))
             .unwrap_or_default();
-        let started = AgentProcess::start_with(&self.command, &args, &self.env, &vars, &job.cwd);
+        vars.extend(agent_env(Kind::Claude, Walled::of(wall.as_ref())));
+        let started = AgentProcess::start_in(
+            &self.command,
+            &args,
+            &self.env,
+            &vars,
+            &job.cwd,
+            wall.as_ref(),
+        );
         let mut stream = match started {
             Ok(process) => {
                 let rules = Rules::Gate(Box::new(Gated {
@@ -163,12 +190,16 @@ impl ClaudeAgent {
             }
         };
         let reply = stream.talk(&job.text);
+        let session = stream.session.take();
+        drop(stream);
+        let made = wall
+            .as_ref()
+            .map(RunWall::made_startup_files)
+            .unwrap_or_default();
+        let after = made_notice(&made, self.wall.home.as_deref());
         Run {
-            reply: reply.map(|reply| match note {
-                Some(note) => format!("{note}\n\n{reply}"),
-                None => reply,
-            }),
-            session: stream.session,
+            reply: reply.map(|reply| with_notes(reply, &notes, after)),
+            session,
         }
     }
 
@@ -540,8 +571,11 @@ pub fn answer_with_no_tools(
     prompt: &str,
     timeout: Duration,
     stop: StopSignal,
+    wall: &AgentWall,
 ) -> Result<String, String> {
-    let process = AgentProcess::start(command, args, &[], folder)?;
+    let run = wall.prepare(&[Path::new(folder)], "timeways model")?;
+    let vars = agent_env(Kind::Claude, Walled::of(run.as_ref()));
+    let process = AgentProcess::start_in(command, args, &[], &vars, folder, run.as_ref())?;
     let control = Control {
         stop,
         events: Events::default(),

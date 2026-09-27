@@ -271,7 +271,9 @@ fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {
             allow: Arc::default(),
             approvals: Approvals::new(&f.state, Prompt::Off),
             sandbox: bridge::command_sandbox::CommandSandbox::none(),
+            wall: bridge::agent_wall::AgentWall::none(),
         },
+        wall: bridge::agent_wall::AgentWall::none(),
     };
     bridge_in(f, policy, Arc::new(fake))
 }

@@ -55,14 +55,29 @@ pub fn parse_ports(arg: &str) -> Result<Vec<u16>, String> {
         .collect()
 }
 
-/// Relays the ports, runs `shell -c command`, and gives its exit status.
+/// `shell -c command`: a command of a run.
 #[cfg(unix)]
-pub fn run_forwarder(forward: &Forward, shell: &Path, command: &str) -> i32 {
+pub fn shell_command(shell: &Path, command: &str) -> std::process::Command {
+    let mut child = std::process::Command::new(shell);
+    child.args(["-c", command]);
+    child
+}
+
+/// `program` with `args`, with no shell: the agent inside its wall.
+#[cfg(unix)]
+pub fn exec_command(program: &Path, args: &[String]) -> std::process::Command {
+    let mut child = std::process::Command::new(program);
+    child.args(args);
+    child
+}
+
+/// Relays the ports, runs `child`, and gives its exit status.
+#[cfg(unix)]
+pub fn run_forwarder(forward: &Forward, mut child: std::process::Command) -> i32 {
     let ran = listen(forward).and_then(|()| {
-        std::process::Command::new(shell)
-            .args(["-c", command])
+        child
             .status()
-            .map_err(|e| format!("cannot start {}: {e}", shell.display()))
+            .map_err(|e| format!("cannot start {}: {e}", child.get_program().display()))
     });
     match ran {
         Ok(status) => exit_code(status),
@@ -167,6 +182,35 @@ mod tests {
             .unwrap_or(126)
     }
 
+    fn bash(command: &str) -> std::process::Command {
+        shell_command(Path::new("/bin/bash"), command)
+    }
+
+    fn sh(command: &str) -> std::process::Command {
+        shell_command(Path::new("/bin/sh"), command)
+    }
+
+    #[test]
+    fn the_exec_form_passes_each_argument_as_it_is_with_no_shell() {
+        let dir = tempfile::tempdir().unwrap();
+        let out = dir.path().join("out");
+        let args = vec![
+            "-c".to_owned(),
+            "printf '%s|' \"$@\" > \"$0\"".to_owned(),
+            out.display().to_string(),
+            "a b".to_owned(),
+            "$(x); y".to_owned(),
+        ];
+
+        let code = on_a_free_port(|port| {
+            let forward = only_proxy(Path::new("/nowhere"), port);
+            run_forwarder(&forward, exec_command(Path::new("/bin/sh"), &args))
+        });
+
+        assert_eq!(code, 0);
+        assert_eq!(std::fs::read_to_string(out).unwrap(), "a b|$(x); y|");
+    }
+
     fn only_proxy(socket: &Path, port: u16) -> Forward<'_> {
         Forward {
             socket,
@@ -212,7 +256,7 @@ mod tests {
                 "exec 3<>/dev/tcp/127.0.0.1/{port}; printf ping >&3; head -c 4 <&3 > '{}'; exit 7",
                 out.display()
             );
-            run_forwarder(&only_proxy(&path, port), Path::new("/bin/bash"), &command)
+            run_forwarder(&only_proxy(&path, port), bash(&command))
         });
 
         assert_eq!(code, 7);
@@ -237,7 +281,7 @@ mod tests {
                 "exec 3<>/dev/tcp/127.0.0.1/{local}; head -n 1 <&3 > '{}'",
                 out.display()
             );
-            run_forwarder(&forward, Path::new("/bin/bash"), &command)
+            run_forwarder(&forward, bash(&command))
         });
 
         assert_eq!(code, 0);
@@ -263,7 +307,7 @@ mod tests {
                 "exec 3<>/dev/tcp/127.0.0.1/{local}; cat <&3 > '{}'",
                 out.display()
             );
-            run_forwarder(&forward, Path::new("/bin/bash"), &command)
+            run_forwarder(&forward, bash(&command))
         });
 
         assert_eq!(code, 0);
@@ -274,7 +318,7 @@ mod tests {
     fn a_command_that_a_signal_stops_gives_128_plus_the_signal() {
         let code = on_a_free_port(|port| {
             let forward = only_proxy(Path::new("/nowhere"), port);
-            run_forwarder(&forward, Path::new("/bin/sh"), "kill -9 $$")
+            run_forwarder(&forward, sh("kill -9 $$"))
         });
 
         assert_eq!(code, 137);
@@ -291,14 +335,10 @@ mod tests {
         };
 
         assert_eq!(
-            run_forwarder(
-                &only_proxy(Path::new("/nowhere"), port),
-                Path::new("/bin/sh"),
-                "true"
-            ),
+            run_forwarder(&only_proxy(Path::new("/nowhere"), port), sh("true")),
             126
         );
-        assert_eq!(run_forwarder(&forward, Path::new("/bin/sh"), "true"), 126);
+        assert_eq!(run_forwarder(&forward, sh("true")), 126);
     }
 
     #[test]

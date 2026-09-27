@@ -2,6 +2,9 @@
 //! the script, and the bridge adds `app-server` after it. It is test code: nothing in
 //! the bridge starts it.
 
+#[path = "shared/net_probe.rs"]
+mod net_probe;
+
 use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
@@ -76,6 +79,9 @@ fn gate_turn(script: &str, arg: &str) -> String {
 }
 
 fn turn(script: &str, text: &str, state: &str, arg: &str) -> Option<String> {
+    if let Some(answer) = net_probe::answer(text) {
+        return Some(answer);
+    }
     match script {
         "command" | "change" => Some(gate_turn(script, arg)),
         "hang" => loop {

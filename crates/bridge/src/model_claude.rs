@@ -5,6 +5,7 @@
 use std::time::Duration;
 
 use crate::agent::StopSignal;
+use crate::agent_wall::AgentWall;
 use crate::claude;
 
 /// Checked live on Claude Code 2.1.283: with these flags the `init` message lists no
@@ -46,6 +47,7 @@ pub fn ask(
     prompt: &str,
     timeout: Duration,
     stop: StopSignal,
+    wall: &AgentWall,
 ) -> Result<String, String> {
     let mut builder = tempfile::Builder::new();
     builder.prefix("gnomish-relay-model-");
@@ -58,7 +60,7 @@ pub fn ask(
         .tempdir()
         .map_err(|e| format!("Cannot make a folder for the model: {e}"))?;
     let path = folder.path().to_string_lossy().into_owned();
-    claude::answer_with_no_tools(command, &args(model), &path, prompt, timeout, stop)
+    claude::answer_with_no_tools(command, &args(model), &path, prompt, timeout, stop, wall)
 }
 
 #[cfg(test)]

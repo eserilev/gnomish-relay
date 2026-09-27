@@ -21,6 +21,7 @@ fn agent(script: &str) -> AcpAgent {
         timeout: Duration::from_secs(20),
         permission_timeout: Duration::from_secs(20),
         gate: gate(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 
@@ -34,6 +35,7 @@ fn gate() -> Gate {
         allow: std::sync::Arc::default(),
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
         sandbox: bridge::command_sandbox::CommandSandbox::none(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 

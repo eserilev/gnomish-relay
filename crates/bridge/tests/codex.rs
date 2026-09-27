@@ -20,6 +20,7 @@ fn agent(script: &str) -> CodexAgent {
         timeout: Duration::from_secs(20),
         permission_timeout: Duration::from_secs(20),
         gate: gate(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 
@@ -33,6 +34,7 @@ fn gate() -> Gate {
         allow: std::sync::Arc::default(),
         approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
         sandbox: bridge::command_sandbox::CommandSandbox::none(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 
@@ -287,6 +289,7 @@ fn gate_in(root: &std::path::Path, allow: &str) -> Gate {
         allow: std::sync::Arc::new(bridge::allow::parse(&file, root).unwrap()),
         approvals: Approvals::new(&root.join("data"), Prompt::Off),
         sandbox: bridge::command_sandbox::CommandSandbox::none(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 

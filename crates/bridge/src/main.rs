@@ -5,6 +5,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use bridge::agent;
 use bridge::agent::Agents;
+#[cfg(unix)]
+use bridge::agent_wall;
 use bridge::command_sandbox;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::config_text::RelayPart;
@@ -756,6 +758,19 @@ fn check_agent(name: &str) -> Result<()> {
     Ok(())
 }
 
+/// The forwarder inside a sandbox: it relays the ports, runs `child`, and exits with its
+/// status (SPEC.md 6.6.4).
+#[cfg(unix)]
+fn forward_then(socket: &str, ports: &str, child: std::process::Command) -> Result<()> {
+    let local_ports = forward::parse_ports(ports).map_err(anyhow::Error::msg)?;
+    let forward = forward::Forward {
+        socket: Path::new(socket),
+        port: forward::INNER_PORT,
+        local_ports: &local_ports,
+    };
+    std::process::exit(forward::run_forwarder(&forward, child))
+}
+
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
@@ -779,15 +794,24 @@ fn main() -> Result<()> {
             std::process::exit(command_sandbox::run_wrapped(command))
         }
         #[cfg(unix)]
-        [forward::FORWARD_FLAG, socket, ports, shell, "-c", command] => {
-            let local_ports = forward::parse_ports(ports).map_err(anyhow::Error::msg)?;
-            let forward = forward::Forward {
-                socket: Path::new(socket),
-                port: forward::INNER_PORT,
-                local_ports: &local_ports,
-            };
-            std::process::exit(forward::run_forwarder(&forward, Path::new(shell), command))
+        [
+            forward::FORWARD_FLAG,
+            socket,
+            ports,
+            agent_wall::EXEC_FLAG,
+            program,
+            ref rest @ ..,
+        ] => {
+            let args: Vec<String> = rest.iter().map(|a| (*a).to_owned()).collect();
+            let child = forward::exec_command(Path::new(program), &args);
+            forward_then(socket, ports, child)
         }
+        #[cfg(unix)]
+        [forward::FORWARD_FLAG, socket, ports, shell, "-c", command] => forward_then(
+            socket,
+            ports,
+            forward::shell_command(Path::new(shell), command),
+        ),
         _ => bail!("{USAGE}"),
     }
 }

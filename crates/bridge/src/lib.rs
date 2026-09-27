@@ -8,6 +8,7 @@ pub mod action_input;
 pub mod activity;
 pub mod addon_lines;
 pub mod agent;
+pub mod agent_wall;
 pub mod allow;
 pub mod allow_hosts;
 pub mod app_files;

@@ -2,6 +2,9 @@
 //! script, and the bridge adds its own arguments after it. It is test code: nothing in
 //! the bridge starts it.
 
+#[path = "shared/net_probe.rs"]
+mod net_probe;
+
 use std::io::{BufRead, Write};
 
 use serde_json::{Value, json};
@@ -201,6 +204,9 @@ fn reply(
     session: &str,
     hook: Option<&Hook>,
 ) -> Option<String> {
+    if let Some(answer) = net_probe::answer(prompt) {
+        return Some(answer);
+    }
     match script {
         "tool" | "plan" | "hookinfo" | "nohook" | "badhook" => gate_reply(script, args, hook),
         "hang" => loop {

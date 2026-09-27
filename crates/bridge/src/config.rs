@@ -11,8 +11,9 @@ use protocol::policy::{Level, effective_level};
 use protocol::record::is_valid_id;
 use serde::{Deserialize, Serialize};
 
+use crate::agent_wall::AgentNetwork;
 use crate::allow::{self, AllowFile, AllowTable};
-use crate::allow_hosts::{Defaults, HostList};
+use crate::allow_hosts::{Defaults, HostList, check_host_name};
 use crate::claude;
 use crate::model::{ModelChoice, ModelSpec};
 use crate::model_local::{self, LocalModel};
@@ -124,6 +125,8 @@ pub struct RelayConfig {
     pub hosts: HostList,
     /// The ports of this computer that the agent and its commands reach.
     pub local_ports: Vec<u16>,
+    /// Which hosts the agent process reaches through its proxy (SPEC.md 6.6.4).
+    pub agent_network: AgentNetwork,
 }
 
 /// The story program of Timeways (SPEC.md 9.8).
@@ -134,6 +137,8 @@ pub struct StoryConfig {
     /// The longest wait for the reply to one message.
     pub timeout: Duration,
     pub model: ModelSpec,
+    /// `[sandbox] agent_network` of the relay, for the `claude` model calls.
+    pub agent_network: AgentNetwork,
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -176,6 +181,8 @@ pub struct AgentSpec {
     pub command: Vec<String>,
     pub env: Vec<String>,
     pub modes: BTreeMap<Permission, String>,
+    /// The hosts of the agent in `strict` mode, besides the model hosts (SPEC.md 6.6.4).
+    pub agent_hosts: Vec<String>,
 }
 
 /// Only the keys that the bridge uses. Any other key is an error, so a typo never
@@ -205,6 +212,8 @@ struct SandboxFile {
     default_hosts: bool,
     #[serde(default)]
     local_ports: Vec<u16>,
+    #[serde(default)]
+    agent_network: AgentNetwork,
 }
 
 fn keep_defaults() -> bool {
@@ -272,7 +281,7 @@ const DEFAULT_BUDGET_MINUTES: u64 = 20;
 const MAX_BUDGET_MINUTES: u64 = 1440;
 const MAX_MODEL_NAME: usize = 200;
 
-fn story(file: Option<&Story>, home: &Path) -> Result<Option<StoryConfig>> {
+fn story(file: Option<&Story>, network: AgentNetwork, home: &Path) -> Result<Option<StoryConfig>> {
     let Some(story) = file else {
         return Ok(None);
     };
@@ -284,6 +293,7 @@ fn story(file: Option<&Story>, home: &Path) -> Result<Option<StoryConfig>> {
         program: story_program(story, home)?,
         timeout: Duration::from_secs(seconds),
         model: model_spec(story)?,
+        agent_network: network,
     }))
 }
 
@@ -391,6 +401,9 @@ struct Agent {
     env: Vec<String>,
     #[serde(default)]
     modes: BTreeMap<Permission, String>,
+    /// The hosts of the agent in `strict` mode, besides the model hosts of its kind.
+    #[serde(default, rename = "agent_hosts")]
+    hosts: Vec<String>,
 }
 
 const DEFAULT_TIMEOUT_MINUTES: u64 = 30;
@@ -430,6 +443,9 @@ fn check_agent(name: &str, agent: &Agent) -> Result<()> {
     }
     if let Some(bad) = agent.env.iter().find(|n| !is_env_name(n)) {
         bail!("[agents.{name}] env name {bad:?} is not A-Z, 0-9, and _");
+    }
+    for host in &agent.hosts {
+        check_host_name(host).map_err(|e| anyhow::anyhow!("[agents.{name}] agent_hosts: {e}"))?;
     }
     if agent.kind == Kind::Claude {
         check_claude_modes(name, &agent.modes)?;
@@ -550,7 +566,12 @@ fn real_root(path: &str, home: &Path) -> Result<Vec<u8>> {
 
 pub fn parse(text: &str, home: &Path) -> Result<Config> {
     let file: File = toml::from_str(text)?;
-    let story = story(file.story.as_ref(), home)?;
+    let network = file
+        .sandbox
+        .as_ref()
+        .map(|s| s.agent_network)
+        .unwrap_or_default();
+    let story = story(file.story.as_ref(), network, home)?;
     let wow = expand(&file.wow.path, home)?;
     Ok(Config {
         wow,
@@ -629,6 +650,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
                 command: agent.command,
                 env: agent.env,
                 modes: agent.modes,
+                agent_hosts: agent.hosts,
             };
             (name, spec)
         })
@@ -636,6 +658,11 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
     let allow = allow::parse(&file.allow.unwrap_or_default(), home)?;
     let hosts = hosts(file.sandbox.as_ref())?;
     let local_ports = local_ports(file.sandbox.as_ref())?;
+    let agent_network = file
+        .sandbox
+        .as_ref()
+        .map(|s| s.agent_network)
+        .unwrap_or_default();
     Ok(Some(RelayConfig {
         policy: Policy {
             folders: Folders { roots, base },
@@ -648,6 +675,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         allow,
         hosts,
         local_ports,
+        agent_network,
     }))
 }
 
@@ -905,6 +933,42 @@ mod tests {
             let text = format!("{GOOD}\n[sandbox]\n{section}\n");
             assert!(home.parse(&text).is_err(), "{section}");
         }
+    }
+
+    #[test]
+    fn the_agent_network_is_open_unless_the_config_says_strict() {
+        let home = Home::new();
+        let strict = format!("{GOOD}\n[sandbox]\nagent_network = \"strict\"\n");
+        let bad = format!("{GOOD}\n[sandbox]\nagent_network = \"closed\"\n");
+
+        let relay = |text: &str| home.parse(text).unwrap().relay.unwrap().agent_network;
+
+        assert_eq!(relay(GOOD), AgentNetwork::Open);
+        assert_eq!(relay(&strict), AgentNetwork::Strict);
+        assert!(home.parse(&bad).is_err());
+    }
+
+    #[test]
+    fn the_agent_hosts_of_an_entry_are_host_names() {
+        let home = Home::new();
+        let good = GOOD.replace(
+            "kind = \"acp\"",
+            "kind = \"acp\"\nagent_hosts = [\"bedrock.example.com\"]",
+        );
+        let bad = GOOD.replace(
+            "kind = \"acp\"",
+            "kind = \"acp\"\nagent_hosts = [\"10.0.0.1\"]",
+        );
+
+        let config = home.parse(&good).unwrap();
+
+        let relay = config.require_relay().unwrap();
+        let hosts: Vec<&Vec<String>> = relay.agents.values().map(|a| &a.agent_hosts).collect();
+        assert!(
+            hosts.contains(&&vec!["bedrock.example.com".to_owned()]),
+            "{good}"
+        );
+        assert!(home.parse(&bad).is_err());
     }
 
     #[test]

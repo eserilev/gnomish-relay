@@ -191,3 +191,10 @@ path = "fuzz_targets/always.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "agent_wall"
+path = "fuzz_targets/agent_wall.rs"
+test = false
+doc = false
+bench = false

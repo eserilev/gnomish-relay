@@ -82,6 +82,7 @@ fn ask_each(script: &str, sandbox: Sandbox, walls: Walls, questions: &[String]) 
         sandbox,
         timeout: Duration::from_secs(20),
         model: bridge::model::ModelSpec::none(),
+        wall: bridge::agent_wall::AgentWall::none(),
     };
     ask_spec(spec, questions)
 }
@@ -209,6 +210,7 @@ fn a_story_program_under_tmp_starts_in_the_sandbox() {
         }),
         timeout: Duration::from_secs(20),
         model: bridge::model::ModelSpec::none(),
+        agent_network: bridge::agent_wall::AgentNetwork::Open,
     };
 
     let spec = StorySpec::from_config(&config, &h.config, &h.data, &h.home)

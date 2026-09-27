@@ -223,6 +223,7 @@ fn acp(spec: &AgentSpec, limits: Limits, gate: &Gate) -> AcpAgent {
         timeout: limits.timeout,
         permission_timeout: limits.permission_timeout,
         gate: gate.clone(),
+        wall: gate.wall.for_agent(Kind::Acp, &spec.agent_hosts),
     }
 }
 
@@ -238,6 +239,7 @@ fn claude(spec: &AgentSpec, limits: Limits, gate: &Gate) -> ClaudeAgent {
         timeout: limits.timeout,
         permission_timeout: limits.permission_timeout,
         projects: claude_sessions::projects_dir(&spec.env, &home),
+        wall: gate.wall.for_agent(Kind::Claude, &spec.agent_hosts),
         gate: gate.clone(),
     }
 }
@@ -249,6 +251,7 @@ fn codex(spec: &AgentSpec, limits: Limits, gate: &Gate) -> CodexAgent {
         timeout: limits.timeout,
         permission_timeout: limits.permission_timeout,
         gate: gate.clone(),
+        wall: gate.wall.for_agent(Kind::Codex, &spec.agent_hosts),
     }
 }
 
@@ -295,6 +298,7 @@ mod tests {
             command: vec![program.to_owned()],
             env: Vec::new(),
             modes: BTreeMap::new(),
+            agent_hosts: Vec::new(),
         }
     }
 
@@ -310,6 +314,7 @@ mod tests {
                 crate::desktop::Prompt::Off,
             ),
             sandbox: crate::command_sandbox::CommandSandbox::none(),
+            wall: crate::agent_wall::AgentWall::none(),
         }
     }
 

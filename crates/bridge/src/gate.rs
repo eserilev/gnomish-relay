@@ -9,6 +9,7 @@ use protocol::live::OptionKind;
 
 use crate::action_input::{self, resolve};
 use crate::agent::Choice;
+use crate::agent_wall::AgentWall;
 use crate::allow::AllowTable;
 use crate::command_sandbox::CommandSandbox;
 use crate::config::{Permission, RelayConfig};
@@ -167,6 +168,8 @@ pub struct Gate {
     pub allow: std::sync::Arc<AllowTable>,
     pub approvals: Approvals,
     pub sandbox: CommandSandbox,
+    /// The wall of each agent process (SPEC.md 6.6.4).
+    pub wall: AgentWall,
 }
 
 impl Gate {
@@ -187,6 +190,7 @@ impl Gate {
             allow: std::sync::Arc::new(config.allow.clone()),
             approvals: Approvals::new(data_dir, prompt),
             sandbox: CommandSandbox::detect(config.hosts.clone(), &config.local_ports),
+            wall: AgentWall::detect(data_dir, config.agent_network, &config.local_ports),
         }
     }
 
@@ -407,6 +411,7 @@ mod tests {
             allow: std::sync::Arc::new(allow),
             approvals: Approvals::new(&home.join("data"), desktop::Prompt::Off),
             sandbox: CommandSandbox::none(),
+            wall: AgentWall::none(),
         };
         Setup {
             _tmp: tmp,

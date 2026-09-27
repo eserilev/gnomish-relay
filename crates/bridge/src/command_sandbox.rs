@@ -833,7 +833,7 @@ pub fn command_env(
 }
 
 /// Each tool reads its own names, and some of them read only the lower-case ones.
-const PROXY_VARS: [&str; 8] = [
+pub(crate) const PROXY_VARS: [&str; 8] = [
     "HTTPS_PROXY",
     "https_proxy",
     "HTTP_PROXY",

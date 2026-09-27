@@ -36,6 +36,7 @@ fn ask_claude(script: &[&str], timeout: Duration) -> Result<String, String> {
         PROMPT,
         timeout,
         StopSignal::default(),
+        &bridge::agent_wall::AgentWall::none(),
     )
 }
 
@@ -105,6 +106,7 @@ fn a_stop_ends_a_claude_call_at_once() {
         PROMPT,
         Duration::from_mins(1),
         stop,
+        &bridge::agent_wall::AgentWall::none(),
     );
 
     assert_eq!(answer.unwrap_err(), STOPPED);
@@ -240,12 +242,38 @@ fn live_claude_with_no_tools_cannot_read_a_file() {
         &prompt,
         Duration::from_mins(2),
         StopSignal::default(),
+        &bridge::agent_wall::AgentWall::none(),
     );
 
     let answer = answer.unwrap();
     eprintln!("claude answered: {answer}");
     assert!(!answer.is_empty());
     assert!(!answer.contains("4417"), "{answer}");
+}
+
+/// The real `claude` answers a model call of Timeways from inside the wall of the
+/// agent, in the strict mode: only its model hosts (SPEC.md 6.6.4).
+#[test]
+#[ignore = "live: needs the real claude, a login, and bwrap"]
+fn live_claude_answers_a_model_call_inside_the_strict_wall() {
+    use bridge::agent_wall::{AgentNetwork, AgentWall};
+    let data = tempfile::tempdir().unwrap();
+    let mut wall = AgentWall::detect(data.path(), AgentNetwork::Strict, &[])
+        .for_agent(bridge::config::Kind::Claude, &[]);
+    // The test binary is not the bridge program, which runs the forwarder in the wall.
+    wall.wrapper = std::path::PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay"));
+    assert!(wall.is_on(), "this test needs a working bwrap");
+
+    let answer = model_claude::ask(
+        &["claude".to_owned()],
+        Some("haiku"),
+        "Reply with only the word hi.",
+        Duration::from_mins(2),
+        StopSignal::default(),
+        &wall,
+    );
+
+    assert!(answer.unwrap().to_lowercase().contains("hi"));
 }
 
 /// A real Ollama, when one listens on 127.0.0.1:11434. With none, the test passes.

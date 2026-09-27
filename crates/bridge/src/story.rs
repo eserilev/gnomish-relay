@@ -14,11 +14,12 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 
 use crate::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
+use crate::agent_wall::AgentWall;
 use crate::app_protocol::{
     self, Answer, BadLine, CallId, FromStory, NarratorCheck, RequestId, batch_end_line, hello_line,
     model_answered_line, model_failed_line, reply_text,
 };
-use crate::config::StoryConfig;
+use crate::config::{Kind, StoryConfig};
 use crate::model::{ModelCalls, ModelSpec};
 use crate::process::{self, RawLine, TooLong};
 use crate::run::log;
@@ -51,6 +52,8 @@ pub struct StorySpec {
     pub sandbox: Sandbox,
     pub timeout: Duration,
     pub model: ModelSpec,
+    /// The wall of the `claude` model calls, with the hosts of Claude (SPEC.md 6.6.4).
+    pub wall: AgentWall,
 }
 
 impl StorySpec {
@@ -81,6 +84,7 @@ impl StorySpec {
             sandbox: story_sandbox::detect(),
             timeout: config.timeout,
             model: config.model.clone(),
+            wall: AgentWall::detect(data, config.agent_network, &[]).for_agent(Kind::Claude, &[]),
         }))
     }
 }
@@ -217,7 +221,7 @@ impl Story {
             bad_lines: 0,
             replies: Vec::new(),
             warning,
-            models: ModelCalls::new(&spec.model),
+            models: ModelCalls::new(&spec.model, &spec.wall),
             spec,
         }
     }
@@ -719,6 +723,7 @@ mod tests {
             program: None,
             timeout: Duration::from_secs(9),
             model: crate::model::ModelSpec::none(),
+            agent_network: crate::agent_wall::AgentNetwork::Open,
         };
         let spec = StorySpec::from_config(&config, root.path(), root.path(), root.path());
         assert!(spec.unwrap().is_none());
@@ -762,6 +767,7 @@ mod tests {
             }),
             timeout: Duration::from_secs(9),
             model: crate::model::ModelSpec::none(),
+            agent_network: crate::agent_wall::AgentNetwork::Open,
         }
     }
 

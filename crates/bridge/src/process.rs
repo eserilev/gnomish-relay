@@ -13,6 +13,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use crate::agent::StopSignal;
+use crate::agent_wall::RunWall;
 use crate::program::find_program;
 
 /// A tool call with a large diff fits in far less.
@@ -89,7 +90,27 @@ impl AgentProcess {
         vars: &[(String, OsString)],
         cwd: &str,
     ) -> Result<AgentProcess, String> {
-        let mut child = spawn(command, args, env, vars, cwd, Stdio::piped())?;
+        AgentProcess::start_in(command, args, env, vars, cwd, None)
+    }
+
+    /// As `start_with`, inside `wall` when there is one (SPEC.md 6.6.4).
+    pub fn start_in(
+        command: &[String],
+        args: &[String],
+        env: &[String],
+        vars: &[(String, OsString)],
+        cwd: &str,
+        wall: Option<&RunWall>,
+    ) -> Result<AgentProcess, String> {
+        let spawned = Spawn {
+            command,
+            args,
+            env,
+            vars,
+            cwd,
+            wall,
+        };
+        let mut child = spawn(&spawned, Stdio::piped())?;
         let stdin = child.stdin.take().ok_or("The agent has no stdin.")?;
         let stdout = child.stdout.take().ok_or("The agent has no stdout.")?;
         let stderr_pipe = child.stderr.take().ok_or("The agent has no stderr.")?;
@@ -133,31 +154,43 @@ impl AgentProcess {
     }
 }
 
+/// What `spawn` starts.
+struct Spawn<'a> {
+    command: &'a [String],
+    args: &'a [String],
+    env: &'a [String],
+    /// The variables of the bridge, such as the sandbox.
+    vars: &'a [(String, OsString)],
+    cwd: &'a str,
+    wall: Option<&'a RunWall>,
+}
+
 /// Never through a shell (SPEC.md 6.2, rule 11), and with only the variables of the
-/// allowlist (rule 12).
-fn spawn(
-    command: &[String],
-    args: &[String],
-    env: &[String],
-    vars: &[(String, OsString)],
-    cwd: &str,
-    stdin: Stdio,
-) -> Result<Child, String> {
-    let (program, own_args) = command.split_first().ok_or("The agent has no command.")?;
+/// allowlist (rule 12). In a wall, `bwrap` starts the agent.
+fn spawn(spawned: &Spawn, stdin: Stdio) -> Result<Child, String> {
+    let (program, own_args) = spawned
+        .command
+        .split_first()
+        .ok_or("The agent has no command.")?;
     let path = std::env::var_os("PATH").unwrap_or_default();
     let found = find_program(program, &path, cfg!(windows))
         .ok_or_else(|| format!("Cannot start {program}: not found on PATH"))?;
-    let mut child = allowlisted(&found, env);
+    let mut all_args: Vec<String> = own_args.to_vec();
+    all_args.extend(spawned.args.iter().cloned());
+    let (program_path, program_args) = match spawned.wall {
+        Some(wall) => wall.launch(&found, &all_args),
+        None => (found, all_args.into_iter().map(OsString::from).collect()),
+    };
+    let mut child = allowlisted(&program_path, spawned.env);
+    child.args(program_args);
     child
-        .args(own_args)
-        .args(args)
-        .current_dir(cwd)
+        .current_dir(spawned.cwd)
         .stdin(stdin)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
     // Tells a hook of the agent that this run comes from the bridge (SPEC.md 10).
     child.env("GNOMISH_RELAY_JOB", "1");
-    child.envs(vars.iter().map(|(name, value)| (name, value)));
+    child.envs(spawned.vars.iter().map(|(name, value)| (name, value)));
     child
         .spawn()
         .map_err(|e| format!("Cannot start {program}: {e}"))
@@ -196,7 +229,15 @@ pub fn output(
     cwd: &str,
     timeout: Duration,
 ) -> Result<Output, String> {
-    let mut child = spawn(command, args, env, &[], cwd, Stdio::null())?;
+    let spawned = Spawn {
+        command,
+        args,
+        env,
+        vars: &[],
+        cwd,
+        wall: None,
+    };
+    let mut child = spawn(&spawned, Stdio::null())?;
     let stdout = child.stdout.take().ok_or("The agent has no stdout.")?;
     if let Some(stderr) = child.stderr.take() {
         let (done, _) = channel();

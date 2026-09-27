@@ -363,6 +363,7 @@ fn echo_story(f: &Dirs) -> StorySpec {
         sandbox: Sandbox::None,
         timeout: Duration::from_secs(20),
         model: bridge::model::ModelSpec::none(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 

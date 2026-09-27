@@ -11,6 +11,7 @@ use std::time::{Duration, Instant};
 use protocol::rate::{RateLimiter, admit_message};
 
 use crate::agent::StopSignal;
+use crate::agent_wall::AgentWall;
 use crate::app_protocol::CallId;
 use crate::model_local::LocalModel;
 use crate::process::cut;
@@ -80,8 +81,9 @@ pub struct ModelCalls {
 }
 
 impl ModelCalls {
-    pub fn new(spec: &ModelSpec) -> ModelCalls {
-        ModelCalls::with_ask(ask_of(spec), spec.budget_window_minutes)
+    /// A `claude` call runs inside `wall` (SPEC.md 6.6.4).
+    pub fn new(spec: &ModelSpec, wall: &AgentWall) -> ModelCalls {
+        ModelCalls::with_ask(ask_of(spec, wall), spec.budget_window_minutes)
     }
 
     /// `None` is no model. Tests give their own `ask`.
@@ -151,12 +153,13 @@ impl Drop for ModelCalls {
     }
 }
 
-fn ask_of(spec: &ModelSpec) -> Option<Ask> {
+fn ask_of(spec: &ModelSpec, wall: &AgentWall) -> Option<Ask> {
+    let wall = wall.clone();
     let timeout = spec.timeout;
     match spec.choice.clone() {
         ModelChoice::None => None,
         ModelChoice::Claude { command, model } => Some(Arc::new(move |prompt, stop| {
-            model_claude::ask(&command, model.as_deref(), prompt, timeout, stop)
+            model_claude::ask(&command, model.as_deref(), prompt, timeout, stop, &wall)
         })),
         ModelChoice::Local(local) => Some(Arc::new(move |prompt, stop| {
             model_local::ask(&local, prompt, timeout, stop)

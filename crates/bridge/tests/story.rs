@@ -46,6 +46,7 @@ fn spec(script: &str, dir: &Path, timeout: Duration) -> StorySpec {
         sandbox: Sandbox::None,
         timeout,
         model: ModelSpec::none(),
+        wall: bridge::agent_wall::AgentWall::none(),
     }
 }
 
