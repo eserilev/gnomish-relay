@@ -41,6 +41,8 @@ fn is_public_v6(ip: Ipv6Addr) -> bool {
         || (s[0] & 0xffc0) == 0xfec0
         || (s[0] & 0xff00) == 0xff00
         || (s[0] == 0x2001 && s[1] == 0x0db8)
+        // The local NAT64 range (RFC 8215) holds its IPv4 address at other bits.
+        || (s[0] == 0x0064 && s[1] == 0xff9b)
         || (s[0] == 0x2001 && s[1] < 0x0200)
         || s[0] == 0x0100
         || s[0] == 0;
@@ -54,7 +56,7 @@ fn embedded_v4(ip: Ipv6Addr) -> Option<Ipv4Addr> {
     if s[..5] == [0; 5] && s[5] == 0xffff {
         return Some(tail);
     }
-    if s[0] == 0x0064 && s[1] == 0xff9b {
+    if s[..6] == [0x0064, 0xff9b, 0, 0, 0, 0] {
         return Some(tail);
     }
     if s[0] == 0x2002 {
@@ -153,5 +155,18 @@ mod tests {
         }
         assert!(public("::ffff:93.184.216.34"));
         assert!(public("2002:5db8:d822::"));
+    }
+
+    #[test]
+    fn the_local_nat64_range_and_the_rest_of_its_block_are_not_public() {
+        for ip in [
+            "64:ff9b:1::5db8:d822",
+            "64:ff9b:1:ffff::5db8:d822",
+            "64:ff9b:0:0:1::5db8:d822",
+            "64:ff9b:ffff::1",
+        ] {
+            assert!(!public(ip), "{ip}");
+        }
+        assert!(public("64:ff9b::5db8:d822"));
     }
 }
