@@ -36,6 +36,12 @@ import Protocol.Spec.Sbpl
 import Protocol.Sbpl
 import Protocol.Spec.Always
 import Protocol.Always
+import Protocol.Spec.Ip
+import Protocol.Ip
+import Protocol.Spec.Hosts
+import Protocol.Hosts
+import Protocol.Spec.Connect
+import Protocol.Connect
 
 /-!
 # The theorems, stated
@@ -520,6 +526,48 @@ the literal ends exactly where it should. Whatever follows is left alone. -/
 def S32_reads_back : Prop :=
   ∀ s rest : List Spec.Byte, (0 : Spec.Byte) ∉ s → sbplReadString (sbplLiteral s ++ rest) = some (s, rest)
 
+/-! ## The proxy of the bridge -/
+
+/-- **S33, host check.** For every allow list and every host, `host_allowed(list, host)`
+is true exactly when the host is a good host name and equals a name of the list without
+ASCII case. So no IP address in any form passes. -/
+def S33_host_allowed : Prop :=
+  ∀ (list : Slice (alloc.vec.Vec U8)) (host : Slice U8),
+    hosts.host_allowed list host ⦃ ok => ok = true ↔ goodHostName (bytes host.val) ∧
+      ∃ h ∈ strs list.val, lowerAscii h = lowerAscii (bytes host.val) ⦄
+
+/-- **S33, a good host name.** `good_host_name` is true exactly for a good host name. -/
+def S33_good_host_name : Prop :=
+  ∀ host : Slice U8, hosts.good_host_name host ⦃ ok => ok = true ↔ goodHostName (bytes host.val) ⦄
+
+/-- **S34, IPv4.** An address is public exactly when it is in no range of `v4NotPublic`. -/
+def S34_public_v4 : Prop :=
+  ∀ o : Array U8 4#usize, ip.is_public_v4 o ⦃ r => r = true ↔ ¬ inRanges v4NotPublic (v4Nat o) ⦄
+
+/-- **S34, IPv6.** A form that holds an IPv4 address gets the answer of that address.
+Any other address is public exactly when it is in no range of `v6NotPublic`. -/
+def S34_public_v6 : Prop :=
+  ∀ s : Array U16 8#usize, ip.is_public_v6 s ⦃ r => r = true ↔ match embeddedV4 (v6Nat s) with
+    | some v4 => ¬ inRanges v4NotPublic v4
+    | none => ¬ inRanges v6NotPublic (v6Nat s) ⦄
+
+/-- **S35, the target of a request.** For every head of at most 8 KiB, `check_target`
+returns a target or a refusal, and never panics. A target comes only from a first line
+`CONNECT <host>:<port> HTTP/1.<d>`: a port of the list on `localhost`, or a host on port
+443 or 80 that the mode allows. -/
+def S35_check_target : Prop :=
+  ∀ (mode : connect.Mode) (list : Slice (alloc.vec.Vec U8)) (ports : Slice U16) (head : Slice U8),
+    head.val.length ≤ 8192 →
+    connect.check_target mode list ports head ⦃ r => ∀ t, r = .Ok t →
+      ∃ (h ds : List Spec.Byte) (p : U16) (d : Spec.Byte) (rest : List Spec.Byte),
+        bytes head.val = ascii "CONNECT " ++ h ++ [ch ':'] ++ ds ++ ascii " HTTP/1." ++ [d] ++
+          ascii "\r\n" ++ rest ∧
+        isDigit d ∧ allDigits ds ∧ 1 ≤ ds.length ∧ ds.length ≤ 5 ∧ decimalValue ds = p.val ∧
+        ch ' ' ∉ h ∧ ch ':' ∉ h ∧
+        ((t = .Local p ∧ lowerAscii h = ascii "localhost" ∧ p ∈ ports.val ∧ p.val ∉ [2375, 2376, 9222]) ∨
+          (∃ th, t = .Remote th p ∧ (p.val = 443 ∨ p.val = 80) ∧ bytes th.val = lowerAscii h ∧
+            (mode = .Listed → hostAllowed list h) ∧ (mode = .Public → goodHostName h))) ⦄
+
 /-! ## Checks: each proved theorem against its approved statement -/
 
 theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
@@ -586,5 +634,12 @@ theorem check_S39_ceiling : S39_ceiling := Protocol.Always.offer_within_ceiling
 theorem check_S31_sandbox_policy : S31_sandbox_policy := Protocol.Sandbox.sandbox_policy_spec
 theorem check_S32_sbpl_string : S32_sbpl_string := Protocol.Sbpl.sbpl_string_spec
 theorem check_S32_reads_back : S32_reads_back := Protocol.Sbpl.sbpl_reads_back
+
+theorem check_S33_host_allowed : S33_host_allowed := Protocol.Hosts.host_allowed_spec
+theorem check_S33_good_host_name : S33_good_host_name := Protocol.Hosts.good_host_name_spec
+theorem check_S34_public_v4 : S34_public_v4 := Protocol.Ip.is_public_v4_spec
+theorem check_S34_public_v6 : S34_public_v6 := Protocol.Ip.is_public_v6_spec
+theorem check_S35_check_target : S35_check_target :=
+  fun mode list ports head _ => Protocol.Connect.check_target_spec mode list ports head
 
 end Protocol.Statements

@@ -63,3 +63,8 @@ import Statements
 #print axioms Protocol.Statements.check_S31_sandbox_policy
 #print axioms Protocol.Statements.check_S32_sbpl_string
 #print axioms Protocol.Statements.check_S32_reads_back
+#print axioms Protocol.Statements.check_S33_host_allowed
+#print axioms Protocol.Statements.check_S33_good_host_name
+#print axioms Protocol.Statements.check_S34_public_v4
+#print axioms Protocol.Statements.check_S34_public_v6
+#print axioms Protocol.Statements.check_S35_check_target
