@@ -15,7 +15,7 @@ jobs:
         with:
           toolchain: stable
       - run: cargo build --manifest-path spikes/appcontainer/Cargo.toml
-      - run: Get-Service AppXSvc, StateRepository, AppInfo -ErrorAction Continue | Format-Table Name, Status, StartType
+      - run: spikes/appcontainer/plain.ps1
         shell: pwsh
       - run: spikes/appcontainer/target/debug/acspike.exe outer
         shell: bash
