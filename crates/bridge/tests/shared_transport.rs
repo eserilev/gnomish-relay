@@ -15,7 +15,7 @@ use bridge::story::{STORY_DIR, StorySpec};
 use bridge::story_sandbox::{Sandbox, Walls};
 use bridge::strip::{Image, read_with};
 use bridge::timeways::NO_STORY;
-use common::{Bits, hex, load_addon, lua, repo_file, screenshot_png};
+use common::{fake_game, game_lua, hex, load_addon, log_in, measured, screenshot_png};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::live::{Progress, live_body, prepare_progress};
@@ -139,12 +139,8 @@ struct Game {
 impl Game {
     /// A fake game with no addon yet. Screenshots read the strip of both apps.
     fn new() -> Game {
-        let lua = lua(Bits::Unsigned);
-        let api: Table = lua.load(repo_file("addon/tests/api.lua")).call(()).unwrap();
-        let wow: Table = lua
-            .load(repo_file("addon/tests/wow.lua"))
-            .call(api)
-            .unwrap();
+        let lua = game_lua();
+        let wow = fake_game(&lua);
         let strips = lua
             .create_sequence_from([RELAY.strip, TIMEWAYS.strip])
             .unwrap();
@@ -219,8 +215,7 @@ impl Game {
         ns.set("key", self.lua.create_string(RELAY_KEY).unwrap())
             .unwrap();
         load_addon(&self.lua, "GnomishRelay", &ns, RELAY_FILES);
-        self.fire("ADDON_LOADED", "GnomishRelay");
-        self.fire("PLAYER_LOGIN", ());
+        log_in(&self.lua, &self.wow, &measured(), "GnomishRelay");
         ns
     }
 

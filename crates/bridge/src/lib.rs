@@ -22,6 +22,7 @@ pub mod config_text;
 pub mod connect_line;
 pub mod desktop;
 pub mod dialog;
+pub mod fixture;
 pub mod flags;
 pub mod folder_list;
 pub mod folder_walk;

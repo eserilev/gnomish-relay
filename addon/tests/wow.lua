@@ -2,8 +2,14 @@
 -- It returns a `wow` table that tests use to drive time and look inside.
 -- `api` is addon/tests/api.lua: the real API of the client. An object of the fake
 -- refuses every method or child key that its real kind and template do not have.
+-- `fake` is the `fake` part of the newest fixture in tests/fixtures: what the self-test
+-- addon measured in the real game (SPEC.md 14.3). Where the game has a choice, the fake
+-- follows it.
 
-local api = ...
+local api, fake = ...
+
+-- The fake has one model of timers that are due together: the order of their start.
+assert(fake.timers_due_together == "fifo", "the fake game has no model for the timer order of this client")
 
 local wow = {
 	now = 1000,
@@ -16,10 +22,18 @@ local wow = {
 	body = nil,
 	restore = nil,
 	live = nil,
+	fake = fake,
 	slotsInstalled = true,
+	-- Load-on-demand addons that do not exist, that the player disabled, or that are
+	-- out of date, by name.
+	missingAddOns = {},
+	disabled = {},
+	outOfDate = {},
 	shotsBlocked = false,
 	-- Seconds from Screenshot() to its SCREENSHOT_* event.
-	shotDelay = 0.4,
+	shotDelay = fake.shot_delay,
+	-- How often "Screen captured" showed through ActionStatus.
+	statusShows = 0,
 	shots = {},
 	-- Every screenshot again, by the name of each strip frame in `strips` that it shows.
 	strips = { "GnomishRelayStrip" },
@@ -230,6 +244,7 @@ function methods:SetText(text)
 		error("SimpleHTML failed")
 	end
 	self.text = text
+	self.textAt = wow.now
 	if self.kind == "EditBox" and self.scripts.OnTextChanged then
 		self.scripts.OnTextChanged(self, false)
 	end
@@ -283,10 +298,10 @@ function methods:SetFont(...)
 		return
 	end
 	if wow.missingFiles[args[1]] then
-		return false
+		return fake.set_font.missing
 	end
 	self.font, self.fontSize = args[1], args[2]
-	return true
+	return fake.set_font.present
 end
 
 function methods:SetTextColor(...)
@@ -328,7 +343,11 @@ function methods:GetStringHeight()
 	return lines * 14
 end
 
+-- Some clients measure the content only in the next frame. A fake frame is one instant.
 function methods:GetContentHeight()
+	if not fake.content_height_at_once and self.textAt == wow.now then
+		return 0
+	end
 	local _, blocks = (self.text or ""):gsub("</[ph]%d?>", "")
 	local _, gaps = (self.text or ""):gsub("<br/>", "")
 	return (blocks + gaps) * 14
@@ -341,6 +360,23 @@ end
 
 function methods:Clear()
 	self.lines = {}
+end
+
+function methods:SetScale(scale)
+	self.scale = scale
+end
+
+function methods:GetScale()
+	return self.scale or 1
+end
+
+function methods:SetIgnoreParentScale(ignore)
+	self.ignoreParentScale = ignore
+end
+
+function methods:GetEffectiveScale()
+	local parent = not self.ignoreParentScale and self.parent
+	return self:GetScale() * (parent and parent:GetEffectiveScale() or 1)
 end
 
 function methods:SetValue(v)
@@ -395,12 +431,24 @@ function wow.Drawn(root)
 	return drawn
 end
 
--- Moves the clock forward and runs every timer that comes due.
+local timerCount = 0
+
+local function AddTimer(timer)
+	timerCount = timerCount + 1
+	timer.seq = timerCount
+	table.insert(wow.timers, timer)
+end
+
+-- Moves the clock forward and runs every timer that comes due. Timers that are due
+-- together run in the order of their start.
 function wow.Advance(seconds)
 	local stop = wow.now + seconds
 	while true do
 		table.sort(wow.timers, function(a, b)
-			return a.at < b.at
+			if a.at ~= b.at then
+				return a.at < b.at
+			end
+			return a.seq < b.seq
 		end)
 		local due = wow.timers[1]
 		if not due or due.at > stop then
@@ -412,7 +460,7 @@ function wow.Advance(seconds)
 			due.fn()
 			if due.every then
 				due.at = wow.now + due.every
-				table.insert(wow.timers, due)
+				AddTimer(due)
 			end
 		end
 	end
@@ -498,11 +546,12 @@ function strtrim(s)
 end
 
 function GetBuildInfo()
-	return "1.60.1", "70009", "Sep 24 2026", 16001
+	local info = fake.build_info
+	return info.version, info.build, info.date, info.interface
 end
 
 function GetPhysicalScreenSize()
-	return 1280, 720
+	return fake.physical_screen[1], fake.physical_screen[2]
 end
 
 function SetCVar(name, value)
@@ -513,6 +562,9 @@ function InCombatLockdown()
 	return wow.combat
 end
 
+-- The game opens a chat link through it. The relay hooks it.
+function SetItemRef() end
+
 function ReloadUI()
 	wow.reloads = wow.reloads + 1
 end
@@ -522,11 +574,42 @@ function PlaySound(id)
 end
 
 function hooksecurefunc(name, fn)
+	if not _G[name] and fake.hook_missing_global == "error" then
+		error("hooksecurefunc: " .. name .. " does not exist")
+	end
+	if not _G[name] and fake.hook_missing_global == "ignores" then
+		return
+	end
 	local old = _G[name] or function() end
 	_G[name] = function(...)
 		local r = { old(...) }
 		fn(...)
 		return unpack(r)
+	end
+end
+
+local function Capture()
+	table.insert(wow.shots, StripCells("GnomishRelayStrip"))
+	for _, frameName in ipairs(wow.strips) do
+		wow.shotsOf[frameName] = wow.shotsOf[frameName] or {}
+		if _G[frameName] and _G[frameName].shown then
+			table.insert(wow.shotsOf[frameName], StripCells(frameName))
+		end
+	end
+end
+
+local function ShowStatus()
+	wow.statusShows = wow.statusShows + 1
+	ActionStatus:Show()
+end
+
+local function Saved()
+	if fake.status_shown == "before_event" then
+		ShowStatus()
+	end
+	wow.Fire(fake.shot_event)
+	if fake.status_shown == "after_event" then
+		ShowStatus()
 	end
 end
 
@@ -537,27 +620,23 @@ function Screenshot()
 		end)
 		return
 	end
-	table.insert(wow.shots, StripCells("GnomishRelayStrip"))
-	for _, frameName in ipairs(wow.strips) do
-		wow.shotsOf[frameName] = wow.shotsOf[frameName] or {}
-		if _G[frameName] and _G[frameName].shown then
-			table.insert(wow.shotsOf[frameName], StripCells(frameName))
-		end
+	if fake.capture == "call" then
+		Capture()
+	else
+		C_Timer.After(0, Capture)
 	end
-	C_Timer.After(wow.shotDelay, function()
-		wow.Fire("SCREENSHOT_SUCCEEDED")
-	end)
+	C_Timer.After(wow.shotDelay, Saved)
 end
 
 C_Timer = {}
 
 function C_Timer.After(delay, fn)
-	table.insert(wow.timers, { at = wow.now + delay, fn = fn })
+	AddTimer({ at = wow.now + delay, fn = fn })
 end
 
 function C_Timer.NewTicker(every, fn)
 	local timer = { at = wow.now + every, fn = fn, every = every }
-	table.insert(wow.timers, timer)
+	AddTimer(timer)
 	return {
 		Cancel = function()
 			timer.cancelled = true
@@ -571,28 +650,45 @@ function C_AddOns.IsAddOnLoaded(name)
 	return wow.loaded[name] == true
 end
 
-function C_AddOns.EnableAddOn() end
+function C_AddOns.DisableAddOn(name)
+	wow.disabled[name] = true
+end
+
+function C_AddOns.EnableAddOn(name)
+	if fake.load_addon.enabled_then_loaded.loaded then
+		wow.disabled[name] = nil
+	end
+end
+
+local function Returns(load)
+	return load.loaded, load.reason
+end
 
 -- A slot runs the body, the restore file, and the live file that the test put there,
 -- one time per UI session. A slot of another app runs the files of that app.
 function C_AddOns.LoadAddOn(name)
-	if not wow.slotsInstalled then
-		return false, "MISSING"
+	local returns = fake.load_addon
+	if not wow.slotsInstalled or wow.missingAddOns[name] then
+		return Returns(returns.missing)
+	elseif wow.disabled[name] then
+		return Returns(returns.disabled)
+	elseif wow.outOfDate[name] then
+		return Returns(returns.out_of_date)
+	elseif wow.loaded[name] then
+		return Returns(returns.again)
 	end
-	if not wow.loaded[name] then
-		wow.loaded[name] = true
-		local files = wow.files[name:match("^(.-)_S%d+$")] or wow
-		if files.body then
-			assert(loadstring(files.body))()
-		end
-		if files.restore then
-			assert(loadstring(files.restore))()
-		end
-		if files.live then
-			assert(loadstring(files.live))()
-		end
+	wow.loaded[name] = true
+	local files = wow.files[name:match("^(.-)_S%d+$")] or wow
+	if files.body then
+		assert(loadstring(files.body))()
 	end
-	return true
+	if files.restore then
+		assert(loadstring(files.restore))()
+	end
+	if files.live then
+		assert(loadstring(files.live))()
+	end
+	return Returns(returns.present)
 end
 
 return wow

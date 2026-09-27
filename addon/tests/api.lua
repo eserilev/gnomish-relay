@@ -5,6 +5,7 @@ return {
 	globals = {
 		"ActionStatus",
 		"C_AddOns",
+		"C_AddOns.DisableAddOn",
 		"C_AddOns.EnableAddOn",
 		"C_AddOns.IsAddOnLoaded",
 		"C_AddOns.LoadAddOn",
@@ -28,6 +29,7 @@ return {
 		"SOUNDKIT.TELL_MESSAGE",
 		"Screenshot",
 		"SetCVar",
+		"SetItemRef",
 		"SlashCmdList",
 		"UIErrorsFrame",
 		"UIParent",

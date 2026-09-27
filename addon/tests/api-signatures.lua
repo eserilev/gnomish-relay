@@ -5,6 +5,13 @@
 return {
 	build = "1.60.1.70009",
 	functions = {
+		["C_AddOns.DisableAddOn"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "name", Type = "uiAddon", Nilable = false },
+				{ Name = "character", Type = "cstring", Nilable = false, Default = "0" },
+			},
+		},
 		["C_AddOns.EnableAddOn"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {

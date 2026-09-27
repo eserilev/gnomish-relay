@@ -20,7 +20,7 @@ use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, RESTORE_FILE};
 use bridge::story::{STORY_DIR, StorySpec};
 use bridge::story_sandbox::Sandbox;
-use common::{Bits, hex, load_addon, lua, repo_file, screenshot_png};
+use common::{fake_game, game_lua, hex, load_addon, screenshot_png};
 use mlua::{Function, Lua, Table};
 use protocol::apps::App;
 use serde_json::Value as Json;
@@ -253,12 +253,8 @@ struct Game {
 }
 
 fn start_game(timeways: &Timeways) -> Game {
-    let lua = lua(Bits::Unsigned);
-    let api: Table = lua.load(repo_file("addon/tests/api.lua")).call(()).unwrap();
-    let wow: Table = lua
-        .load(repo_file("addon/tests/wow.lua"))
-        .call(api)
-        .unwrap();
+    let lua = game_lua();
+    let wow = fake_game(&lua);
     wow.set("strips", lua.create_sequence_from([STRIP]).unwrap())
         .unwrap();
     wow.set("epoch", now()).unwrap();

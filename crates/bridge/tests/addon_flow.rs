@@ -11,11 +11,15 @@ use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo};
 use bridge::config::{Permission, Policy};
 use bridge::desktop::{Notice, Prompted, Waiting};
+use bridge::fixture::{Capture, Fake, HookMissing, SavedVariables, StatusShown, TimerOrder};
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::relay::{Folders, Relay};
 use bridge::settings_list::{BridgeSettings, StorySettings, settings_reply};
 use bridge::strip::{self, Image};
-use common::{Bits, load_into, lua, repo_file, screenshot_png};
+use common::{
+    fake_game_for, fire, game_lua_for, load_into, lua_value, measured, repo_file, screenshot_png,
+    start_addon,
+};
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
@@ -59,6 +63,8 @@ struct Game {
     lua: Lua,
     wow: Table,
     ns: Table,
+    /// The behavior of the game: the measured one, or another one that a test chose.
+    fake: Fake,
 }
 
 impl Game {
@@ -68,7 +74,14 @@ impl Game {
 
     /// `before` runs before login, for example to mark slots as loaded.
     fn start_with(before: impl FnOnce(&Table)) -> Game {
-        Game::boot(None, before)
+        Game::boot(measured(), None, before)
+    }
+
+    /// A game that behaves as `change` makes the measured game behave.
+    fn start_changed(change: impl FnOnce(&mut Fake)) -> Game {
+        let mut fake = measured();
+        change(&mut fake);
+        Game::boot(fake, None, |_| {})
     }
 
     /// `/reload`: WoW saves `GnomishRelayDB` as Lua text, and a new UI session loads it.
@@ -81,7 +94,9 @@ impl Game {
     fn reload_after(&self, gap: i64) -> Game {
         let saved = self.saved_variables();
         let clock = self.run("return time()").as_integer().unwrap();
-        Game::boot(Some(saved), |wow| wow.set("epoch", clock + gap).unwrap())
+        Game::boot(self.fake.clone(), Some(&saved), |wow| {
+            wow.set("epoch", clock + gap).unwrap();
+        })
     }
 
     fn saved_variables(&self) -> String {
@@ -92,36 +107,27 @@ impl Game {
             .unwrap()
     }
 
-    fn boot(saved: Option<String>, before: impl FnOnce(&Table)) -> Game {
-        let lua = lua(Bits::Unsigned);
-        let api: Table = lua
-            .load(repo_file("addon/tests/api.lua"))
-            .set_name("api.lua")
-            .call(())
-            .unwrap();
-        let wow: Table = lua
-            .load(repo_file("addon/tests/wow.lua"))
-            .set_name("wow.lua")
-            .call(api)
-            .unwrap();
+    fn boot(fake: Fake, saved: Option<&str>, before: impl FnOnce(&Table)) -> Game {
+        let lua = game_lua_for(&fake);
+        let wow = fake_game_for(&lua, "addon/tests/api.lua", &fake);
         before(&wow);
-        if let Some(saved) = saved {
-            lua.load(saved).set_name("GnomishRelay.lua").exec().unwrap();
-        }
         let ns = lua.create_table().unwrap();
         ns.set("key", lua.create_string(KEY).unwrap()).unwrap();
-        load_into(&lua, &ns, FILES);
-        let game = Game { lua, wow, ns };
-        game.fire("ADDON_LOADED", "GnomishRelay");
-        game.fire("PLAYER_LOGIN", ());
-        game
+        start_addon(
+            &lua,
+            &wow,
+            &fake,
+            "GnomishRelay",
+            saved.map(str::as_bytes),
+            || {
+                load_into(&lua, &ns, FILES);
+            },
+        );
+        Game { lua, wow, ns, fake }
     }
 
     fn fire(&self, event: &str, args: impl mlua::IntoLuaMulti) {
-        let fire: Function = self.wow.get("Fire").unwrap();
-        let mut all = vec![Value::String(self.lua.create_string(event).unwrap())];
-        all.extend(args.into_lua_multi(&self.lua).unwrap());
-        fire.call::<()>(mlua::MultiValue::from_vec(all)).unwrap();
+        fire(&self.lua, &self.wow, event, args);
     }
 
     fn advance(&self, seconds: f64) {
@@ -2778,4 +2784,123 @@ fn the_key_binding_opens_and_closes_the_window() {
         text_of(&game, "BINDING_NAME_GNOMISHRELAY_TOGGLE"),
         "Open or close the window"
     );
+}
+
+// A client patch can change what the self-test measures (SPEC.md 14.3). The tests below
+// run the relay in each other behavior that the fake game knows.
+
+fn problem(game: &Game) -> Option<String> {
+    game.run("local ns = ... return ns.Transport.Problem()")
+        .as_string_lossy()
+}
+
+/// The tests wait one second for a strip: 0.1 s to draw it, then the shot.
+#[test]
+fn the_measured_screenshot_delay_fits_the_one_second_waits_of_these_tests() {
+    let delay = measured().shot_delay;
+    assert!(
+        0.1 + delay < 0.9,
+        "the real game takes {delay} s for a screenshot. Make the waits after a send longer"
+    );
+}
+
+#[test]
+fn the_screen_captured_text_of_our_shot_stays_hidden_before_or_after_the_event() {
+    for status in [StatusShown::BeforeEvent, StatusShown::AfterEvent] {
+        let game = Game::start_changed(|fake| fake.status_shown = status);
+        game.send("hide the text");
+        game.advance(1.0);
+
+        let action_status: Table = game.lua.globals().get("ActionStatus").unwrap();
+        assert_eq!(game.wow.get::<i64>("statusShows").unwrap(), 1, "{status:?}");
+        assert!(!action_status.get::<bool>("shown").unwrap(), "{status:?}");
+    }
+}
+
+#[test]
+fn a_capture_after_the_handler_still_holds_the_whole_strip() {
+    let game = Game::start_changed(|fake| fake.capture = Capture::AfterHandler);
+    game.send("captured later");
+    game.advance(1.0);
+
+    assert!(
+        game.last_strip()
+            .iter()
+            .any(|r| r.text == b"captured later")
+    );
+}
+
+#[test]
+fn saved_variables_that_load_after_the_files_keep_the_chats_across_a_reload() {
+    let game = Game::start_changed(|fake| fake.saved_variables = SavedVariables::AfterFiles);
+    game.send("remember me");
+    game.advance(1.0);
+    let chat = game.chat_id();
+
+    let again = game.reload();
+
+    assert_eq!(again.chat_id(), chat);
+}
+
+#[test]
+fn a_client_that_measures_html_in_the_next_frame_still_gives_a_reply_its_height() {
+    let game = Game::start_changed(|fake| fake.content_height_at_once = false);
+    rendered_reply(&game, "# Title\n\nSome text.");
+
+    let drawn = transcript(&game);
+    let html = of_kind(&drawn, "SimpleHTML");
+    assert!(html[0].object.get::<f64>("height").unwrap() > 0.0);
+}
+
+#[test]
+fn a_disabled_slot_loads_only_when_the_enable_of_slots_lua_works() {
+    for enable_works in [true, false] {
+        let game = Game::start_changed(|fake| {
+            fake.load_addon.enabled_then_loaded.loaded = Some(enable_works);
+        });
+        let disabled: Table = game.wow.get("disabled").unwrap();
+        disabled.set("GnomishRelay_S0001", true).unwrap();
+
+        game.run("local ns = ... ns.Transport.Poll()");
+
+        assert_eq!(loaded_slots(&game), usize::from(enable_works));
+        let missing = problem(&game).as_deref() == Some("missing");
+        assert_eq!(missing, !enable_works, "enable works: {enable_works}");
+    }
+}
+
+#[test]
+fn an_out_of_date_slot_counts_as_missing() {
+    let game = Game::start_with(|wow| {
+        let old: Table = wow.get("outOfDate").unwrap();
+        old.set("GnomishRelay_S0001", true).unwrap();
+    });
+
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(problem(&game).as_deref(), Some("missing"));
+}
+
+#[test]
+fn a_hooksecurefunc_that_refuses_a_missing_global_still_loads_the_relay() {
+    let game = Game::start_changed(|fake| fake.hook_missing_global = HookMissing::Error);
+    game.send("still here");
+    game.advance(1.0);
+
+    assert!(game.last_strip().iter().any(|r| r.text == b"still here"));
+}
+
+#[test]
+fn a_timer_order_that_the_fake_does_not_model_stops_the_fake_at_load() {
+    let mut fake = measured();
+    fake.timers_due_together = TimerOrder::Other;
+    let lua = game_lua_for(&fake);
+    let api: Table = lua.load(repo_file("addon/tests/api.lua")).call(()).unwrap();
+    let fake = lua_value(&lua, &serde_json::to_value(&fake).unwrap());
+
+    let loaded = lua
+        .load(repo_file("addon/tests/wow.lua"))
+        .call::<Table>((api, fake));
+
+    assert!(loaded.is_err());
 }

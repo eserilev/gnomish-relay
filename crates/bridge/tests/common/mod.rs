@@ -7,7 +7,9 @@
 
 use std::path::PathBuf;
 
-use mlua::{Lua, Table};
+use bridge::fixture::{self, BitResults, Fake, Fixture, SavedVariables};
+use mlua::{Function, IntoLuaMulti, Lua, MultiValue, Table, Value};
+use serde_json::Value as Json;
 
 #[derive(Clone, Copy)]
 pub enum Bits {
@@ -171,4 +173,123 @@ pub fn hex(bytes: &[u8]) -> String {
         let _ = write!(out, "{b:02x}");
         out
     })
+}
+
+pub fn repo_path(path: &str) -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(path)
+}
+
+/// The newest fixture of `tests/fixtures`: what the self-test measured in the real
+/// game, or the placeholder while nothing is measured (SPEC.md 14.3).
+pub fn fixture() -> Fixture {
+    let path = fixture::newest(&repo_path("tests/fixtures")).unwrap();
+    fixture::read(&path).unwrap()
+}
+
+/// JSON as a Lua value. A null becomes nil, so a missing return value stays missing.
+pub fn lua_value(lua: &Lua, json: &Json) -> Value {
+    match json {
+        Json::Null => Value::Nil,
+        Json::Bool(b) => Value::Boolean(*b),
+        Json::Number(n) => Value::Number(n.as_f64().unwrap()),
+        Json::String(s) => Value::String(lua.create_string(s).unwrap()),
+        Json::Array(items) => {
+            let table = lua.create_table().unwrap();
+            for (i, item) in items.iter().enumerate() {
+                table.set(i + 1, lua_value(lua, item)).unwrap();
+            }
+            Value::Table(table)
+        }
+        Json::Object(fields) => {
+            let table = lua.create_table().unwrap();
+            for (key, item) in fields {
+                table.set(key.as_str(), lua_value(lua, item)).unwrap();
+            }
+            Value::Table(table)
+        }
+    }
+}
+
+/// The behavior of the real game, as the newest fixture measured it.
+pub fn measured() -> Fake {
+    fixture().fake
+}
+
+/// A Lua 5.1 with the `bit` results of the client of `fake`.
+pub fn game_lua_for(fake: &Fake) -> Lua {
+    match fake.bit {
+        BitResults::Unsigned => lua(Bits::Unsigned),
+        BitResults::Signed => lua(Bits::Signed),
+    }
+}
+
+pub fn game_lua() -> Lua {
+    game_lua_for(&measured())
+}
+
+/// The fake game of `addon/tests/wow.lua` with the API file `api` and the behavior `fake`.
+pub fn fake_game_for(lua: &Lua, api: &str, fake: &Fake) -> Table {
+    let api: Table = lua
+        .load(repo_file(api))
+        .set_name("api.lua")
+        .call(())
+        .unwrap();
+    let fake = serde_json::to_value(fake).unwrap();
+    lua.load(repo_file("addon/tests/wow.lua"))
+        .set_name("wow.lua")
+        .call((api, lua_value(lua, &fake)))
+        .unwrap()
+}
+
+/// The fake game for the relay and the shared transport, as the real game measured.
+pub fn fake_game(lua: &Lua) -> Table {
+    fake_game_for(lua, "addon/tests/api.lua", &measured())
+}
+
+pub fn fire(lua: &Lua, wow: &Table, event: &str, args: impl IntoLuaMulti) {
+    let fire: Function = wow.get("Fire").unwrap();
+    let mut all = vec![Value::String(lua.create_string(event).unwrap())];
+    all.extend(args.into_lua_multi(lua).unwrap());
+    fire.call::<()>(MultiValue::from_vec(all)).unwrap();
+}
+
+/// The login events of the client of `fake`, in its order, for the addon `addon`.
+pub fn log_in(lua: &Lua, wow: &Table, fake: &Fake, addon: &str) {
+    for event in &fake.login_events {
+        match event.as_str() {
+            "ADDON_LOADED" => fire(lua, wow, event, addon),
+            "PLAYER_ENTERING_WORLD" => fire(lua, wow, event, (true, false)),
+            _ => fire(lua, wow, event, ()),
+        }
+    }
+}
+
+/// Runs the saved variables `saved` and the files of an addon in the order of the
+/// client of `fake`, then logs in.
+pub fn start_addon(
+    lua: &Lua,
+    wow: &Table,
+    fake: &Fake,
+    addon: &str,
+    saved: Option<&[u8]>,
+    files: impl FnOnce(),
+) {
+    let load_saved = || {
+        if let Some(saved) = saved {
+            lua.load(saved).set_name("SavedVariables").exec().unwrap();
+        }
+    };
+    match fake.saved_variables {
+        SavedVariables::BeforeFiles => {
+            load_saved();
+            files();
+        }
+        SavedVariables::AfterFiles => {
+            files();
+            load_saved();
+        }
+    }
+    log_in(lua, wow, fake, addon);
 }
