@@ -1,6 +1,8 @@
 //! The hosts that a command of a game run reaches through the proxy (SPEC.md 6.6.4 and
 //! 12). A host matches only by its exact name, without ASCII case.
 
+use protocol::hosts::{good_host_name, host_allowed};
+
 /// The package hosts that `cargo`, `rustup`, `git`, `npm`, and `pip` fetch from.
 pub const DEFAULT_HOSTS: &[&str] = &[
     "index.crates.io",
@@ -16,9 +18,6 @@ pub const DEFAULT_HOSTS: &[&str] = &[
     "files.pythonhosted.org",
 ];
 
-const MAX_NAME: usize = 253;
-const MAX_LABEL: usize = 63;
-
 /// Whether the list starts with `DEFAULT_HOSTS`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Defaults {
@@ -26,21 +25,24 @@ pub enum Defaults {
     Off,
 }
 
-/// Each name is in lower case and passed `check_host_name`.
+/// Each name passed `check_host_name`. The match rule lives in `protocol::hosts` (S33).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct HostList {
-    names: Vec<String>,
+    names: Vec<Vec<u8>>,
 }
 
 impl HostList {
     pub fn new(defaults: Defaults, more: &[String]) -> Result<HostList, String> {
-        let mut names: Vec<String> = match defaults {
-            Defaults::Keep => DEFAULT_HOSTS.iter().map(|h| (*h).to_owned()).collect(),
+        let mut names: Vec<Vec<u8>> = match defaults {
+            Defaults::Keep => DEFAULT_HOSTS
+                .iter()
+                .map(|h| h.as_bytes().to_vec())
+                .collect(),
             Defaults::Off => Vec::new(),
         };
         for host in more {
             check_host_name(host)?;
-            names.push(host.to_ascii_lowercase());
+            names.push(host.to_ascii_lowercase().into_bytes());
         }
         names.sort();
         names.dedup();
@@ -48,8 +50,7 @@ impl HostList {
     }
 
     pub fn allows(&self, host: &str) -> bool {
-        let host = host.to_ascii_lowercase();
-        self.names.contains(&host)
+        host_allowed(&self.names, host.as_bytes())
     }
 
     pub fn is_empty(&self) -> bool {
@@ -57,36 +58,28 @@ impl HostList {
     }
 }
 
-/// A DNS name with at least two labels. The last label starts with a letter, so no IP
-/// address passes, also none in a form such as `127.1` or `0x7f000001`.
+/// A DNS name with at least two labels, by `protocol::hosts::good_host_name`. Only the
+/// error text is here: it says why a name is bad.
 pub fn check_host_name(host: &str) -> Result<(), String> {
-    let bad = |why: &str| Err(format!("host {host:?} {why}"));
-    if host.is_empty() || host.len() > MAX_NAME {
-        return bad("has no name or a name that is too long");
+    if good_host_name(host.as_bytes()) {
+        return Ok(());
     }
-    let labels: Vec<&str> = host.split('.').collect();
-    if labels.len() < 2 {
-        return bad("needs a dot, as in example.com");
-    }
-    if !labels.iter().all(|label| is_label(label)) {
-        return bad("is not a host name: only letters, digits, `-`, and `.`");
-    }
-    let last = labels[labels.len() - 1];
-    if !last.starts_with(|c: char| c.is_ascii_alphabetic()) {
-        return bad("is an IP address, not a host name");
-    }
-    if last.eq_ignore_ascii_case("localhost") {
-        return bad("is this computer");
-    }
-    Ok(())
+    Err(format!("host {host:?} {}", why_bad(host)))
 }
 
-fn is_label(label: &str) -> bool {
-    !label.is_empty()
-        && label.len() <= MAX_LABEL
-        && !label.starts_with('-')
-        && !label.ends_with('-')
-        && label.chars().all(|c| c.is_ascii_alphanumeric() || c == '-')
+fn why_bad(host: &str) -> &'static str {
+    let last = host.rsplit('.').next().unwrap_or_default();
+    if host.is_empty() || host.len() > 253 {
+        "has no name or a name that is too long"
+    } else if last.eq_ignore_ascii_case("localhost") {
+        "is this computer"
+    } else if !host.contains('.') {
+        "needs a dot, as in example.com"
+    } else if last.starts_with(|c: char| c.is_ascii_digit()) {
+        "is an IP address, not a host name"
+    } else {
+        "is not a host name: only letters, digits, `-`, and `.`"
+    }
 }
 
 #[cfg(test)]
