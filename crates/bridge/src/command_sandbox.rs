@@ -1153,14 +1153,15 @@ mod tests {
 
     #[test]
     fn with_no_proxy_a_command_gets_no_proxy_but_still_gets_its_caches() {
-        let env = command_env(&sample(), |_| None);
+        let walls = sample();
+
+        let env = command_env(&walls, |_| None);
 
         assert!(!env.iter().any(|(name, _)| name.ends_with("_PROXY")));
-        assert!(env.contains(&(
-            "npm_config_cache".to_owned(),
-            OsString::from("/tmp/run1/npm")
-        )));
-        assert!(env.contains(&("PIP_CACHE_DIR".to_owned(), OsString::from("/tmp/run1/pip"))));
+        let npm = walls.temp.join("npm").into_os_string();
+        assert!(env.contains(&("npm_config_cache".to_owned(), npm)));
+        let pip = walls.temp.join("pip").into_os_string();
+        assert!(env.contains(&("PIP_CACHE_DIR".to_owned(), pip)));
     }
 
     #[cfg(unix)]
