@@ -70,7 +70,7 @@ The bridge treats all four as untrusted input.
 |---|---|---|
 | Another window over the game (browser, video, overlay) | Shows a fake strip | WoW takes the screenshot itself, so other windows are not in it. Each strip carries a MAC. |
 | A local program | Drops a crafted PNG into the Screenshots folder, or replaces a slot folder with a symbolic link | MAC (6.3) and freshness check (S11). Image size limit before decoding. No writes or deletes through symbolic links (6.2). |
-| A local program | Connects to the hook socket and sends fake pings | Socket mode 0600. Size limit and rate limit. Ping text goes through the same escapes as agent text. |
+| A local program | Writes fake pings into the spool folder (10.2) | The folder has mode 0700, and game runs cannot reach it. Size limits, exact fields, and one note for each session (S41). Ping text goes through the same escapes as agent text (S40). A ping never starts a run. |
 | A malicious or prompt-injected agent | Writes a reply that injects Lua or fakes WoW chat links. Asks for permission with a false label. Writes a huge reply. | Lua escape and UI escape (S8 to S10). Honest permission popup (6.4). Size limits (S12). |
 | An old screenshot | A strip is replayed from an old file, for example after `state.json` is lost | Freshness check (S11). |
 | Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our handlers, fill our input box, click our buttons, read and change `GnomishRelayDB`, and replace a slot body during a load. | Signed state (6.6.1) stops changes to stored messages. A call to our handlers gets no more than a message that the user typed: the ceiling, the classifier, the sandbox, and desktop approvals (6.6.2 to 6.6.4, 9.3) bound every game message, whoever sent it. |
@@ -804,14 +804,14 @@ GnomishRelay_SlotData = {proto = 1, now = 1790211081, replies = {
 ```
 
 `Live.lua` carries the progress and the permission requests (9.3, S20), and `Restore.lua` the restore bundle (7.6, S18).
-Later fields (the session, the denied rules, and `notes` for pings) go into a file of their own, or need an approved change of S9.
+Later fields (the session and the denied rules) go into a file of their own, or need an approved change of S9. The proposal of section 10 puts the terminal pings into `Live.lua`, with a restatement of S20 (10.3).
 
 - `proto` and the pool sizes let the addon detect a mismatch (7.7).
 - `replies` holds every record that the addon has not read, at most 30. Each `text` is at most 32 KB. The bridge cuts longer text and adds a note with the full length.
 - A final reply stays in the body until a `read` flag names it. Then the bridge takes it out.
 - When the body holds 30 records, the bridge refuses new messages. It does not mark a refused message as seen, so the addon sends it again: the strip shows again, and the outbox (7.5) keeps it. The bridge takes new messages again after the next `read` flag.
 - The `transport.qnt` model (14.2) checks these rules. Without them, a reply can drop out of the body before the addon reads it.
-- `notes` holds terminal pings (section 10). `permissions` holds open permission requests (9.3).
+- In `Live.lua`, `permissions` holds open permission requests (9.3). The proposed `terminal` table holds the terminal pings (10.3).
 - String escapes follow one function in the `protocol` crate. The addon reads the file as Lua source, so the escape rules are part of the protocol.
 - The bridge writes progress at most every 3 seconds. It writes final replies at once.
 - If `LoadAddOn` returns `MISSING` or `DISABLED`, the addon reports "slots not installed".
@@ -854,10 +854,10 @@ The fuzz target `markdown` checks the same shape, escapes, and size bound on the
 
 **Poll schedule after a send:** the addon loads a slot at 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, and 300 seconds.
 Then it loads one every 60 seconds until the reply is done.
-With no message pending, it loads one slot every 10 minutes, for terminal pings and the status light.
+With no message pending, it loads one slot every 10 minutes, for the status light. With pings on and a terminal session open, it loads one every 3 minutes, and every 60 seconds while a terminal turn runs (proposal, 10.4).
 A signal (7.4) makes the addon load a slot at once.
 
-**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3).
+**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). The proposed ping polls cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
 The window never shows the slot count. `/relay diag` shows it.
 Below 20 free slots, the window shows "Reload soon" with a **Reload** button, and the next click on **Send** or on the window does the `/reload` first.
 `ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat, and never on a key press that the user did not aim at the window.
@@ -1403,7 +1403,7 @@ The relay tests use a small second test addon built from the shared transport, n
 5b. Shared message logic: the send queue, the signed outbox, retries, `next`, `read`, the hello, the slot poll with reply handling, and the health flags move from `GnomishRelay/Transport.lua` into `addon/transport/Messages.lua`, with `ns.App` parameters, so Timeways and the test addon share the logic that `models/transport.qnt` checks. The relay keeps chats, sessions, restore, live, and popups on top of it. (Done. No transport rule changed, so the model did not change.)
 6. Model calls with no tools, and the budget.
 7. The shared corner and its Quint model. (Done. `Strip.lua` takes turns through `GnomishStripCorner` (7.1.2), and `models/corner.qnt` checks the rules.)
-8. Setup for two apps, and versions.
+8. Setup for two apps, and versions. (Done. Setup is in 9.7, decision 15, and the version range in 7.7, with S30.)
 
 ### 9.8 The app protocol
 
@@ -1575,36 +1575,184 @@ parent \t name \t mark
 
 ## 10. Pings from terminal sessions
 
-The `gnomish-relay-hook` CLI sends one event to the bridge:
+**Status: proposal (2026-09-27), not built.** The implementer and an advisor agent with a UX critic view wrote it. The user did not approve it yet. Each "Why" says what real use showed.
 
-```json
-{ "source": "claude", "session": "…", "cwd": "/path/to/repo", "kind": "turn-done", "message": "…" }
+The user plays WoW while Claude Code or Codex works in a terminal. When a terminal session needs input, or ends a long turn, the game shows a ping: the agent, the repo, the first words of the message, and a sound. A ping is a notice only. It carries no command, it never starts a run, and the user answers in the terminal.
+
+**What changed from the first plan, and why:**
+
+1. **A spool folder, not a socket.** Why: one code path on Linux, macOS, and Windows with only `std`, so no `interprocess` crate and no ACL code for a named pipe. A file write never blocks the terminal session. The data folder is already hidden from game runs (6.6.3, 6.6.4).
+2. **One note for each session, and a later event takes it away.** Why: the user often answers at the terminal before the game polls. A "Needs input" that shows 3 minutes after the answer teaches the user to ignore pings. This rule replaces the merge "within 30 s".
+3. **`turn-done` pings only after a long turn** (default 1 minute, a setting). `needs-input` always pings. Why: a ping after each short turn floods the game chat.
+4. **Faster polls only while a terminal session is open.** Signals do not work (7.4), so a ping waits for the next slot poll, and the idle poll is 10 minutes. Why: faster polls cost slots, so they happen only when a ping can come.
+5. **No `notify` change for Codex.** Codex gets its `hooks.json`. Why: `notify` takes one program, and a chain to the program of the user can break it.
+6. **The line says "terminal", not "whispers".** Why: a whisper looks like the chat of an in-game agent, and the user tries to answer it in the game.
+
+### 10.1 The hook command
+
+The hook is a subcommand of the one binary: `gnomish-relay hook claude` and `gnomish-relay hook codex`. The agent starts it for each hook event, and gives the event as JSON on stdin.
+
+- If `GNOMISH_RELAY_JOB` is set, the command exits at once and writes nothing. The bridge sets it for each process of a run (6.2), so the runs from the game never ping, also through a nested `claude`.
+- It reads at most 1 MiB of stdin. It takes `hook_event_name`, `session_id`, `cwd`, and the text of the event, and ignores every other field.
+- The repo name is the name of the git top folder of `cwd` (the first folder upward with `.git`), else the name of `cwd`. The command never sends the full path, because a ping can show on a stream or a screenshot.
+- It writes one spool file (10.2) and exits. It never prints to stdout: the stdout of a `Stop` hook can keep Claude working.
+- It always exits 0, also after an error, so a hook never fails a turn. A timer ends the process after 300 ms.
+- With no spool folder (no bridge runs), or with 100 or more files in it (the bridge stopped), it writes nothing.
+
+**Events:**
+
+| Agent | Hook | Event | Text |
+|---|---|---|---|
+| Claude Code | `SessionStart` | `session-start` | none |
+| Claude Code | `UserPromptSubmit` | `turn-start` | none (the prompt never leaves the terminal) |
+| Claude Code | `Stop` | `turn-done` | `last_assistant_message`, or "Turn done." when it is empty (a turn that ends on a tool call) |
+| Claude Code | `StopFailure` | `turn-failed` | the error text |
+| Claude Code | `Notification`, matcher `permission_prompt\|elicitation_dialog\|elicitation_url_dialog\|worker_permission_prompt` | `needs-input` | `message` |
+| Claude Code | `SessionEnd` | `session-end` | none |
+| Codex | `SessionStart` | `session-start` | none |
+| Codex | `UserPromptSubmit` | `turn-start` | none |
+| Codex | `Stop` | `turn-done` | the last message of the agent, or "Turn done." |
+| Codex | `PermissionRequest` | `needs-input` | the command or the request |
+
+- `idle_prompt` is not in the matcher: it fires 60 seconds after each `Stop`, so it is a copy of `turn-done`.
+- `SubagentStop` and `agent_needs_input` (a teammate) give no ping.
+- Esc in Claude ends a turn with no `Stop`. The next `turn-start` or `session-end` of the session ends it.
+- Gemini CLI: not checked yet (17). Another tool can run `gnomish-relay hook claude` from a wrapper script, with a JSON line of its own.
+- The advisor found these names in the binaries of Claude Code 2.1.283 and codex-cli 0.157.0 (2026-09-27). The implementation checks each input shape live. The Codex hooks need the feature flag `codex_hooks` (10.5).
+
+### 10.2 The spool folder
+
+The spool folder is `<data>/pings/`, mode 0700. The bridge makes it at start and removes it at a clean exit.
+
+- **A file** is one JSON object, at most 4 KiB: `{"v":1,"source":"claude","event":"turn-done","session":"…","repo":"…","text":"…"}`. The name is unique: the process id, the time in nanoseconds, and random bytes, then `.json`. The command writes `<name>.tmp` first and renames it, so the bridge never reads half a file.
+- **The bridge reads the folder every 250 ms**, with the watch of the saved variables. It takes at most 64 files for each read, oldest first. It deletes each file before it parses it, so a bad file never comes back. It ignores `*.tmp` files, and deletes a `.tmp` file that is older than 60 seconds. It never follows a link.
+- **The checks.** The fields are exact (`deny_unknown_fields`, a key twice is an error). `source` is `claude` or `codex`. `event` is one of the events of 10.1. `session` is 1 to 128 bytes of `[A-Za-z0-9_-]`. `repo` and `text` are strings. A file that fails a check is dropped, and the bridge logs one line for it.
+- **Every text is untrusted.** Any local process of the user can write a file. So the bridge cuts `repo` to 64 bytes and `text` to 600 bytes, at a character, and removes each control, bidi, and zero-width character (as in S15). Every `|` is doubled (S10). The live writer escapes each string (S8). S40 proves the cut and the escape.
+- **The time is the bridge's own.** A file has no time field. The bridge takes the time of the read, so a turn length never comes from the file.
+- **No rate limit.** A flood of files cannot cost slots, because only a poll of the addon costs a slot, and the bridge writes the live file at most every 3 seconds. The session table has at most 32 sessions, so memory stays bounded.
+
+### 10.3 Sessions and notes
+
+The bridge keeps a table of the terminal sessions. Each session has a state and at most one note. `apply_event` in `protocol` changes the table for each event. S41 proves it.
+
+| Event | The session | Its note |
+|---|---|---|
+| `session-start` | open | removed |
+| `turn-start` | open, a turn runs from now | removed (the user is at the terminal) |
+| `needs-input` | open, the turn still runs | a new note `input` |
+| `turn-done` | open, no turn runs | a new note `done`, with `took`, the length of the turn |
+| `turn-failed` | open, no turn runs | a new note `failed`, with `took` |
+| `session-end` | removed | removed |
+
+- `took` is the length of the turn in seconds, at least 1. It is 0 when the bridge saw no `turn-start`, for example after a restart of the bridge. The addon counts 0 as a long turn.
+- A running turn ends after 30 minutes with no event of its session. An open session ends after 12 hours with no event. So a crash of the agent never keeps the faster polls on.
+- With 32 sessions, a new session takes the place of the session with the oldest event.
+- **A note id** is the next number of a counter, and never less than the Unix time. The counter lives in `<data>/pings.json` with the table, so a restart of the bridge keeps them. Why the time: after a wipe of the data folder, the new ids never repeat the ids that the addon already showed, as for message ids (13.2).
+
+**In the live file.** The notes ride in `Live.lua`, in a new table after `permissions` (S20, proposed restatement):
+
+```lua
+terminal = {busy = 1, open = 2, notes = {
+{id = 1790300123, at = 1790300100, source = "claude", kind = "input", repo = "gnomish-relay", took = 0, text = "Claude needs your permission to use Bash"},
+}},
 ```
 
-`kind` is `turn-done` or `needs-input`.
-If `GNOMISH_RELAY_JOB` is set, the CLI exits at once and sends nothing. This stops the bridge's own runs from pinging the game.
+- `busy` is the number of sessions with a running turn, and `open` the number of open sessions.
+- `notes` holds the newest 20 notes. `at` is the time of the bridge. The addon computes the age from the `now` of the body in the same slot, so a clock difference between the desktop and the game has no effect.
+- Why the live file and not a fourth slot file: WoW finds only the files that exist at launch (7.2, rule 1). A new file in the TOC needs a new `setup` with the game closed in each install. The live file works in the running game. The notes add at most about 55 KB, so the live file stays below its bound of 256 KiB (S21).
+- Timeways gets no notes. Its live file stays the same.
 
-**Socket:** a Unix socket with mode 0600 in `$XDG_RUNTIME_DIR` (Linux, macOS), or a named pipe with a current-user ACL (Windows).
-The `interprocess` crate gives one API for both.
+### 10.4 In the game
 
-**Hook points:**
+**The poll.** A ping shows at the next slot poll. The addon sets its `PollEvery` hook (13.2) from the last live file:
 
-| Tool | Hook | Input |
-|---|---|---|
-| Claude Code | `Stop` hook → `turn-done`. It fires at the end of each turn. | JSON on stdin: `session_id`, `cwd`, `last_assistant_message` |
-| Claude Code | `Notification` hook with matcher `permission_prompt\|idle_prompt\|agent_needs_input` → `needs-input` | JSON on stdin |
-| Codex | `Stop` event in Codex hooks (`hooks.json`). Or the `notify` program (`agent-turn-complete`). | `notify` gets the JSON as one command-line argument, not on stdin. |
-| Gemini CLI | Not checked yet. | |
-| Other tools | A wrapper script that sends `turn-done` when the command exits. | |
+| State | Poll |
+|---|---|
+| A desktop request waits (6.6.3) | every 5 s, as before |
+| Pings on, and `busy` > 0 | every 60 s |
+| Pings on, and `open` > 0 | every 3 min |
+| Else | the schedule of 7.3 (10 minutes when idle) |
 
-Codex `notify` accepts only one program. If the user already has one, the hook CLI calls it after it sends the event.
+- Cost: 60 slots in each hour of terminal work, and 20 in each hour with an idle session. The 1000 slots of a UI session then last about 16 hours of terminal work, less the slots of game chats. Diag shows the free slots, and "Reload soon" (7.3) covers the rest.
+- The addon learns that a session is open only at a poll, so the first ping of an evening can wait up to 10 minutes.
+- Pings off stops the faster polls, so it is also a way to save slots.
 
-**In the game:**
+**New notes.** A note is new when its id is not in the last 64 ids that the addon showed. The saved variables keep these ids, so a `/reload` shows no ping twice. For the new notes of one poll:
 
-- The bridge adds the ping to `notes` in the next publish and raises a `note` signal.
-- Pings share the slot budget. The bridge merges pings that arrive within 30 seconds into one publish.
-- A ping shows the repo name and the message, with a sound.
-- Custom sounds must exist when the game starts (7.2 rule 1). The setup step installs them. The default uses built-in sound kit IDs.
+- **The chat line.** Each `input` note gets its own line: `[Claude · terminal] [gnomish-relay] Needs input: <text>. Answer in the terminal.` The `done` and `failed` notes that pass the filter get one line together. With one note: `[Codex · terminal] [lighthouse] Done after 4 min: <text>`. With more: `[Gnomish Relay] 3 turns done: gnomish-relay, lighthouse, timeways`. The text is the first 120 characters of its first line. The line has the color of the reply line (13.1). A click on it opens the window on the Pings tab. It is a link of the addon (`|Hgnomishrelaypings|h`), never a chat that can take an answer.
+- **The sound.** One sound for each poll: the ready-check sound when an `input` note is new, else the whisper sound. Built-in sound kits only, so nothing needs to exist at game start.
+- **The toast.** For an `input` note, a small frame at the top center of the screen for 8 seconds: "Claude needs input · gnomish-relay", the text, and "Answer in the terminal". A click opens the Pings tab. In combat (`InCombatLockdown`), the toast waits until combat ends. The sound does not wait.
+- **The filter.** A `done` or `failed` note with a `took` below the setting (default 60 s) gets no line and no sound. It goes to the list only. With "Never", every `done` and `failed` note goes to the list only.
+
+**The Pings tab.** A new side tab between Chats and Settings. It shows when the settings list (13.4) has a `hook` line with `on`, or when the saved list holds a ping. So the tab never shows with no way to fill it (13.5, decision 7).
+
+- One row for each ping, newest first, the last 50: the agent icon, the repo in gold, the kind ("Needs input" in orange, "Done · 4m" in green, "Failed" in red), the first line of the text, and the age. The mouse wheel scrolls it.
+- A click on a row shows its full text (at most 600 bytes) below it, and "Answer it in the terminal."
+- A row of an `input` note that is no longer in the live file shows "Answered" in grey: the session moved on.
+- A gold "!" marks a row that the user did not open, and the tab shows the count of these rows.
+- **Clear** empties the list.
+- At the bottom, the status line: the age of the last poll, and the time to the next one.
+- A ping has no button that runs anything. Later: "Continue in the game" through Resume (9.6), with the session of the ping, only after `session-end`, because two programs on one session conflict.
+
+**Settings.** A new group "Pings" in the Settings tab, after Appearance (13.1).
+
+**Diag.** Three new rows: the hooks of each agent (from the settings list), the running and open terminal sessions, and the age of the last ping. Diag also shows the free slots.
+
+**Two WoW clients** on one computer each read their own slots, so both show each ping and both spend slots. This is accepted.
+
+### 10.5 Install and remove
+
+`gnomish-relay hooks install [--claude] [--codex]` adds the hooks. With no flag, it adds them for each of `claude` and `codex` on `PATH`. `gnomish-relay hooks remove` takes them out, and `gnomish-relay hooks status` shows them. `setup` changes no agent settings. It prints one line at its end: "For pings from terminal sessions, run: gnomish-relay hooks install". Why: the settings of the agents belong to the user, so only an explicit command changes them.
+
+**Claude Code** (`~/.claude/settings.json`):
+
+- The command adds one group to `hooks.<event>` for each event of 10.1: `{"matcher": …, "hooks": [{"type": "command", "command": "\"<absolute path>\" hook claude", "timeout": 5, "async": true}]}`. With `async`, Claude never waits for the hook and ignores its output. The path is quoted, for a space on Windows.
+- It keeps every other key and every hook of the user, in their order, with an indent of 2 spaces. So `serde_json` needs its `preserve_order` feature.
+- It finds its own groups by the command `hook claude` after a path whose file name is `gnomish-relay`. So a second install changes nothing, and an install after a move of the binary replaces the old path.
+- If the file does not parse, or `hooks` or one of its events has another type, it changes nothing and names the key.
+- It follows a link to the real file (for a dotfiles folder), and writes the real file with an atomic rename in its folder.
+- Before its first change, it copies the file to `settings.json.gnomish-relay.bak`. It never writes over an existing backup, so the backup is the file from before the first install.
+- `remove` takes out only its own groups, and an event with no group left. Install and then remove give the same JSON value as before.
+
+**Codex** (`~/.codex/hooks.json` and `~/.codex/config.toml`):
+
+- The command merges its groups into `hooks.json` by the same rules, with `hook codex`. With no file, it makes one.
+- The hooks need `codex_hooks = true` under `[features]` in `config.toml`. The command adds the line, and says so. It changes the file as `config_edit.rs` does: it adds one line and changes no other byte. It refuses when the file sets `codex_hooks = false`, because the user chose that.
+- It never changes `notify`.
+- `remove` takes out its groups, and leaves the feature line. It says so.
+
+**After an install**, the command prints "Restart the Claude Code and Codex sessions that run now." Both load hooks only at the start of a session.
+
+**`hooks status`** shows for each agent: on, off, or on with a path that does not exist (a moved binary). It also shows `disableAllHooks` in the Claude settings, and a Codex config with no `codex_hooks`. The settings list (13.4) carries the same state, so Diag shows it.
+
+### 10.6 Checks for each part
+
+| Part | Lean (proposed) | Fuzz | Tests |
+|---|---|---|---|
+| Note text | S40 | `ping_file` | each character class that goes, the cut at a character, a `\|` |
+| Sessions and notes | S41 | `ping_file` (a sequence of files) | each row of the table in 10.3, stale notes, the 32-session limit, both expiries |
+| Live file with notes | S20 restated, S21 | `live` with notes | Lua 5.1 reads the file back; Timeways has no notes |
+| Hook input | | new target `hook_input` | each event of each agent with the input shapes of the checked versions, an empty message, 1 MiB of input, no spool folder, a full spool folder, `GNOMISH_RELAY_JOB` |
+| Spool reader | | `ping_file` | a half file, a `.tmp` file, a link, 65 files, a file of 4 KiB and 1 byte |
+| Settings merge | | new target `hooks_merge` | hooks of the user stay, a second install, a moved binary, a broken file, a link, the backup, install then remove |
+| Addon | | | the fake game (10.7) |
+
+### 10.7 Verification plan
+
+**Pure parts in `crates/protocol`** (the Aeneas subset of CLAUDE.md), with proposed Lean statements. No statement is written yet: each needs the approval of the user.
+
+- **S40, note text.** `note_text(bytes, max)` never panics and returns at most `max` bytes. The output holds no byte below `0x20`, no `0x7F`, and no bidi or zero-width character. Read in tokens, it holds each `|` only as `||`. It never ends inside a UTF-8 sequence. Lean shape: `∀ (t : Slice U8) (max : Usize), t.val.length ≤ 2 ^ 20 → note.note_text t max ⦃ v => v.val.length ≤ max.val ∧ noteSafe v.val ∧ pipesDoubled v.val ∧ endsOnChar v.val ⦄`.
+- **S41, sessions and notes.** For every table that fits and every event, `apply_event` never panics. The result has at most 32 sessions and at most one note for each session. A `needs-input`, `turn-done`, or `turn-failed` event leaves exactly its own note on its session. A `session-start`, `turn-start`, or `session-end` event leaves no note on its session. The notes of the other sessions stay. Lean shape: `∀ (ss : Slice terminal.Session) (e : terminal.Event) (now : U32), sessionsFit ss.val → terminal.apply_event ss e now ⦃ r => r.val.length ≤ maxSessions ∧ oneNoteEach r.val ∧ noteAfter r.val e ∧ othersKept ss.val r.val e ⦄`.
+- **S20, restated.** The live file is the fixed template of its app with escaped holes, now with the `terminal` table. A new `S20_prepare_notes` keeps the newest 20 notes, cuts only the ends of strings, and makes them fit. Lean shape: `∀ app progress requests terminal, fitsLive progress.val requests.val terminal → live.live_body app progress requests terminal ⦃ v => bytes v.val = liveOf app progress.val requests.val terminal ⦄`.
+- **S21, the same bound.** A live file that fits is still at most 256 KiB. Only `fitsLive` and `liveOf` grow. The arithmetic of the implementation confirms the number. If it does not, the bound grows with a new approval.
+
+**Fuzz targets:** `hook_input` (the stdin of each agent to a spool file: no panic, at most 4 KiB, one JSON object), `ping_file` (spool bytes to an event or a refusal, then `apply_event`), `live` (now with notes), and `hooks_merge` (any `settings.json` text: the merge never panics; it refuses and changes nothing, or its result parses, holds every key and hook of the input, and holds each group of ours once).
+
+**Unit tests** for each rule of 10.1 to 10.5, with sentence names, for example `a_hook_in_a_bridge_job_writes_nothing`, `a_turn_start_removes_the_note_of_its_session`, `a_short_turn_done_goes_to_the_list_only`, and `install_keeps_the_hooks_of_the_user`.
+
+**Fake-game tests** (`crates/bridge/tests/addon_flow.rs`, with the fake WoW API): the hook subcommand writes a spool file, the bridge publishes, and the Lua poll shows the line, the sound, the toast, and the row. Other cases: no ping twice across a `/reload`, a stale note that never shows, the filter of a short turn, one line for three `done` notes, a toast that waits for the end of combat, the 60 s and 3 min polls, pings off, and a tab that shows only with hooks or pings. A seeded test feeds the addon 600 random live files, as for the settings list (14.4).
+
+**The end-to-end test** (`crates/bridge/tests/pings_e2e.rs`) runs the real bridge and the real binary in a temp home, with no game. `hooks install` merges into a `settings.json` that holds hooks of the user. The test then runs the real `gnomish-relay hook claude` with the stdin of each Claude event, and reads `Live.lua` with the Lua slot poll. It also checks that the hook with no bridge exits 0 in less than 300 ms with an empty stdout. A live test marked `#[ignore]` runs the real `claude -p` with `--settings <temp file>`, so the real `~/.claude` stays the same, and waits for the `turn-done` note. A live Codex test waits until a temp `CODEX_HOME` can keep the login.
 
 ## 11. Platforms
 
@@ -1613,7 +1761,7 @@ Only a few paths change per platform. All other code is shared.
 | Part | Linux | Windows | macOS |
 |---|---|---|---|
 | WoW folder | Inside the Wine prefix | `Program Files (x86)\World of Warcraft\_classic_beta_` | `/Applications/World of Warcraft/_classic_beta_` |
-| Hook socket | Unix socket | Named pipe | Unix socket |
+| Pings from hooks (10.2) | A spool folder | A spool folder | A spool folder |
 | Replace a file that the game has open | Rename always works | Rename can fail. Retry with backoff, then log. | Rename always works |
 
 ### 11.1 Linux notes (the first target)
@@ -1828,16 +1976,17 @@ The mockup is the reference for the layout.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
 - **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details.
-- **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. Pings gets its tab when pings exist (section 10). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
+- **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. The proposed Pings tab goes between Chats and Settings, and shows only with ping hooks on the desktop or a saved ping (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
   - **New Chats:** Agent, a dropdown of the agents in the settings list (13.4), and Level, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Max: <level> (set on the desktop)", the level of the chosen agent in the config.
   - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
+  - **Pings** (proposal, section 10), after Appearance: Pings, an on and off box (default on); off stops the lines, the sounds, the toast, and the faster polls of 10.4. Needs input, a box (default on). Turn done, a dropdown: Always, After 30 s, After 1 min (default), After 3 min, and Never; a shorter turn goes to the Pings list only. Chat line and Sound, two boxes (default on). Toast, a box (default on), for "needs input" only. Desktop, the hook state of each agent from the settings list, or the grey hint "Set up on the desktop: gnomish-relay hooks install".
   - **Always Allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time. The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
   - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "No data yet.". A click asks for a new list.
-- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
+- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. The proposed rows of 10.4: the ping hooks of each agent, the terminal sessions, and the age of the last ping. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
 - **Key binding:** `Bindings.xml` adds "Open or close the window" under "Gnomish Relay" in the Key Bindings menu of the game. It calls the global `GnomishRelay_Toggle`.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
-- **Game chat:** a finished reply or a ping shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game.
+- **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A terminal ping gets its own line, with "terminal" in place of "whispers" (proposal, 10.4).
 - **Permission requests** use the separate popup of 6.4, never the window. A desktop request has no popup: an Activity row and one whisper line (6.6.3).
 
 ### 13.2 Code
@@ -1896,7 +2045,7 @@ The folder also holds `Bindings.xml`, the key binding of 13.1. The game reads it
 
 **Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place of the window, and the agent and level of new chats. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
 
-Still to come: pings (section 10), the agent dropdown in the header, and the emblem texture.
+Still to come: pings (the proposal of section 10 adds `Pings.lua` for the notes, the filter, and the chat line, `Toast.lua`, and `PingsTab.lua`), the agent dropdown in the header, and the emblem texture.
 
 Slash commands:
 
@@ -1969,6 +2118,7 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 | `rule` | `id \t folder \t pattern \t days`: one "Always allow" rule (6.6.5), with the days since its last use. |
 | `allow` | One pattern of `[allow] commands`, as words. |
 | `allow_folder` | `folder \t pattern`: one pattern of `[allow.folders]`. |
+| `hook` | Proposal (10.5): `agent \t state`, one line for `claude` and one for `codex`. The state is `on`, `off`, `moved` (the path of the hook does not exist), or `disabled` (`disableAllHooks`, or no `codex_hooks`). |
 
 - The list never holds a key, an `env` entry, or the command line of an agent. A command line can hold a secret, and the game does not need it.
 - The reply is at most 32 KB after the Lua escape (S12). The allow table comes last, because only it can be long. The `rule` lines (6.6.5) come just before it, so a cut removes allow patterns first. A list that does not fit keeps its first lines and ends with a line `+`, as the folder tree does.
@@ -1986,7 +2136,7 @@ The implementer and an advisor agent chose these (2026-09-26).
 4. **The whisper line of a desktop request is once for each request**, also across a `/reload`. The saved variables keep the last 16 ids, so the list stays small.
 5. **A new message ends only a wait for an answer.** During a normal turn, a follow-up waits in the queue, else each follow-up ends a long run. Only a newly accepted record counts: a duplicate, an outbox copy, or a refused record never ends a wait.
 6. **The old message ends as "Stopped."**, the text of Stop, so the player sees one known end.
-7. **No Pings tab yet.** An empty tab is a promise that the game does not keep.
+7. **No Pings tab yet.** An empty tab is a promise that the game does not keep. (The proposal of 10.4 keeps this rule: the tab shows only with hooks on or a saved ping.)
 8. **A settings list, not a new slot file.** It is one more list in its own chat, as `list=folders`. Some values hold tabs, so a line splits at its first tab only.
 9. **The addon asks for the list only when a tab opens and the list is old**, and at a click on the status line, because each ask costs a strip.
 10. **The Level dropdown has no `full-auto`.** The config caps every level anyway (S6), so this only keeps the page honest.
@@ -2046,6 +2196,8 @@ So most theorems are security properties. Each one closes a named attack.
 | S37 | **No proposal for the capped:** a `desktop` command, a "never always" command, a tool that runs any program, and a command that publishes get no rule. | One click in the game makes a lasting rule for `sudo`, `curl`, `npx`, or `git push`. |
 | S38 | **An offer allows exactly its call:** `offer` never panics. An offer has 1 to 3 rules; with them the classifier gives `allow` for the call, and each rule covers a simple command of the call. | The popup offers a rule that does not make the call run, or a rule for a command that the call does not hold. |
 | S39 | **An offer stays under the ceiling:** a call gets an offer only when the ceiling of the config is `allow`. | A rule from the game gets more than the config allows. |
+| S40 | **Proposed, not approved (10.7). Note text:** `note_text` never panics, returns at most `max` bytes with no control, bidi, or zero-width character, holds each `\|` only as `\|\|`, and never ends inside a UTF-8 sequence. | Any local process writes a ping that fakes a chat link or a system line in the game, or hides text. |
+| S41 | **Proposed, not approved (10.7). Sessions and notes:** `apply_event` never panics. The table keeps at most 32 sessions and at most one note for each. A ping event leaves exactly its own note, and a start or an end leaves none on its session. The other sessions keep their notes. | Stale or piled-up pings teach the user to ignore them, or a flood of files grows the table without a bound. |
 | S28 | **Command floor:** a command that does not parse (the grammar of `split`, 6.6.3) is `desktop`. A command with `$(` or a backtick outside single quotes, by the quote state of the splitter, is `desktop`. `eval`, `sudo`, `cmd.exe`, PowerShell, or a shell after a `\|` make a command at most `desktop`. Commands that run other commands and network tools make it at most `ask`. | A prompt injection runs code through `eval`, a pipe into a shell, or `sudo`, or reaches the network with no question. |
 
 **Correctness theorems:**
@@ -2191,6 +2343,9 @@ Each target runs in CI for a short time and nightly for a long time. Every crash
 | `rules.json` (`rules_file`, 6.6.5) | A local program or a damaged disk can change the file. No text panics the reader, and each rule that loads has the shape that `propose` makes. |
 | The head of a `CONNECT` request to the proxy of the sandbox (`connect`, 6.6.4) | A command of a game run writes it. No input panics the parser. A target that passes is a host name in lower case, never an IP address in any form, and the allow list matches only its exact names. |
 | Answers of a local model (`model_http`, 9.7 decision 10) | The local model is untrusted. No answer panics the reader. The text that goes to the story program is at most 16 KiB, has no control character but a newline and a tab, and its `model_answered` line is one JSON line. |
+| Proposed (10.7): the stdin of a hook (`hook_input`) | Any agent version writes it. No input panics the hook, and its spool file is one JSON object of at most 4 KiB. |
+| Proposed (10.7): a spool file (`ping_file`) | Any local process of the user writes it. No input panics the reader, each accepted text passes S40, and a sequence of files keeps the table of S41. |
+| Proposed (10.7): the settings of an agent (`hooks_merge`) | The user writes them. The merge never panics. It refuses and changes nothing, or its result parses, holds every key and hook of the input, and holds each group of ours once. |
 
 The addon parsers have seeded tests in the addon harness instead of a fuzz target: the folder tree of 9.9 and the settings list of 13.4 each get 600 random inputs, and each result keeps its rules.
 
@@ -2241,11 +2396,11 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 8. **Done: threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Done (8b):** the action classifier (6.6.3) in `protocol`, with S16, S17, S27, and S28 proved, and the input of the classifier in the bridge. **Done (8c):** every backend calls the classifier through one gate (6.6.3, 9.3): the hook of Claude for every tool call, the approvals of Codex, and the permission requests of ACP agents. The config has its allow table, and `gnomish-relay approve` answers desktop requests.
 9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Done:** live tests with Claude in the game on 2026-09-26 (9.3).
 10. **Done: "Always allow" (6.6.5, 9.3).** One click in the game adds a rule that the sandbox bounds, with S36 to S39 proved. The Settings tab and `gnomish-relay rules` list and remove the rules.
-11. **`note` signal and pings:** the hook CLI and the socket.
+11. **Pings from terminal sessions (section 10).** **Proposed (2026-09-27), not approved:** the hook subcommand, the spool folder, one note for each session, the notes in `Live.lua`, the Pings tab, and `hooks install`. No `note` signal: signals do not work (7.4).
 12. **A generic backend for any LLM coding harness (9.2).** **Done:** `acp` for any harness that speaks ACP, and the `claude` and `codex` backends. **Next:** `command`, for a harness that has only a command line.
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
-15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 7, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. **Next:** step 8, setup for two apps, and versions.
+15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 8, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. Step 8 is setup for two apps (9.7, decision 15) and the version range of each app (7.7, S30). **Next:** a loopback in the real game, when Timeways ships an addon build.
 16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Done:** the agent process behind the proxy on Linux (6.6.4, "The agent process behind the proxy"), `local_ports`, and one sandbox for each run. S33 to S35 are proved. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
