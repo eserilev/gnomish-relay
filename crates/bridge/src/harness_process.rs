@@ -18,7 +18,8 @@ use crate::turn::{STOPPED, TIMED_OUT};
 const POLL: Duration = Duration::from_millis(100);
 const CHUNK: usize = 64 * 1024;
 const STDERR_TAIL: usize = 2048;
-/// A program that the harness left in the background can keep the output open.
+/// A program that the harness left in the background can keep the output open. After the
+/// harness exits, an output that stays quiet this long ends the run.
 const PIPE_GRACE: Duration = Duration::from_secs(1);
 /// A progress line is cut far below this anyway.
 const MAX_LINE: usize = 4096;
@@ -81,7 +82,8 @@ pub fn run(
     let chunks = pipes(&mut child, start.stdin.clone());
     let deadline = Instant::now() + limits.timeout;
     let mut reading = Reading::default();
-    let mut exited_at: Option<Instant> = None;
+    let mut exited = false;
+    let mut last_chunk = Instant::now();
     loop {
         if stop.requested() {
             return Err(killed(&mut child, STOPPED));
@@ -90,7 +92,10 @@ pub fn run(
             return Err(killed(&mut child, TIMED_OUT));
         }
         match chunks.recv_timeout(POLL) {
-            Ok(chunk) => reading.take(chunk, limits, progress),
+            Ok(chunk) => {
+                reading.take(chunk, limits, progress);
+                last_chunk = Instant::now();
+            }
             Err(RecvTimeoutError::Timeout) => {}
             Err(RecvTimeoutError::Disconnected) => break,
         }
@@ -100,10 +105,9 @@ pub fn run(
         if reading.open == 0 {
             break;
         }
-        if exited_at.is_none() && matches!(child.try_wait(), Ok(Some(_))) {
-            exited_at = Some(Instant::now());
-        }
-        if exited_at.is_some_and(|at| at.elapsed() >= PIPE_GRACE) {
+        exited = exited || matches!(child.try_wait(), Ok(Some(_)));
+        // Only a quiet output ends the wait: chunks in the channel still count.
+        if exited && last_chunk.elapsed() >= PIPE_GRACE {
             break;
         }
     }
