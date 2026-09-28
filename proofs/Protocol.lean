@@ -34,3 +34,5 @@ import Protocol.Always
 import Protocol.Ip
 import Protocol.Hosts
 import Protocol.Connect
+import Protocol.Notice
+import Protocol.Sessions

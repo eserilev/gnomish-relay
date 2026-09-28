@@ -42,6 +42,10 @@ import Protocol.Spec.Hosts
 import Protocol.Hosts
 import Protocol.Spec.Connect
 import Protocol.Connect
+import Protocol.Spec.Notice
+import Protocol.Notice
+import Protocol.Spec.Sessions
+import Protocol.Sessions
 
 /-!
 # The theorems, stated
@@ -270,13 +274,16 @@ def S19_bound : Prop :=
   ∀ (app : apps.App) (token : List Spec.Byte) (chats : List restore.Chat), fitsRestore token chats →
     (restoreOf app token chats).length ≤ restoreLimit
 
-/-! ## Live file: progress and permission requests -/
+/-! ## Live file: progress, permission requests, and notices -/
 
-/-- **S20.** The live file is exactly the fixed template of its app with escaped holes. -/
+/-- **S20.** The live file is exactly the fixed template of its app with escaped holes,
+now with the `notices` table (restated with approval, 2026-09-28). -/
 def S20_live_body : Prop :=
-  ∀ (app : apps.App) (progress : Slice live.Progress) (requests : Slice live.Request),
-    fitsLive progress.val requests.val →
-    live.live_body app progress requests ⦃ v => bytes v.val = liveOf app progress.val requests.val ⦄
+  ∀ (app : apps.App) (progress : Slice live.Progress) (requests : Slice live.Request)
+    (notices : live.Notices),
+    fitsLive progress.val requests.val notices →
+    live.live_body app progress requests notices ⦃ v =>
+      bytes v.val = liveOf app progress.val requests.val notices ⦄
 
 /-- **S20.** `prepare_progress` keeps the last 30 entries and the last 5 lines of each,
 cuts only the ends of strings, and makes them fit. -/
@@ -294,10 +301,19 @@ def S20_prepare_requests : Prop :=
       rs.val.length ≤ maxRequests ∧ (∀ r ∈ rs.val, fitsRequest r) ∧
       List.Forall₂ requestFrom (requests.val.take maxRequests) rs.val ⦄
 
+/-- **S20.** `prepare_notices` keeps the newest 20 notices, cuts only the ends of
+strings, and makes them fit. -/
+def S20_prepare_notices : Prop :=
+  ∀ notices : Slice live.Notice,
+    live.prepare_notices notices ⦃ ns =>
+      ns.val.length ≤ maxNotices ∧ (∀ n ∈ ns.val, fitsNotice n) ∧
+      List.Forall₂ noticeFrom (notices.val.drop (notices.val.length - maxNotices)) ns.val ⦄
+
 /-- **S21.** For each app, a live file that fits is at most 256 KiB. -/
 def S21_bound : Prop :=
-  ∀ (app : apps.App) (progress : List live.Progress) (requests : List live.Request),
-    fitsLive progress requests → (liveOf app progress requests).length ≤ liveLimit
+  ∀ (app : apps.App) (progress : List live.Progress) (requests : List live.Request)
+    (notices : live.Notices),
+    fitsLive progress requests notices → (liveOf app progress requests notices).length ≤ liveLimit
 
 /-! ## WoW chat text -/
 
@@ -498,6 +514,28 @@ def S39_ceiling : Prop :=
     (rs : alloc.vec.Vec (alloc.vec.Vec (alloc.vec.Vec U8))),
     always.offer call policy rules = .ok (some rs) → action.ceiling call policy = .ok .Allow
 
+/-! ## Notifications of terminal sessions (SPEC.md 10) -/
+
+/-- **S40, notice text.** `notice_text` never panics and writes at most `max` bytes. Every
+character of the output is whole and visible: no control, bidi, zero-width, or tag
+character. WoW shows it as plain text, because each `|` comes as `||`. -/
+def S40_notice_text : Prop :=
+  ∀ (t : Slice U8) (max : Usize), t.val.length ≤ 2 ^ 20 →
+    notice.notice_text t max ⦃ v =>
+      v.val.length ≤ max.val ∧ noticeSafe (bytes v.val) ∧ pipesDoubled (bytes v.val) ∧
+        endsOnChar (bytes v.val) ⦄
+
+/-- **S41, sessions and notices.** For every table that fits and every event, `apply_event`
+never panics. The result has at most 32 sessions, each with its own id, so at most one
+notice for each session. A `waiting`, `finished`, or `failed` event leaves exactly its own
+notice on its session; a start leaves none; an end removes the session. The other sessions
+keep their notices, except in a full table where every session has one: then only the
+session with the oldest notice loses it (approved 2026-09-28). -/
+def S41_apply_event : Prop :=
+  ∀ (ss : Slice sessions.Session) (e : sessions.Event) (now : U32), sessionsFit ss.val →
+    sessions.apply_event ss e now ⦃ r =>
+      r.val.length ≤ maxSessions ∧ oneNoticeEach r.val ∧ noticeAfter r.val e ∧ othersKept ss.val r.val e ⦄
+
 /-! ## The sandbox of the commands of a run from the game -/
 
 /-- **S31, sandbox policy.** For every config: each `deny` and `desktop` path is hidden,
@@ -605,6 +643,7 @@ theorem check_S19_bound : S19_bound := Protocol.Restore.restore_of_bound
 theorem check_S20_live_body : S20_live_body := Protocol.Live.live_body_spec
 theorem check_S20_prepare_progress : S20_prepare_progress := Protocol.Live.prepare_progress_spec
 theorem check_S20_prepare_requests : S20_prepare_requests := Protocol.Live.prepare_requests_spec
+theorem check_S20_prepare_notices : S20_prepare_notices := Protocol.Live.prepare_notices_spec
 theorem check_S21_bound : S21_bound := Protocol.Live.live_of_bound
 theorem check_S5_folder : S5_folder := Protocol.Folder.folder_sound
 theorem check_S5_folder_complete : S5_folder_complete := Protocol.Folder.folder_complete
@@ -641,5 +680,10 @@ theorem check_S34_public_v4 : S34_public_v4 := Protocol.Ip.is_public_v4_spec
 theorem check_S34_public_v6 : S34_public_v6 := Protocol.Ip.is_public_v6_spec
 theorem check_S35_check_target : S35_check_target :=
   fun mode list ports head _ => Protocol.Connect.check_target_spec mode list ports head
+
+theorem check_S40_notice_text : S40_notice_text :=
+  fun t max h => Protocol.Notice.notice_text_spec t max h
+theorem check_S41_apply_event : S41_apply_event :=
+  fun ss e now h => Protocol.Sessions.apply_event_spec ss e now h
 
 end Protocol.Statements

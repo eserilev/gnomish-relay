@@ -243,7 +243,7 @@ structure inline.Style where
   italic : inline.Mark
 
 /-- [protocol::live::Progress]
-    Source: 'crates/protocol/src/live.rs', lines 20:0-24:1
+    Source: 'crates/protocol/src/live.rs', lines 23:0-27:1
     Visibility: public -/
 structure live.Progress where
   chat : alloc.vec.Vec Std.U8
@@ -251,7 +251,7 @@ structure live.Progress where
   lines : alloc.vec.Vec (alloc.vec.Vec Std.U8)
 
 /-- [protocol::live::OptionKind]
-    Source: 'crates/protocol/src/live.rs', lines 27:0-32:1
+    Source: 'crates/protocol/src/live.rs', lines 30:0-35:1
     Visibility: public -/
 @[discriminant isize]
 inductive live.OptionKind where
@@ -261,15 +261,52 @@ inductive live.OptionKind where
 | RejectAlways : live.OptionKind
 
 /-- [protocol::live::PermOption]
-    Source: 'crates/protocol/src/live.rs', lines 34:0-38:1
+    Source: 'crates/protocol/src/live.rs', lines 37:0-41:1
     Visibility: public -/
 structure live.PermOption where
   id : alloc.vec.Vec Std.U8
   kind : live.OptionKind
   label : alloc.vec.Vec Std.U8
 
+/-- [protocol::live::Source]
+    Source: 'crates/protocol/src/live.rs', lines 44:0-47:1
+    Visibility: public -/
+@[discriminant isize]
+inductive live.Source where
+| Claude : live.Source
+| Codex : live.Source
+
+/-- [protocol::live::NoticeKind]
+    Source: 'crates/protocol/src/live.rs', lines 50:0-54:1
+    Visibility: public -/
+@[discriminant isize]
+inductive live.NoticeKind where
+| Waiting : live.NoticeKind
+| Finished : live.NoticeKind
+| Failed : live.NoticeKind
+
+/-- [protocol::live::Notice]
+    Source: 'crates/protocol/src/live.rs', lines 58:0-66:1
+    Visibility: public -/
+structure live.Notice where
+  id : Std.U32
+  «at» : Std.U32
+  source : live.Source
+  kind : live.NoticeKind
+  repo : alloc.vec.Vec Std.U8
+  took : Std.U32
+  text : alloc.vec.Vec Std.U8
+
+/-- [protocol::live::Notices]
+    Source: 'crates/protocol/src/live.rs', lines 69:0-73:1
+    Visibility: public -/
+structure live.Notices where
+  busy : Std.U32
+  «open» : Std.U32
+  list : alloc.vec.Vec live.Notice
+
 /-- [protocol::live::Request]
-    Source: 'crates/protocol/src/live.rs', lines 41:0-47:1
+    Source: 'crates/protocol/src/live.rs', lines 76:0-82:1
     Visibility: public -/
 structure live.Request where
   request : alloc.vec.Vec Std.U8
@@ -411,6 +448,38 @@ structure seen.Entry where
     Visibility: public -/
 structure seen.Seen where
   entries : alloc.vec.Vec seen.Entry
+
+/-- [protocol::sessions::Session]
+    Source: 'crates/protocol/src/sessions.rs', lines 14:0-19:1
+    Visibility: public -/
+structure sessions.Session where
+  id : alloc.vec.Vec Std.U8
+  turn_started : Std.U32
+  last : Std.U32
+  notice : Option live.Notice
+
+/-- [protocol::sessions::EventKind]
+    Source: 'crates/protocol/src/sessions.rs', lines 22:0-29:1
+    Visibility: public -/
+@[discriminant isize]
+inductive sessions.EventKind where
+| SessionStart : sessions.EventKind
+| TurnStart : sessions.EventKind
+| Waiting : sessions.EventKind
+| Finished : sessions.EventKind
+| Failed : sessions.EventKind
+| SessionEnd : sessions.EventKind
+
+/-- [protocol::sessions::Event]
+    Source: 'crates/protocol/src/sessions.rs', lines 33:0-40:1
+    Visibility: public -/
+structure sessions.Event where
+  session : alloc.vec.Vec Std.U8
+  kind : sessions.EventKind
+  source : live.Source
+  repo : alloc.vec.Vec Std.U8
+  text : alloc.vec.Vec Std.U8
+  id : Std.U32
 
 /-- [protocol::slot::Status]
     Source: 'crates/protocol/src/slot.rs', lines 17:0-21:1

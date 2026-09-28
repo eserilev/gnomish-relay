@@ -20,7 +20,7 @@ use common::{
 };
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
-use protocol::live::{Progress, live_body, prepare_progress};
+use protocol::live::{Progress, live_body, no_notices, prepare_progress};
 use protocol::record::Record;
 use protocol::restore::{Chat, Entry, Role, prepare_restore, restore_body};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
@@ -422,7 +422,7 @@ fn live(app: App, line: &[u8]) -> Vec<u8> {
         id: 7,
         lines: vec![line.to_vec()],
     };
-    live_body(app, &prepare_progress(&[progress]), &[])
+    live_body(app, &prepare_progress(&[progress]), &[], &no_notices())
 }
 
 /// Bytes that stress the Lua literals: quotes, a fake end of the table, and bad UTF-8.

@@ -29,6 +29,15 @@ theorem max_popup_val : live.MAX_POPUP.val = 2000 := by unfold live.MAX_POPUP; r
 @[simp, scalar_tac_simps]
 theorem max_label_val : live.MAX_LABEL.val = 64 := by unfold live.MAX_LABEL; rfl
 
+@[simp, scalar_tac_simps]
+theorem max_notices_val : live.MAX_NOTICES.val = 20 := by unfold live.MAX_NOTICES; rfl
+
+@[simp, scalar_tac_simps]
+theorem max_repo_val : notice.MAX_REPO.val = 64 := by unfold notice.MAX_REPO; rfl
+
+@[simp, scalar_tac_simps]
+theorem max_text_val : notice.MAX_TEXT.val = 600 := by unfold notice.MAX_TEXT; rfl
+
 /-! ## Prepare -/
 
 def LinesInv (lines : Slice (alloc.vec.Vec U8)) (s : Nat)
@@ -226,6 +235,54 @@ theorem prepare_requests_spec (requests : Slice live.Request) :
     rw [htake] at hf
     exact ⟨by rw [hlen, hn, maxRequests]; omega, hfit, hf⟩
 
+@[step]
+theorem prepare_notice_spec (n : live.Notice) :
+    live.prepare_notice n ⦃ r => noticeFrom n r ∧ fitsNotice r ⦄ := by
+  unfold live.prepare_notice
+  step*
+  simp only [Protocol.Seen.deref_val, max_repo_val, max_text_val] at *
+  exact ⟨⟨rfl, rfl, rfl, rfl, rfl, by simpa [maxNoticeRepo] using v_post1, by simpa [maxNoticeText] using v1_post1⟩,
+    by simpa [maxNoticeRepo] using v_post2, by simpa [maxNoticeText] using v1_post2⟩
+
+/-- **S20, prepare notices.** -/
+theorem prepare_notices_spec (notices : Slice live.Notice) :
+    live.prepare_notices notices ⦃ ns =>
+      ns.val.length ≤ maxNotices ∧ (∀ n ∈ ns.val, fitsNotice n) ∧
+      List.Forall₂ noticeFrom (notices.val.drop (notices.val.length - maxNotices)) ns.val ⦄ := by
+  unfold live.prepare_notices
+  step*
+  unfold live.prepare_notices_loop
+  apply loop.spec_decr_nat (fun st => notices.val.length - st.2.val)
+    (LastInv noticeFrom fitsNotice notices.val i1.val) _ _ _ _
+    ⟨le_refl _, le_max_left _ _, by simp, by simp, by simp⟩
+  rintro ⟨out, i⟩ ⟨hs, hi, hlen, hf, hfit⟩
+  simp only at hs hi hlen hf hfit
+  unfold live.prepare_notices_loop.body
+  step*
+  · have hlt : i.val < notices.val.length := by scalar_tac
+    unfold LastInv
+    dsimp only
+    have htake : (notices.val.drop i1.val).take (i2.val - i1.val) =
+        (notices.val.drop i1.val).take (i.val - i1.val) ++ [notices.val[i.val]] := by
+      rw [i2_post, show i.val + 1 - i1.val = (i.val - i1.val) + 1 by omega, List.take_add_one,
+        List.getElem?_drop, show i1.val + (i.val - i1.val) = i.val by omega,
+        List.getElem?_eq_getElem hlt]
+      rfl
+    refine ⟨⟨by omega, by omega, by simp [out1_post, hlen]; omega, ?_, ?_⟩, by omega⟩
+    · rw [htake, out1_post]
+      exact List.rel_append hf (List.Forall₂.cons (n_post ▸ n1_post1) .nil)
+    · intro x hx
+      rw [out1_post, List.mem_append, List.mem_singleton] at hx
+      rcases hx with hx | rfl
+      · exact hfit x hx
+      · exact n1_post2
+  · have hs20 : i1.val = notices.val.length - maxNotices := by simp [maxNotices]; scalar_tac
+    have hn : i.val = notices.val.length := by scalar_tac
+    rw [hn, List.take_of_length_le (by simp)] at hf
+    refine ⟨?_, hfit, by rw [← hs20]; exact hf⟩
+    rw [hlen, hn, hs20, maxNotices]
+    omega
+
 /-! ## Size bound (pure) -/
 
 theorem kind_literal_length (k : live.OptionKind) : (luaLiteral (ascii (kindWord k))).length ≤ 15 := by
@@ -287,26 +344,71 @@ theorem requestLine_length (r : live.Request) (h : fitsRequest r) : (requestLine
   have : 431 * r.options.val.length ≤ 1724 := by omega
   omega
 
+theorem source_literal_length (s : live.Source) : (luaLiteral (ascii (sourceWord s))).length ≤ 8 := by
+  cases s <;> decide
+
+theorem notice_kind_literal_length (k : live.NoticeKind) :
+    (luaLiteral (ascii (noticeKindWord k))).length ≤ 10 := by
+  cases k <;> decide
+
+theorem noticeLine_length (n : live.Notice) (h : fitsNotice n) : (noticeLine n).length ≤ 2780 := by
+  obtain ⟨hrepo, htext⟩ := h
+  have hr := Protocol.Slot.literal_length_le (bytes n.repo.val)
+  have ht := Protocol.Slot.literal_length_le (bytes n.text.val)
+  have hi := decimal_u32_length n.id
+  have ha := decimal_u32_length n.at
+  have hk := decimal_u32_length n.took
+  have hs := source_literal_length n.source
+  have hkind := notice_kind_literal_length n.kind
+  rw [bytes_length] at hr ht
+  simp only [maxNoticeRepo, maxNoticeText] at hrepo htext
+  simp only [noticeLine, List.length_append]
+  have : (ascii "{id = ").length = 6 := rfl
+  have : (ascii ", at = ").length = 7 := rfl
+  have : (ascii ", source = ").length = 11 := rfl
+  have : (ascii ", kind = ").length = 9 := rfl
+  have : (ascii ", repo = ").length = 9 := rfl
+  have : (ascii ", took = ").length = 9 := rfl
+  have : (ascii ", text = ").length = 9 := rfl
+  have : (ascii "},\n").length = 3 := rfl
+  omega
+
+theorem noticesPart_length (ns : live.Notices) (hn : ns.list.val.length ≤ maxNotices)
+    (hall : ∀ n ∈ ns.list.val, fitsNotice n) : (noticesPart ns).length ≤ 55661 := by
+  have hl := sum_le noticeLine 2780 ns.list.val (fun n hn => noticeLine_length n (hall n hn))
+  have hb := decimal_u32_length ns.busy
+  have ho := decimal_u32_length ns.open
+  simp only [maxNotices] at hn
+  simp only [noticesPart, List.length_append]
+  have : (ascii "}, notices = {busy = ").length = 21 := rfl
+  have : (ascii ", open = ").length = 9 := rfl
+  have : (ascii ", list = {\n").length = 11 := rfl
+  have : 2780 * ns.list.val.length ≤ 55600 := by omega
+  omega
+
 /-- The bound of S21 holds for the live file of every app. -/
 theorem live_of_bound (app : apps.App) (progress : List live.Progress) (requests : List live.Request)
-    (h : fitsLive progress requests) : (liveOf app progress requests).length ≤ liveLimit := by
+    (notices : live.Notices) (h : fitsLive progress requests notices) :
+    (liveOf app progress requests notices).length ≤ liveLimit := by
   have hg := Protocol.Apps.live_global_length app
-  obtain ⟨hp, hpall, hr, hrall⟩ := h
+  obtain ⟨hp, hpall, hr, hrall, hn, hnall⟩ := h
   have hpl := sum_le progressLine 4190 progress (fun p hp => progressLine_length p (hpall p hp))
   have hrl := sum_le requestLine 10050 requests (fun r hr => requestLine_length r (hrall r hr))
+  have hnl := noticesPart_length notices hn hnall
   simp only [maxProgress, maxRequests] at hp hr
   simp only [liveOf, liveLimit, List.length_append]
   have : (ascii " = {progress = {\n").length = 17 := rfl
   have : (ascii "}, permissions = {\n").length = 19 := rfl
-  have : (ascii "}}\n").length = 3 := rfl
+  have : (ascii "}}}\n").length = 4 := rfl
   have : 4190 * progress.length ≤ 125700 := by omega
   have : 10050 * requests.length ≤ 40200 := by omega
   omega
 
 /-- **S21.** -/
 theorem live_bound (progress : List live.Progress) (requests : List live.Request)
-    (h : fitsLive progress requests) : (liveBytes progress requests).length ≤ liveLimit :=
-  live_of_bound .Relay progress requests h
+    (notices : live.Notices) (h : fitsLive progress requests notices) :
+    (liveBytes progress requests notices).length ≤ liveLimit :=
+  live_of_bound .Relay progress requests notices h
 
 /-! ## The template (S20) -/
 
@@ -322,11 +424,95 @@ theorem permissions_bytes : bytes (Array.to_slice live.PERMISSIONS).val = ascii 
 @[simp, scalar_tac_simps]
 theorem permissions_length : (Array.to_slice live.PERMISSIONS).val.length = 19 := by unfold live.PERMISSIONS; rfl
 
-theorem tail_bytes : bytes (Array.to_slice live.TAIL).val = ascii "}}\n" := by
+theorem tail_bytes : bytes (Array.to_slice live.TAIL).val = ascii "}}}\n" := by
   unfold live.TAIL; rfl
 
 @[simp, scalar_tac_simps]
-theorem tail_length : (Array.to_slice live.TAIL).val.length = 3 := by unfold live.TAIL; rfl
+theorem tail_length : (Array.to_slice live.TAIL).val.length = 4 := by unfold live.TAIL; rfl
+
+theorem notices_bytes : bytes (Array.to_slice live.NOTICES).val = ascii "}, notices = {busy = " := by
+  unfold live.NOTICES; rfl
+
+@[simp, scalar_tac_simps]
+theorem notices_length : (Array.to_slice live.NOTICES).val.length = 21 := by unfold live.NOTICES; rfl
+
+theorem open_bytes : bytes (Array.to_slice live.OPEN).val = ascii ", open = " := by
+  unfold live.OPEN; rfl
+
+@[simp, scalar_tac_simps]
+theorem open_length : (Array.to_slice live.OPEN).val.length = 9 := by unfold live.OPEN; rfl
+
+theorem list_bytes : bytes (Array.to_slice live.LIST).val = ascii ", list = {\n" := by
+  unfold live.LIST; rfl
+
+@[simp, scalar_tac_simps]
+theorem list_length : (Array.to_slice live.LIST).val.length = 11 := by unfold live.LIST; rfl
+
+theorem notice_bytes : bytes (Array.to_slice live.NOTICE).val = ascii "{id = " := by
+  unfold live.NOTICE; rfl
+
+@[simp, scalar_tac_simps]
+theorem notice_length : (Array.to_slice live.NOTICE).val.length = 6 := by unfold live.NOTICE; rfl
+
+theorem at_bytes : bytes (Array.to_slice live.AT).val = ascii ", at = " := by
+  unfold live.AT; rfl
+
+@[simp, scalar_tac_simps]
+theorem at_length : (Array.to_slice live.AT).val.length = 7 := by unfold live.AT; rfl
+
+theorem source_bytes : bytes (Array.to_slice live.SOURCE).val = ascii ", source = " := by
+  unfold live.SOURCE; rfl
+
+@[simp, scalar_tac_simps]
+theorem source_length : (Array.to_slice live.SOURCE).val.length = 11 := by unfold live.SOURCE; rfl
+
+theorem repo_bytes : bytes (Array.to_slice live.REPO).val = ascii ", repo = " := by
+  unfold live.REPO; rfl
+
+@[simp, scalar_tac_simps]
+theorem repo_length : (Array.to_slice live.REPO).val.length = 9 := by unfold live.REPO; rfl
+
+theorem took_bytes : bytes (Array.to_slice live.TOOK).val = ascii ", took = " := by
+  unfold live.TOOK; rfl
+
+@[simp, scalar_tac_simps]
+theorem took_length : (Array.to_slice live.TOOK).val.length = 9 := by unfold live.TOOK; rfl
+
+theorem notice_end_bytes : bytes (Array.to_slice live.NOTICE_END).val = ascii "},\n" := by
+  unfold live.NOTICE_END; rfl
+
+@[simp, scalar_tac_simps]
+theorem notice_end_length : (Array.to_slice live.NOTICE_END).val.length = 3 := by unfold live.NOTICE_END; rfl
+
+theorem claude_bytes : bytes (Array.to_slice live.CLAUDE).val = luaLiteral (ascii "claude") := by
+  unfold live.CLAUDE; decide
+
+@[simp, scalar_tac_simps]
+theorem claude_length : (Array.to_slice live.CLAUDE).val.length = 8 := by unfold live.CLAUDE; rfl
+
+theorem codex_bytes : bytes (Array.to_slice live.CODEX).val = luaLiteral (ascii "codex") := by
+  unfold live.CODEX; decide
+
+@[simp, scalar_tac_simps]
+theorem codex_length : (Array.to_slice live.CODEX).val.length = 7 := by unfold live.CODEX; rfl
+
+theorem waiting_bytes : bytes (Array.to_slice live.WAITING).val = luaLiteral (ascii "waiting") := by
+  unfold live.WAITING; decide
+
+@[simp, scalar_tac_simps]
+theorem waiting_length : (Array.to_slice live.WAITING).val.length = 9 := by unfold live.WAITING; rfl
+
+theorem finished_bytes : bytes (Array.to_slice live.FINISHED).val = luaLiteral (ascii "finished") := by
+  unfold live.FINISHED; decide
+
+@[simp, scalar_tac_simps]
+theorem finished_length : (Array.to_slice live.FINISHED).val.length = 10 := by unfold live.FINISHED; rfl
+
+theorem failed_bytes : bytes (Array.to_slice live.FAILED).val = luaLiteral (ascii "failed") := by
+  unfold live.FAILED; decide
+
+@[simp, scalar_tac_simps]
+theorem failed_length : (Array.to_slice live.FAILED).val.length = 8 := by unfold live.FAILED; rfl
 
 theorem chat_bytes : bytes (Array.to_slice live.CHAT).val = ascii "{chat = " := by
   unfold live.CHAT; rfl
@@ -665,18 +851,132 @@ theorem push_requests_spec (out : alloc.vec.Vec U8) (requests : Slice live.Reque
     rw [this, List.take_length] at hout
     exact ⟨hout, by omega⟩
 
+@[step]
+theorem push_source_spec (out : alloc.vec.Vec U8) (s : live.Source) (hroom : out.val.length + 8 ≤ Usize.max) :
+    live.push_source out s ⦃ r =>
+      bytes r.val = bytes out.val ++ luaLiteral (ascii (sourceWord s)) ∧ r.val.length ≤ out.val.length + 8 ⦄ := by
+  unfold live.push_source
+  induction s
+  all_goals
+    step*
+    subst s_post
+    refine ⟨?_, by simp at r_post2; omega⟩
+    rw [r_post1, bytes, List.map_append]
+    congr 1
+  · exact claude_bytes
+  · exact codex_bytes
+
+@[step]
+theorem push_notice_kind_spec (out : alloc.vec.Vec U8) (k : live.NoticeKind)
+    (hroom : out.val.length + 10 ≤ Usize.max) :
+    live.push_notice_kind out k ⦃ r =>
+      bytes r.val = bytes out.val ++ luaLiteral (ascii (noticeKindWord k)) ∧
+      r.val.length ≤ out.val.length + 10 ⦄ := by
+  unfold live.push_notice_kind
+  induction k
+  all_goals
+    step*
+    subst s_post
+    refine ⟨?_, by simp at r_post2; omega⟩
+    rw [r_post1, bytes, List.map_append]
+    congr 1
+  · exact waiting_bytes
+  · exact finished_bytes
+  · exact failed_bytes
+
+@[step]
+theorem push_notice_spec (out : alloc.vec.Vec U8) (n : live.Notice)
+    (hroom : out.val.length ≤ 2 ^ 29) (hfit : fitsNotice n) :
+    live.push_notice out n ⦃ r =>
+      bytes r.val = bytes out.val ++ noticeLine n ∧ r.val.length ≤ out.val.length + 2780 ⦄ := by
+  have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
+  have hfit' := hfit
+  obtain ⟨hrepo, htext⟩ := hfit'
+  simp only [maxNoticeRepo, maxNoticeText] at hrepo htext
+  unfold live.push_notice
+  step*
+  all_goals try (subst_vars; simp only [Protocol.Seen.deref_val, notice_length, at_length, source_length,
+    kind_length, repo_length, took_length, text_length, notice_end_length] at *; scalar_tac)
+  subst s_post s1_post s2_post s3_post s4_post s7_post s8_post s11_post
+  have hb : bytes r.val = bytes out.val ++ noticeLine n := by
+    simp only [r_post1, out14_post1, out13_post1, out12_post1, out11_post1, out10_post1, out9_post1,
+      out8_post1, out7_post1, out6_post1, out5_post1, out4_post1, out3_post1, out2_post1, out1_post1,
+      happ, v_post1, v1_post1, notice_bytes, at_bytes, source_bytes, kind_bytes, repo_bytes, took_bytes,
+      text_bytes, notice_end_bytes, noticeLine, List.append_assoc, Protocol.Seen.deref_val]
+  refine ⟨hb, ?_⟩
+  have h1 := congrArg List.length hb
+  have h2 := noticeLine_length n hfit
+  simp only [bytes, List.length_map, List.length_append] at h1
+  omega
+
+def NoticeListInv (list : Slice live.Notice) (base : Nat) (pre : List Spec.Byte)
+    (st : alloc.vec.Vec U8 × Usize) : Prop :=
+  st.2.val ≤ list.val.length ∧
+    bytes st.1.val = pre ++ (list.val.take st.2.val).flatMap noticeLine ∧
+    st.1.val.length ≤ base + 2780 * st.2.val
+
+@[step]
+theorem push_notice_list_spec (out : alloc.vec.Vec U8) (list : Slice live.Notice)
+    (hroom : out.val.length ≤ 2 ^ 26) (hn : list.val.length ≤ maxNotices)
+    (hall : ∀ n ∈ list.val, fitsNotice n) :
+    live.push_notice_list out list ⦃ w =>
+      bytes w.val = bytes out.val ++ list.val.flatMap noticeLine ∧
+      w.val.length ≤ out.val.length + 55600 ⦄ := by
+  have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
+  simp only [maxNotices] at hn
+  unfold live.push_notice_list live.push_notice_list_loop
+  apply loop.spec_decr_nat (fun st => list.val.length - st.2.val)
+    (NoticeListInv list out.val.length (bytes out.val)) _ _ _ _ ⟨by simp, by simp, by simp⟩
+  rintro ⟨o, i⟩ ⟨hi, hout, hlen⟩
+  simp only at hi hout hlen
+  unfold live.push_notice_list_loop.body
+  step*
+  · rw [n_post]; exact hall _ (List.getElem_mem _)
+  · have hlt : i.val < list.val.length := by scalar_tac
+    unfold NoticeListInv
+    dsimp only
+    refine ⟨⟨by omega, ?_, by omega⟩, by omega⟩
+    rw [out1_post1, hout, i2_post, List.take_add_one, List.getElem?_eq_getElem hlt, List.flatMap_append,
+      ← n_post]
+    simp
+  · have : i.val = list.val.length := by scalar_tac
+    rw [this, List.take_length] at hout
+    exact ⟨hout, by omega⟩
+
+@[step]
+theorem push_notices_spec (out : alloc.vec.Vec U8) (ns : live.Notices)
+    (hroom : out.val.length ≤ 2 ^ 25) (hn : ns.list.val.length ≤ maxNotices)
+    (hall : ∀ n ∈ ns.list.val, fitsNotice n) :
+    live.push_notices out ns ⦃ w =>
+      bytes w.val = bytes out.val ++ noticesPart ns ∧ w.val.length ≤ out.val.length + 55661 ⦄ := by
+  have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
+  unfold live.push_notices
+  step*
+  · simpa [Protocol.Seen.deref_val] using hn
+  subst s_post s1_post s2_post
+  have hb : bytes w.val = bytes out.val ++ noticesPart ns := by
+    simp only [w_post1, out5_post1, out4_post1, out3_post1, out2_post1, out1_post1, happ, notices_bytes,
+      open_bytes, list_bytes, noticesPart, List.append_assoc, Protocol.Seen.deref_val]
+  refine ⟨hb, ?_⟩
+  have h1 := congrArg List.length hb
+  have h2 := noticesPart_length ns hn hall
+  simp only [bytes, List.length_map, List.length_append] at h1
+  omega
+
 /-- **S20.** -/
 theorem live_body_spec (app : apps.App) (progress : Slice live.Progress)
-    (requests : Slice live.Request) (hfits : fitsLive progress.val requests.val) :
-    live.live_body app progress requests ⦃ v => bytes v.val = liveOf app progress.val requests.val ⦄ := by
+    (requests : Slice live.Request) (notices : live.Notices)
+    (hfits : fitsLive progress.val requests.val notices) :
+    live.live_body app progress requests notices ⦃ v =>
+      bytes v.val = liveOf app progress.val requests.val notices ⦄ := by
   have hg := Protocol.Apps.live_global_length app
   have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
-  obtain ⟨hp, hpall, hr, hrall⟩ := hfits
+  obtain ⟨hp, hpall, hr, hrall, hn, hnall⟩ := hfits
   unfold live.live_body
   step*
   subst s_post s1_post s2_post
-  rw [v_post1, happ, out4_post1, out3_post1, happ, out2_post1, out1_post1, happ, out_post1, head_bytes,
-    permissions_bytes, tail_bytes]
+  rw [v_post1, happ, out5_post1, out4_post1, out3_post1, happ, out2_post1, out1_post1, happ, out_post1,
+    head_bytes, permissions_bytes, tail_bytes]
   simp [liveOf, bytes]
 
 end Protocol.Live

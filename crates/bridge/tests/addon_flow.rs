@@ -26,8 +26,8 @@ use protocol::apps::App;
 use protocol::cell::decode_cells;
 use protocol::frame::{decode_frame, signed_len};
 use protocol::live::{
-    OptionKind, PermOption, Progress, Request as LiveRequest, live_body, prepare_progress,
-    prepare_requests,
+    OptionKind, PermOption, Progress, Request as LiveRequest, live_body, no_notices,
+    prepare_progress, prepare_requests,
 };
 use protocol::markdown::render_markdown;
 use protocol::record::{Record, parse_records};
@@ -761,6 +761,7 @@ fn live(progress: &[Progress], requests: &[LiveRequest]) -> Vec<u8> {
         App::Relay,
         &prepare_progress(progress),
         &prepare_requests(requests),
+        &no_notices(),
     )
 }
 

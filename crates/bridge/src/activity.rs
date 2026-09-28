@@ -3,7 +3,7 @@
 
 use protocol::apps::App;
 use protocol::live::{
-    MAX_LINES, OptionKind, PermOption, Progress, Request, live_body, prepare_progress,
+    MAX_LINES, OptionKind, PermOption, Progress, Request, live_body, no_notices, prepare_progress,
     prepare_requests,
 };
 use std::fmt::Write;
@@ -215,6 +215,7 @@ impl Activity {
             App::Relay,
             &prepare_progress(&progress),
             &prepare_requests(&requests),
+            &no_notices(),
         )
     }
 }

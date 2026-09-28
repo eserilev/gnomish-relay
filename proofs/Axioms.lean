@@ -35,6 +35,7 @@ import Statements
 #print axioms Protocol.Statements.check_S20_live_body
 #print axioms Protocol.Statements.check_S20_prepare_progress
 #print axioms Protocol.Statements.check_S20_prepare_requests
+#print axioms Protocol.Statements.check_S20_prepare_notices
 #print axioms Protocol.Statements.check_S21_bound
 #print axioms Protocol.Statements.check_S12_prepare
 #print axioms Protocol.Statements.check_S12_bound
@@ -68,3 +69,5 @@ import Statements
 #print axioms Protocol.Statements.check_S34_public_v4
 #print axioms Protocol.Statements.check_S34_public_v6
 #print axioms Protocol.Statements.check_S35_check_target
+#print axioms Protocol.Statements.check_S40_notice_text
+#print axioms Protocol.Statements.check_S41_apply_event

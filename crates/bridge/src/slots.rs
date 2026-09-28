@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result};
 use protocol::apps::App;
-use protocol::live::live_body;
+use protocol::live::{live_body, no_notices};
 use protocol::restore::restore_body;
 use protocol::slot::{SLOT_WINDOW, SLOTS, slot_body};
 
@@ -30,7 +30,7 @@ impl Files {
         Files {
             body: slot_body(app, now, &[]),
             restore: restore_body(app, b"", &[]),
-            live: live_body(app, &[], &[]),
+            live: live_body(app, &[], &[], &no_notices()),
         }
     }
 
@@ -303,7 +303,12 @@ mod tests {
             }],
         };
         let with_live = Files {
-            live: live_body(App::Relay, &[], &prepare_requests(&[request])),
+            live: live_body(
+                App::Relay,
+                &[],
+                &prepare_requests(&[request]),
+                &no_notices(),
+            ),
             ..files(b"")
         };
         publish(addons.path(), App::Relay, &with_live, 1).unwrap();
