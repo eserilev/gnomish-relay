@@ -379,6 +379,18 @@ pub const KNOWN_AGENTS: [Found<'static>; 13] = [
     ("vibe", Kind::Acp, &["vibe-acp"]),
 ];
 
+/// The presets of harnesses with no ACP mode. Setup offers each one that is on `PATH`, and
+/// adds it only when the player says yes: its commands never ask (SPEC.md 11.3).
+pub const HARNESSES_WITH_NO_ACP: [&str; 2] = ["aider", "llm"];
+
+pub fn find_harnesses(path: &OsStr) -> Vec<&'static str> {
+    HARNESSES_WITH_NO_ACP
+        .iter()
+        .copied()
+        .filter(|name| on_path(name, path))
+        .collect()
+}
+
 fn on_path(program: &str, path: &OsStr) -> bool {
     crate::program::find_program(program, path, cfg!(windows)).is_some()
 }
@@ -727,7 +739,27 @@ mod tests {
     }
 
     #[test]
+    fn only_harnesses_with_no_acp_mode_are_offered() {
+        let dir = tempfile::tempdir().unwrap();
+        for program in ["aider", "gemini", "llm"] {
+            let file = if cfg!(windows) {
+                format!("{program}.exe")
+            } else {
+                program.to_owned()
+            };
+            fs::write(dir.path().join(file), "").unwrap();
+        }
+
+        assert_eq!(find_harnesses(dir.path().as_os_str()), ["aider", "llm"]);
+    }
+
+    #[test]
     fn every_known_agent_has_a_valid_name_and_a_command() {
+        for name in HARNESSES_WITH_NO_ACP {
+            let preset = crate::harness_presets::find(name).unwrap();
+            assert_eq!(preset.program, name);
+            assert!(KNOWN_AGENTS.iter().all(|(known, _, _)| *known != name));
+        }
         for (name, _, command) in KNOWN_AGENTS {
             assert!(protocol::record::is_valid_id(name.as_bytes()), "{name}");
             assert!(!command[0].is_empty(), "{name}");

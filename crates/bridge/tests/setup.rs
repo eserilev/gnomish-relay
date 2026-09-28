@@ -79,6 +79,7 @@ impl Computer {
             wow: &wow,
             relay: (relay == Relay::On).then_some(RelayPart {
                 agents: &agents,
+                harnesses: &[],
                 roots: &roots,
                 local_ports: &[],
             }),

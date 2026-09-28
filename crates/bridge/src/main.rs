@@ -450,6 +450,11 @@ fn setup_config(
     } else {
         Vec::new()
     };
+    let harnesses = if roots.is_empty() {
+        Vec::new()
+    } else {
+        choose_harnesses(&path_var)?
+    };
     let wants_story = timeways && lacks_story;
     // A local model is also for the agents: the relay part opens its port.
     let models = if wants_story || !roots.is_empty() {
@@ -462,6 +467,7 @@ fn setup_config(
         wow,
         relay: (!roots.is_empty()).then_some(RelayPart {
             agents: &agents,
+            harnesses: &harnesses,
             roots: &roots,
             local_ports: &local_ports,
         }),
@@ -472,6 +478,23 @@ fn setup_config(
         Some(new) => setup::write_config(dir, &new, &home_dir()?),
         None => load_config(),
     }
+}
+
+/// A harness with no ACP mode runs its own commands, so setup adds it only on a yes.
+fn choose_harnesses(path_var: &std::ffi::OsStr) -> Result<Vec<&'static str>> {
+    let mut chosen = Vec::new();
+    for name in install::find_harnesses(path_var) {
+        let answer = ask(
+            &format!(
+                "Found {name}. Add it as an agent? It runs its own commands with no question, inside the sandbox. (y/N)"
+            ),
+            "n",
+        )?;
+        if answer.eq_ignore_ascii_case("y") {
+            chosen.push(name);
+        }
+    }
+    Ok(chosen)
 }
 
 fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {

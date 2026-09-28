@@ -10,6 +10,8 @@ use crate::model_setup::{CLAUDE_MODEL, FoundModel};
 /// The relay part of a config: the folders of the agents and the agents that setup found.
 pub struct RelayPart<'a> {
     pub agents: &'a [Found<'a>],
+    /// The presets of the command-line harnesses that the player chose in setup.
+    pub harnesses: &'a [&'a str],
     pub roots: &'a [String],
     /// The ports of the local models that setup found (`model_setup::local_ports`).
     pub local_ports: &'a [u16],
@@ -22,7 +24,12 @@ fn quote(text: &str) -> String {
 /// TOML needs the top keys before the first table.
 fn relay_keys(relay: &RelayPart) -> String {
     let roots: Vec<String> = relay.roots.iter().map(|r| quote(r)).collect();
-    let default = relay.agents.first().map_or("echo", |(name, _, _)| name);
+    let default = relay
+        .agents
+        .first()
+        .map(|(name, _, _)| *name)
+        .or_else(|| relay.harnesses.first().copied())
+        .unwrap_or("echo");
     format!(
         "allowed_roots = [{}]\ndefault_agent = {}\n",
         roots.join(", "),
@@ -47,6 +54,13 @@ fn relay_tables(relay: &RelayPart) -> String {
             command.join(", ")
         );
     }
+    for name in relay.harnesses {
+        let _ = write!(
+            text,
+            "\n# It runs its own commands with no question, inside the sandbox (SPEC.md 9.2).\n\
+             [agents.{name}]\nkind = \"command\"\npreset = \"{name}\"\npermission = \"auto-edit\"\n"
+        );
+    }
     text.push_str(
         "\n# Commands that run from the game with no question, at auto-edit and full-auto.\n\
          # A pattern covers more words after it. It never allows a command that the\n\
@@ -54,13 +68,16 @@ fn relay_tables(relay: &RelayPart) -> String {
          # [allow]\n# commands = [\"cargo test *\", \"cargo fmt --check\"]\n\
          # [allow.folders]\n# \"~/Code/lighthouse\" = [\"npm test *\"]\n",
     );
-    if relay.agents.is_empty() {
+    if relay.agents.is_empty() && relay.harnesses.is_empty() {
         text.push_str("\n[agents.echo]\nkind = \"echo\"\npermission = \"auto-edit\"\n");
     }
     text.push_str(
         "\n# Any ACP agent is one entry. Run `gnomish-relay check-agent <name>` to test it.\n\
          # [agents.gemini]\n# kind = \"acp\"\n# command = [\"gemini\", \"--acp\"]\n\
-         # permission = \"auto-edit\"\n# env = [\"GEMINI_API_KEY\"]\n",
+         # permission = \"auto-edit\"\n# env = [\"GEMINI_API_KEY\"]\n\
+         # A harness with only a command line runs inside the sandbox (SPEC.md 9.2).\n\
+         # [agents.aider]\n# kind = \"command\"\n# preset = \"aider\"\n\
+         # permission = \"auto-edit\"\n# env = [\"OPENAI_API_KEY\"]\n",
     );
     text.push_str(&sandbox_table(relay.local_ports));
     text
@@ -178,6 +195,7 @@ mod tests {
         let roots = roots();
         let with_model = RelayPart {
             agents: &agents,
+            harnesses: &[],
             roots: &roots,
             local_ports: &[11434],
         };
@@ -209,6 +227,7 @@ mod tests {
         let roots = roots();
         let relay = RelayPart {
             agents: &agents,
+            harnesses: &[],
             roots: &roots,
             local_ports: &[],
         };
@@ -229,6 +248,7 @@ mod tests {
         let roots = roots();
         let relay = RelayPart {
             agents: &[],
+            harnesses: &[],
             roots: &roots,
             local_ports: &[],
         };
@@ -236,6 +256,25 @@ mod tests {
         let relay = config.require_relay().unwrap();
         assert_eq!(relay.policy.default_agent, "echo");
         assert_eq!(relay.agents["echo"].kind, Kind::Echo);
+    }
+
+    #[test]
+    fn a_harness_that_the_player_chose_gets_a_preset_entry() {
+        let home = home();
+        let roots = roots();
+        let relay = RelayPart {
+            agents: &[],
+            harnesses: &["aider"],
+            roots: &roots,
+            local_ports: &[],
+        };
+        let config = parsed(&relay_config(&home.path().join("wow"), &relay), &home);
+        let relay = config.require_relay().unwrap();
+        assert_eq!(relay.policy.default_agent, "aider");
+        assert_eq!(relay.agents["aider"].kind, Kind::Command);
+        assert_eq!(relay.agents["aider"].command[0], "aider");
+        assert_eq!(relay.policy.agents["aider"], Permission::AutoEdit);
+        assert!(!relay.agents.contains_key("echo"));
     }
 
     #[test]
@@ -290,6 +329,7 @@ mod tests {
         let roots = roots();
         let relay = RelayPart {
             agents: &[],
+            harnesses: &[],
             roots: &roots,
             local_ports: &[],
         };
@@ -308,6 +348,7 @@ mod tests {
         let roots = roots();
         let relay = RelayPart {
             agents: &[],
+            harnesses: &[],
             roots: &roots,
             local_ports: &[],
         };
