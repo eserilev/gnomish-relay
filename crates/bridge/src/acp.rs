@@ -222,6 +222,7 @@ impl AcpAgent {
                 .and_then(Value::as_bool)
                 .unwrap_or(false),
             modes: session.modes,
+            details: Vec::new(),
         })
     }
 }

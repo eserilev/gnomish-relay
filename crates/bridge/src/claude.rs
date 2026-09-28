@@ -275,6 +275,7 @@ impl ClaudeAgent {
                 .to_owned(),
             load_session: true,
             modes: MODES.map(str::to_owned).into(),
+            details: Vec::new(),
         })
     }
 }

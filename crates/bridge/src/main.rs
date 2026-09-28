@@ -664,6 +664,12 @@ fn start_relay(
         config_dir: config_dir()?,
         home: home_dir()?,
         permission_timeout: relay.permission_timeout,
+        free_commands: relay
+            .agents
+            .iter()
+            .filter(|(_, spec)| spec.kind == config::Kind::Command)
+            .map(|(name, _)| name.clone())
+            .collect(),
     };
     let mut settings = BridgeSettings::from_config(&relay, story, Some(&home_dir()?), sandbox);
     settings.rules.store = gate.always.clone();
@@ -689,7 +695,7 @@ fn agent_line(config: &RelayConfig) -> String {
     let checked = config
         .agents
         .get(name)
-        .and_then(|spec| agent::check(spec, &cwd, &gate));
+        .and_then(|spec| agent::check(name, spec, &cwd, &gate));
     let Some(checked) = checked else {
         return "Agent: none. Replies repeat your message.".into();
     };
@@ -779,7 +785,7 @@ fn check_agent(name: &str) -> Result<()> {
         .get(name)
         .with_context(|| format!("the config has no [agents.{name}]"))?;
     let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    let report = agent::check(spec, &cwd, &check_gate(config)?)
+    let report = agent::check(name, spec, &cwd, &check_gate(config)?)
         .with_context(|| format!("[agents.{name}] is the echo agent: it starts nothing"))?
         .map_err(anyhow::Error::msg)?;
     println!("{name}: {} {}", report.name, report.version);
@@ -795,6 +801,9 @@ fn check_agent(name: &str) -> Result<()> {
             report.modes.join(", ")
         }
     );
+    for line in &report.details {
+        println!("{line}");
+    }
     for (level, mode) in &spec.modes {
         if !report.modes.contains(mode) {
             bail!("the agent has no mode {mode:?}, which the config names for {level:?}");

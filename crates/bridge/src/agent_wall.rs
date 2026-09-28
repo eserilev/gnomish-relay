@@ -101,7 +101,7 @@ pub fn model_hosts(kind: Kind) -> &'static [&'static str] {
     match kind {
         Kind::Claude => &CLAUDE_HOSTS,
         Kind::Codex => &CODEX_HOSTS,
-        Kind::Acp | Kind::Echo => &[],
+        Kind::Acp | Kind::Echo | Kind::Command => &[],
     }
 }
 

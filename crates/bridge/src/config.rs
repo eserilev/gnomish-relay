@@ -18,6 +18,7 @@ use crate::claude;
 use crate::model::{ModelChoice, ModelSpec};
 use crate::model_local::{self, LocalModel};
 use crate::relay::Folders;
+use crate::{harness_args, harness_presets};
 
 pub const FILE: &str = "config.toml";
 const MAX_FILE: u64 = 64 * 1024;
@@ -160,6 +161,8 @@ pub enum Kind {
     Codex,
     /// Answers with the message. It tests the path through the game with no agent.
     Echo,
+    /// A harness with only a command line, inside the sandbox (SPEC.md 9.2).
+    Command,
 }
 
 impl Kind {
@@ -170,6 +173,7 @@ impl Kind {
             Kind::Claude => "claude",
             Kind::Codex => "codex",
             Kind::Echo => "echo",
+            Kind::Command => "command",
         }
     }
 }
@@ -183,6 +187,10 @@ pub struct AgentSpec {
     pub modes: BTreeMap<Permission, String>,
     /// The hosts of the agent in `strict` mode, besides the model hosts (SPEC.md 6.6.4).
     pub agent_hosts: Vec<String>,
+    /// `command`: the arguments when the chat goes on (SPEC.md 9.2).
+    pub resume: Vec<String>,
+    /// `command`: more arguments at `ask`, from a preset.
+    pub ask_args: Vec<String>,
 }
 
 /// Only the keys that the bridge uses. Any other key is an error, so a typo never
@@ -404,6 +412,10 @@ struct Agent {
     /// The hosts of the agent in `strict` mode, besides the model hosts of its kind.
     #[serde(default, rename = "agent_hosts")]
     hosts: Vec<String>,
+    /// `command`: a harness that the bridge knows (`harness_presets.rs`).
+    preset: Option<String>,
+    #[serde(default)]
+    resume: Vec<String>,
 }
 
 const DEFAULT_TIMEOUT_MINUTES: u64 = 30;
@@ -430,6 +442,9 @@ fn check_agent(name: &str, agent: &Agent) -> Result<()> {
     if !is_valid_id(name.as_bytes()) {
         bail!("agent name {name:?} is not a valid id");
     }
+    if agent.kind != Kind::Command && (agent.preset.is_some() || !agent.resume.is_empty()) {
+        bail!("[agents.{name}] preset and resume are only for kind command");
+    }
     match agent.kind {
         Kind::Acp | Kind::Claude | Kind::Codex
             if agent.command.first().is_none_or(String::is_empty) =>
@@ -454,7 +469,62 @@ fn check_agent(name: &str, agent: &Agent) -> Result<()> {
     if agent.kind == Kind::Codex && !agent.modes.is_empty() {
         bail!("[agents.{name}] is kind codex, so it has no modes");
     }
+    if agent.kind == Kind::Command {
+        check_command_agent(name, agent)?;
+    }
     Ok(())
+}
+
+/// A harness with no permission channel has no modes: the level picks its walls.
+fn check_command_agent(name: &str, agent: &Agent) -> Result<()> {
+    if !agent.modes.is_empty() {
+        bail!("[agents.{name}] is kind command, so it has no modes");
+    }
+    let spec = command_spec(agent).map_err(|e| anyhow::anyhow!("[agents.{name}] {e}"))?;
+    harness_args::check_template(&spec.command).map_err(|e| anyhow::anyhow!("[agents.{name}] {e}"))
+}
+
+/// The template, the resume and `ask` arguments, and the hosts of a `command` entry: a
+/// preset fills them, and the `command` of the entry replaces its program.
+struct CommandSpec {
+    command: Vec<String>,
+    resume: Vec<String>,
+    ask_args: Vec<String>,
+    hosts: Vec<String>,
+}
+
+fn command_spec(agent: &Agent) -> std::result::Result<CommandSpec, String> {
+    let Some(name) = &agent.preset else {
+        return Ok(CommandSpec {
+            command: agent.command.clone(),
+            resume: agent.resume.clone(),
+            ask_args: Vec::new(),
+            hosts: agent.hosts.clone(),
+        });
+    };
+    let preset = harness_presets::find(name).ok_or_else(|| {
+        format!(
+            "has no preset {name:?}. The presets are {}",
+            harness_presets::names()
+        )
+    })?;
+    let mut command = match agent.command.as_slice() {
+        [] => vec![preset.program.to_owned()],
+        given => given.to_vec(),
+    };
+    command.extend(harness_presets::words(preset.args));
+    let resume = match agent.resume.as_slice() {
+        [] => harness_presets::words(preset.resume),
+        given => given.to_vec(),
+    };
+    let mut hosts = agent.hosts.clone();
+    hosts.extend(harness_presets::words(preset.hosts));
+    Ok(CommandSpec {
+        command,
+        resume,
+        ask_args: harness_presets::words(preset.ask_args),
+        hosts,
+    })
 }
 
 /// A typo in a mode name fails here, not at the first message from the game.
@@ -644,16 +714,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         .collect();
     let agents = file_agents
         .into_iter()
-        .map(|(name, agent)| {
-            let spec = AgentSpec {
-                kind: agent.kind,
-                command: agent.command,
-                env: agent.env,
-                modes: agent.modes,
-                agent_hosts: agent.hosts,
-            };
-            (name, spec)
-        })
+        .map(|(name, agent)| (name, agent_spec(agent)))
         .collect();
     let allow = allow::parse(&file.allow.unwrap_or_default(), home)?;
     let hosts = hosts(file.sandbox.as_ref())?;
@@ -677,6 +738,34 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         local_ports,
         agent_network,
     }))
+}
+
+/// `check_agent` passed, so the preset exists.
+fn agent_spec(agent: Agent) -> AgentSpec {
+    let command = match agent.kind {
+        Kind::Command => command_spec(&agent).ok(),
+        _ => None,
+    };
+    match command {
+        Some(command) => AgentSpec {
+            kind: agent.kind,
+            command: command.command,
+            env: agent.env,
+            modes: agent.modes,
+            agent_hosts: command.hosts,
+            resume: command.resume,
+            ask_args: command.ask_args,
+        },
+        None => AgentSpec {
+            kind: agent.kind,
+            command: agent.command,
+            env: agent.env,
+            modes: agent.modes,
+            agent_hosts: agent.hosts,
+            resume: Vec::new(),
+            ask_args: Vec::new(),
+        },
+    }
 }
 
 #[cfg(unix)]
@@ -1019,6 +1108,83 @@ mod tests {
         );
         let with_modes = format!("{codex}\nmodes = {{ ask = \"plan\" }}\n");
         assert!(home.parse(&with_modes).is_err());
+    }
+
+    /// A config with one entry `[agents.x]` of kind command and `lines`.
+    fn command_entry(lines: &str) -> String {
+        format!(
+            "allowed_roots = [\"~/Code\"]\ndefault_agent = \"x\"\n[wow]\npath = \"~/wow\"\n\
+             [agents.x]\nkind = \"command\"\npermission = \"auto-edit\"\n{lines}\n"
+        )
+    }
+
+    fn command_spec_of(lines: &str) -> Result<AgentSpec> {
+        let home = Home::new();
+        let config = home.parse(&command_entry(lines))?;
+        let mut relay = config.relay.unwrap();
+        Ok(relay.agents.remove("x").unwrap())
+    }
+
+    #[test]
+    fn a_preset_fills_the_template_the_resume_arguments_and_the_hosts() {
+        let spec = command_spec_of("preset = \"aider\"\nagent_hosts = [\"api.x.com\"]").unwrap();
+
+        assert_eq!(spec.kind, Kind::Command);
+        assert_eq!(spec.command[..2], ["aider", "--message-file={prompt_file}"]);
+        assert_eq!(spec.resume, ["--restore-chat-history"]);
+        assert!(spec.ask_args.contains(&"--dry-run".to_owned()));
+        assert_eq!(spec.agent_hosts, ["api.x.com"]);
+        let gemini = command_spec_of("preset = \"gemini\"").unwrap();
+        assert!(
+            gemini
+                .agent_hosts
+                .contains(&"generativelanguage.googleapis.com".to_owned())
+        );
+    }
+
+    #[test]
+    fn the_command_of_a_preset_entry_replaces_its_program_and_adds_flags() {
+        let spec = command_spec_of(
+            "preset = \"aider\"\ncommand = [\"/opt/aider\", \"--model\", \"o3\"]\nresume = [\"--x\"]",
+        )
+        .unwrap();
+
+        assert_eq!(
+            spec.command[..4],
+            [
+                "/opt/aider",
+                "--model",
+                "o3",
+                "--message-file={prompt_file}"
+            ]
+        );
+        assert_eq!(spec.resume, ["--x"]);
+    }
+
+    #[test]
+    fn a_custom_command_entry_keeps_its_template() {
+        let spec = command_spec_of("command = [\"tool\", \"-p\", \"{prompt}\"]\nresume = [\"-c\"]")
+            .unwrap();
+
+        assert_eq!(spec.command, ["tool", "-p", "{prompt}"]);
+        assert_eq!(spec.resume, ["-c"]);
+        assert!(spec.ask_args.is_empty());
+    }
+
+    #[test]
+    fn a_bad_command_entry_fails_with_the_reason() {
+        let error = |lines: &str| format!("{:#}", command_spec_of(lines).unwrap_err());
+
+        assert!(error("preset = \"vim\"").contains("has no preset \"vim\""));
+        assert!(error("command = [\"t\", \"{promt}\"]").contains("{promt}"));
+        assert!(error("").contains("needs a command"));
+        assert!(error("command = [\"t\"]\nmodes = { ask = \"x\" }").contains("no modes"));
+        let claude = CLAUDE.replace(
+            "permission = \"ask\"",
+            "permission = \"ask\"\npreset = \"aider\"",
+        );
+        let text = format!("{:#}", Home::new().parse(&claude).err().unwrap());
+        assert!(text.contains("only for kind command"), "{text}");
     }
 
     #[test]

@@ -486,6 +486,7 @@ fn raising_bridge(f: &Dirs, approvals: &Approvals) -> (Bridge, std::path::PathBu
         config_dir: config_dir.clone(),
         home,
         permission_timeout: Duration::from_secs(20),
+        free_commands: Vec::new(),
     };
     let bridge = bridge_in(f, policy, Arc::new(LevelOf)).with_raises(raiser);
     (bridge, config_dir.join("config.toml"))

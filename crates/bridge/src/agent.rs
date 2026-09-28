@@ -16,6 +16,7 @@ use crate::codex::CodexAgent;
 use crate::config::{AgentSpec, Kind, Permission, RelayConfig};
 use crate::desktop::Notice;
 use crate::gate::Gate;
+use crate::harness::CommandAgent;
 use crate::raise::Raised;
 use crate::relay::{ChatId, Job, MessageId};
 
@@ -178,6 +179,8 @@ pub struct Report {
     pub version: String,
     pub load_session: bool,
     pub modes: Vec<String>,
+    /// More lines to print, one fact each.
+    pub details: Vec<String>,
 }
 
 pub trait Agent: Send + Sync {
@@ -271,6 +274,7 @@ pub fn from_config(config: &RelayConfig, gate: &Gate) -> Agents {
                 Kind::Acp => Arc::new(acp(spec, limits, gate)),
                 Kind::Claude => Arc::new(claude(spec, limits, gate)),
                 Kind::Codex => Arc::new(codex(spec, limits, gate)),
+                Kind::Command => Arc::new(CommandAgent::new(name, spec, limits.timeout, gate)),
             };
             (name.clone(), agent)
         })
@@ -279,12 +283,18 @@ pub fn from_config(config: &RelayConfig, gate: &Gate) -> Agents {
 
 /// Starts the agent of `spec` in `cwd` with no prompt, so a missing login shows. The
 /// echo agent has nothing to check.
-pub fn check(spec: &AgentSpec, cwd: &str, gate: &Gate) -> Option<Result<Report, String>> {
+pub fn check(
+    name: &str,
+    spec: &AgentSpec,
+    cwd: &str,
+    gate: &Gate,
+) -> Option<Result<Report, String>> {
     match spec.kind {
         Kind::Echo => None,
         Kind::Acp => Some(acp(spec, CHECK_LIMITS, gate).check(cwd)),
         Kind::Claude => Some(claude(spec, CHECK_LIMITS, gate).check(cwd)),
         Kind::Codex => Some(codex(spec, CHECK_LIMITS, gate).check(cwd)),
+        Kind::Command => Some(CommandAgent::new(name, spec, CHECK_LIMITS.timeout, gate).check(cwd)),
     }
 }
 
@@ -301,6 +311,8 @@ mod tests {
             env: Vec::new(),
             modes: BTreeMap::new(),
             agent_hosts: Vec::new(),
+            resume: Vec::new(),
+            ask_args: Vec::new(),
         }
     }
 
@@ -334,13 +346,13 @@ mod tests {
 
     #[test]
     fn the_echo_agent_has_nothing_to_check() {
-        assert!(check(&spec(Kind::Echo, ""), ".", &gate()).is_none());
+        assert!(check("echo", &spec(Kind::Echo, ""), ".", &gate()).is_none());
     }
 
     #[test]
     fn a_check_of_a_missing_program_fails_for_every_backend() {
         for kind in [Kind::Acp, Kind::Claude, Kind::Codex] {
-            let checked = check(&spec(kind, "no-such-agent-gnomish"), ".", &gate()).unwrap();
+            let checked = check("x", &spec(kind, "no-such-agent-gnomish"), ".", &gate()).unwrap();
             let error = checked.unwrap_err();
             assert!(
                 error.starts_with("Cannot start no-such-agent-gnomish"),

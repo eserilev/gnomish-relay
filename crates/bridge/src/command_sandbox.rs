@@ -175,6 +175,13 @@ pub struct Walls {
     pub local_ports: Vec<u16>,
     /// Copy-on-write views of the homes of cargo and rustup, only with `bwrap`.
     pub overlays: Vec<OverlayMount>,
+    /// Folders that stay in view, read-only, also inside a private folder such as `/tmp`.
+    #[serde(default)]
+    pub readable: Vec<PathBuf>,
+    /// A copy-on-write view of the whole home folder, only for the harness of a `command`
+    /// agent (SPEC.md 9.2). Its writes go away with the run.
+    #[serde(default)]
+    pub home_view: Option<OverlayMount>,
 }
 
 /// A folder that commands see as writable. The writes land in the temp folder of the
@@ -212,6 +219,40 @@ pub struct RunWalls {
 impl Drop for RunWalls {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.file);
+    }
+}
+
+/// Whether the programs of a run can change the chat folder.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ChatAccess {
+    Write,
+    /// A `command` agent at `ask`: it has no way to ask, so it changes nothing.
+    Read,
+}
+
+/// Where the writes of a run into the home folder go.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HomeWrites {
+    Refused,
+    /// Into a copy-on-write view that goes away with the run, where `bwrap` can make one.
+    Thrown,
+}
+
+/// How the walls of one run differ from the walls of the commands of Claude.
+pub struct Shape {
+    pub chat: ChatAccess,
+    pub home: HomeWrites,
+    /// More paths to hide, such as the socket files of the home folder.
+    pub more_hidden: Vec<PathBuf>,
+}
+
+impl Shape {
+    pub fn commands() -> Shape {
+        Shape {
+            chat: ChatAccess::Write,
+            home: HomeWrites::Refused,
+            more_hidden: Vec::new(),
+        }
     }
 }
 
@@ -263,6 +304,17 @@ pub fn prepare(
     chat: &Path,
     tag: &str,
 ) -> Result<RunWalls, String> {
+    prepare_shaped(sandbox, guarded, chat, tag, &Shape::commands())
+}
+
+/// As `prepare`, with the walls of `shape`.
+pub fn prepare_shaped(
+    sandbox: &CommandSandbox,
+    guarded: &Guarded,
+    chat: &Path,
+    tag: &str,
+    shape: &Shape,
+) -> Result<RunWalls, String> {
     let chat = resolve(chat).ok_or("The chat folder is missing.")?;
     let (temp, temp_path) = make_temp()?;
     let deny: Vec<PathBuf> = [guarded.config_dir, guarded.data_dir]
@@ -271,21 +323,36 @@ pub fn prepare(
         .collect();
     let policy = policy_of(&chat, &temp_path, &deny);
     check_writable(&policy, &chat, &temp_path)?;
-    let writable = vec![chat.clone(), temp_path.clone()];
-    check_wrapper(&sandbox.wrapper, &writable)?;
+    let (writable, readable) = match shape.chat {
+        ChatAccess::Write => (vec![chat.clone(), temp_path.clone()], Vec::new()),
+        ChatAccess::Read => (vec![temp_path.clone()], vec![chat.clone()]),
+    };
+    check_wrapper(&sandbox.wrapper, &[chat.clone(), temp_path.clone()])?;
     let scan = scan_chat(&policy, &chat)?;
-    let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), scan.hidden);
+    let mut in_chat = scan.hidden;
+    in_chat.extend(shape.more_hidden.iter().cloned());
+    let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), in_chat);
     hidden.retain(|h| !writable.iter().any(|w| w.starts_with(h)));
     let place = guarded.data_dir.join("sandbox");
     let (proxy, end) = start_proxy(sandbox, &temp_path, &hidden, tag)?.unzip();
-    let overlays = tool_overlays(sandbox, &temp_path, &writable, &hidden)?;
+    let home_view = match shape.home {
+        HomeWrites::Thrown => home_view(sandbox, &temp_path, &hidden)?,
+        HomeWrites::Refused => None,
+    };
+    let overlays = match home_view {
+        Some(_) => Vec::new(),
+        None => tool_overlays(sandbox, &temp_path, &writable, &hidden)?,
+    };
     let walls = Walls {
         tool: sandbox.tool.clone(),
         wrapper: sandbox.wrapper.clone(),
         writable,
         temp: temp_path,
         hidden,
-        pinned: scan.pinned,
+        pinned: match shape.chat {
+            ChatAccess::Write => scan.pinned,
+            ChatAccess::Read => Vec::new(),
+        },
         empty: empty_file(&place)?,
         local_ports: match (&proxy, &sandbox.proxy) {
             (Some(_), Some(settings)) => settings.local_ports.to_vec(),
@@ -293,6 +360,8 @@ pub fn prepare(
         },
         proxy: end,
         overlays,
+        readable,
+        home_view,
     };
     let file = write_walls(&place, &walls)?;
     Ok(RunWalls {
@@ -302,6 +371,38 @@ pub fn prepare(
         _proxy: proxy,
         _temp: temp,
     })
+}
+
+/// The view needs an upper folder outside the home folder, and a home folder that no
+/// private folder covers. The homes of cargo and rustup are inside it.
+fn home_view(
+    sandbox: &CommandSandbox,
+    temp: &Path,
+    hidden: &[PathBuf],
+) -> Result<Option<OverlayMount>, String> {
+    let (Overlay::Works, Some(home)) = (sandbox.overlay, &sandbox.home) else {
+        return Ok(None);
+    };
+    let Ok(folder) = home.canonicalize() else {
+        return Ok(None);
+    };
+    let covered = ["/tmp", "/var/tmp", "/run"]
+        .iter()
+        .any(|f| folder.starts_with(f));
+    let in_hidden = hidden.iter().any(|h| folder.starts_with(h));
+    if covered || in_hidden || temp.starts_with(&folder) || !folder.is_dir() {
+        return Ok(None);
+    }
+    let upper = temp.join("overlay-home");
+    let work = temp.join("overlay-home-work");
+    for dir in [&upper, &work] {
+        std::fs::create_dir(dir).map_err(|e| format!("No folder for the overlay: {e}"))?;
+    }
+    Ok(Some(OverlayMount {
+        folder,
+        upper,
+        work,
+    }))
 }
 
 /// cargo and rustup write each download into their home. A folder that is writable or
@@ -639,6 +740,13 @@ pub fn mount_args(walls: &Walls) -> Vec<OsString> {
     for folder in &private {
         args.extend(os(&["--tmpfs", folder]));
     }
+    // Before the binds, which it would cover.
+    if let Some(view) = &walls.home_view {
+        args.extend(overlay_args(view));
+    }
+    for path in &walls.readable {
+        args.extend(["--ro-bind".into(), path.into(), path.into()]);
+    }
     for path in &walls.writable {
         args.extend(["--bind".into(), path.into(), path.into()]);
     }
@@ -649,14 +757,7 @@ pub fn mount_args(walls: &Walls) -> Vec<OsString> {
     }
     // Before the hidden paths, so a hidden file in the folder stays hidden.
     for mount in &walls.overlays {
-        args.extend([
-            "--overlay-src".into(),
-            mount.folder.clone().into(),
-            "--overlay".into(),
-            mount.upper.clone().into(),
-            mount.work.clone().into(),
-            mount.folder.clone().into(),
-        ]);
+        args.extend(overlay_args(mount));
     }
     for path in &walls.hidden {
         if path.is_dir() {
@@ -673,6 +774,17 @@ pub fn mount_args(walls: &Walls) -> Vec<OsString> {
         args.extend(["--remount-ro".into(), path.into()]);
     }
     args
+}
+
+fn overlay_args(mount: &OverlayMount) -> Vec<OsString> {
+    vec![
+        "--overlay-src".into(),
+        mount.folder.clone().into(),
+        "--overlay".into(),
+        mount.upper.clone().into(),
+        mount.work.clone().into(),
+        mount.folder.clone().into(),
+    ]
 }
 
 fn literal(path: &Path) -> Result<Vec<u8>, String> {
@@ -799,14 +911,14 @@ pub fn launch(walls: &Walls, shell: &Path, command: &str) -> Result<Launch, Stri
 }
 
 #[cfg(unix)]
-fn bytes_arg(bytes: Vec<u8>) -> OsString {
+pub(crate) fn bytes_arg(bytes: Vec<u8>) -> OsString {
     use std::os::unix::ffi::OsStringExt;
     OsString::from_vec(bytes)
 }
 
 /// Only macOS runs the profile.
 #[cfg(not(unix))]
-fn bytes_arg(bytes: Vec<u8>) -> OsString {
+pub(crate) fn bytes_arg(bytes: Vec<u8>) -> OsString {
     match String::from_utf8(bytes) {
         Ok(text) => text.into(),
         Err(e) => String::from_utf8_lossy(e.as_bytes()).into_owned().into(),
@@ -969,6 +1081,66 @@ mod tests {
             data_dir: &h.data,
         };
         prepare(&sandbox(h, Sandbox::Seatbelt), &guarded, chat, "chat test")
+    }
+
+    #[test]
+    fn a_run_that_only_reads_binds_only_the_temp_folder_as_writable() {
+        let h = folders();
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+        let shape = Shape {
+            chat: ChatAccess::Read,
+            home: HomeWrites::Refused,
+            more_hidden: Vec::new(),
+        };
+
+        let run = prepare_shaped(
+            &sandbox(&h, Sandbox::Seatbelt),
+            &guarded,
+            &h.chat,
+            "t",
+            &shape,
+        )
+        .unwrap();
+
+        assert_eq!(run.walls.writable, std::slice::from_ref(&run.walls.temp));
+        assert_eq!(run.walls.readable, std::slice::from_ref(&h.chat));
+        assert!(run.walls.pinned.is_empty());
+        let args = strings(&mount_args(&run.walls));
+        let chat = h.chat.to_string_lossy().into_owned();
+        assert!(args.windows(3).any(|w| w == ["--ro-bind", &chat, &chat]));
+        assert!(!args.windows(2).any(|w| w == ["--bind", &chat]));
+    }
+
+    #[test]
+    fn the_view_of_the_home_folder_comes_before_every_bind_into_it() {
+        let mut walls = sample();
+        walls.home_view = Some(OverlayMount {
+            folder: PathBuf::from("/home/x"),
+            upper: PathBuf::from("/tmp/run1/overlay-home"),
+            work: PathBuf::from("/tmp/run1/overlay-home-work"),
+        });
+
+        let args = strings(&mount_args(&walls));
+
+        let view = args.iter().position(|a| a == "--overlay").unwrap();
+        let bind = args.iter().position(|a| a == "/home/x/Code/app").unwrap();
+        let hidden = args.iter().position(|a| a == "/home/x/.ssh").unwrap();
+        assert!(view < bind && bind < hidden, "{args:?}");
+        assert_eq!(args[view + 3], "/home/x");
+    }
+
+    #[test]
+    fn a_temp_folder_inside_the_home_folder_gets_no_view() {
+        let h = folders();
+        let mut sandbox = sandbox(&h, Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")));
+        sandbox.overlay = Overlay::Works;
+
+        let view = home_view(&sandbox, &h.home.join("run1"), &[]).unwrap();
+
+        assert_eq!(view, None);
     }
 
     fn proxied(h: &Folders, tool: Sandbox) -> Result<RunWalls, String> {
@@ -1170,6 +1342,8 @@ mod tests {
             proxy: None,
             local_ports: Vec::new(),
             overlays: Vec::new(),
+            readable: Vec::new(),
+            home_view: None,
         }
     }
 

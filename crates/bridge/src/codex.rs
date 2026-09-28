@@ -186,6 +186,7 @@ impl CodexAgent {
                 .to_owned(),
             load_session: true,
             modes: Vec::new(),
+            details: Vec::new(),
         })
     }
 }

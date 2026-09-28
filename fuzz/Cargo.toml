@@ -205,3 +205,10 @@ path = "fuzz_targets/rules_file.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "harness"
+path = "fuzz_targets/harness.rs"
+test = false
+doc = false
+bench = false

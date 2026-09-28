@@ -199,6 +199,8 @@ fuzz_target!(|data: &[u8]| {
         proxy: None,
         local_ports: Vec::new(),
         overlays: Vec::new(),
+        readable: Vec::new(),
+        home_view: None,
     };
     check_tools(&walls);
 });

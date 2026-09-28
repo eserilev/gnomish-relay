@@ -29,9 +29,18 @@ fn probe(word: &str) -> String {
             std::fs::write(target, "changed by the agent").is_ok(),
         )),
         "sock" => Some(ok_fail(unix_connect(target))),
+        "read" => Some(first_word(target)),
         _ => None,
     };
     format!("{kind}={}", result.unwrap_or_else(|| "bad".into()))
+}
+
+/// The first word of a file, `empty` for a file with none, and `fail` when it does not read.
+fn first_word(path: &str) -> String {
+    match std::fs::read_to_string(path) {
+        Ok(text) => text.split_whitespace().next().unwrap_or("empty").to_owned(),
+        Err(_) => "fail".into(),
+    }
 }
 
 fn yes_no(yes: bool) -> String {

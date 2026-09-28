@@ -65,18 +65,32 @@ impl RaiseGuard {
     }
 }
 
+/// Whether the commands of an agent ask in the game at `auto-edit`. A `command` agent
+/// has no way to ask (SPEC.md 9.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Commands {
+    Ask,
+    NoQuestion,
+}
+
 /// Fixed text and the name of the agent from the config, never text from the game.
-pub fn raise_text(agent: &str, level: Permission) -> String {
+pub fn raise_text(agent: &str, level: Permission, commands: Commands) -> String {
     let word = level.word();
-    match level {
-        Permission::FullAuto => format!(
+    match (level, commands) {
+        (Permission::AutoEdit, Commands::NoQuestion) => format!(
+            "A chat from WoW asks for more access. Allow {agent} to edit files in the chat \
+             folder AND run its own commands with no question, in every chat from WoW? It \
+             runs them inside the sandbox. This writes permission = \"{word}\" to \
+             config.toml. Approve only if you just sent a message from WoW."
+        ),
+        (Permission::FullAuto, _) => format!(
             "A chat from WoW asks for full access. Allow {agent} to edit files AND run \
              commands with no question, in every chat from WoW? Any addon that can send a \
              chat message can then run code on this computer, inside the sandbox. The \
              Gnomish Relay addon never asks for this by itself. This writes \
              permission = \"{word}\" to config.toml."
         ),
-        Permission::AutoEdit | Permission::Ask => format!(
+        (Permission::AutoEdit | Permission::Ask, _) => format!(
             "A chat from WoW asks for more access. Allow {agent} to edit files in the chat \
              folder with no question, in every chat from WoW? Commands still ask in the \
              game, unless you added an Always rule there. This writes \
@@ -93,6 +107,8 @@ pub struct Raiser {
     pub config_dir: PathBuf,
     pub home: PathBuf,
     pub permission_timeout: Duration,
+    /// The agents of kind `command`, whose commands never ask.
+    pub free_commands: Vec<String>,
 }
 
 impl Raiser {
@@ -118,7 +134,12 @@ impl Raiser {
     pub fn ask(&self, job: &Job, level: Permission, control: &Control) -> Raised {
         let agent = &job.agent;
         let file = self.config_dir.join(config::FILE);
-        let text = raise_text(agent, level);
+        let commands = if self.free_commands.contains(agent) {
+            Commands::NoQuestion
+        } else {
+            Commands::Ask
+        };
+        let text = raise_text(agent, level, commands);
         let opened = self
             .approvals
             .open_raise(agent, &file.to_string_lossy(), &text, now());
@@ -186,6 +207,7 @@ mod tests {
             config_dir,
             home,
             permission_timeout: Duration::from_secs(10),
+            free_commands: Vec::new(),
         };
         Home { _tmp: tmp, raiser }
     }
@@ -366,13 +388,19 @@ mod tests {
 
     #[test]
     fn full_auto_gets_a_stronger_warning() {
-        let text = raise_text("claude", Permission::FullAuto);
+        let text = raise_text("claude", Permission::FullAuto, Commands::Ask);
         assert!(text.contains("run commands with no question"), "{text}");
         assert!(text.contains("never asks for this by itself"), "{text}");
-        let text = raise_text("claude", Permission::AutoEdit);
+        let text = raise_text("claude", Permission::AutoEdit, Commands::Ask);
         assert!(
             text.contains("Commands still ask in the game, unless you added an Always rule there."),
             "{text}"
         );
+        let text = raise_text("aider", Permission::AutoEdit, Commands::NoQuestion);
+        assert!(
+            text.contains("AND run its own commands with no question"),
+            "{text}"
+        );
+        assert!(!text.contains("still ask"), "{text}");
     }
 }

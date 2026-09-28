@@ -300,6 +300,7 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 
 - The agent writes its own state all the time: sessions, logins, and settings in `~/.claude`, `~/.claude.json`, and `~/.codex`. With these folders read-only, the agents stop working. With them writable, a command can plant a hook, an MCP server, or an allow rule that runs later with no sandbox, in a terminal session of the user. So the agent process stays outside, and only its commands go in.
 - The bridge also resumes Claude sessions from `~/.claude/projects` (9.6), which needs the real folder.
+- The exception is a `command` agent (9.2). The bridge sees none of its tool calls, so the whole harness goes into the sandbox. Its writes into the home folder go to a copy-on-write view that goes away with the run (see "A harness with only a command line").
 - Nested sandboxes fail on macOS inside a real wall. Checked on the macOS runner of CI on 2026-09-27: inside a profile that allows everything, `sandbox-exec` starts again, but inside a profile that denies the network, it fails with "sandbox_apply: Operation not permitted" (the test `seatbelt_cannot_start_inside_a_seatbelt_wall`). Claude and Codex use Seatbelt for their own commands there.
 
 **Claude (`kind = "claude"`).** Claude Code runs each command of its Bash tool through `CLAUDE_CODE_SHELL_PREFIX`. The bridge sets it to `<gnomish-relay> --sandbox-run`: this program, at its absolute path. Claude Code then runs `bash -c -l "'<gnomish-relay>' --sandbox-run '<command>'"`, and the bridge program starts the command inside the sandbox of the run. Checked on Claude Code 2.1.283 in the code of the program: it quotes the part before the last " -" as the program and adds the command as one quoted word. The same prefix wraps command hooks and MCP servers.
@@ -407,7 +408,7 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 |---|---|
 | `claude`, and the model calls of Timeways | `api.anthropic.com`, `platform.claude.com` |
 | `codex` | `api.openai.com`, `chatgpt.com`, `auth.openai.com` |
-| ACP and `command` | None. The entry names its hosts in `agent_hosts`. |
+| ACP and `command` | None. The entry names its hosts in `agent_hosts`. A preset of `command` adds the model hosts of its tool (`harness_presets.rs`), and a `command` agent also reaches the hosts of the sandbox, because it runs its own commands. |
 
 An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts in `agent_hosts`.
 
@@ -504,6 +505,7 @@ What each backend and OS enforces:
 | Claude | The sandbox of the bridge (`bwrap`) around each command | The sandbox of the bridge (`sandbox-exec`) around each command | None: fallback. Under WSL2, as Linux. |
 | Codex (`codex app-server`) | Its own sandbox: `read-only` at `ask`, `workspace-write` otherwise | The same | Its own Windows sandbox |
 | Other ACP agents | None: they ask at most (6.6.3) | None | None |
+| `command` | The sandbox of the bridge (`bwrap`) around the whole harness | The sandbox of the bridge (`sandbox-exec`) around the whole harness | None: the bridge does not start it |
 
 **Codex.** Codex runs its commands in its own sandbox. The bridge sets `sandbox_workspace_write.exclude_slash_tmp`, and a private temp folder of the run as `TMPDIR` (checked on codex-cli 0.157.0: `thread/start` answers with `excludeSlashTmp: true`). Against S31:
 
@@ -1066,6 +1068,7 @@ trait Agent: Send + Sync {
 Each run of the `acp` backend starts the agent process, opens a session, sets the mode of the level, sends the prompt, and stops the process.
 Each run of the `claude` backend starts `claude -p` with the mode of the level, sends the prompt, and stops the process at the end of the turn.
 Each run of the `codex` backend starts `codex app-server`, opens a thread with the sandbox and the approval policy of the level, starts one turn, and stops the process at the end of the turn.
+Each run of the `command` backend starts the harness inside the sandbox of the run, gives it the message, and takes its output as the reply.
 
 - **Resume.** The bridge keeps the agent session of each chat in `state.json`, with its agent and its folder. The next message of the chat resumes it, unless the message has the `n` flag, or the agent or the folder changed. The client uses `session/resume` if the agent offers it, else `session/load`. The history that `session/load` replays stays out of the reply. If neither works, the run opens a new session, and the reply starts with "(New session: the agent could not resume the old one.)".
 - **Later: continue a terminal session.** A new chat can take the session of a Claude or other agent session that runs in a terminal. The bridge lists the recent sessions of each agent (`session/list`, where the agent offers it), and the chat resumes the one you pick. The terminal window does not show the game messages live: no agent lets another program type into its open window. `claude --resume` shows them later.
@@ -1078,7 +1081,7 @@ Next, the trait grows events for progress and for permission requests from the g
 **The goal: one generic backend for any LLM coding harness.** It has two parts:
 
 - `acp` runs any harness that speaks ACP. It exists.
-- `command` runs a harness that has only a command line. It is planned (15).
+- `command` runs a harness that has only a command line, inside the sandbox. It exists.
 
 `claude` and `codex` exist too. Most players have these two harnesses, so the bridge speaks their own protocols, with no Node.
 
@@ -1087,19 +1090,17 @@ Next, the trait grows events for progress and for permission requests from the g
 | `acp` (main) | Agent Client Protocol: JSON-RPC over stdin and stdout. The bridge is the client. | Yes | Yes | Not necessary |
 | `claude` | `claude -p` with stream-json on stdin and stdout, and `--permission-prompt-tool stdio`. Needs no Node. | Yes | Yes | Not necessary |
 | `codex` | `codex app-server`: JSON-RPC over stdin and stdout, with approval requests. Needs no Node. | Yes | Yes | Not necessary |
-| `command` (planned) | A command template. The prompt goes in, plain text comes out. | No | No | No. Fixed level from config. |
+| `command` | An argument template. The message goes in, the output comes out. The whole harness runs inside the sandbox. | Its output lines | No | No. The level picks the walls. |
 
 **Support levels.** Any agent with a command line runs. How well the relay protects it depends on what the bridge can see:
 
 | Level | Connection | What the classifier sees | Examples |
 |---|---|---|---|
 | Full | ACP, `claude`, `codex`, or a tool-call hook | Every tool call that needs an answer, before it runs | Gemini CLI, Claude, Codex, any ACP agent |
-| Sandbox only | `command` | Nothing | Aider, `llm`, a script |
-| Trusted | `command` with no sandbox | Nothing | The same agents on Windows |
+| Sandbox only | `command` | Nothing. The sandbox holds the whole harness. | Aider, `llm`, a script |
 
 - A Full agent runs in its "ask for everything" mode. The classifier then answers most questions itself. In a looser mode the agent acts without asking, and the classifier never sees the action.
-- `command` needs the sandbox. With no sandbox, the level is Trusted: it is off by default, and the config turns it on after a warning.
-- The chat header shows the level next to the agent name, for example "Aider · trusted".
+- `command` needs the sandbox. With no sandbox, the bridge does not start it (see "A harness with only a command line"). There is no "Trusted" level: with no sandbox and no classifier, nothing guards the run.
 - An ACP agent needs one line in the config. An agent with a hook system needs a small hook command. Every other CLI agent uses `command`.
 
 Agents that speak ACP with no adapter (checked 2026-09-25 in the official registry, `github.com/agentclientprotocol/registry`, one `agent.json` per agent). Setup knows these commands (11.3):
@@ -1154,6 +1155,45 @@ The agent process is untrusted:
 - `check-agent` runs `codex --version` and `codex login status`, with no model call. It fails with "Codex needs a login." when the status command fails.
 - The entry has no `modes` table. Config load refuses one.
 - The same limits as ACP apply, through `process.rs` and `turn.rs`.
+
+**A harness with only a command line (`kind = "command"`)** (asked for by the user on 2026-09-27: "We need a generic backend for all llm harnesses"; decided with an advisor on 2026-09-27). The code is in `crates/bridge/src/harness.rs`, `harness_args.rs`, `harness_output.rs`, `harness_process.rs`, `harness_sandbox.rs`, and `harness_presets.rs`. Such a harness runs its own tools, so the classifier sees none of its calls. So the whole harness runs inside the sandbox of 6.6.4, and the level picks the walls (9.3).
+
+One line is enough for a tool that the bridge knows:
+
+```toml
+[agents.aider]
+kind = "command"
+preset = "aider"
+permission = "auto-edit"
+env = ["OPENAI_API_KEY"]
+```
+
+- **The template.** `command` is the program and its arguments. `{prompt}` in an argument is the message, and `{prompt_file}` is the path of a file with the message, mode 0600, in the temp folder of the run. A placeholder can be a whole argument or a part of one, for example `--message={prompt}`. With no placeholder, the message goes to stdin, and then stdin closes. The bridge never uses a shell, so the message is always one argument or bytes on stdin.
+  - A whole `{prompt}` argument that starts with `-` gets a space in front, so the harness never reads the message as a flag. A NUL byte becomes a space.
+  - The text that fills a placeholder is never read again, so a message that holds `{prompt_file}` stays as it is.
+  - Config load refuses a word such as `{promt}`, a placeholder in the program, `modes`, and `preset` or `resume` on another kind.
+- **Presets.** `preset` fills the template, so the user writes one line. `command` then replaces only the program and can add flags before the arguments of the preset, for example `command = ["aider", "--model", "o3"]`. Checked against the docs of each tool on 2026-09-27. A live test with the real tool is still to do: none of them is installed on the computer of the build.
+
+| Preset | Arguments after the program | The message | Resume | Model hosts for `strict` |
+|---|---|---|---|---|
+| `aider` | `--message-file={prompt_file} --yes-always --no-pretty --no-stream --no-fancy-input --no-check-update --no-show-model-warnings --analytics-disable`, and at `ask` also `--chat-mode=ask --dry-run --no-auto-commits` | a file | `--restore-chat-history` | none: the model decides, so the entry names them in `agent_hosts` |
+| `gemini` | `--prompt={prompt} --approval-mode=yolo` | an argument | none | `generativelanguage.googleapis.com`, `cloudcode-pa.googleapis.com`, `oauth2.googleapis.com` |
+| `opencode` | `run --auto {prompt}` | an argument | none | none |
+| `goose` | `run -i - -q --no-session` | stdin | none | none |
+| `llm` | `--no-log` | stdin | none | `api.openai.com` |
+
+- **Resume.** `resume` lists the arguments for a chat that goes on: the chat ran with this agent in this folder before, and the message has no `n` flag. They go at the end, or before a `--`. The chat keeps a mark as its session, not an id. With no `resume`, each message is a fresh run. The home folder of the harness goes away after each run (below), so only a harness that keeps its history in the chat folder can go on. Of the presets, that is aider. A flag such as `--continue` takes the newest session of the harness, so two chats in one folder share it.
+- **The output.** Each line of stdout and stderr becomes a progress line (9.3), through `Activity::step`, so the guards for "Level:" and "Desktop:" apply. All of stdout is the reply, as Markdown. The bridge takes out escape sequences and control characters, keeps the text after the last CR of a line, as a terminal shows a progress bar, and sets `NO_COLOR=1` and `TERM=dumb`. A reply over 256 KiB keeps its end, from the start of a line, after the note "(The output was too long for the game. This is its end.)": a harness prints its answer last. More than 16 MiB of stdout stops the run with "The agent wrote more output than the limit, so the run stopped.".
+- **The end.** Exit status 0 is the reply. Any other status is the error "The agent failed (exit status <n>): <the last line of stderr>". No output is "(The agent gave no output.)". The run timeout, Stop, and the output limit kill the whole process group (9.4).
+- **The sandbox.** The walls of 6.6.4, around the harness and every program that it starts: writes only in the chat folder and the temp folder of the run, the `deny` and `desktop` paths hidden, private `/tmp`, `/run`, and `/var/tmp`, the `.git` entries pinned, and on Linux its own network, processes, and `/proc`. On Linux: `bwrap <the walls> --chdir <chat> --unshare-all --die-with-parent --new-session -- <gnomish-relay> --sandbox-forward <proxy socket> <local ports> --exec <harness> <arguments>`. On macOS: `sandbox-exec -p <profile> -- <harness> <arguments>`. No holder: the harness is the one process tree of the run.
+  - **The network.** One proxy for each run, with the rules of the agent (6.6.4, "Two kinds of scrutiny"), because the bridge cannot tell the harness from its commands. With `agent_network = "open"`, any public host. With `"strict"`, the model hosts of the preset, `agent_hosts`, and the hosts of the sandbox (the default hosts and `allow_hosts`). The ports of `local_ports` work as for every agent. On macOS the profile denies the keychain, so a harness there takes its key from `env`.
+  - **The home folder.** On Linux the harness sees a copy-on-write view of the home folder (`--overlay-src`, as for cargo in "The downloads of cargo and rustup"), before the binds of the chat folder, with the hidden paths covered after it. So its sessions, caches, and a refreshed login work during the run, and go away with it. No write reaches the real home folder, so no startup file, MCP server, or hook of a harness can wait for a terminal session of the user. The view needs `bwrap` with `--overlay`, a temp folder outside the home folder, and a home folder outside `/tmp`, `/var/tmp`, and `/run`. Else, and on macOS, the home folder is read-only, and a harness that must write there fails. A mount under the home folder, such as a FUSE folder, shows empty in the view.
+  - **Sockets.** A read-only mount does not stop a connection to a socket file. So the walls cover each socket file in the top 3 levels of the home folder with the empty file, as the wall of the agent does. The view of the home folder hides them too.
+  - **The variables.** The allowlist of 6.2 rule 12, the `env` list of the entry, `GNOMISH_RELAY_JOB=1`, the proxy and cache variables of "The variables" (6.6.4), `TMPDIR` and `XDG_CACHE_HOME` in the temp folder, `NO_COLOR=1`, and `TERM=dumb`.
+- **No sandbox.** On Windows, and on a Linux with no working `bwrap`, the bridge does not start the harness: "This agent runs its own tools, and this computer has no sandbox for them, so the bridge does not start it. Use an agent with kind acp, claude, or codex here, or run the bridge under WSL2 on Windows." There is no opt-in. With no sandbox and no classifier, nothing guards the run.
+- **`check-agent`** runs `<program> --version` in the same walls, at `ask`, with no model call. So a program in a hidden path fails there, not in the game. Exit status 126 or 127 is the error "<program> does not start in the sandbox: <the last line of stderr>". It prints the version, whether the entry resumes, the sandbox and what happens to the writes into the home folder, how the message goes in, what the levels mean, and the network.
+- **What this does not stop.** In `open` mode the harness and every program that it runs reach any public host, with the keys of its `env` list. That is wider than the commands of Claude, which reach only the hosts of the sandbox. The proxy logs each host. A harness can print a partial answer and exit with 0.
+- **Tests.** `crates/bridge/tests/harness.rs` runs `fake-cli-agent` in the real sandbox: the three ways in, progress lines, a crash, a long and a huge output, Stop with a program in the background, the timeout, the writes and the hidden paths, `ask`, the home folder, the proxy in both modes, a socket in the home folder, the variables, resume, `check-agent`, and no sandbox. A test marked `#[ignore]` runs each preset whose tool is on `PATH`, with a real model call. The fuzz target `harness` checks the template and the output reader.
 
 **Adding an agent.** Any ACP agent is one entry in `config.toml`. Nothing else changes:
 
@@ -1217,7 +1257,7 @@ Each backend maps the level differently:
 - `claude`: `--permission-mode`, and the hook of 6.6.3 for every call. `ask` is `manual`, and `auto-edit` and `full-auto` are `acceptEdits`. The hook decides, so the mode matters only when the hook fails. Then `manual` asks the bridge, and `acceptEdits` does not. The `modes` table of the entry can name another mode: `acceptEdits`, `auto`, `dontAsk`, `manual`, or `plan`. Config load refuses any other name. It also refuses `bypassPermissions`: in that mode Claude Code asks nothing, so no tool call reaches the bridge, and the ceiling of the game has no effect.
   - Not `plan` by default (decided with an advisor on 2026-09-26). In the first test in the game, a "create a file" message at `ask` asked on the desktop. In `plan` mode, Claude Code writes its plan to `~/.claude/plans/<name>.md`, and `.claude/` is a `desktop` write path. The gate already asks in the game before each write at `ask`, so plan mode added only this file. The gate makes no exception for plan files: Claude picks the path, and `.claude/` holds settings and hooks that run code. A user who sets `modes = { ask = "plan" }` gets one desktop question for each plan.
 - `codex`: the sandbox of the thread, and `approvalPolicy: "untrusted"` at every level, which sends the most calls to the bridge (6.6.3). `ask` is `read-only`, and `auto-edit` and `full-auto` are `workspace-write`, with `exclude_slash_tmp` and a private `TMPDIR` (6.6.4). The sandbox applies after the answer of the gate. The bridge never uses `danger-full-access`, `never`, `on-request`, or `granular`: none of them asks more than `untrusted`.
-- `command`: the level is fixed by the command in the config. The addon shows the level in the chat header. If the level is `full-auto`, the addon shows a warning.
+- `command`: the harness has no permission channel, so the level picks its walls (9.2, "A harness with only a command line"). `ask` makes the chat folder read-only: the harness reads and answers, and changes nothing. At `auto-edit` and `full-auto` the chat folder is writable, and the harness runs its own commands with no question, inside the sandbox. `auto-edit` cannot keep "commands ask" here, so the first reply after the start of the bridge says "(<agent> runs its own commands with no question, inside the sandbox.)", and so do setup and `check-agent`. The raise dialog to `auto-edit` for such an agent says "Allow <agent> to edit files in the chat folder AND run its own commands with no question, in every chat from WoW? It runs them inside the sandbox." The Settings tab shows the kind `command` next to the level. The addon does not change.
 - For game messages, Codex runs through `codex app-server` or ACP only, so the bridge sees each question of its tool calls (6.6.3).
 
 **Live permission flow (ACP):**
@@ -1266,10 +1306,10 @@ Rules:
 ### 9.4 Agent processes
 
 - ACP: one agent process per run. ACP agents have no sandbox, so each of their calls asks at most (6.6.4).
-- `claude`, `codex`, and `command`: one process per run.
+- `claude`, `codex`, and `command`: one process per run. For `command`, the process is the sandbox, with the harness and every program that it starts.
 - `max_parallel_runs` counts active runs, not processes.
 - If an ACP process stops, the bridge starts it again and resumes the open sessions. If a session cannot resume, the bridge reports an error for that chat.
-- `cancel` for `command` stops the whole process tree.
+- Stop for `command` kills the whole process group at once, with no grace: a harness has no cancel channel. On Linux the sandbox has its own process ids, so every program of the harness ends with it.
 - The bridge declares ACP client capabilities `fs` and `terminal` as false in v1. The agent uses its own tools.
 - `process.rs` starts every agent process: never through a shell, with the allowlist of 6.2 rule 12, a limit of 8 MiB on each line, and the last 2 KiB of stderr for an error. `turn.rs` holds the run timeout, Stop with its 10-second grace, and the wait for an answer from the game. ACP, `claude`, and `codex` share them.
 - If an agent needs a login, the bridge reports "agent needs login" in the game. The bridge never handles credentials.
@@ -1841,7 +1881,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, or the relay part with `--relay` (11.3).
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, and `agent_hosts`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -1951,8 +1991,9 @@ permission = "ask"
 
 [agents.aider]
 kind = "command"
-command = ["aider", "--yes", "--message-file", "{prompt_file}"]
-permission = "full-auto"    # --yes approves everything
+preset = "aider"            # or a full template: command = ["tool", "--message={prompt}"]
+permission = "auto-edit"    # the chat folder is writable, and aider runs its commands with no question, inside the sandbox
+env = ["OPENAI_API_KEY"]
 ```
 
 An older config with `kind = "acp"` and `command = ["claude-agent-acp"]` still works. Its mode IDs are not checked yet.
@@ -2397,7 +2438,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Done:** live tests with Claude in the game on 2026-09-26 (9.3).
 10. **Done: "Always allow" (6.6.5, 9.3).** One click in the game adds a rule that the sandbox bounds, with S36 to S39 proved. The Settings tab and `gnomish-relay rules` list and remove the rules.
 11. **Pings from terminal sessions (section 10).** **Proposed (2026-09-27), not approved:** the hook subcommand, the spool folder, one note for each session, the notes in `Live.lua`, the Pings tab, and `hooks install`. No `note` signal: signals do not work (7.4).
-12. **A generic backend for any LLM coding harness (9.2).** **Done:** `acp` for any harness that speaks ACP, and the `claude` and `codex` backends. **Next:** `command`, for a harness that has only a command line.
+12. **Done: a generic backend for any LLM coding harness (9.2).** `acp` for any harness that speaks ACP, the `claude` and `codex` backends, and `command` for a harness that has only a command line, inside the sandbox, with presets for aider, gemini, opencode, goose, and llm. **Next:** a live test of each preset with the real tool.
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
 15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 8, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. Step 8 is setup for two apps (9.7, decision 15) and the version range of each app (7.7, S30). **Next:** a loopback in the real game, when Timeways ships an addon build.
