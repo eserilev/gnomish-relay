@@ -1202,6 +1202,26 @@ mod tests {
         assert!(!run.walls.hidden.iter().any(|p| p.ends_with(".aws")));
     }
 
+    #[test]
+    fn the_walls_hide_the_files_that_a_hook_tool_or_an_agent_runs_later() {
+        let h = folders();
+        std::fs::create_dir_all(h.chat.join(".husky")).unwrap();
+        std::fs::create_dir_all(h.home.join(".codex")).unwrap();
+        std::fs::write(h.chat.join(".mcp.json"), "{}").unwrap();
+        std::fs::write(h.chat.join("lefthook.yml"), "").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        for path in [
+            h.chat.join(".husky"),
+            h.chat.join(".mcp.json"),
+            h.chat.join("lefthook.yml"),
+            h.home.join(".codex"),
+        ] {
+            assert!(run.walls.hidden.contains(&path), "{}", path.display());
+        }
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_link_with_a_hidden_name_hides_its_target() {

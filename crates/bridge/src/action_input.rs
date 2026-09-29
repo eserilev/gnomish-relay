@@ -67,6 +67,15 @@ pub const DESKTOP_WRITES: &[&str] = &[
     ".envrc",
     ".vscode",
     ".github/workflows",
+    // The config, the rules, and the MCP servers of Codex and Claude.
+    ".codex",
+    ".mcp.json",
+    // Hook tools. Git runs them on the host at the next commit or push.
+    ".husky",
+    ".githooks",
+    ".pre-commit-config.yaml",
+    "lefthook.yml",
+    ".lefthook.yml",
 ];
 
 /// The resolver of S5 starts a path with `/`. On Windows the drive is the first part.
@@ -336,6 +345,23 @@ mod tests {
             ".git/modules/lib/hooks/post-checkout",
             ".GIT/info/attributes",
             "sub/.git",
+        ] {
+            let v = classify_files(&f, &[], &[f.chat.join(file)]);
+            assert_eq!(v, "desktop", "{file}");
+        }
+    }
+
+    #[test]
+    fn a_write_to_a_file_that_a_hook_tool_or_an_agent_runs_later_is_desktop() {
+        let f = folders();
+        for file in [
+            ".codex/config.toml",
+            ".husky/pre-commit",
+            ".githooks/pre-push",
+            ".pre-commit-config.yaml",
+            "lefthook.yml",
+            ".lefthook.yml",
+            ".mcp.json",
         ] {
             let v = classify_files(&f, &[], &[f.chat.join(file)]);
             assert_eq!(v, "desktop", "{file}");
