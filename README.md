@@ -10,20 +10,27 @@ It works with Claude Code, Codex, and any agent that speaks the Agent Client Pro
 
 ## Install
 
-1. Start WoW: Forever once, so that it makes its `Interface/AddOns` folder. Then close it.
+1. Close WoW: Forever. WoW finds a new addon only when it starts, so setup must run first.
 2. Run the installer:
    - Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh`
    - Windows (PowerShell): `irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex`
-3. Answer one question: the folders that the agents can work in.
+3. Answer the questions of setup. Setup asks only the questions that apply to your computer:
+   - **WoW folder**: only when setup finds no game, or more than one. Type the number of the list, or a path.
+   - **Also set up Gnomish Relay?**: only when the Timeways addon is installed and Gnomish Relay is not. The default is no.
+   - **Folders the agents can work in**: a list divided by commas. Setup suggests the code folders that it finds.
+     It never suggests the home folder, because that folder holds `~/.ssh` and the browser profiles.
+   - **Found aider. Add it as an agent?** (also for `llm`): only for a tool with no ACP mode. The default is no.
+     Such a tool runs its own commands with no question, inside the sandbox.
+4. Start WoW and type `/relay`.
 
 Setup uses the agents that you already have: `claude`, `codex`, `gemini`, `qwen`,
 `opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
 With none, replies repeat your message until you add one (below).
-4. Start WoW and type `/relay`.
 
 The installer downloads the program, checks its SHA-256 sum, and runs `gnomish-relay setup --autostart`.
-Setup finds the game, installs the addon with a key that only this computer has, writes
-`config.toml`, and starts the bridge at each login. A second run changes nothing that works.
+Setup finds the game, makes its `Interface/AddOns` folder if WoW has not made it yet,
+installs the addon with a key that only this computer has, writes `config.toml`,
+and starts the bridge at each login. A second run changes nothing that works.
 
 ## Timeways
 
