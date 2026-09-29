@@ -751,6 +751,31 @@ fn an_outbox_frame_that_the_bridge_never_takes_asks_to_be_sent_again() {
 }
 
 #[test]
+fn a_message_that_was_not_sent_shows_a_relay_line_and_can_put_its_text_back() {
+    let game = Game::start();
+    game.send("stuck in the outbox");
+    let game = game.reload();
+    game.run("local ns = ... ns.Window.Open()");
+    game.advance(300.0);
+
+    let lines = texts(&transcript(&game));
+    assert_eq!(
+        lines[1],
+        format!("|cff9d9d9d[Relay]: {BRIDGE_OFF}|r"),
+        "{lines:?}"
+    );
+    assert_eq!(lines[2], "|cff69ccf0Put the text back|r");
+    game.run("GnomishRelayPutBack1:Click()");
+    let input: Table = game.lua.globals().get("GnomishRelayInput").unwrap();
+    assert_eq!(input.get::<String>("text").unwrap(), "stuck in the outbox");
+    assert!(
+        game.run("return GnomishRelayInput:HasFocus()")
+            .as_boolean()
+            .unwrap()
+    );
+}
+
+#[test]
 fn a_stored_frame_too_old_at_login_asks_to_be_sent_again() {
     let game = Game::start();
     game.send("sent before a long break");
@@ -2719,7 +2744,11 @@ fn an_error_that_looks_rendered_shows_as_plain_text() {
 
     let drawn = transcript(&game);
     assert!(of_kind(&drawn, "SimpleHTML").is_empty());
-    assert!(texts(&drawn).last().unwrap().contains("||cffff0000fake"));
+    assert!(
+        texts(&drawn)
+            .iter()
+            .any(|t| t.starts_with("|cff9d9d9d[Relay]: ") && t.contains("||cffff0000fake"))
+    );
 }
 
 /// The settings list of a bridge with two agents, as the bridge writes it.

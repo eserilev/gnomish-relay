@@ -15,6 +15,7 @@ local HEADINGS = { { "h1", 4 }, { "h2", 1 }, { "h3", -1 } }
 local YOU = "69ccf0"
 local GREY = "9d9d9d"
 local CODE = "b8c8b8"
+local LINK = "69ccf0"
 local GAP = 8
 local PAD = 6
 local CELL_PAD = 6
@@ -417,6 +418,26 @@ local function DrawMessage(entry, y)
 	return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width - STATUS_WIDTH)
 end
 
+-- The text goes back into the input, not out: the player sees what is sent again.
+local function DrawPutBack(text, y)
+	local button = Acquire(ui.pools.putBack)
+	button.saved = text
+	button.label:SetText(string.format("|cff%sPut the text back|r", LINK))
+	button:SetSize(button.label:GetUnboundedStringWidth() + 4, 16)
+	Place(button, 0, y + 2)
+	return y + 20
+end
+
+-- An error comes from the relay, not from the agent, so it has its own grey line.
+local function DrawError(chat, entry, y)
+	y = TextLine(string.format("|cff%s[Relay]: %s|r", GREY, ns.Relay.Plain(entry.text)), 0, y, width)
+	local message = entry.id and ns.Store.Message(chat, entry.id)
+	if message and not message.attach and message.text ~= "" then
+		y = DrawPutBack(message.text, y)
+	end
+	return y
+end
+
 -- Only the bridge renders, and only a done reply: an error that looks rendered is text.
 local function DrawEntry(chat, entry, y)
 	if entry.attach then
@@ -424,12 +445,11 @@ local function DrawEntry(chat, entry, y)
 	elseif entry.role == "user" then
 		return DrawMessage(entry, y)
 	end
-	local agent = entry.agent or chat.agent
-	local name = ns.Relay.AgentName(agent)
 	if entry.role == "error" then
-		return TextLine(Prefix(name, "ff2020") .. PlainText(entry.text), 0, y, width)
+		return DrawError(chat, entry, y)
 	end
-	return DrawReply(Prefix(name, ns.Relay.AgentColor(agent)), entry.text, y)
+	local agent = entry.agent or chat.agent
+	return DrawReply(Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), entry.text, y)
 end
 
 local function ScrollTo(offset)
@@ -498,6 +518,19 @@ local function NewFontString(template, font)
 	end
 end
 
+local putBacks = 0
+
+local function NewPutBack()
+	putBacks = putBacks + 1
+	local button = CreateFrame("Button", "GnomishRelayPutBack" .. putBacks, ui.child)
+	button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	button.label:SetPoint("LEFT", button, "LEFT", 0, 0)
+	button:SetScript("OnClick", function(self)
+		ns.Window.PutBack(self.saved)
+	end)
+	return button
+end
+
 -- `parent` is the inset of the log. The size is fixed, so the layout needs no frame sizes.
 function Transcript.Build(parent, w, h)
 	width, viewHeight = w, h
@@ -515,6 +548,7 @@ function Transcript.Build(parent, w, h)
 		text = NewPool(NewFontString("GameFontHighlight", ChatFontNormal)),
 		cell = NewPool(NewFontString("GameFontHighlightSmall")),
 		status = NewPool(NewFontString("GameFontDisableSmall")),
+		putBack = NewPool(NewPutBack),
 		html = NewPool(NewHtml),
 		code = NewPool(NewCodeBox),
 		rule = NewPool(NewTexture("ARTWORK", 0.6, 0.5, 0.2, 0.8)),

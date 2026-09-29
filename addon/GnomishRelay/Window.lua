@@ -436,6 +436,13 @@ function Window.Send(text)
 	return true
 end
 
+function Window.PutBack(text)
+	if ui.input then
+		ui.input:SetText(text)
+		ui.input:SetFocus()
+	end
+end
+
 -- Rows of a picker: a click calls `choose` with the row that the button shows.
 local function PickRows(parent, name, width, choose)
 	local rows = {}

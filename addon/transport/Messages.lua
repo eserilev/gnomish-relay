@@ -203,6 +203,7 @@ local function GiveUp(item, text)
 	end
 	item.message.answered = true
 	Messages.OnGiveUp(item.chat, item.message.id, text)
+	Messages.OnChange()
 end
 
 -- The outbox holds a signed frame, so the bridge checks it as it checks a strip
