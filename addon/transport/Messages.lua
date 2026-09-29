@@ -103,6 +103,20 @@ function Messages.NextPollIn()
 	return math.max(0, state.nextPoll - GetTime())
 end
 
+-- Where an open message is: "sending" with its shows so far and the most, "delivered",
+-- or "reload". Nil for an answered message.
+function Messages.Delivery(message)
+	if message.answered then
+		return nil
+	elseif message.outbox then
+		return "reload"
+	elseif message.acked then
+		return "delivered"
+	end
+	local shown = state.shows[message.id]
+	return "sending", shown and shown.count or 0, SHOWS
+end
+
 function Messages.NeedsReload()
 	return #Messages.Db().outbox > 0 or Messages.SlotsLeft() < LOW_SLOTS
 end
@@ -201,6 +215,7 @@ local function ToOutbox(item, frame, signedAt)
 		frame = ns.Codec.Hex(frame),
 		at = signedAt,
 	})
+	Messages.OnChange()
 end
 
 local function OutboxEntry(chatId, id)

@@ -62,6 +62,7 @@ Transport.NeedsReload = Messages.NeedsReload
 Transport.Problem = Messages.Problem
 Transport.Stats = Messages.Stats
 Transport.NextPollIn = Messages.NextPollIn
+Transport.Delivery = Messages.Delivery
 Transport.Send = Messages.Send
 
 function Transport.Working(chatId)

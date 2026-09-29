@@ -567,6 +567,49 @@ fn a_new_entry_draws_below_the_old_ones_and_leaves_them_as_they_are() {
     );
 }
 
+fn delivery(game: &Game) -> Vec<String> {
+    let states = [
+        "Sending...",
+        "Retry 2 of 3",
+        "Retry 3 of 3",
+        "Delivered",
+        "Needs reload",
+    ];
+    texts(&transcript(game))
+        .into_iter()
+        .filter(|t| states.iter().any(|s| t.contains(s)))
+        .collect()
+}
+
+#[test]
+fn a_sent_message_shows_its_delivery_state_until_the_reply_comes() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("are you there?");
+    assert_eq!(delivery(&game), ["|cff9d9d9dSending...|r"]);
+
+    game.advance(50.0);
+    assert_eq!(delivery(&game), ["|cff9d9d9dRetry 2 of 3|r"]);
+
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(delivery(&game), ["|cff9d9d9dDelivered|r"]);
+
+    game.publish(&[reply(&game.chat_id(), id, Status::Done, "yes")]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(delivery(&game).is_empty());
+}
+
+#[test]
+fn a_message_in_the_outbox_shows_that_it_needs_a_reload() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("anyone?");
+    game.advance(130.0);
+    assert_eq!(delivery(&game), ["|cff9d9d9dNeeds reload|r"]);
+}
+
 #[test]
 fn a_click_on_the_whisper_link_opens_that_chat() {
     let game = Game::start();
