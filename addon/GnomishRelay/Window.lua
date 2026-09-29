@@ -14,7 +14,10 @@ local CAST_UPDATE = 0.2
 local PICK_ROWS = 20
 local PICK_ROW_HEIGHT = 19
 local GREEN = "1eff00"
-local MAX_INPUT = 3000
+-- The text of a message is only part of a strip, so Room() is the real limit.
+local MAX_INPUT = 3200
+-- The input counts the bytes left only near the limit.
+local COUNT_FROM = 400
 local EMBLEM = "Interface\\Icons\\INV_Misc_Wrench_01"
 local FOLDER_ICON = "Interface\\Icons\\INV_Misc_Bag_10"
 local ARROW = "Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up"
@@ -497,6 +500,31 @@ local function BuildFolderButton(x)
 	ui.folderButton = button
 end
 
+local function RefreshInputHelp()
+	local text = ui.input:GetText() or ""
+	ui.hint:SetShown(text == "" and not ui.input:HasFocus())
+	local chat = Selected()
+	local left = chat and ns.Transport.Room(chat) - #text
+	ui.count:SetShown(left ~= nil and left < COUNT_FROM)
+	if left and left < 0 then
+		ui.count:SetText(string.format("|cffff2020%d bytes too many|r", -left))
+	elseif left then
+		ui.count:SetText(string.format("%d bytes left", left))
+	end
+end
+
+local function BuildInputHelp()
+	ui.hint = ui.input:CreateFontString("GnomishRelayInputHint", "OVERLAY", "GameFontDisable")
+	ui.hint:SetPoint("LEFT", ui.input, "LEFT", 2, 0)
+	ui.hint:SetText("Type a task. Enter sends.")
+	ui.count = ui.input:CreateFontString("GnomishRelayInputCount", "OVERLAY", "GameFontDisableSmall")
+	ui.count:SetPoint("BOTTOMRIGHT", ui.input, "TOPRIGHT", 0, 2)
+	ui.count:Hide()
+	ui.input:SetScript("OnTextChanged", RefreshInputHelp)
+	ui.input:SetScript("OnEditFocusGained", RefreshInputHelp)
+	ui.input:SetScript("OnEditFocusLost", RefreshInputHelp)
+end
+
 local function BuildCenter()
 	local left = SIDE + 14
 	local width = WIDTH - 2 * SIDE - 28
@@ -558,6 +586,7 @@ local function BuildCenter()
 	ui.input:SetScript("OnEscapePressed", function(self)
 		self:ClearFocus()
 	end)
+	BuildInputHelp()
 end
 
 local function ShowStepTooltip(row)

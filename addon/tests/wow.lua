@@ -250,14 +250,27 @@ function methods:SetText(text)
 	end
 end
 
--- One edit box at a time has the keyboard.
+local function RunScript(o, name)
+	if o and o.scripts[name] then
+		o.scripts[name](o)
+	end
+end
+
+-- One edit box at a time has the keyboard. A change of focus runs the focus scripts.
 function methods:SetFocus()
+	if wow.focus == self then
+		return
+	end
+	local old = wow.focus
 	wow.focus = self
+	RunScript(old, "OnEditFocusLost")
+	RunScript(self, "OnEditFocusGained")
 end
 
 function methods:ClearFocus()
 	if wow.focus == self then
 		wow.focus = nil
+		RunScript(self, "OnEditFocusLost")
 	end
 end
 

@@ -285,6 +285,13 @@ return {
 				{ Name = "text", Type = "cstring", Nilable = false },
 			},
 		},
+		["SimpleEditBoxAPI:HasFocus"] = {
+			ChecksForbiddenAspects = { { Argument = "self", Aspect = Enum.ForbiddenAspect.QueryFocus } },
+			Arguments = {},
+			Returns = {
+				{ Name = "hasFocus", Type = "bool", Nilable = false },
+			},
+		},
 		["SimpleEditBoxAPI:SetAutoFocus"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {

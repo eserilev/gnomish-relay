@@ -738,6 +738,57 @@ fn enter_sends_and_gives_the_keys_back_to_the_game() {
     );
 }
 
+fn shown_text(game: &Game, name: &str) -> Option<String> {
+    game.run(&format!(
+        "return {name}:IsShown() and {name}:GetText() or nil"
+    ))
+    .as_string_lossy()
+}
+
+#[test]
+fn the_empty_input_shows_a_hint_until_it_has_the_focus_or_a_text() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    let hint = |game: &Game| shown_text(game, "GnomishRelayInputHint");
+    assert_eq!(hint(&game).as_deref(), Some("Type a task. Enter sends."));
+
+    game.run("GnomishRelayInput:SetFocus()");
+    assert_eq!(hint(&game), None);
+    game.run("GnomishRelayInput:ClearFocus()");
+    assert!(hint(&game).is_some());
+    game.run("GnomishRelayInput:SetText('x')");
+    assert_eq!(hint(&game), None);
+}
+
+#[test]
+fn the_input_counts_the_bytes_left_near_the_limit_of_one_strip() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open() ns.Window.NewChat()");
+    let room = game
+        .run("local ns = ... return ns.Transport.Room(ns.Window.SelectedChat())")
+        .as_integer()
+        .unwrap();
+    let count = |game: &Game, len: i64| {
+        game.run(&format!("GnomishRelayInput:SetText(('x'):rep({len}))"));
+        shown_text(game, "GnomishRelayInputCount")
+    };
+
+    assert_eq!(count(&game, 10), None);
+    assert_eq!(count(&game, room - 100).as_deref(), Some("100 bytes left"));
+    assert_eq!(
+        count(&game, room + 5).as_deref(),
+        Some("|cffff20205 bytes too many|r")
+    );
+    assert!(
+        game.run(&format!(
+            "local ns = ... return ns.Transport.Send(ns.Window.SelectedChat(), ('x'):rep({room})) ~= nil"
+        ))
+        .as_boolean()
+        .unwrap(),
+        "a text of exactly the room fits"
+    );
+}
+
 #[test]
 fn a_change_to_saved_data_after_a_send_does_not_change_the_strip() {
     let game = Game::start();

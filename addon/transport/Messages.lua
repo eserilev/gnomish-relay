@@ -372,9 +372,14 @@ function Messages.ShowNextStrip()
 	ShowFrame(Sign(records, ids[1] or 0), ids, #state.controls, state.nextSlot, riders)
 end
 
+-- The bytes of text that one strip has room for in a message of `chat`.
+function Messages.Room(chat)
+	local record = MessageRecord(chat, { id = Messages.Db().nextId, text = "" })
+	return ns.Codec.MAX_PAYLOAD - REPORT_ROOM - #ns.Codec.Payload({ record })
+end
+
 function Messages.Fits(chat, text)
-	local record = MessageRecord(chat, { id = Messages.Db().nextId, text = text })
-	return #ns.Codec.Payload({ record }) + REPORT_ROOM <= ns.Codec.MAX_PAYLOAD
+	return #text <= Messages.Room(chat)
 end
 
 -- The next polls follow the schedule after a send (SPEC.md 7.3).
