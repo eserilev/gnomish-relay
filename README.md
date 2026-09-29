@@ -109,5 +109,16 @@ self-test out of the game.
 
 ## Credits
 
+Gnomish Relay uses the design of two earlier projects (`SPEC.md` 4):
+
+- [chelinho139/wow-claude](https://github.com/chelinho139/wow-ai), now named `wow-ai`, by chelinho139, under the MIT license.
+  The addon starts from its Lua addon and its transport design.
+  Its license notice is in `addon/GnomishRelay/LICENSE-wow-claude.txt`.
+- [0xInuarashi/wow-forever-codex](https://github.com/0xInuarashi/wow-forever-codex), by 0xInuarashi.
+  It measured the file-load rules of the Forever client and invented the pixel-out channel.
+  Gnomish Relay uses its findings, not its code.
+
 Code in the game window uses the font JetBrains Mono, under the SIL Open Font License 1.1.
 Its license is in `addon/GnomishRelay/JetBrainsMono-OFL.txt`.
+
+Gnomish Relay is under the MIT license. See `LICENSE`.
