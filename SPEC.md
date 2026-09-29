@@ -1,8 +1,9 @@
 # Gnomish Relay: Specification
 
-Status: draft 3, 2026-09-23. Section 15 shows what is built.
+Status: draft 4, 2026-09-29. Section 15 shows what is built.
 Draft 2 applies a review against the `wow-claude` source code.
 Draft 3 applies the spike results in `spikes/README.md`: the strip goes out through `Screenshot()`, and `.wav` signals do not work.
+Draft 4 makes the spec match the code where they disagreed, and marks the parts that are not built.
 
 ## 1. Summary
 
@@ -10,7 +11,7 @@ Gnomish Relay connects AI coding agents to World of Warcraft: Forever.
 You send a task from a chat window in the game. The agent does the work on your computer.
 The reply comes back into the game with a whisper sound.
 
-Gnomish Relay also shows notifications from agent sessions that you run in a normal terminal.
+Planned (section 10): Gnomish Relay also shows notifications from agent sessions that you run in a normal terminal.
 When a terminal session ends a turn or needs input, a message appears in the game.
 
 Gnomish Relay has two parts:
@@ -52,7 +53,7 @@ References in this spec to `wow-claude` files use the path in that repo, for exa
 |---|---|
 | Strip | The block of colored cells that the addon draws to send data out. |
 | Record | One message inside a strip, or one reply inside a slot file. |
-| Slot | One of the 200 load-on-demand reply addons. |
+| Slot | One of the 1000 load-on-demand reply addons (7.3). |
 | Publish | One write of the current reply records into all slots. |
 | Signal | A `.wav` file that is empty (off) or valid (on). |
 | Run | One agent process that works on one message. |
@@ -988,7 +989,7 @@ A client patch can break either one. So a patch costs a day of work, not the pro
  │  gnomish-relay bridge (Rust)         │
  │   PNG → decode → policy → queue      │
  │   agent runner → publisher           │
- │   hook socket ◄── terminal sessions  │
+ │   spool ◄── terminal hooks (planned) │
  └──────┬───────────────────────────────┘
         │ ACP / claude / codex / command
  ┌──────▼──────────┐
@@ -1005,14 +1006,15 @@ gnomish-relay/
   crates/
     protocol/           frames, records, slot body, escapes, dedup, counters. No I/O. Verified with Aeneas.
     app-protocol/       the checked lines of the app protocol (9.8). No I/O. Apps test against it.
-    agents/             trait Agent + the backends of 9.2. Today they are in bridge/.
-    bridge/             the daemon: screenshot reader, policy, queue, publisher, state
-    hook/               small CLI that terminal agent hooks call
+    bridge/             the daemon: screenshot reader, policy, queue, publisher, state, and the agents of 9.2
+  fuzz/                 the fuzz targets (14.4)
   proofs/               Lean project with the Aeneas output and the proofs
   models/               Quint model of the transport
   tests/vectors/        golden strip images
   SPEC.md
 ```
+
+Planned, not built: a crate `agents/` for the `Agent` trait and the backends of 9.2, which are in `bridge/` today. The hook command of section 10 is a subcommand of the one binary (10.1), so it gets no crate of its own.
 
 ### 8.2 Bridge main loop
 
@@ -1033,7 +1035,7 @@ The bridge keeps its state in JSON files in the data folder of the OS:
 - `state.json`: the replay store, the unread records, the waiting messages, the slot window, the tokens, and the restore history (7.6).
 - `timeways/state.json`: the lane of Timeways (9.7), only with a Timeways key. Later also agent session IDs per chat, the folder of each session, and signal counters.
 - `timeways/story/`: the folder of the story program (9.8). Only the story program writes there, and the bridge never reads it.
-- `transcripts.json`: every prompt and reply, per chat. 200 messages per chat, 4000 characters each.
+- Planned, not built: `transcripts.json`, with every prompt and reply of each chat: 200 messages per chat, 4000 characters each. Today `state.json` keeps only the short history of the restore bundle (7.6).
 
 Rules:
 
@@ -1449,7 +1451,7 @@ The relay tests use a small second test addon built from the shared transport, n
 
 ### 9.8 The app protocol
 
-The bridge and the story program of Timeways talk in JSON lines: one JSON object on each line, over the stdin and stdout of the story program. The story program is untrusted, like an agent, and so is the addon. `crates/bridge/src/addon_lines.rs` checks the lines of the addon, `crates/bridge/src/app_protocol.rs` has the other messages, and `crates/bridge/src/story.rs` has the life cycle.
+The bridge and the story program of Timeways talk in JSON lines: one JSON object on each line, over the stdin and stdout of the story program. The story program is untrusted, like an agent, and so is the addon. `crates/app-protocol/src/addon_lines.rs` checks the lines of the addon, `crates/app-protocol/src/story_lines.rs` has the other messages, and `crates/bridge/src/story.rs` has the life cycle.
 
 **Start.** The bridge starts the story program only when the Timeways lane is on (`timeways.key` exists) and the config has a `[story]` section with a `program` (12). The command line is `<program> <lore pack> <story folder>`. The program path is absolute: the bridge never looks it up on `PATH`. The bridge starts its real path, with no link in it, and refuses a program inside a path that the sandbox hides (6.6.4). The lore pack is the SQLite file of the lore. The story folder is `<data>/timeways/story/`, which the bridge makes with mode 0700. The bridge starts the program with no shell, with the environment allowlist of 6.2 rule 12, with the story folder as its working folder, and in the sandbox of 6.6.4. On Linux and macOS the story program leads its own process group. On Windows, `taskkill /T` stops its process tree.
 
@@ -1617,7 +1619,9 @@ parent \t name \t mark
 
 ## 10. Notifications from terminal sessions
 
-**Status: approved (2026-09-28).** The implementer and an advisor agent with a UX critic view wrote the proposal (2026-09-27). The user approved it with the changes of a UX review: the name "Notifications", a bell at the minimap in place of a tab, and the texts, sounds, and settings below. Each "Why" says what real use showed.
+**Status: approved (2026-09-28), mostly not built.** Built: only the pure parts in `protocol`, with their proofs: `notice.rs` (S40), `sessions.rs` (S41), and the notices of `live.rs` (S20 restated). The bridge writes an empty notice list. Not built: the `hook` subcommand, the spool folder, `hooks install`, the notices in the addon, the fuzz targets of 10.7, and `crates/bridge/tests/notices_e2e.rs`. The text below is the plan.
+
+The implementer and an advisor agent with a UX critic view wrote the proposal (2026-09-27). The user approved it with the changes of a UX review: the name "Notifications", a bell at the minimap in place of a tab, and the texts, sounds, and settings below. Each "Why" says what real use showed.
 
 The user plays WoW while Claude Code or Codex works in a terminal. When a terminal session waits for the user, or finishes long work, the game shows a notification: the agent, the repo, the first words of the message, and a sound. A notification carries no command and never starts a run. The user answers in the terminal.
 
@@ -2441,7 +2445,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 8. **Done: threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Done (8b):** the action classifier (6.6.3) in `protocol`, with S16, S17, S27, and S28 proved, and the input of the classifier in the bridge. **Done (8c):** every backend calls the classifier through one gate (6.6.3, 9.3): the hook of Claude for every tool call, the approvals of Codex, and the permission requests of ACP agents. The config has its allow table, and `gnomish-relay approve` answers desktop requests.
 9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Done:** live tests with Claude in the game on 2026-09-26 (9.3).
 10. **Done: "Always allow" (6.6.5, 9.3).** One click in the game adds a rule that the sandbox bounds, with S36 to S39 proved. The Settings tab and `gnomish-relay rules` list and remove the rules.
-11. **Notifications from terminal sessions (section 10).** Approved on 2026-09-28: the hook subcommand, the spool folder, one notice for each session with S40 and S41, the notices in `Live.lua` (S20 restated), the bell at the minimap, and `hooks install`. No `note` signal: signals do not work (7.4).
+11. **Notifications from terminal sessions (section 10).** **Done:** the pure parts in `protocol`, with S40, S41, and S20 restated. **Next:** the rest. Approved on 2026-09-28: the hook subcommand, the spool folder, one notice for each session with S40 and S41, the notices in `Live.lua` (S20 restated), the bell at the minimap, and `hooks install`. No `note` signal: signals do not work (7.4).
 12. **Done: a generic backend for any LLM coding harness (9.2).** `acp` for any harness that speaks ACP, the `claude` and `codex` backends, and `command` for a harness that has only a command line, inside the sandbox, with presets for aider, gemini, opencode, goose, and llm. **Next:** a live test of each preset with the real tool.
 13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
