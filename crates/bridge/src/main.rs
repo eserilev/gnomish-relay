@@ -463,6 +463,7 @@ fn setup_config(
         Vec::new()
     };
     let local_ports = model_setup::local_ports(&models);
+    let new_agents = setup::new_agents(&agents, existing.map(|(_, config)| config));
     let parts = setup::ConfigParts {
         wow,
         relay: (!roots.is_empty()).then_some(RelayPart {
@@ -471,13 +472,21 @@ fn setup_config(
             roots: &roots,
             local_ports: &local_ports,
         }),
+        new_agents: &new_agents,
         story: wants_story.then_some(models.as_slice()),
     };
     let text = existing.map(|(text, _)| text.as_str());
-    match setup::config_text(text, &parts) {
-        Some(new) => setup::write_config(dir, &new, &home_dir()?),
-        None => load_config(),
+    let config = match setup::config_text(text, &parts) {
+        Some(new) => setup::write_config(dir, &new, &home_dir()?)?,
+        None => load_config()?,
+    };
+    let added = config.relay.as_ref().map(|relay| &relay.agents);
+    for (name, _, _) in &new_agents {
+        if added.is_some_and(|agents| agents.contains_key(*name)) {
+            println!("Added agent: {name}. Pick it for a new chat in the game, in Settings");
+        }
     }
+    Ok(config)
 }
 
 /// A harness with no ACP mode runs its own commands, so setup adds it only on a yes.

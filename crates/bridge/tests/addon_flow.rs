@@ -594,11 +594,7 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
         last.get::<String>("text").unwrap(),
         format!("\x1bM1\np\x1f{NO_AGENT}\np\x1fecho: ping the relay\n")
     );
-    assert!(
-        game.printed()
-            .iter()
-            .any(|l| l.contains("No agent set up"))
-    );
+    assert!(game.printed().iter().any(|l| l.contains("No agent set up")));
 }
 
 #[test]

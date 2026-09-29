@@ -166,7 +166,25 @@ pub fn repair_timeways_key(config_dir: &Path, addons: &Path) -> Result<Option<In
 pub struct ConfigParts<'a> {
     pub wow: &'a Path,
     pub relay: Option<RelayPart<'a>>,
+    /// Agents on `PATH` that a config with the relay lacks (`new_agents`).
+    pub new_agents: &'a [config::Found<'a>],
     pub story: Option<&'a [FoundModel]>,
+}
+
+/// The agents of `found` that the relay part of `config` has no entry for. A first
+/// config, or one with no relay, gets them with its relay part.
+pub fn new_agents<'a>(
+    found: &[config::Found<'a>],
+    config: Option<&Config>,
+) -> Vec<config::Found<'a>> {
+    let Some(relay) = config.and_then(|c| c.relay.as_ref()) else {
+        return Vec::new();
+    };
+    found
+        .iter()
+        .filter(|(name, _, _)| !relay.agents.contains_key(*name))
+        .copied()
+        .collect()
 }
 
 /// The new text of the config, or `None` when it needs no change. Setup never changes a
@@ -185,12 +203,15 @@ pub fn config_text(existing: Option<&str>, parts: &ConfigParts) -> Option<String
         };
         return Some(text);
     };
-    if parts.relay.is_none() && parts.story.is_none() {
+    if parts.relay.is_none() && parts.new_agents.is_empty() && parts.story.is_none() {
         return None;
     }
     let mut text = existing.to_owned();
     if let Some(relay) = &parts.relay {
         text = config_text::with_relay(&text, relay);
+    }
+    if !parts.new_agents.is_empty() {
+        text = config_text::with_agents(&text, parts.new_agents);
     }
     if let Some(models) = parts.story {
         text = config_text::with_story(&text, models);
@@ -270,6 +291,7 @@ mod tests {
         let parts = ConfigParts {
             wow: Path::new("/wow"),
             relay: None,
+            new_agents: &[],
             story: Some(&[]),
         };
         let text = config_text(None, &parts).unwrap();
@@ -283,6 +305,7 @@ mod tests {
         let parts = ConfigParts {
             wow: Path::new("/wow"),
             relay: None,
+            new_agents: &[],
             story: None,
         };
         assert_eq!(config_text(Some("anything"), &parts), None);

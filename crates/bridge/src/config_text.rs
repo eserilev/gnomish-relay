@@ -41,11 +41,9 @@ fn wow_table(wow: &Path) -> String {
     format!("[wow]\npath = {}\n", quote(&wow.to_string_lossy()))
 }
 
-/// Every agent edits the chat folder with no question, and asks before each command.
-/// With no agent found, the echo agent.
-fn relay_tables(relay: &RelayPart) -> String {
+fn agent_tables(agents: &[Found]) -> String {
     let mut text = String::new();
-    for (name, kind, command) in relay.agents {
+    for (name, kind, command) in agents {
         let command: Vec<String> = command.iter().map(|word| quote(word)).collect();
         let _ = write!(
             text,
@@ -54,6 +52,13 @@ fn relay_tables(relay: &RelayPart) -> String {
             command.join(", ")
         );
     }
+    text
+}
+
+/// Every agent edits the chat folder with no question, and asks before each command.
+/// With no agent found, the echo agent.
+fn relay_tables(relay: &RelayPart) -> String {
+    let mut text = agent_tables(relay.agents);
     for name in relay.harnesses {
         let _ = write!(
             text,
@@ -160,6 +165,19 @@ pub fn timeways_config(wow: &Path, models: &[FoundModel]) -> String {
 /// A config with no relay part gets one: its keys first, its tables last.
 pub fn with_relay(existing: &str, relay: &RelayPart) -> String {
     format!("{}\n{existing}{}", relay_keys(relay), relay_tables(relay))
+}
+
+/// The agents that a later setup found go last. A config with an inline `agents` table
+/// cannot take a new `[agents.<name>]` table, so it stays as it is.
+pub fn with_agents(existing: &str, agents: &[Found]) -> String {
+    let text = format!(
+        "{existing}\n# Agents that a later setup found.{}",
+        agent_tables(agents)
+    );
+    if text.parse::<toml::Table>().is_err() {
+        return existing.to_owned();
+    }
+    text
 }
 
 pub fn with_story(existing: &str, models: &[FoundModel]) -> String {
@@ -357,5 +375,13 @@ mod tests {
         let config = parsed(&text, &home);
         assert_eq!(config.require_relay().unwrap().policy.default_agent, "echo");
         assert_ne!(config.story.unwrap().model.choice, ModelChoice::None);
+    }
+
+    #[test]
+    fn a_config_with_an_inline_agents_table_gets_no_new_agent() {
+        let old = "agents = { echo = { kind = \"echo\", permission = \"ask\" } }\n";
+        let codex: [Found; 1] = [("codex", Kind::Codex, &["codex"])];
+
+        assert_eq!(with_agents(old, &codex), old);
     }
 }

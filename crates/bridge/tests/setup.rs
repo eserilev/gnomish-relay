@@ -83,6 +83,7 @@ impl Computer {
                 roots: &roots,
                 local_ports: &[],
             }),
+            new_agents: &[],
             story,
         };
         let text = setup::config_text(None, &parts).unwrap();
@@ -324,6 +325,7 @@ fn a_relay_config_gets_a_story_section_once_timeways_is_installed() {
     let parts = ConfigParts {
         wow: &wow,
         relay: None,
+        new_agents: &[],
         story: Some(&[FoundModel::Claude]),
     };
 
@@ -352,4 +354,55 @@ fn the_addon_files_of_the_relay_are_all_written() {
         let written = fs::read(computer.folders.addons.join(ADDON).join(name)).unwrap();
         assert_eq!(written, content, "{name}");
     }
+}
+
+#[test]
+fn a_second_setup_adds_a_new_agent_and_keeps_the_default() {
+    let computer = Computer::new(&[]);
+    let roots = ["~/Code".to_owned()];
+    let first = RelayPart {
+        agents: &[],
+        harnesses: &[],
+        roots: &roots,
+        local_ports: &[],
+    };
+    let old = bridge::config_text::relay_config(&computer.wow(), &first);
+    let config = setup::write_config(&computer.folders.config, &old, computer.home()).unwrap();
+    let found = [
+        ("claude", Kind::Claude, ["claude"].as_slice()),
+        ("codex", Kind::Codex, ["codex"].as_slice()),
+    ];
+    let new = setup::new_agents(&found, Some(&config));
+    let wow = computer.wow();
+    let parts = ConfigParts {
+        wow: &wow,
+        relay: None,
+        new_agents: &new,
+        story: None,
+    };
+
+    let text = setup::config_text(Some(&old), &parts).unwrap();
+    let config = setup::write_config(&computer.folders.config, &text, computer.home()).unwrap();
+
+    assert!(text.starts_with(&old), "every old key stays");
+    let relay = config.relay.unwrap();
+    assert_eq!(relay.policy.default_agent, "echo");
+    let names: Vec<&str> = relay.agents.keys().map(String::as_str).collect();
+    assert_eq!(names, ["claude", "codex", "echo"]);
+}
+
+#[test]
+fn only_agents_that_the_config_lacks_are_new() {
+    let computer = Computer::new(&[]);
+    let config = computer.config(Relay::On, None);
+    let found = [
+        ("claude", Kind::Claude, ["claude"].as_slice()),
+        ("codex", Kind::Codex, ["codex"].as_slice()),
+    ];
+
+    let new = setup::new_agents(&found, Some(&config));
+
+    let names: Vec<&str> = new.iter().map(|(name, _, _)| *name).collect();
+    assert_eq!(names, ["codex"]);
+    assert!(setup::new_agents(&found, None).is_empty());
 }

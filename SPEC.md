@@ -1867,7 +1867,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - A version tag (`v*`) starts `.github/workflows/release.yml`. It builds the program for Linux (x86-64), macOS (Arm and x86-64), and Windows (x86-64), and attaches each archive with its SHA-256 sum to a GitHub Release. The release stays a draft until every build is attached.
 - `scripts/install.sh` (Linux and macOS) and `scripts/install.ps1` (Windows) download the archive of the latest release, check its SHA-256 sum, install the program, and run `setup --autostart`. Setup asks its questions on the terminal, also under `curl | sh`.
 - Setup asks which folders the agents can use. It suggests the usual folders of code projects that hold a git repository, or the home folder. `--roots a,b` gives them with no question.
-- Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so.
+- Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so. After the player installs an agent, a second setup adds its entry (12).
 - Later: winget, Homebrew, and the AUR point at the release.
 - The addon is also listed on CurseForge and Wago Addons, so players can find it. The listing points to the program: the addon alone does nothing, because each computer needs its own key.
 
@@ -1881,7 +1881,7 @@ The config file is `config.toml` in the config folder of the OS:
 | macOS | `~/Library/Application Support/gnomish-relay` | the same |
 | Windows | `%APPDATA%\gnomish-relay` | `%LOCALAPPDATA%\gnomish-relay` |
 
-`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, or the relay part with `--relay` (11.3).
+`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
 Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
