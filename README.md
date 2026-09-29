@@ -91,6 +91,25 @@ Commands in the allow table run with no question at `auto-edit` and `full-auto`:
 commands = ["cargo test *"]
 ```
 
+### The protection on each OS
+
+The sandbox of commands is different on each OS (`SPEC.md` 6.6.4):
+
+| OS | Commands of Claude | Commands of Codex |
+|---|---|---|
+| Linux | Each command runs in a `bwrap` sandbox. Install `bubblewrap`. | The sandbox of Codex |
+| macOS | Each command runs in a Seatbelt sandbox (`sandbox-exec`). | The sandbox of Codex |
+| Windows | No sandbox. Every command asks in the game, also a command of the allow table. | The Windows sandbox of Codex |
+
+- The sandbox of the bridge lets a command write only the chat folder and a temp folder.
+  It hides `~/.ssh`, the keys of the bridge, and the other credential folders.
+  It lets a command reach only the allowed package hosts.
+- On a Linux with no working `bwrap`, the bridge acts as on Windows: every command asks.
+- The sandbox of Codex lets a command read the whole disk, also `~/.ssh`. It gives a command no network.
+- Other ACP agents run their commands themselves, with no sandbox. Each of their tool calls asks at most.
+- On Windows, use Codex for commands that run with no question, or run Claude and the bridge under WSL2.
+  Under WSL2, the bridge uses `bwrap`, as on Linux.
+
 ## Update
 
 `gnomish-relay update` installs the latest release and restarts the bridge.
