@@ -24,6 +24,8 @@ local REPORT_ROOM = 440
 local TOO_LONG = "Too long to send."
 local NOT_SENT = "Not sent. Send it again."
 local BRIDGE_OFF = "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart."
+local BAD_KEY =
+	"Not sent: the bridge does not know this key. On the desktop, run gnomish-relay setup, then type /reload."
 -- The bridge accepts a frame up to 300 s old (S11). Keep a margin for the screenshot.
 local FRESH_FOR = 270
 -- A later body can still hold the final reply of an answered message. The default store
@@ -46,6 +48,8 @@ local state = {
 	lastNow = nil,
 	-- The age of the last body when the addon loaded it.
 	bodyAge = nil,
+	-- Strips that the bridge refused for their tag since its last good strip.
+	badTags = 0,
 	missing = false,
 	mismatch = false,
 }
@@ -168,6 +172,8 @@ end
 local function NotSent()
 	if not Messages.Online() then
 		return BRIDGE_OFF
+	elseif state.badTags > 0 then
+		return BAD_KEY
 	end
 	return NOT_SENT
 end
@@ -421,6 +427,7 @@ local function Apply(data)
 	state.mismatch = false
 	state.lastNow = tonumber(data.now)
 	state.bodyAge = state.lastNow and time() - state.lastNow
+	state.badTags = tonumber(data.badTags) or 0
 	local done = {}
 	for _, r in ipairs(data.replies or {}) do
 		ApplyReply(r, done)

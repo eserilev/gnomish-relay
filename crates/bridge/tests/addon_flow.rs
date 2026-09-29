@@ -706,6 +706,26 @@ fn a_message_given_up_while_the_bridge_is_off_says_how_to_start_it() {
     assert_eq!(last_entry(&game).get::<String>("text").unwrap(), BRIDGE_OFF);
 }
 
+#[test]
+fn a_message_given_up_while_the_bridge_sees_bad_tags_says_to_run_setup() {
+    let game = Game::start();
+    game.send("signed with an old key");
+    game.advance(1.0);
+    let game = game.reload_after(300);
+    let now = u32::try_from(game.run("return time()").as_integer().unwrap()).unwrap();
+    let body = bridge::slots::with_bad_tags(slot_body(App::Relay, now, &[]), App::Relay, 2);
+    game.wow
+        .set("body", game.lua.create_string(body).unwrap())
+        .unwrap();
+    game.run("local ns = ... ns.Transport.Poll()");
+    game.advance(2.0);
+    assert_eq!(
+        last_entry(&game).get::<String>("text").unwrap(),
+        "Not sent: the bridge does not know this key. \
+         On the desktop, run gnomish-relay setup, then type /reload."
+    );
+}
+
 fn online(game: &Game) -> bool {
     game.run("local ns = ... return ns.Transport.Online()")
         .as_boolean()

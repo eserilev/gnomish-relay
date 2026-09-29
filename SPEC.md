@@ -806,6 +806,8 @@ GnomishRelay_SlotData = {proto = 1, now = 1790211081, replies = {
 }}
 ```
 
+**The key check.** A player with an old key sees no reply and no reason: the bridge refuses each strip for its tag. So the bridge counts the strips with a bad tag since the last good relay strip. While the count is not 0, `Inbox.lua` ends with one more line after the table: `GnomishRelay_SlotData.badTags = 2`. The line holds only the global and a decimal number, so no outside text reaches it, and S9 still covers the table. A message that the addon gives up on while the count is not 0 ends with "Not sent: the bridge does not know this key. On the desktop, run gnomish-relay setup, then type /reload." A bad tag has no app, so only the relay body counts it.
+
 `Live.lua` carries the progress and the permission requests (9.3, S20), and `Restore.lua` the restore bundle (7.6, S18).
 Later fields (the session and the denied rules) go into a file of their own, or need an approved change of S9. The notifications of section 10 ride in `Live.lua`, with the restatement of S20 (10.3).
 

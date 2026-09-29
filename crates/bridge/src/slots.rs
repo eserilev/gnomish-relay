@@ -5,7 +5,7 @@ use std::io::ErrorKind;
 use std::path::Path;
 
 use anyhow::{Context, Result};
-use protocol::apps::App;
+use protocol::apps::{App, push_slot_global};
 use protocol::live::{live_body, no_notices};
 use protocol::restore::restore_body;
 use protocol::slot::{SLOT_WINDOW, SLOTS, slot_body};
@@ -39,6 +39,17 @@ impl Files {
         write(dir, RESTORE_FILE, &self.restore)?;
         write(dir, LIVE_FILE, &self.live)
     }
+}
+
+/// Adds the count of strips with a bad tag after the body (SPEC.md 7.3). A count of 0
+/// adds nothing, so a normal body stays the proved one.
+pub fn with_bad_tags(mut body: Vec<u8>, app: App, count: u32) -> Vec<u8> {
+    if count == 0 {
+        return body;
+    }
+    push_slot_global(&mut body, app);
+    body.extend_from_slice(format!(".badTags = {count}\n").as_bytes());
+    body
 }
 
 pub fn slot_name(app: App, n: usize) -> String {
@@ -99,6 +110,18 @@ pub fn publish(addons: &Path, app: App, files: &Files, next: usize) -> Result<()
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_bad_tag_count_sets_a_field_of_the_body_global() {
+        let body = with_bad_tags(slot_body(App::Relay, 0, &[]), App::Relay, 3);
+        assert!(body.ends_with(b"}}\nGnomishRelay_SlotData.badTags = 3\n"));
+    }
+
+    #[test]
+    fn no_bad_tag_leaves_the_body_as_it_is() {
+        let body = slot_body(App::Relay, 0, &[]);
+        assert_eq!(with_bad_tags(body.clone(), App::Relay, 0), body);
+    }
     use mlua::{Lua, Table};
     use protocol::slot::{Reply, Status, prepare_replies};
 
