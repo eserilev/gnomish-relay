@@ -932,6 +932,7 @@ The bridge keeps this history in `state.json`. The full transcripts come later (
 - `ver=` is the version of each app: `Health.lua` of the shared transport sends `ns.App.version`, from the `App.lua` of the app. Each app changes on its own: the coding flags of the relay, and the batch lines of Timeways (9.8). The Timeways `App.lua` needs `version` when it copies this `Health.lua`.
 - On a mismatch, the addon shows "bridge and addon versions do not match" and stops sending.
 - Pool sizes live in one place: the `protocol` crate. The setup step writes them into the addon.
+- The release version (for example `0.2.0`) is not a protocol version. It lives in two places: `version` of `[workspace.package]` in `Cargo.toml`, which every crate takes, and `## Version` in `GnomishRelay.toc`. The ranges above use only the protocol versions, so a release with no protocol change keeps them at 1 to 1.
 
 ### 7.8 Design for breakage
 
@@ -1864,7 +1865,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 
 **Distribution.**
 
-- A version tag (`v*`) starts `.github/workflows/release.yml`. It builds the program for Linux (x86-64), macOS (Arm and x86-64), and Windows (x86-64), and attaches each archive with its SHA-256 sum to a GitHub Release. The release stays a draft until every build is attached.
+- A version tag (`v*`) starts `.github/workflows/release.yml`. It builds the program for Linux (x86-64), macOS (Arm and x86-64), and Windows (x86-64), and attaches each archive with its SHA-256 sum to a GitHub Release. The release stays a draft until every build is attached. Before the draft, the workflow runs fmt, clippy, and the tests on the three OSes, and checks that the tag, the `Cargo.toml` version, and the TOC version match.
 - `scripts/install.sh` (Linux and macOS) and `scripts/install.ps1` (Windows) download the archive of the latest release, check its SHA-256 sum, install the program, and run `setup --autostart`. Setup asks its questions on the terminal, also under `curl | sh`.
 - Setup asks which folders the agents can use. It suggests the usual folders of code projects that hold a git repository, or the home folder. `--roots a,b` gives them with no question.
 - Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so.
