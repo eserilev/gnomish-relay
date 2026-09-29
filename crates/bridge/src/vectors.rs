@@ -67,6 +67,11 @@ fn tag_checks(key: &StripKey, bytes: &[u8]) -> bool {
     decode_frame(bytes).is_ok_and(|frame| key.tag(&bytes[..signed_len(&frame)]) == frame.tag)
 }
 
+/// A strip that the self-test addon drew. `selftest collect` needs it later.
+pub fn is_test_strip(bytes: &[u8]) -> bool {
+    test_key().is_ok_and(|key| tag_checks(&key, bytes))
+}
+
 /// The frame of a test strip in the image, if its tag checks under the test key.
 pub fn test_frame(image: &Image) -> Result<Option<Frame>> {
     let key = test_key()?;

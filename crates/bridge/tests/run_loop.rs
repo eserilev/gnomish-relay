@@ -22,6 +22,7 @@ use bridge::relay::Folders;
 use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{BODY_FILE, LIVE_FILE, slot_name};
+use bridge::vectors::TEST_KEY;
 use common::{hex, install_window, screenshot_png, signed_frame, strip_rows};
 use protocol::apps::App;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -153,27 +154,87 @@ fn a_strip_screenshot_comes_back_as_an_echo_in_the_slots() {
 }
 
 #[test]
-fn a_normal_screenshot_and_a_strip_with_a_bad_tag_stay_untouched() {
+fn a_normal_screenshot_stays_untouched() {
     let f = folders();
     let mut bridge = bridge(&f);
     let user = f.screenshots.join("WoWScrnShot_user.png");
-    let forged = f.screenshots.join("WoWScrnShot_forged.png");
     fs::write(&user, screenshot_png(&[])).unwrap();
-    fs::write(
-        &forged,
-        strip_png(b"another key, 32 bytes long......", "rm -rf ~"),
-    )
-    .unwrap();
     // The bridge scans every file of the folder in one step, so this echo comes after it
-    // looked at the other two.
+    // looked at the other one.
     let valid = f.screenshots.join("WoWScrnShot_valid.png");
     fs::write(&valid, strip_png(KEY, "marker")).unwrap();
 
     assert!(step_until(&mut bridge, || slot_body(&f.addons)
         .contains("echo: marker")));
     assert!(user.exists());
-    assert!(forged.exists());
+}
+
+#[test]
+fn a_strip_signed_with_another_key_is_deleted_and_never_runs() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let forged = f.screenshots.join("WoWScrnShot_forged.png");
+    fs::write(
+        &forged,
+        strip_png(b"another key, 32 bytes long......", "rm -rf ~"),
+    )
+    .unwrap();
+    let valid = f.screenshots.join("WoWScrnShot_valid.png");
+    fs::write(&valid, strip_png(KEY, "marker")).unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("echo: marker")));
+    assert!(!forged.exists(), "its pixels hold a prompt");
     assert!(!slot_body(&f.addons).contains("rm -rf"));
+}
+
+#[test]
+fn a_strip_of_the_self_test_stays_for_selftest_collect() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let test_strip = f.screenshots.join("WoWScrnShot_selftest.png");
+    fs::write(&test_strip, strip_png(TEST_KEY, "golden")).unwrap();
+    let valid = f.screenshots.join("WoWScrnShot_valid.png");
+    fs::write(&valid, strip_png(KEY, "marker")).unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("echo: marker")));
+    assert!(test_strip.exists());
+    assert!(!slot_body(&f.addons).contains("golden"));
+}
+
+#[test]
+fn a_stale_strip_is_deleted_and_never_runs() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let payload = "tok\x1fc1\x1f7\x1f\x1f\x1f\x1fold prompt";
+    let old_frame = signed_frame(now() - 600, payload.as_bytes(), KEY);
+    let stale = f.screenshots.join("WoWScrnShot_stale.png");
+    fs::write(&stale, screenshot_png(&strip_rows(&old_frame))).unwrap();
+    let valid = f.screenshots.join("WoWScrnShot_valid.png");
+    fs::write(&valid, strip_png(KEY, "marker")).unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("echo: marker")));
+    assert!(!stale.exists());
+    assert!(!slot_body(&f.addons).contains("old prompt"));
+}
+
+#[test]
+fn a_future_strip_is_deleted_and_never_runs() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let payload = "tok\x1fc1\x1f7\x1f\x1f\x1f\x1ftoo early";
+    let early_frame = signed_frame(now() + 600, payload.as_bytes(), KEY);
+    let future = f.screenshots.join("WoWScrnShot_future.png");
+    fs::write(&future, screenshot_png(&strip_rows(&early_frame))).unwrap();
+    let valid = f.screenshots.join("WoWScrnShot_valid.png");
+    fs::write(&valid, strip_png(KEY, "marker")).unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("echo: marker")));
+    assert!(!future.exists());
+    assert!(!slot_body(&f.addons).contains("too early"));
 }
 
 #[test]

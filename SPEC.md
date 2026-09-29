@@ -90,7 +90,7 @@ So the bridge bounds what any message from the game can do (6.6).
 5. The bridge never runs the agent with `full-auto` unless the config sets it for that agent. The classifier and the sandbox still apply (6.6.2).
 6. The bridge rejects frames with a timestamp more than 5 minutes old or more than 1 minute in the future (S11).
 7. The bridge never writes, renames, or deletes through a symbolic link. It opens files with `O_NOFOLLOW` (Unix) or checks the reparse point (Windows).
-8. The bridge deletes only the screenshots that it decoded as valid strips. It never deletes other screenshots.
+8. The bridge deletes only the screenshots that decode as a frame with a good checksum, because a normal screenshot never does. It deletes a valid strip after it takes it, and a strip that is old, early, or signed with another key, because such a strip never becomes valid and its pixels hold a prompt. It logs one line with the next step. It keeps a strip of the public test key (14.3.1) for `selftest collect`, and a frame that fails for another reason. It never deletes other screenshots.
 9. The bridge limits sizes: an image before decoding (4096 × 4096 px), a hook message (64 KB), a reply record (32 KB), a slot body (S12), and each chat queue (20 messages).
 10. The bridge resolves symbolic links in a chat folder with `canonicalize`, then checks `allowed_roots` again on the result.
 17. The proved resolver (S5) splits paths only at `/`. On Windows, the bridge first turns each `\` of a game folder into `/`, so each `..` counts. It refuses a game folder with `:`, which starts a drive or names a stream. Roots lose the `\\?\` prefix of `canonicalize`.
@@ -106,7 +106,7 @@ So the bridge bounds what any message from the game can do (6.6).
 The setup step makes a random 32-byte key.
 It writes the key into the addon (as a file-local value) and into the bridge config.
 Each strip ends with a truncated HMAC-SHA256 tag (8 bytes) of the header and payload.
-The bridge drops each strip with a wrong tag, and logs it.
+The bridge drops each strip with a wrong tag, deletes its screenshot (6.2, rule 8), and logs it.
 The bridge compares tags in constant time (`subtle::ConstantTimeEq`).
 
 The cost of HMAC-SHA256 in Lua: about 0.1 ms for a full 3221-byte strip under LuaJIT with the JIT off. The plain Lua 5.1 of WoW is a few times slower, still well under 1 ms.
@@ -128,7 +128,7 @@ Theorem S15 covers these rules.
 
 - Reply text sits in a global table after a slot loads. Any addon can read it.
 - `GnomishRelayDB` is a global table. Any addon can read the chats in it.
-- The strip is signed, not encrypted. The prompt is in the pixels of each strip screenshot until the bridge deletes it. If the bridge does not run, these files stay. A cloud sync of the Screenshots folder (for example OneDrive on Windows) copies them.
+- The strip is signed, not encrypted. The prompt is in the pixels of each strip screenshot until the bridge deletes it. If the bridge does not run, these files stay until its next start, which deletes them (6.2, rule 8). A cloud sync of the Screenshots folder (for example OneDrive on Windows) copies them.
 - An addon that loads before ours, for example one named `!Evil`, can replace global functions such as `string.char`, `tonumber`, or `bit.band` before `Key.lua` and `Sha256.lua` run. It can then read the strip key. Lua in WoW gives an addon no way to stop this. Layers 2 to 4 of 6.6 assume that any game message can come from another addon, so the key is a check against programs outside the game, not against other addons.
 - Code in the sandbox can still send data to the allowed API host, for example with an upload under another account key. A proxy that ends TLS and pins the account closes this. It is not in v1.
 - A command of a game run can send data to each host of the proxy list (6.6.4), for example a push to `github.com` with a token of its own. The list limits where a command connects, not what it sends.
@@ -2338,7 +2338,7 @@ The run starts 5 seconds after `PLAYER_ENTERING_WORLD`, when the saved results d
 3. It writes `tests/fixtures/forever-<build>.json`: the measurements, and the behavior of the fake game that follows from them. It deletes the placeholder fixture.
 4. It writes `tests/vectors/<build>/`: each PNG, `manifest.json` with each payload and the key, and the raw saved file, which shows how WoW writes saved variables.
 
-It reads no key and no config of the relay, and it never deletes a screenshot. A running bridge leaves the test strips alone: their tag fails, so the bridge only logs them.
+It reads no key and no config of the relay, and it never deletes a screenshot. A running bridge leaves the test strips alone: it checks each strip that fails its keys against the test key, and keeps and logs a test strip.
 
 **The fake game.** The tests load the newest real fixture, or `tests/fixtures/forever-placeholder.json` while none exists. The placeholder holds the guesses of the fake game from before the self-test, and it says so. The fake game takes these values from the fixture: `GetBuildInfo`, the screen size, the delay of the slowest shot, the event of a good shot, when the picture is taken, when "Screen captured" shows, the returns of `LoadAddOn` and `FontString:SetFont`, whether `GetContentHeight` waits for the next frame, whether the saved variables load before or after the files, the login events, the timer order, the `bit` results, and `hooksecurefunc` on a missing global. The addon tests also run the relay in the other behaviors that it depends on: "Screen captured" before and after the event, a picture after the handler, saved variables after the files, a content height in the next frame, a disabled slot with and without a working `EnableAddOn`, an out-of-date slot, and a `hooksecurefunc` that refuses a missing global. A timer order that the fake game has no model for stops it at load. A test also fails when the measured shot delay no longer fits the one-second waits of the addon tests.
 
