@@ -1210,7 +1210,7 @@ modes = { ask = "default" }
 Then run `gnomish-relay check-agent gemini`. It starts the agent, opens one session in `default_cwd`, and shows the name, the version, whether it resumes sessions, and its mode ids. It fails if a mode in `modes` does not exist.
 For `kind = "claude"`, `check-agent` runs `claude --version` and `claude auth status --json`, with no model call. It fails with "Claude Code needs a login." when `loggedIn` is not true.
 The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop."
-`kind = "echo"` answers with the message, for a test of the path through the game with no agent.
+`kind = "echo"` answers with the message, for a test of the path through the game with no agent. Setup writes it only when it finds no agent, so the answer starts with the next step: "No agent set up. Install claude or codex, then run: gnomish-relay setup".
 
 ### 9.3 Permissions
 
