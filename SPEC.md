@@ -1003,6 +1003,7 @@ gnomish-relay/
   addon/transport/      the shared Lua transport of every app (9.7). Install copies it into each addon.
   crates/
     protocol/           frames, records, slot body, escapes, dedup, counters. No I/O. Verified with Aeneas.
+    app-protocol/       the checked lines of the app protocol (9.8). No I/O. Apps test against it.
     agents/             trait Agent + the backends of 9.2. Today they are in bridge/.
     bridge/             the daemon: screenshot reader, policy, queue, publisher, state
     hook/               small CLI that terminal agent hooks call

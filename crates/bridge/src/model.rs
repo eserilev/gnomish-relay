@@ -8,17 +8,15 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use app_protocol::model_answer::clean_answer;
+use app_protocol::story_lines::CallId;
 use protocol::rate::{RateLimiter, admit_message};
 
 use crate::agent::StopSignal;
 use crate::agent_wall::AgentWall;
-use crate::app_protocol::CallId;
 use crate::model_local::LocalModel;
-use crate::process::cut;
 use crate::{model_claude, model_local};
 
-/// The text of one answer for the story program. Its longest reply text is 8 KiB.
-pub const MAX_ANSWER: usize = 16 * 1024;
 /// One call of the narrator and one of the bard.
 pub const MAX_OPEN: usize = 2;
 
@@ -165,16 +163,6 @@ fn ask_of(spec: &ModelSpec, wall: &AgentWall) -> Option<Ask> {
             model_local::ask(&local, prompt, timeout, stop)
         })),
     }
-}
-
-/// An answer is hostile text. Control characters other than a newline and a tab go,
-/// and a long answer is cut.
-pub fn clean_answer(text: &str) -> String {
-    let clean: String = text
-        .chars()
-        .filter(|c| !c.is_control() || *c == '\n' || *c == '\t')
-        .collect();
-    cut(&clean, MAX_ANSWER).to_owned()
 }
 
 /// The proved limiter of S14 admits 10 calls in any 60 steps. One step here lasts
@@ -347,14 +335,5 @@ mod tests {
         assert!(!budget.admit_at(at(19 + 19 * 60 + 21)));
         // At step 60 the first ten no longer count.
         assert!(budget.admit_at(at(20 * 60)));
-    }
-
-    #[test]
-    fn a_hostile_answer_loses_its_control_characters_and_is_cut() {
-        assert_eq!(clean_answer("a\u{7}b\r\nc\td\u{1b}[31m"), "ab\nc\td[31m");
-        let long = "é".repeat(MAX_ANSWER);
-        let cut = clean_answer(&long);
-        assert_eq!(cut.len(), MAX_ANSWER);
-        assert!(cut.chars().all(|c| c == 'é'));
     }
 }

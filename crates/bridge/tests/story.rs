@@ -11,11 +11,12 @@ mod fake_model;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
+use app_protocol::story_lines::NO_SANDBOX;
 use bridge::lane::{ChatId, MessageId};
 use bridge::model::{ModelChoice, ModelSpec};
 use bridge::model_local::LocalModel;
 use bridge::story::{
-    BAD_CHARACTER, NO_ANSWER, NO_SANDBOX, OUT_OF_ORDER, Reply, STOPPED, Story, StorySpec, TOO_LONG,
+    BAD_CHARACTER, NO_ANSWER, OUT_OF_ORDER, Reply, STOPPED, Story, StorySpec, TOO_LONG,
     UPDATE_BRIDGE, UPDATE_TIMEWAYS,
 };
 use bridge::story_sandbox::{Sandbox, Walls};

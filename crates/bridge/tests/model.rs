@@ -11,13 +11,14 @@ use std::path::PathBuf;
 use std::thread;
 use std::time::{Duration, Instant};
 
+use app_protocol::model_answer::clean_answer;
 use bridge::agent::StopSignal;
 use bridge::claude::NO_TOOLS;
+use bridge::model_claude;
 use bridge::model_local::{self, LocalModel};
 use bridge::process::OVER_LIMIT;
 use bridge::program::find_program;
 use bridge::turn::{STOPPED, TIMED_OUT};
-use bridge::{model, model_claude};
 use fake_model::Answer;
 use serde_json::Value;
 
@@ -182,7 +183,7 @@ fn a_local_model_that_fails_with_500_fails_the_call() {
 fn control_characters_of_a_local_answer_go() {
     let (answer, _server) = ask_local(Answer::Controls, Duration::from_secs(20));
 
-    assert_eq!(model::clean_answer(&answer.unwrap()), "ab\nc[31m");
+    assert_eq!(clean_answer(&answer.unwrap()), "ab\nc[31m");
 }
 
 fn curl() -> PathBuf {

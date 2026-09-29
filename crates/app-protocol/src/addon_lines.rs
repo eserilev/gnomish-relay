@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::app_protocol::{BadLine, RequestId, is_short, with_newline};
+use crate::story_lines::{BadLine, RequestId, is_short, with_newline};
 
 pub const MAX_ADDON_LINE: usize = 4096;
 const MAX_TYPE: usize = 32;
@@ -57,6 +57,7 @@ pub enum AddonLine {
 
 impl AddonLine {
     /// The character line and a game event give no output.
+    #[must_use]
     pub fn wants_reply(&self) -> bool {
         matches!(
             self,
@@ -157,6 +158,7 @@ fn read_known(line: &str) -> Result<Known, BadLine> {
 }
 
 /// Made from the checked value, never from the raw bytes of the addon.
+#[must_use]
 pub fn forwarded_line(id: RequestId, line: &AddonLine) -> String {
     let mut map = match line {
         AddonLine::Known(known) => match serde_json::to_value(known) {

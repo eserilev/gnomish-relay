@@ -1,4 +1,4 @@
-//! The app protocol between the bridge and the story program of Timeways (SPEC.md 9.8):
+//! The lines between the bridge and the story program of Timeways (SPEC.md 9.8):
 //! one JSON object on each line of stdin and stdout. The story program is untrusted, so
 //! each line from it must have a fixed shape. `addon_lines` checks the lines that go to
 //! it. No I/O here.
@@ -16,6 +16,8 @@ pub const MAX_LINE: usize = 1024 * 1024;
 pub const MAX_ANSWER_LINE: usize = 24_576;
 pub const MAX_PROMPT: usize = 256 * 1024;
 pub const MAX_COMPANION: usize = 1000;
+/// The note that the bridge adds to a reply when the story program runs with no sandbox.
+pub const NO_SANDBOX: &str = "The Timeways story program runs with no sandbox here.";
 const MAX_JOURNAL_DEPTH: usize = 6;
 const MAX_JOURNAL_STRING: usize = 1600;
 const MAX_JOURNAL_KEY: usize = 32;
@@ -89,6 +91,7 @@ pub(crate) fn with_newline(json: Result<String, serde_json::Error>) -> String {
     line
 }
 
+#[must_use]
 pub fn hello_line() -> String {
     with_newline(serde_json::to_string(&ToStory::Hello {
         protocol: VERSION,
@@ -97,11 +100,13 @@ pub fn hello_line() -> String {
 }
 
 /// After the last line of each batch.
+#[must_use]
 pub fn batch_end_line(id: RequestId) -> String {
     with_newline(serde_json::to_string(&ToStory::BatchEnd { id }))
 }
 
-/// `text` is the checked answer of the model (`model::clean_answer`).
+/// `text` is the checked answer of the model (`model_answer::clean_answer`).
+#[must_use]
 pub fn model_answered_line(call: CallId, text: &str) -> String {
     with_newline(serde_json::to_string(&ToStory::ModelAnswered {
         call,
@@ -109,6 +114,7 @@ pub fn model_answered_line(call: CallId, text: &str) -> String {
     }))
 }
 
+#[must_use]
 pub fn model_failed_line(call: CallId) -> String {
     with_newline(serde_json::to_string(&ToStory::ModelFailed { call }))
 }
@@ -153,6 +159,7 @@ pub struct Answer {
 }
 
 impl Answer {
+    #[must_use]
     pub fn is_events_seen(&self) -> bool {
         self.body == Body::EventsSeen
     }

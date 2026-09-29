@@ -1,0 +1,15 @@
+[package]
+name = "app-protocol"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "The lines between the bridge, a Gnomish Relay app, and its story program. No I/O."
+
+[dependencies]
+protocol = { path = "../protocol" }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+[lints]
+workspace = true

@@ -6,7 +6,6 @@
 pub mod acp;
 pub mod action_input;
 pub mod activity;
-pub mod addon_lines;
 pub mod agent;
 pub mod agent_wall;
 pub mod allow;
@@ -14,7 +13,6 @@ pub mod allow_hosts;
 pub mod always_offer;
 pub mod always_rules;
 pub mod app_files;
-pub mod app_protocol;
 pub mod claude;
 pub mod claude_sessions;
 pub mod codex;

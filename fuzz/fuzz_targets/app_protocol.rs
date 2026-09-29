@@ -3,12 +3,12 @@
 //! with every `|` doubled that the slot writer keeps whole.
 #![no_main]
 
-use bridge::addon_lines::{forwarded_line, read_batch};
-use bridge::app_protocol::{
+use app_protocol::addon_lines::{forwarded_line, read_batch};
+use app_protocol::model_answer::clean_answer;
+use app_protocol::story_lines::{
     Body, CallId, FromStory, MAX_ANSWER_LINE, MAX_PROMPT, RequestId, model_answered_line,
     model_failed_line, read_line, reply_text,
 };
-use bridge::model::clean_answer;
 use libfuzzer_sys::fuzz_target;
 use protocol::slot::{Reply, Status, prepare_replies};
 

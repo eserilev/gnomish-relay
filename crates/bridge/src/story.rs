@@ -1,7 +1,7 @@
 //! The story program of Timeways and its life cycle (SPEC.md 9.8, and 9.7 decisions 8,
 //! 9, and 16). It runs in its sandbox, speaks the app protocol, and starts again after
 //! a crash. The addon and the story program are untrusted: each line from either one
-//! gets the checks of `app_protocol`.
+//! gets the checks of the `app_protocol` crate.
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
@@ -12,13 +12,13 @@ use std::thread;
 use std::time::{Duration, Instant};
 
 use anyhow::Context;
-
-use crate::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
-use crate::agent_wall::AgentWall;
-use crate::app_protocol::{
-    self, Answer, BadLine, CallId, FromStory, NarratorCheck, RequestId, batch_end_line, hello_line,
-    model_answered_line, model_failed_line, reply_text,
+use app_protocol::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
+use app_protocol::story_lines::{
+    self, Answer, BadLine, CallId, FromStory, NO_SANDBOX, NarratorCheck, RequestId, batch_end_line,
+    hello_line, model_answered_line, model_failed_line, reply_text,
 };
+
+use crate::agent_wall::AgentWall;
 use crate::config::{Kind, StoryConfig};
 use crate::model::{ModelCalls, ModelSpec};
 use crate::process::{self, RawLine, TooLong};
@@ -33,7 +33,6 @@ pub const NO_ANSWER: &str = "The Timeways story program did not answer in time."
 pub const TOO_LONG: &str = "The Timeways answer is too long for the game.";
 pub const OUT_OF_ORDER: &str = "The lines of the batch are in the wrong order.";
 pub const BAD_CHARACTER: &str = "The realm or the name of the character is too long.";
-pub const NO_SANDBOX: &str = "The Timeways story program runs with no sandbox here.";
 /// The folder of the story program, inside the Timeways folder of the data folder.
 pub const STORY_DIR: &str = "story";
 
@@ -338,18 +337,18 @@ impl Story {
     }
 
     fn check_version(&mut self, process: StoryProcess, protocol: u32) -> Life {
-        if protocol == app_protocol::VERSION {
+        if protocol == story_lines::VERSION {
             log("timeways: story program ready");
             return Life::Ready { process };
         }
-        let reason = if protocol > app_protocol::VERSION {
+        let reason = if protocol > story_lines::VERSION {
             UPDATE_BRIDGE
         } else {
             UPDATE_TIMEWAYS
         };
         log(&format!(
             "timeways: the story program speaks protocol {protocol}, the bridge speaks {}: {reason}",
-            app_protocol::VERSION
+            story_lines::VERSION
         ));
         drop(process);
         for waiting in self.take_all_waiting() {
@@ -578,7 +577,7 @@ fn make_story_folder(folder: &Path) -> std::io::Result<()> {
 
 fn read(line: RawLine) -> Result<FromStory, BadLine> {
     let bytes = line.map_err(|TooLong| BadLine::TooLong)?;
-    app_protocol::read_line(&bytes)
+    story_lines::read_line(&bytes)
 }
 
 enum Incoming {
@@ -628,7 +627,7 @@ impl StoryProcess {
         Ok(StoryProcess {
             child,
             to_story: write_lines(stdin),
-            lines: process::read_raw_lines(stdout, app_protocol::MAX_LINE),
+            lines: process::read_raw_lines(stdout, story_lines::MAX_LINE),
             stderr,
             stderr_done,
         })

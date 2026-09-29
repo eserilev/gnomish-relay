@@ -3,8 +3,8 @@
 //! newline and a tab. A `model_answered` line with it is one line of JSON.
 #![no_main]
 
-use bridge::app_protocol::{CallId, model_answered_line};
-use bridge::model::{MAX_ANSWER, clean_answer};
+use app_protocol::model_answer::{MAX_ANSWER, clean_answer};
+use app_protocol::story_lines::{CallId, model_answered_line};
 use bridge::model_local::read_answer;
 use libfuzzer_sys::fuzz_target;
 

@@ -55,7 +55,7 @@ fn decode(frame: &Frame) -> Result<Message, DecodeError>
 - Test names are sentences: `decode_rejects_strip_with_bad_mac`, not `test_decode_3`.
 - Each test reads top to bottom: arrange, act, assert. No shared magic fixtures across files.
 - Use the fake agent and the fake capture for bridge tests. No test needs the game or a real LLM, except tests marked `#[ignore]` for live runs.
-- Coverage gates (`scripts/check-coverage.sh`, run in CI): `protocol` 95% of lines, `bridge` 80%. The planned `agents` crate gets 80%.
+- Coverage gates (`scripts/check-coverage.sh`, run in CI): `protocol` 95% of lines, `app-protocol` 95%, `bridge` 80%. The planned `agents` crate gets 80%.
 - A bug fix starts with a failing test.
 
 ## The verified core (`crates/protocol`)

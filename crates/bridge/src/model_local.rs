@@ -14,7 +14,7 @@ use crate::agent::StopSignal;
 use crate::process::{self, Exchange};
 use crate::program::find_program;
 
-/// The JSON around an answer of `model::MAX_ANSWER` bytes fits many times over.
+/// The JSON around an answer of `model_answer::MAX_ANSWER` bytes fits many times over.
 pub const MAX_HTTP_ANSWER: usize = 256 * 1024;
 const PATH: &str = "/v1/chat/completions";
 
