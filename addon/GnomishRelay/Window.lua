@@ -544,7 +544,9 @@ local function BuildCenter()
 		if text == "" then
 			self:ClearFocus()
 		elseif Window.Send(text) then
+			-- The game gets its keys back, so a move key after a send moves the player.
 			self:SetText("")
+			self:ClearFocus()
 		end
 	end)
 	ui.input:SetScript("OnEscapePressed", function(self)

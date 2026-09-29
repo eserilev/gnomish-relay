@@ -2027,7 +2027,7 @@ The mockup is the reference for the layout.
   - If anything fails while a reply draws, it shows as plain text.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Errors:** an error comes from the relay, not from the agent. So it shows as a grey line `[Relay]: Not sent. Send it again.`, never under the name of the agent. Below it, a blue "Put the text back" link puts the text of its message back in the input, with the focus. Enter then sends it again. The link never sends by itself, so the player sees each text that goes out (6.6.1).
-- **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
+- **Input:** one empty line, with no label and no hint text. Enter sends, empties the line, and clears the focus, so the keys of the game work again. The limit is 3200 characters.
 - **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. At the bottom, a grey line gives the time to the next poll: "Next check in 12 s". The cast bar and this line change at most 5 times a second.
 - **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:

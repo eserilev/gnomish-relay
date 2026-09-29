@@ -702,6 +702,29 @@ fn a_message_too_long_for_a_strip_stays_in_the_box_and_starts_no_screenshots() {
 }
 
 #[test]
+fn enter_sends_and_gives_the_keys_back_to_the_game() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.run("GnomishRelayInput:SetFocus() GnomishRelayInput:SetText('run the tests')");
+
+    game.run("GnomishRelayInput:GetScript('OnEnterPressed')(GnomishRelayInput)");
+
+    assert!(first_message_id(&game) > 0);
+    assert!(
+        !game
+            .run("return GnomishRelayInput:HasFocus()")
+            .as_boolean()
+            .unwrap()
+    );
+    assert_eq!(
+        game.run("return GnomishRelayInput:GetText()")
+            .as_string_lossy()
+            .unwrap(),
+        ""
+    );
+}
+
+#[test]
 fn a_change_to_saved_data_after_a_send_does_not_change_the_strip() {
     let game = Game::start();
     game.send("the real task");
