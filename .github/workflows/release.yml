@@ -1,5 +1,5 @@
-# Builds the program for each OS on a version tag, and attaches it to a GitHub
-# Release with its SHA-256 sum (SPEC.md 11.3). scripts/install.sh and install.ps1
+# Tests the tagged commit, builds the program for each OS, and attaches it to a
+# GitHub Release with its SHA-256 sum (SPEC.md 11.3). scripts/install.sh and install.ps1
 # download from the latest release.
 name: release
 
@@ -11,8 +11,52 @@ permissions:
   contents: read
 
 jobs:
+  # The tag names the version that the program and the addon carry.
+  version:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - run: |
+          cargo=$(awk -F '"' '/^version = / { print $2; exit }' Cargo.toml)
+          toc=$(awk '/^## Version:/ { print $3 }' addon/GnomishRelay/GnomishRelay.toc)
+          if [ "$GITHUB_REF_NAME" != "v$cargo" ] || [ "$toc" != "$cargo" ]; then
+            echo "error: tag $GITHUB_REF_NAME, Cargo.toml $cargo, and GnomishRelay.toc $toc do not match" >&2
+            exit 1
+          fi
+
+  # A tag can point at a commit that CI never checked, so the release runs the tests itself.
+  test:
+    strategy:
+      fail-fast: true
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+          components: rustfmt, clippy
+      - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2
+        with:
+          tool: cargo-nextest
+      - run: cargo fmt --check
+      - run: cargo clippy --all-targets --locked -- -D warnings
+      # The same sandbox setup as ci.yml, so the sandbox tests run and do not skip.
+      - if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          echo "GNOMISH_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
+      - if: runner.os == 'macOS'
+        run: echo "GNOMISH_REQUIRE_SANDBOX_EXEC=1" >> "$GITHUB_ENV"
+      - run: cargo nextest run --locked --no-fail-fast
+      - run: cargo test --doc --locked
+
   # The release starts as a draft, so nobody downloads half of it.
   draft:
+    needs: [version, test]
     runs-on: ubuntu-latest
     permissions:
       contents: write
