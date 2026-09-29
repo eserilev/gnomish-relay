@@ -91,19 +91,34 @@ pub fn resolved_bytes(path: &Path) -> Vec<u8> {
     with_leading_slash(path_bytes(path))
 }
 
+/// More than the OS follows (40 on Linux, 32 on macOS, 63 on Windows). So a chain that
+/// gives `None` here is one that the OS refuses to open.
+const MAX_LINKS: usize = 64;
+
 /// `canonicalize` resolves every link. A new file resolves through its nearest folder
-/// that exists, so a write to a link inside the chat folder shows its real target. The
-/// missing parts cannot be links, because they do not exist. A `..` among them gives `None`.
+/// that exists, so a write to a link inside the chat folder shows its real target. A link
+/// to a missing file does not canonicalize, but a write creates its target, so the path
+/// resolves through the target. A `..` among the missing parts gives `None`.
 pub fn resolve(path: &Path) -> Option<PathBuf> {
+    resolve_within(path, MAX_LINKS)
+}
+
+fn resolve_within(path: &Path, links_left: usize) -> Option<PathBuf> {
     let mut missing = Vec::new();
-    let mut existing = path;
-    loop {
+    let mut existing = path.to_path_buf();
+    let real = loop {
         if let Ok(real) = existing.canonicalize() {
-            return Some(missing.iter().rev().fold(real, |p, part| p.join(part)));
+            break real;
         }
-        missing.push(existing.file_name()?);
-        existing = existing.parent()?;
-    }
+        if let Ok(target) = std::fs::read_link(&existing) {
+            // An absolute target takes the place of the folder in `join`.
+            let target = existing.parent()?.join(target);
+            break resolve_within(&target, links_left.checked_sub(1)?)?;
+        }
+        missing.push(existing.file_name()?.to_owned());
+        existing = existing.parent()?.to_path_buf();
+    };
+    Some(missing.iter().rev().fold(real, |p, part| p.join(part)))
 }
 
 /// Git on the host trusts every file in a `.git`: `commondir`, `config.worktree`, and
@@ -418,6 +433,52 @@ mod tests {
         std::os::unix::fs::symlink(&outside, f.chat.join("link")).unwrap();
         let v = classify_files(&f, &[], &[f.chat.join("link").join("x")]);
         assert_eq!(v, "desktop");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_through_a_link_to_a_missing_file_outside_is_desktop() {
+        let f = folders();
+        let outside = f.root.join("..").join(".bash_aliases");
+        std::os::unix::fs::symlink(&outside, f.chat.join("aliases")).unwrap();
+
+        let v = classify_files(&f, &[], &[f.chat.join("aliases")]);
+
+        assert_eq!(v, "desktop");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_through_a_relative_link_to_a_missing_file_in_the_config_folder_is_denied() {
+        let f = folders();
+        std::os::unix::fs::symlink("../../config/gnomish-relay/new.key", f.chat.join("key"))
+            .unwrap();
+
+        let v = classify_files(&f, &[], &[f.chat.join("key")]);
+
+        assert_eq!(v, "deny");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_missing_folder_resolves_the_rest_of_the_path_there() {
+        let f = folders();
+        let outside = f.root.join("gone");
+        std::os::unix::fs::symlink(&outside, f.chat.join("dir")).unwrap();
+
+        let real = resolve(&f.chat.join("dir").join("x"));
+
+        assert_eq!(real, Some(outside.join("x")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_loop_of_links_does_not_resolve() {
+        let f = folders();
+        std::os::unix::fs::symlink(f.chat.join("b"), f.chat.join("a")).unwrap();
+        std::os::unix::fs::symlink(f.chat.join("a"), f.chat.join("b")).unwrap();
+
+        assert_eq!(resolve(&f.chat.join("a")), None);
     }
 
     #[test]

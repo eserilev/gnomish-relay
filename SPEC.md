@@ -243,7 +243,7 @@ There are four answers, in this order from strict to open:
 **Input.** The bridge builds the input in `crates/bridge/src/action_input.rs`:
 
 - A file call carries its read paths and its write paths. A shell command carries its raw bytes and its working folder. Every other tool call is "unknown".
-- Each path is resolved with `canonicalize` at check time. A new file resolves through its folder. The path then has the form of `resolve_folder` (S5): it starts with `/`, it has no empty part, no `.` and no `..`, and no trailing `/`. On Windows the drive is the first part, for example `/C:/Users/x`. A path in any other form is `desktop`.
+- Each path is resolved with `canonicalize` at check time. A new file resolves through its folder. A link to a missing file resolves through its target, because a write creates the target: `chat/x` with `x -> ~/.bash_aliases` is a write of `~/.bash_aliases`. A chain of more than 64 links does not resolve; the OS refuses to open it too. The path then has the form of `resolve_folder` (S5): it starts with `/`, it has no empty part, no `.` and no `..`, and no trailing `/`. On Windows the drive is the first part, for example `/C:/Users/x`. A path in any other form is `desktop`.
 - The policy holds `allowed_roots`, the chat folder, the `deny` folders (the config folder and the data folder of the bridge, 12), the two lists of `desktop` patterns, and the allow table of the config.
 - The rules from the game are "always allow" rules (6.6.5). Each rule is the first words of a command: `cargo test` covers `cargo test -q`. An empty rule covers nothing.
 - A path or a command longer than 1 MiB is `desktop`.
