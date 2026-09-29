@@ -97,8 +97,19 @@ pub fn resolve(path: &Path) -> Option<PathBuf> {
     }
 }
 
+/// Git on the host trusts every file in a `.git`: `commondir`, `config.worktree`, and
+/// the config of a submodule each run code. A file tool never needs to write there. The
+/// sandbox cannot hide all of `.git`, because `git commit` writes it.
+const GIT_ENTRY: &str = ".git";
+
 fn patterns(list: &[&str]) -> Vec<Vec<u8>> {
     list.iter().map(|p| p.as_bytes().to_vec()).collect()
+}
+
+fn write_patterns() -> Vec<Vec<u8>> {
+    let mut list = patterns(DESKTOP_WRITES);
+    list.push(GIT_ENTRY.as_bytes().to_vec());
+    list
 }
 
 /// `roots`, `chat`, and `deny` are resolved. `deny` holds the config folder and the data
@@ -110,7 +121,7 @@ pub fn policy(roots: &[PathBuf], chat: &Path, deny: &[PathBuf], allow: &[Vec<Str
         chat: resolved_bytes(chat),
         deny_folders: deny.iter().map(|d| resolved_bytes(d)).collect(),
         desktop_paths: patterns(DESKTOP_PATHS),
-        desktop_writes: patterns(DESKTOP_WRITES),
+        desktop_writes: write_patterns(),
         allow: allow
             .iter()
             .map(|rule| rule.iter().map(|w| w.as_bytes().to_vec()).collect())
@@ -311,6 +322,32 @@ mod tests {
         std::fs::create_dir_all(f.chat.join(".git").join("hooks")).unwrap();
         let hook = f.chat.join(".git").join("hooks").join("pre-commit");
         assert_eq!(classify_files(&f, &[], &[hook]), "desktop");
+    }
+
+    #[test]
+    fn a_write_to_any_git_control_file_is_desktop() {
+        let f = folders();
+        std::fs::create_dir_all(f.chat.join(".git").join("modules").join("lib")).unwrap();
+        std::fs::create_dir_all(f.chat.join("sub")).unwrap();
+        for file in [
+            ".git/commondir",
+            ".git/config.worktree",
+            ".git/modules/lib/config",
+            ".git/modules/lib/hooks/post-checkout",
+            ".GIT/info/attributes",
+            "sub/.git",
+        ] {
+            let v = classify_files(&f, &[], &[f.chat.join(file)]);
+            assert_eq!(v, "desktop", "{file}");
+        }
+    }
+
+    #[test]
+    fn a_read_of_a_git_control_file_is_allowed() {
+        let f = folders();
+        std::fs::create_dir_all(f.chat.join(".git")).unwrap();
+        let v = classify_files(&f, &[f.chat.join(".git").join("commondir")], &[]);
+        assert_eq!(v, "allow");
     }
 
     #[test]
