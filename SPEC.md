@@ -859,10 +859,11 @@ The fuzz target `markdown` checks the same shape, escapes, and size bound on the
 
 **Poll schedule after a send:** the addon loads a slot at 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, and 300 seconds.
 Then it loads one every 60 seconds until the reply is done.
+While a run of the relay works (a `working` record), the relay loads one every 15 seconds. A permission popup waits for a poll, so it comes at most 15 seconds late, not 60. Activity shows "Next check in 12 s".
 With no message pending, it loads one slot every 10 minutes, for the status light. With notifications on and a terminal session open, it loads one every 3 minutes, and every 60 seconds while a terminal turn runs (10.4).
 A signal (7.4) makes the addon load a slot at once.
 
-**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). The polls for notifications cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
+**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). A working run costs 4 slots a minute, so the slots of a UI session last about 4 hours of agent work, and "Reload soon" covers the rest. The polls for notifications cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
 The window never shows the slot count. `/relay diag` shows it.
 Below 20 free slots, the window shows "Reload soon" with a **Reload** button, and the next click on **Send** or on the window does the `/reload` first.
 `ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat, and never on a key press that the user did not aim at the window.
@@ -2026,7 +2027,7 @@ The mockup is the reference for the layout.
   - If anything fails while a reply draws, it shows as plain text.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
-- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details.
+- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. At the bottom, a grey line gives the time to the next poll: "Next check in 12 s". The cast bar and this line change at most 5 times a second.
 - **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
   - **New Chats:** Agent, a dropdown of the agents in the settings list (13.4), and Level, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Max: <level> (set on the desktop)", the level of the chosen agent in the config.
@@ -2080,7 +2081,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 - `OnStatus` gets each record of a known message, also `working`. `OnOther` gets each record of no known message, and its result says whether the addon reports it as read (the session list of the relay).
 - `Control(chat, id, flags)` sends a record once, and starts a strip. `Riders` are records that go only with a strip that goes out anyway, for example the `d` records of the relay. A rider that started a strip would start one every second while the bridge is off. `d` is a coding flag (9.7, decision 6), so the deletes stay in `Transport.lua`.
 - `OnPoll(restore, live)` gets the other files of each slot. `Awaits` keeps the fast poll schedule while the app waits for a reply that is not a message.
-- `PollEvery` gives the seconds to the next poll while the app waits for something off the schedule, or nil. The default is nil, so Timeways does not change. The relay gives 5 while a desktop request waits (6.6.3).
+- `PollEvery` gives the seconds to the next poll while the app waits for something off the schedule, or nil. The default is nil, so Timeways does not change. The relay gives 5 while a desktop request waits (6.6.3), and 15 while a run works (7.3).
 - The title of the app starts each line of `Health.lua`, and `helloChat` is the chat of a hello.
 
 The folder also holds `JetBrainsMono-Regular.ttf`, the mono font of code boxes, with its license in `JetBrainsMono-OFL.txt` (SIL Open Font License 1.1). Setup installs both.

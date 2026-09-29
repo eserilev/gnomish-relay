@@ -33,6 +33,8 @@ local DESKTOP_HOW = { dialog = true, command = true }
 local RAISE_LEVELS = { ["auto-edit"] = true, ["full-auto"] = true }
 local DESKTOP_POLL = 5
 local DESKTOP_POLLS = 24
+-- A popup waits for the next poll, so a working run polls often. It costs 4 slots a minute.
+local WORKING_POLL = 15
 -- Enough to whisper once per request across a /reload, and small enough to stay small.
 local WHISPERED = 16
 
@@ -59,6 +61,7 @@ Transport.Online = Messages.Online
 Transport.NeedsReload = Messages.NeedsReload
 Transport.Problem = Messages.Problem
 Transport.Stats = Messages.Stats
+Transport.NextPollIn = Messages.NextPollIn
 Transport.Send = Messages.Send
 
 function Transport.Working(chatId)
@@ -353,6 +356,9 @@ local function PollEvery()
 		if count < DESKTOP_POLLS then
 			return DESKTOP_POLL
 		end
+	end
+	if next(state.working) then
+		return WORKING_POLL
 	end
 end
 

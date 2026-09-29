@@ -99,6 +99,10 @@ function Messages.Online()
 	return time() - state.lastNow < ONLINE_FOR
 end
 
+function Messages.NextPollIn()
+	return math.max(0, state.nextPoll - GetTime())
+end
+
 function Messages.NeedsReload()
 	return #Messages.Db().outbox > 0 or Messages.SlotsLeft() < LOW_SLOTS
 end

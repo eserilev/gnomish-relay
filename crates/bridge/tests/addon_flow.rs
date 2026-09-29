@@ -1075,7 +1075,27 @@ fn a_desktop_wait_polls_every_five_seconds_and_stops_after_24_polls() {
         fast, 23,
         "24 polls in all while the request waits: {gaps:?}"
     );
-    assert_eq!(gaps[fast], 60, "then the normal schedule: {gaps:?}");
+    assert_eq!(gaps[fast], 15, "then the polls of a working run: {gaps:?}");
+}
+
+#[test]
+fn a_working_run_polls_every_fifteen_seconds_and_activity_shows_the_next_check() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("a long job");
+    game.advance(1.0);
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    game.advance(400.0);
+
+    let gaps = poll_gaps(&game, 120);
+
+    assert!(gaps.iter().all(|g| *g == 15), "{gaps:?}");
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.iter().any(|t| t.starts_with("Next check in ")),
+        "{texts:?}"
+    );
 }
 
 /// The records of the last strip, read by the bridge from its screenshot.

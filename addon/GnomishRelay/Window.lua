@@ -9,6 +9,8 @@ local WIDTH, HEIGHT = 900, 560
 local SIDE = 200
 local TILE_HEIGHT = 48
 local STEP_ROWS = 14
+-- The cast bar text changes at most this often, in seconds.
+local CAST_UPDATE = 0.2
 local PICK_ROWS = 20
 local PICK_ROW_HEIGHT = 19
 local GREEN = "1eff00"
@@ -156,6 +158,19 @@ local function Elapsed(seconds)
 	return string.format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
 end
 
+-- Replies come only at a poll, so the player sees when the next one is.
+local function UpdateCast(chat)
+	local working = chat and ns.Transport.Working(chat.id)
+	ui.nextCheck:SetShown(working ~= nil)
+	if not working then
+		return
+	end
+	local elapsed = GetTime() - working.since
+	ui.cast:SetValue(elapsed % 10 / 10)
+	ui.cast.text:SetText("Tinkering " .. Elapsed(elapsed))
+	ui.nextCheck:SetText(string.format("Next check in %d s", math.ceil(ns.Transport.NextPollIn())))
+end
+
 local function RefreshActivity(chat)
 	local working = chat and ns.Transport.Working(chat.id)
 	ui.cast:SetShown(working ~= nil)
@@ -168,6 +183,7 @@ local function RefreshActivity(chat)
 		row.text:SetText(step and ns.Relay.Plain(step) or "")
 		row:SetShown(step ~= nil)
 	end
+	UpdateCast(chat)
 end
 
 local function RefreshStatus(chat)
@@ -543,7 +559,7 @@ local function BuildActivity()
 	title:SetText("Activity")
 	ui.activity = { panel, title }
 
-	ui.cast = CreateFrame("StatusBar", nil, panel)
+	ui.cast = CreateFrame("StatusBar", "GnomishRelayCast", panel)
 	ui.cast:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -8)
 	ui.cast:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -8)
 	ui.cast:SetHeight(16)
@@ -551,13 +567,12 @@ local function BuildActivity()
 	ui.cast:SetStatusBarColor(1, 0.7, 0)
 	ui.cast:SetMinMaxValues(0, 1)
 	ui.cast.text = Label(ui.cast, "GameFontHighlightSmall", "CENTER", 0, 0)
-	ui.cast:SetScript("OnUpdate", function(self)
-		local chat = Selected()
-		local working = chat and ns.Transport.Working(chat.id)
-		if working then
-			local elapsed = GetTime() - working.since
-			self:SetValue(elapsed % 10 / 10)
-			self.text:SetText("Tinkering " .. Elapsed(elapsed))
+	ui.nextCheck = Label(panel, "GameFontDisableSmall", "BOTTOMLEFT", 8, 8)
+	ui.cast:SetScript("OnUpdate", function(self, elapsed)
+		self.wait = (self.wait or 0) - elapsed
+		if self.wait <= 0 then
+			self.wait = CAST_UPDATE
+			UpdateCast(Selected())
 		end
 	end)
 	ui.cast:Hide()
