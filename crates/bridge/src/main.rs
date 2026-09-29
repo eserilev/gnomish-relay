@@ -160,10 +160,7 @@ fn autostart() -> Result<()> {
         let dir = launch_agents_dir()?;
         std::fs::create_dir_all(&dir)?;
         let name = format!("{}.plist", install::LAUNCHD_LABEL);
-        let log = home_dir()?
-            .join("Library")
-            .join("Logs")
-            .join("gnomish-relay.log");
+        let log = launchd_log()?;
         write_atomic(
             &dir,
             &name,
@@ -209,23 +206,93 @@ fn launchd_domain() -> Result<String> {
     Ok(format!("gui/{}", String::from_utf8(uid)?.trim()))
 }
 
+/// Where the bridge of each kind of start writes its log.
+enum BridgeLog {
+    Journal,
+    File(PathBuf),
+}
+
 /// Restarts the bridge through the login service of setup, or as a process with no
 /// service. `exe` is the program to start: after an update, `current_exe` names the
 /// old file.
 fn restart(exe: &Path) -> Result<()> {
+    // A service restart succeeds even when the new bridge stops at once on a bad config.
+    load_config().context(
+        "the bridge cannot start with this config.toml. Fix it, then run: gnomish-relay restart",
+    )?;
+    let log = restart_service(exe)?;
+    confirm_start(&log)
+}
+
+fn restart_service(exe: &Path) -> Result<BridgeLog> {
     if cfg!(target_os = "linux") && systemd_dir()?.join(SYSTEMD_UNIT).is_file() {
-        return command("systemctl", &["--user", "restart", SYSTEMD_UNIT]);
+        command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
+        return Ok(BridgeLog::Journal);
     }
     let plist = launch_agents_dir()?.join(format!("{}.plist", install::LAUNCHD_LABEL));
     if cfg!(target_os = "macos") && plist.is_file() {
         let service = format!("{}/{}", launchd_domain()?, install::LAUNCHD_LABEL);
-        return command("launchctl", &["kickstart", "-k", &service]);
+        command("launchctl", &["kickstart", "-k", &service])?;
+        return Ok(BridgeLog::File(launchd_log()?));
     }
-    restart_process(exe)
+    restart_process(exe).map(BridgeLog::File)
 }
 
-/// A bridge that runs with no service gets stopped, and then `exe` starts in the background.
-fn restart_process(exe: &Path) -> Result<()> {
+fn launchd_log() -> Result<PathBuf> {
+    Ok(home_dir()?
+        .join("Library")
+        .join("Logs")
+        .join("gnomish-relay.log"))
+}
+
+/// A bridge that stops at start holds the lock only for a moment, so the check waits a
+/// second after the lock and looks again.
+fn confirm_start(log: &BridgeLog) -> Result<()> {
+    let data = data_dir()?;
+    let runs = lock::wait_until_runs(&data, std::time::Duration::from_secs(10))? && {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        lock::status(&data)? != Bridge::Stopped
+    };
+    if runs {
+        println!("the bridge runs");
+        return Ok(());
+    }
+    match last_log_line(log) {
+        Some(line) => bail!("the bridge does not run. Its last log line: {line}"),
+        None => bail!("the bridge does not run, and its log is empty"),
+    }
+}
+
+fn last_log_line(log: &BridgeLog) -> Option<String> {
+    let text = match log {
+        BridgeLog::Journal => {
+            let args = [
+                "--user",
+                "-u",
+                SYSTEMD_UNIT,
+                "-n",
+                "1",
+                "--no-pager",
+                "-o",
+                "cat",
+            ];
+            let out = std::process::Command::new("journalctl")
+                .args(args)
+                .output()
+                .ok()?;
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        }
+        BridgeLog::File(path) => std::fs::read_to_string(path).ok()?,
+    };
+    text.lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(str::to_owned)
+}
+
+/// A bridge that runs with no service gets stopped, and then `exe` starts in the
+/// background. Returns the log file.
+fn restart_process(exe: &Path) -> Result<PathBuf> {
     let data = data_dir()?;
     std::fs::create_dir_all(&data)?;
     match lock::status(&data)? {
@@ -239,8 +306,8 @@ fn restart_process(exe: &Path) -> Result<()> {
         bail!("the bridge does not stop");
     }
     let log = start_background(exe)?;
-    println!("the bridge runs, and logs to {}", log.display());
-    Ok(())
+    println!("logs: {}", log.display());
+    Ok(log)
 }
 
 fn stop_process(pid: u32) -> Result<()> {
