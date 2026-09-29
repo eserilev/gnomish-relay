@@ -2314,7 +2314,7 @@ Write the model before the bridge state machine. The Rust state machine follows 
 - **Fake agent and fake capture** for the bridge loop. No test needs the game or a real LLM, except live tests marked `#[ignore]`.
 - **Coverage gates:** `protocol` 95% of lines, `bridge` and `agents` 80%.
 - **CI** on Linux, Windows, and macOS. CI runs everything except the live tests.
-- **CI time.** Each fuzz target runs in its own job for 15 seconds. The proofs and the model run only when `crates/protocol`, `proofs/`, or `models/` change (`scripts/ci-changes.sh`). A weekly run and the nightly run check everything. The rust jobs keep a build cache and run the tests with `cargo nextest`, which runs the test binaries side by side.
+- **CI time.** One fuzz job builds the targets once and runs each target for 5 seconds. The nightly run gives each target its own job and 600 seconds. The proofs and the model run only when `crates/protocol`, `proofs/`, or `models/` change (`scripts/ci-changes.sh`). A weekly run and the nightly run check everything. The rust jobs keep a build cache and run the tests with `cargo nextest`, which runs the test binaries side by side.
 
 #### 14.3.1 The self-test of the game
 

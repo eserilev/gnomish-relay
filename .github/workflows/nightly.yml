@@ -24,7 +24,14 @@ jobs:
         with:
           toolchain: nightly
       # From source: the prebuilt cargo-fuzz targets musl, and the sanitizer needs glibc.
-      - run: cargo install cargo-fuzz --version 0.13.2 --locked
+      # The cache keeps the built program, so only a new version builds it again.
+      - id: cargo-fuzz
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: cargo-fuzz-0.13.2-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.cargo-fuzz.outputs.cache-hit != 'true'
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
       - run: scripts/fuzz.sh 600 ${{ matrix.target }}
       - name: Keep the crash inputs
         if: failure()

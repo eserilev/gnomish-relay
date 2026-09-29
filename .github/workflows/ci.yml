@@ -120,21 +120,27 @@ jobs:
       - run: npm install -g @informalsystems/quint@0.32.0
       - run: scripts/check-model.sh
 
-  # One job per target, so they run side by side. Nightly runs each for 600 seconds.
+  # A smoke run: one build, and 5 seconds for each target. Nightly runs each for 600 seconds.
   fuzz:
-    strategy:
-      fail-fast: false
-      matrix:
-        target: [frame, records, folder, lua, lua_model, chat_text, popup, screenshot, relay, saved, config, live, restore, flags, acp, markdown, claude, codex, action, app_protocol, model_http, sandbox, connect, public_ip, always, agent_wall, rules_file, harness]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
           toolchain: nightly
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          workspaces: fuzz
       # From source: the prebuilt cargo-fuzz targets musl, and the sanitizer needs glibc.
-      - run: cargo install cargo-fuzz --version 0.13.2 --locked
-      - run: scripts/fuzz.sh 15 ${{ matrix.target }}
+      # The cache keeps the built program, so only a new version builds it again.
+      - id: cargo-fuzz
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: ~/.cargo/bin/cargo-fuzz
+          key: cargo-fuzz-0.13.2-${{ runner.os }}-${{ runner.arch }}
+      - if: steps.cargo-fuzz.outputs.cache-hit != 'true'
+        run: cargo install cargo-fuzz --version 0.13.2 --locked
+      - run: scripts/fuzz.sh 5
 
   proofs:
     needs: changes
