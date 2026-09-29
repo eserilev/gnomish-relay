@@ -26,7 +26,8 @@ local INDENT = ("\194\160"):rep(4)
 local ui = {}
 local width, viewHeight
 local contentHeight = 0
-local drawnKey
+-- What the scroll child shows now: the chat, the font size, and the entries drawn.
+local drawn = { count = 0 }
 
 local function NewPool(create)
 	return { free = {}, used = {}, create = create }
@@ -396,28 +397,38 @@ local function ScrollTo(offset)
 	ui.scroll:SetVerticalScroll(math.max(0, math.min(most, offset)))
 end
 
--- Drawing costs time, so a chat draws again only when its history or the font size changes.
-local function KeyOf(chat)
-	if not chat then
-		return "none"
+-- The drawn entries are still the start of the history. A history over its limit drops
+-- its first entry, and then the whole chat draws again.
+local function OnlyNewEntries(chat, history)
+	if drawn.chatId ~= (chat and chat.id) or drawn.fontSize ~= FontSize() then
+		return false
 	end
-	local history = chat.history
-	return table.concat({ chat.id, #history, tostring(history[#history]), FontSize() }, ":")
+	return drawn.count == 0 or (history[1] == drawn.first and history[drawn.count] == drawn.last)
 end
 
-function Transcript.Show(chat)
-	local key = KeyOf(chat)
-	if key == drawnKey then
-		return
-	end
-	drawnKey = key
+local function Clear(chat)
 	for _, pool in pairs(ui.pools) do
 		ReleaseAll(pool)
 	end
-	local y = 0
-	for _, entry in ipairs(chat and chat.history or {}) do
-		y = DrawEntry(chat, entry, y) + GAP
+	contentHeight = 0
+	drawn = { count = 0, chatId = chat and chat.id, fontSize = FontSize() }
+end
+
+-- Drawing costs time, so only new entries draw. The whole chat draws again only when
+-- the chat or the font size changes.
+function Transcript.Show(chat)
+	local history = chat and chat.history or {}
+	if not OnlyNewEntries(chat, history) then
+		Clear(chat)
 	end
+	if #history == drawn.count and drawn.count > 0 then
+		return
+	end
+	local y = contentHeight
+	for i = drawn.count + 1, #history do
+		y = DrawEntry(chat, history[i], y) + GAP
+	end
+	drawn.count, drawn.first, drawn.last = #history, history[1], history[#history]
 	contentHeight = y
 	ui.child:SetHeight(math.max(y, 1))
 	ScrollTo(y)

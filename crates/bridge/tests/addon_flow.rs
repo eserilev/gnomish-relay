@@ -539,6 +539,35 @@ fn the_window_shows_the_transcript_with_code_and_safe_pipes() {
 }
 
 #[test]
+fn a_new_entry_draws_below_the_old_ones_and_leaves_them_as_they_are() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("first");
+    let first = transcript(&game).remove(0).object;
+    let drawn_at: i64 = first.get("textAt").unwrap();
+    game.advance(1.0);
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        "ok",
+    )]);
+    game.advance(5.0);
+
+    let drawn = transcript(&game);
+    assert_eq!(
+        texts(&drawn),
+        ["|cff69ccf0[You]|r: first", "|cffff7d0a[Claude]|r: ok"]
+    );
+    assert_eq!(drawn[0].object, first);
+    assert_eq!(
+        first.get::<i64>("textAt").unwrap(),
+        drawn_at,
+        "no second draw"
+    );
+}
+
+#[test]
 fn a_click_on_the_whisper_link_opens_that_chat() {
     let game = Game::start();
     game.send("hi");
