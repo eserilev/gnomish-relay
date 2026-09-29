@@ -756,7 +756,7 @@ A `/reload` resets the globals of all addons together, so no holder stays from a
 - While an app waits, it signs nothing, and no show counts. So its 40-second retry timer and its 3 shows wait too, and a wait never starts the outbox.
 - A screenshot event ends a strip only when the app holds the corner and has called `Screenshot()`. So `out=shot` and `out=fail` report only the shots of the app.
 - A screenshot of the player during our shot can still end our strip early, because an event has no owner. This costs at most one early end or one wrong `out=` value, and the next retry covers it. So the addon does not try to match events to shots.
-- After 30 seconds of waiting, the app shows one line: "<title>: screenshots are blocked by another addon.". The window shows "Screenshots blocked". The line shows again only after the corner was free between. 30 seconds is two times the longest honest wait, and far below the 270-second limit of a signed frame.
+- After 30 seconds of waiting, the app shows one line: "<title>: screenshots are blocked by another addon. Turn off the addons that take screenshots, then type /reload." The window shows "Screenshots blocked". The line shows again only after the corner was free between. 30 seconds is two times the longest honest wait, and far below the 270-second limit of a signed frame.
 - A blocked app keeps waiting. It does not use the outbox: a hostile holder stays across every `/reload`, so the outbox would ask for a reload for each message.
 - Each app hooks the "Screen captured" text, and each hook hides the text of the shots of its own app only. A second `Hide` does nothing.
 
@@ -954,10 +954,10 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 
 **Self-test and health report.**
 
-- At login, the addon makes sure that each client function it needs exists (`Health.Required`). If one is missing, it shows one line, "Gnomish Relay: this game version has no <name>. The relay is off.", and starts nothing.
+- At login, the addon makes sure that each client function it needs exists (`Health.Required`). If one is missing, it shows one line, "Gnomish Relay: this game version has no <name>. The relay is off. On the desktop, run gnomish-relay update.", and starts nothing.
 - The first hello strip and the first poll test the two channels. `SCREENSHOT_SUCCEEDED` or `SCREENSHOT_FAILED` gives the result of each shot, and `LoadAddOn` gives the result of each slot.
 - Each strip carries the client build and the last result of each channel: `build=<number>`, `out=shot|fail`, and `in=slots|missing`.
-- When a channel starts to fail, the addon shows one line: "Gnomish Relay: screenshots are blocked." or "Gnomish Relay: slots are missing. Run gnomish-relay install with the game closed." The window shows the same state in the bridge light.
+- When a channel starts to fail, the addon shows one line: "Gnomish Relay: screenshots are blocked. Check the free disk space and the Screenshots folder, then type /reload." or "Gnomish Relay: slots are missing. Run gnomish-relay install with the game closed." The window shows the same state in the bridge light.
 - `/relay diag` shows the build and the last success of each channel. `gnomish-relay doctor` comes later.
 - Today each direction has one channel. A move to the next channel of the table comes with the second channel.
 

@@ -176,7 +176,12 @@ events:SetScript("OnEvent", function(_, event, name)
 	elseif event == "PLAYER_LOGIN" then
 		local missing = ns.Health.Missing()
 		if missing then
-			print(string.format("Gnomish Relay: this game version has no %s. The relay is off.", missing))
+			print(
+				string.format(
+					"Gnomish Relay: this game version has no %s. The relay is off. On the desktop, run gnomish-relay update.",
+					missing
+				)
+			)
 			return
 		end
 		if not ns.key then

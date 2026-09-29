@@ -965,7 +965,7 @@ fn two_addons_in_one_game_send_and_get_replies_through_their_own_messages() {
 /// Past the login hellos of both addons and their tails.
 const AFTER_HELLOS: f64 = 7.0;
 
-const BLOCKED_LINE: &str = "Gnomish Relay: screenshots are blocked by another addon.";
+const BLOCKED_LINE: &str = "Gnomish Relay: screenshots are blocked by another addon. Turn off the addons that take screenshots, then type /reload.";
 const HOSTILE_HOLDER: &str = "GnomishStripCorner = { holder = 'HostileStrip', endsAt = math.huge }";
 
 fn relay_send(ns: &Table, text: &str) {
@@ -1119,7 +1119,7 @@ fn a_hostile_holder_gives_one_blocked_line_before_the_frame_is_stale_and_no_relo
 fn the_blocked_line_shows_again_only_after_the_corner_was_free_between() {
     let game = Game::new();
     let timeways = game.timeways();
-    let line = "Timeways: screenshots are blocked by another addon.";
+    let line = "Timeways: screenshots are blocked by another addon. Turn off the addons that take screenshots, then type /reload.";
     game.run(HOSTILE_HOLDER);
     link_send(&timeways, "first");
     game.advance(100.0);

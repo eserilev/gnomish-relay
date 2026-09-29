@@ -49,7 +49,10 @@ function Health.Shot(ok)
 		status.out, status.outAt = "shot", time()
 	elseif status.out ~= "fail" then
 		status.out = "fail"
-		print(ns.App.title .. ": screenshots are blocked.")
+		print(
+			ns.App.title
+				.. ": screenshots are blocked. Check the free disk space and the Screenshots folder, then type /reload."
+		)
 	end
 end
 
@@ -57,7 +60,10 @@ end
 -- the bridge: while the corner is blocked, no strip reaches it.
 function Health.Corner(free)
 	if not free and not status.cornerBlocked then
-		print(ns.App.title .. ": screenshots are blocked by another addon.")
+		print(
+			ns.App.title
+				.. ": screenshots are blocked by another addon. Turn off the addons that take screenshots, then type /reload."
+		)
 	end
 	status.cornerBlocked = not free
 end

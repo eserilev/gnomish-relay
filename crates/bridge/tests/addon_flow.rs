@@ -1559,7 +1559,7 @@ fn a_client_without_a_required_function_turns_the_relay_off() {
     game.fire("PLAYER_LOGIN", ());
     assert!(
         game.printed().contains(
-            &"Gnomish Relay: this game version has no Screenshot. The relay is off.".into()
+            &"Gnomish Relay: this game version has no Screenshot. The relay is off. On the desktop, run gnomish-relay update.".into()
         ),
         "{:?}",
         game.printed()
@@ -1611,7 +1611,7 @@ fn blocked_screenshots_show_one_line_and_mark_the_window() {
     let blocked = game
         .printed()
         .iter()
-        .filter(|l| *l == "Gnomish Relay: screenshots are blocked.")
+        .filter(|l| *l == "Gnomish Relay: screenshots are blocked. Check the free disk space and the Screenshots folder, then type /reload.")
         .count();
     assert_eq!(blocked, 1);
     let problem: String = game
