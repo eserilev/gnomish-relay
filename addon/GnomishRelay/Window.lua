@@ -186,6 +186,16 @@ local function RefreshActivity(chat)
 	UpdateCast(chat)
 end
 
+-- Only a click on Reload reloads. A reload from Enter took the game away with no warning.
+local function BannerText(waiting)
+	if waiting == 1 then
+		return "Press Reload to send 1 message."
+	elseif waiting > 1 then
+		return string.format("Press Reload to send %d messages.", waiting)
+	end
+	return "Reload soon"
+end
+
 local function RefreshStatus(chat)
 	if chat then
 		ui.agent:SetText(ns.Relay.AgentName(chat.agent) .. " · " .. (chat.level or chat.mode))
@@ -211,9 +221,8 @@ local function RefreshStatus(chat)
 	else
 		ui.bridge:SetText("|cff9d9d9dBridge offline|r")
 	end
-	local outbox = #ns.Store.db.outbox > 0
 	ui.banner:SetShown(ns.Transport.NeedsReload())
-	ui.bannerText:SetText(outbox and "Reload to send" or "Reload soon")
+	ui.bannerText:SetText(BannerText(#ns.Store.db.outbox))
 end
 
 local function Age(seconds)
@@ -429,10 +438,6 @@ function Window.Send(text)
 		return false
 	end
 	Window.Refresh()
-	-- A click or Enter is a hardware event, the only time ReloadUI is allowed.
-	if ns.Transport.NeedsReload() and not InCombatLockdown() then
-		ReloadUI()
-	end
 	return true
 end
 
@@ -518,10 +523,11 @@ local function BuildCenter()
 
 	ns.Browser.Build(frame, left, width, 72)
 
-	ui.banner = CreateFrame("Frame", nil, frame)
+	ui.banner = CreateFrame("Frame", "GnomishRelayBanner", frame)
 	ui.banner:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left, 44)
 	ui.banner:SetSize(width, 24)
-	ui.bannerText = Label(ui.banner, "GameFontNormal", "LEFT", 6, 0)
+	ui.bannerText = ui.banner:CreateFontString("GnomishRelayBannerText", "OVERLAY", "GameFontNormal")
+	ui.bannerText:SetPoint("LEFT", ui.banner, "LEFT", 6, 0)
 	local reload = CreateFrame("Button", nil, ui.banner, "UIPanelButtonTemplate")
 	reload:SetSize(90, 22)
 	reload:SetPoint("RIGHT", ui.banner, "RIGHT", 0, 0)

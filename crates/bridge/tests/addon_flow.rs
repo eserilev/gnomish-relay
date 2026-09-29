@@ -405,8 +405,14 @@ fn an_unacknowledged_message_goes_to_the_outbox_as_a_signed_frame() {
     }
 }
 
+fn banner(game: &Game) -> String {
+    game.run("return GnomishRelayBanner:IsShown() and GnomishRelayBannerText:GetText() or ''")
+        .as_string_lossy()
+        .unwrap()
+}
+
 #[test]
-fn a_send_with_few_slots_left_reloads_but_never_in_combat() {
+fn a_send_with_few_slots_left_never_reloads_and_the_banner_asks_for_a_reload() {
     let low = |wow: &Table| {
         let loaded: Table = wow.get("loaded").unwrap();
         for n in 1..=985 {
@@ -414,13 +420,21 @@ fn a_send_with_few_slots_left_reloads_but_never_in_combat() {
         }
     };
     let game = Game::start_with(low);
-    game.send("one");
-    assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 1);
-
-    let game = Game::start_with(low);
-    game.wow.set("combat", true).unwrap();
+    game.run("local ns = ... ns.Window.Open()");
     game.send("one");
     assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 0);
+    assert_eq!(banner(&game), "Reload soon");
+}
+
+#[test]
+fn a_message_in_the_outbox_asks_for_a_click_on_reload() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("anyone there?");
+    game.advance(130.0);
+    game.send("and a second one");
+    assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 0);
+    assert_eq!(banner(&game), "Press Reload to send 1 message.");
 }
 
 #[test]

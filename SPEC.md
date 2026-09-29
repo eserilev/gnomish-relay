@@ -865,8 +865,8 @@ A signal (7.4) makes the addon load a slot at once.
 
 **Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). A working run costs 4 slots a minute, so the slots of a UI session last about 4 hours of agent work, and "Reload soon" covers the rest. The polls for notifications cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
 The window never shows the slot count. `/relay diag` shows it.
-Below 20 free slots, the window shows "Reload soon" with a **Reload** button, and the next click on **Send** or on the window does the `/reload` first.
-`ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat, and never on a key press that the user did not aim at the window.
+Below 20 free slots, the window shows "Reload soon" with a **Reload** button. Only a click on **Reload** reloads. A reload from Enter took the game away for seconds with no warning, so Send never reloads.
+`ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat.
 The chat history is in the saved variables, so a `/reload` keeps it.
 
 ### 7.4 Signals
@@ -899,7 +899,7 @@ Total file count for slots and signals: about 17,000.
 The addon uses the reload fallback when the strip gets no acknowledgment, the pool is empty, or the slots are missing.
 
 1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store. A frame counts only if the key of the app whose saved variables hold it signed it (9.7, decision 3).
-2. The addon asks the user to press a key. `ReloadUI` needs a hardware event, and the key catcher stays off in combat.
+2. The window shows "Press Reload to send 1 message." with a **Reload** button. `ReloadUI` needs a hardware event, and a click is one. The button does nothing in combat.
 3. WoW writes the saved variables file at reload.
 4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 250 ms).
 5. The bridge writes the reply into `GnomishRelay/Inbox.lua`. The main addon reads it at the next reload.
