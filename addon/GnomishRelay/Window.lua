@@ -55,8 +55,8 @@ local function Select(chatId)
 	Window.Refresh()
 end
 
-local function Inset(parent, left, top, width, bottom)
-	local inset = CreateFrame("Frame", nil, parent, "InsetFrameTemplate")
+local function Inset(parent, left, top, width, bottom, name)
+	local inset = CreateFrame("Frame", name, parent, "InsetFrameTemplate")
 	inset:SetPoint("TOPLEFT", parent, "TOPLEFT", left, top)
 	inset:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", left, bottom)
 	inset:SetWidth(width)
@@ -144,16 +144,29 @@ local function ShowTile(index, chat, selected)
 	tile:Show()
 end
 
+-- The column is 90 less than the window: 60 above it and 30 below.
+local function TileRows()
+	return math.floor((frame:GetHeight() - 90 - 12) / (TILE_HEIGHT + 4))
+end
+
+-- The column shows the tiles from `ui.tileOffset` on: the chats, New Chat, and Resume.
 local function RefreshTiles(current)
 	local chats = ns.Store.Chats()
 	local chatsTab = ui.tab == "chats" and not ui.picking
-	for i, chat in ipairs(chats) do
-		ShowTile(i, chat, chatsTab and current and chat.id == current.id)
-	end
-	ShowTile(#chats + 1, nil, false)
-	ShowResumeTile(#chats + 2)
-	for i = #chats + 3, #tiles do
-		tiles[i]:Hide()
+	local rows = TileRows()
+	ui.tileOffset = math.max(0, math.min(ui.tileOffset or 0, #chats + 2 - rows))
+	for slot = 1, math.max(rows, #tiles) do
+		local i = ui.tileOffset + slot
+		local chat = chats[i]
+		if slot > rows or i > #chats + 2 then
+			Tile(slot):Hide()
+		elseif chat then
+			ShowTile(slot, chat, chatsTab and current and chat.id == current.id)
+		elseif i == #chats + 1 then
+			ShowTile(slot, nil, false)
+		else
+			ShowResumeTile(slot)
+		end
 	end
 end
 
@@ -381,6 +394,8 @@ end
 -- The chat starts in the default folder. The folder button changes it (SPEC.md 9.9).
 function Window.NewChat()
 	local chat = ns.Store.NewChat()
+	-- The new tile is at the end of the column. RefreshTiles clamps the offset.
+	ui.tileOffset = math.huge
 	Select(chat.id)
 end
 
@@ -769,7 +784,12 @@ local function Build()
 		portrait:SetTexture(EMBLEM)
 	end
 
-	ui.chats = Inset(frame, 6, -60, SIDE, 30)
+	ui.chats = Inset(frame, 6, -60, SIDE, 30, "GnomishRelayChats")
+	ui.chats:EnableMouseWheel(true)
+	ui.chats:SetScript("OnMouseWheel", function(_, delta)
+		ui.tileOffset = (ui.tileOffset or 0) - delta
+		Window.Refresh()
+	end)
 	BuildCenter()
 	BuildActivity()
 	BuildConfirm()

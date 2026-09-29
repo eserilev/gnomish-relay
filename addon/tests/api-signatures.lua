@@ -721,6 +721,17 @@ return {
 				{ Name = "enable", Type = "bool", Nilable = false, Default = false },
 			},
 		},
+		["SimpleScriptRegionAPI:GetHeight"] = {
+			ConstSecretAccessor = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretWhenAnchoringSecret = true,
+			Arguments = {
+				{ Name = "ignoreRect", Type = "bool", Nilable = false, Default = false },
+			},
+			Returns = {
+				{ Name = "height", Type = "uiUnit", Nilable = false },
+			},
+		},
 		["SimpleScriptRegionAPI:GetWidth"] = {
 			ConstSecretAccessor = true,
 			SecretArguments = "AllowedWhenUntainted",

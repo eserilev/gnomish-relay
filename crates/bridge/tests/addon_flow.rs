@@ -624,6 +624,33 @@ fn a_message_in_the_outbox_shows_that_it_needs_a_reload() {
     assert_eq!(delivery(&game), ["|cff9d9d9dNeeds reload|r"]);
 }
 
+fn tile_name(game: &Game, slot: usize) -> Option<String> {
+    game.run(&format!(
+        "local t = GnomishRelayTile{slot} return t and t:IsShown() and t.name:GetText() or nil"
+    ))
+    .as_string_lossy()
+}
+
+#[test]
+fn the_mouse_wheel_scrolls_a_chat_list_longer_than_the_column() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open() for _ = 1, 12 do ns.Window.NewChat() end");
+    assert_eq!(
+        tile_name(&game, 1).as_deref(),
+        Some("Chat 7"),
+        "a new chat scrolls to the end"
+    );
+    assert_eq!(tile_name(&game, 8).as_deref(), Some("|cff1eff00Resume|r"));
+    assert_eq!(tile_name(&game, 9), None, "8 tiles fit in the column");
+
+    game.run(
+        "for _ = 1, 10 do GnomishRelayChats:GetScript('OnMouseWheel')(GnomishRelayChats, 1) end",
+    );
+
+    assert_eq!(tile_name(&game, 1).as_deref(), Some("Chat 1"));
+    assert_eq!(tile_name(&game, 8).as_deref(), Some("Chat 8"));
+}
+
 #[test]
 fn a_click_on_the_whisper_link_opens_that_chat() {
     let game = Game::start();
