@@ -10,9 +10,14 @@ permissions:
   contents: read
 
 jobs:
+  # One job per target, so they run side by side: 10 minutes each, not 4 hours in a row.
   fuzz:
+    strategy:
+      fail-fast: false
+      matrix:
+        target: [frame, records, folder, lua, lua_model, chat_text, popup, screenshot, relay, saved, config, live, restore, flags, acp, markdown, claude, codex, action, app_protocol, model_http, sandbox, connect, public_ip, always, agent_wall, rules_file, harness]
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
@@ -20,12 +25,12 @@ jobs:
           toolchain: nightly
       # From source: the prebuilt cargo-fuzz targets musl, and the sanitizer needs glibc.
       - run: cargo install cargo-fuzz --version 0.13.2 --locked
-      - run: scripts/fuzz.sh 600
+      - run: scripts/fuzz.sh 600 ${{ matrix.target }}
       - name: Keep the crash inputs
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: fuzz-artifacts
+          name: fuzz-${{ matrix.target }}
           path: fuzz/artifacts
 
   # Blizzard patches the client without notice. This job checks the addon against
