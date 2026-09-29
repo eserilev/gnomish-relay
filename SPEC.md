@@ -791,7 +791,7 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 
 Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with four files:
 
-- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the three Lua file names.
+- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, a grey `## Title` ("Gnomish Relay reply slot NNNN (leave on)"), `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the three Lua file names. The AddOns list of the game shows all 1000 slots, so the title says what they are and that the player leaves them on.
 - `Inbox.lua`: the body.
 - `Restore.lua`: the restore bundle (7.6). With no restore, its token is empty, and no addon takes it.
 - `Live.lua`: the progress lines of each run, and the permission requests for the game (9.3, S20, S21).
