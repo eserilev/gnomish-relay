@@ -1458,7 +1458,7 @@ The bridge and the story program of Timeways talk in JSON lines: one JSON object
 
 - One JSON object, at most 4 KiB, with a string `type` of 1 to 32 bytes of `[a-z_]`.
 - No `id` key. The bridge adds `id`, never the addon.
-- No control character in any string or key. Nesting depth at most 4 (a flat object is 1). At most 64 keys in all.
+- No control character in any string or key. A line break is a control character, so an addon joins game text onto one line before it sends it. Nesting depth at most 4 (a flat object is 1). At most 64 keys in all.
 - Three types keep an exact shape (`deny_unknown_fields`, a key twice is an error):
 
 | `type` | Fields | Checks |
