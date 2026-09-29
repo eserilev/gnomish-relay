@@ -1,6 +1,6 @@
 # Gnomish Relay: Specification
 
-Status: draft 4, 2026-09-29. Section 15 shows what is built.
+Status: draft 4, 2026-09-29. Section 15 shows what is built. "Not planned now" marks a part with no owner and no date. Its text stays as a design note.
 Draft 2 applies a review against the `wow-claude` source code.
 Draft 3 applies the spike results in `spikes/README.md`: the strip goes out through `Screenshot()`, and `.wav` signals do not work.
 Draft 4 makes the spec match the code where they disagreed, and marks the parts that are not built.
@@ -2108,6 +2108,8 @@ Slash commands:
 
 ### 13.3 Voice (later)
 
+**Not planned now.** Nobody owns voice, and it has no date. The text below is a design note.
+
 Voice comes after the ACP backend (step 9), because it needs a real agent to be useful.
 Both directions run on the bridge side. The WoW client gives addons no microphone, and no speech-to-text API.
 
@@ -2447,7 +2449,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 10. **Done: "Always allow" (6.6.5, 9.3).** One click in the game adds a rule that the sandbox bounds, with S36 to S39 proved. The Settings tab and `gnomish-relay rules` list and remove the rules.
 11. **Notifications from terminal sessions (section 10).** **Done:** the pure parts in `protocol`, with S40, S41, and S20 restated. **Next:** the rest. Approved on 2026-09-28: the hook subcommand, the spool folder, one notice for each session with S40 and S41, the notices in `Live.lua` (S20 restated), the bell at the minimap, and `hooks install`. No `note` signal: signals do not work (7.4).
 12. **Done: a generic backend for any LLM coding harness (9.2).** `acp` for any harness that speaks ACP, the `claude` and `codex` backends, and `command` for a harness that has only a command line, inside the sandbox, with presets for aider, gemini, opencode, goose, and llm. **Next:** a live test of each preset with the real tool.
-13. **Voice (13.3).** Voice output first, then push-to-talk with its privacy rules.
+13. **Voice (13.3). Not planned now.** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
 15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 8, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. Step 8 is setup for two apps (9.7, decision 15) and the version range of each app (7.7, S30). **Next:** a loopback in the real game, when Timeways ships an addon build.
 16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Done:** the agent process behind the proxy on Linux (6.6.4, "The agent process behind the proxy"), `local_ports`, and one sandbox for each run. S33 to S35 are proved. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
@@ -2466,10 +2468,10 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
 - When can Windows get a sandbox for the commands of Claude (6.6.4, "Windows")? Try the AppContainer again when `msys-2.0.dll` starts in an AppContainer (microsoft/mxc issue 1061), or when Claude Code runs its commands through a shell other than MSYS2.
 - What does `permissions.<profile>.filesystem.deny_read` of Codex take, so that Codex can hide the `deny` and `desktop` paths (6.6.4)?
-- Does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
-- Can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?
+- Not planned now (voice, 13.3): does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
+- Not planned now (voice, 13.3): can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?
 - Two WoW accounts on one computer have two tokens. A hello from the second account starts a restore, and its `restored` flag retires the first token. How does the bridge tell two accounts from a saved-data wipe?
-- Can font files replace the `.wav` signals?
+- Not planned now: can font files replace the `.wav` signals? The slot polls of 7.3 work without signals.
 - How fast is HMAC-SHA256 in WoW Lua for a 3200-byte strip?
 - Does Gemini CLI have hooks for notifications?
 - How large is the hitch at a higher window size? (The "Screen captured" hide works.)
