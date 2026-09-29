@@ -154,7 +154,7 @@ The trust of "always allow" (6.6.5) rests on layers 2 to 4. It never rests on la
 - The addon keeps the text of each open message in its private table (`ns`), not only in `GnomishRelayDB`.
 - When the user sends a message, the addon signs it at once. It stores the signed frame and its time in `GnomishRelayDB`, next to the text.
 - After a `/reload`, the addon sends only frames with a valid tag. It never signs text that it reads back from `GnomishRelayDB`.
-- A stored frame or an outbox frame older than 270 seconds is too old for the bridge (S11 allows 300). The message then ends with "Not sent. Send it again.", and the user decides.
+- A stored frame or an outbox frame older than 270 seconds is too old for the bridge (S11 allows 300). The message then ends with "Not sent. Send it again.", and the user decides. While the bridge is offline (7.4), the text is "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart."
 - An outbox entry (7.5) is the same signed frame. The bridge checks the tag, the time, and the replay store for it (S2, S11, S7), as for a strip.
 - A permission answer carries a hash of the exact text that the popup showed: `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256, in hex. The bridge refuses an answer whose hash does not match its own text of the request.
 
@@ -887,7 +887,7 @@ The addon checks a signal every 2 seconds with `PlaySoundFile` on a muted channe
 - Rule 5 in 7.2 makes each signal one-shot until the game restarts. After the message ids wrap past 200, a signal can already be valid. The addon treats an unexpected "valid" as unreliable and uses the poll schedule.
 - `presence` and `note` are counters. The bridge keeps 50 files ahead of the counter empty. The counters live in `state.json`. `presence` wraps after about 16 hours.
 - **Self-test:** at login, the addon plays `ctl/empty` and `ctl/valid`. If `ctl/empty` plays, or `ctl/valid` does not, signals are off for this session. The addon then uses slot polls only.
-- **Status light:** with presence signals, 90 seconds of silence means "stale" and 300 seconds means "down". Without them, the addon spends one slot every 10 minutes, and the limits are 12 and 22 minutes.
+- **Status light:** with presence signals, 90 seconds of silence means "stale" and 300 seconds means "down". Without them, the addon reads the `now` of each body that it loads. The bridge writes a body at least every 60 seconds. So a body older than 150 seconds at its poll means "offline", at once. A player who sends a message then learns within 5 seconds that the bridge stopped. With no body for 12 minutes, the light is offline too.
 
 Total file count for slots and signals: about 17,000.
 
@@ -1855,7 +1855,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - At each start, the bridge writes `Key.lua` again if it is missing, and the addon files again if their version differs. An addon app such as CurseForge can replace the folder, and a `/reload` then loads the files.
 - At each start, the bridge also writes the Timeways `Key.lua` again when it is missing or old, and only that file. It never makes a Timeways key: that is the job of setup.
 - With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay".
-- With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running."
+- With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart."
 - Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude needs a login. Run: claude"), not as the first reply in the game.
 
 **Updates and restarts.**

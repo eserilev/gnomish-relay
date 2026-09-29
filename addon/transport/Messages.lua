@@ -14,6 +14,8 @@ local RETRY = 40
 local LATE_POLL = 60
 local IDLE_POLL = 600
 local ONLINE_FOR = 720
+-- The bridge writes a body every 60 s. A body this old at its poll means it stopped.
+local STALE = 150
 local SCHEDULE = { 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, 300 }
 local PROTO = 1
 -- Room for the flags of Report(): `next`, `read` with up to 30 ids, `restored`, and
@@ -21,6 +23,7 @@ local PROTO = 1
 local REPORT_ROOM = 440
 local TOO_LONG = "Too long to send."
 local NOT_SENT = "Not sent. Send it again."
+local BRIDGE_OFF = "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart."
 -- The bridge accepts a frame up to 300 s old (S11). Keep a margin for the screenshot.
 local FRESH_FOR = 270
 -- A later body can still hold the final reply of an answered message. The default store
@@ -41,6 +44,8 @@ local state = {
 	-- from here, never from the saved variables, which any addon can change (SPEC.md 6.6.1).
 	private = {},
 	lastNow = nil,
+	-- The age of the last body when the addon loaded it.
+	bodyAge = nil,
 	missing = false,
 	mismatch = false,
 }
@@ -84,7 +89,10 @@ function Messages.SlotsLeft()
 end
 
 function Messages.Online()
-	return state.lastNow ~= nil and time() - state.lastNow < ONLINE_FOR
+	if state.lastNow == nil or state.bodyAge >= STALE then
+		return false
+	end
+	return time() - state.lastNow < ONLINE_FOR
 end
 
 function Messages.NeedsReload()
@@ -157,6 +165,13 @@ local function Sign(records, frameId)
 	return ns.Codec.Frame(time(), frameId, ns.Codec.Payload(records), ns.key)
 end
 
+local function NotSent()
+	if not Messages.Online() then
+		return BRIDGE_OFF
+	end
+	return NOT_SENT
+end
+
 -- The message ends as an error at once, so it never retries forever.
 local function GiveUp(item, text)
 	if item.message.answered then
@@ -200,7 +215,7 @@ local function ExpireOutbox(item)
 	if not entry or time() - entry.at >= FRESH_FOR then
 		RemoveFromOutbox(chatId, item.message.id)
 		item.message.outbox = nil
-		GiveUp(item, NOT_SENT)
+		GiveUp(item, NotSent())
 	end
 end
 
@@ -218,7 +233,7 @@ local function Due(now)
 		elseif message.acked then
 			item.record = nil
 		elseif not item.record and time() - (message.signedAt or 0) >= FRESH_FOR then
-			GiveUp(item, NOT_SENT)
+			GiveUp(item, NotSent())
 		elseif not shown or now - shown.at >= RETRY then
 			if shown and shown.count >= SHOWS then
 				if item.record then
@@ -404,7 +419,8 @@ local function Apply(data)
 		return
 	end
 	state.mismatch = false
-	state.lastNow = data.now
+	state.lastNow = tonumber(data.now)
+	state.bodyAge = state.lastNow and time() - state.lastNow
 	local done = {}
 	for _, r in ipairs(data.replies or {}) do
 		ApplyReply(r, done)

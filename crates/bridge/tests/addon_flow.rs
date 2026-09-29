@@ -198,9 +198,10 @@ impl Game {
         self.strip(self.shots())
     }
 
-    /// Puts a body into every slot, as the bridge does.
+    /// Puts a body into every slot, as the bridge does, with the time of the game.
     fn publish(&self, replies: &[Reply]) {
-        let body = slot_body(App::Relay, 1_790_211_079, &prepare_replies(replies));
+        let now = u32::try_from(self.run("return time()").as_integer().unwrap()).unwrap();
+        let body = slot_body(App::Relay, now, &prepare_replies(replies));
         self.wow
             .set("body", self.lua.create_string(body).unwrap())
             .unwrap();
@@ -674,10 +675,7 @@ fn an_outbox_frame_that_the_bridge_never_takes_asks_to_be_sent_again() {
     game.send("stuck in the outbox");
     let game = game.reload();
     game.advance(300.0);
-    assert_eq!(
-        last_entry(&game).get::<String>("text").unwrap(),
-        "Not sent. Send it again."
-    );
+    assert_eq!(last_entry(&game).get::<String>("text").unwrap(), BRIDGE_OFF);
 }
 
 #[test]
@@ -686,11 +684,47 @@ fn a_stored_frame_too_old_at_login_asks_to_be_sent_again() {
     game.send("sent before a long break");
     game.advance(1.0);
     let game = game.reload_after(300);
+    game.publish(&[]);
+    game.run("local ns = ... ns.Transport.Poll()");
     game.advance(2.0);
     assert_eq!(
         last_entry(&game).get::<String>("text").unwrap(),
         "Not sent. Send it again."
     );
+}
+
+const BRIDGE_OFF: &str =
+    "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart.";
+
+#[test]
+fn a_message_given_up_while_the_bridge_is_off_says_how_to_start_it() {
+    let game = Game::start();
+    game.send("nobody home");
+    game.advance(1.0);
+    let game = game.reload_after(300);
+    game.advance(2.0);
+    assert_eq!(last_entry(&game).get::<String>("text").unwrap(), BRIDGE_OFF);
+}
+
+fn online(game: &Game) -> bool {
+    game.run("local ns = ... return ns.Transport.Online()")
+        .as_boolean()
+        .unwrap()
+}
+
+#[test]
+fn a_body_older_than_150_seconds_at_its_poll_shows_the_bridge_offline() {
+    let game = Game::start();
+    game.publish(&[]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(online(&game));
+
+    game.advance(149.0);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(online(&game), "a body 149 s old is fresh");
+    game.advance(2.0);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(!online(&game), "a body 151 s old means the bridge stopped");
 }
 
 #[test]
@@ -1582,16 +1616,14 @@ fn an_addon_with_no_key_asks_for_setup() {
     );
 }
 
+const SILENT_LINE: &str =
+    "Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart.";
+
 #[test]
 fn a_silent_bridge_shows_one_line_a_minute_after_login() {
     let game = Game::start();
     game.advance(59.0);
-    let silent = |game: &Game| {
-        game.printed()
-            .iter()
-            .filter(|l| *l == "Gnomish Relay: bridge not running.")
-            .count()
-    };
+    let silent = |game: &Game| game.printed().iter().filter(|l| *l == SILENT_LINE).count();
     assert_eq!(silent(&game), 0);
     game.advance(120.0);
     assert_eq!(silent(&game), 1);
@@ -1602,12 +1634,7 @@ fn a_bridge_that_answers_gets_no_line() {
     let game = Game::start();
     game.publish(&[]);
     game.advance(120.0);
-    assert!(
-        !game
-            .printed()
-            .iter()
-            .any(|l| l == "Gnomish Relay: bridge not running.")
-    );
+    assert!(!game.printed().iter().any(|l| l == SILENT_LINE));
 }
 
 #[test]
@@ -2722,7 +2749,8 @@ fn the_status_line_shows_the_age_of_the_list_and_the_state_of_the_bridge() {
     );
 
     game.advance(500.0);
-    game.run("local ns = ... ns.Window.Refresh()");
+    game.publish(&[reply("settings", 99, Status::Done, &settings_text(false))]);
+    game.run("local ns = ... ns.Transport.Poll() ns.Window.Refresh()");
     assert_eq!(
         text_of(&game, "GnomishRelaySettingsStatus.text:GetText()"),
         "|cffff9f40Online · 10m ago|r",

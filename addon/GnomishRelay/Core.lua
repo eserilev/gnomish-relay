@@ -199,7 +199,7 @@ events:SetScript("OnEvent", function(_, event, name)
 		C_Timer.NewTicker(1, ns.Transport.Tick)
 		C_Timer.After(BRIDGE_WAIT, function()
 			if not ns.Transport.Online() then
-				print("Gnomish Relay: bridge not running.")
+				print("Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart.")
 			end
 		end)
 	end

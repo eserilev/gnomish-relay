@@ -850,7 +850,10 @@ fn an_outbox_frame_of_the_test_addon_that_the_bridge_never_takes_gives_up_throug
     link_send(&timeways, "look around");
     game.advance(400.0);
 
-    assert_eq!(replies(&timeways), ["error: Not sent. Send it again."]);
+    assert_eq!(
+        replies(&timeways),
+        ["error: Not sent: the bridge is not running. On the desktop, run gnomish-relay restart."]
+    );
     let outbox: Table = game.timeways_db().get("outbox").unwrap();
     assert_eq!(outbox.raw_len(), 0);
 }
