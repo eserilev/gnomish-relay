@@ -23,11 +23,11 @@ pub enum NewFolderError {
 impl NewFolderError {
     pub fn text(&self) -> String {
         match self {
-            NewFolderError::BadName => "Folder not made: bad name.".into(),
-            NewFolderError::NoParent => "Folder not made: its parent is missing.".into(),
-            NewFolderError::OutsideRoots => "Folder not made: not in the allowed roots.".into(),
-            NewFolderError::NotAllowed => "Folder not made: not allowed.".into(),
-            NewFolderError::NotAFolder => "Folder not made: a file has its name.".into(),
+            NewFolderError::BadName => "Folder not made: bad name. Use a name with no / or \\.".into(),
+            NewFolderError::NoParent => "Folder not made: its parent is missing. Pick a folder that exists.".into(),
+            NewFolderError::OutsideRoots => "Folder not made: not in the allowed roots. Pick a folder inside allowed_roots of config.toml.".into(),
+            NewFolderError::NotAllowed => "Folder not made: not allowed. Pick another folder.".into(),
+            NewFolderError::NotAFolder => "Folder not made: a file has its name. Pick another name.".into(),
             NewFolderError::Failed(e) => format!("Folder not made: {e}"),
         }
     }
@@ -226,5 +226,20 @@ mod tests {
             all.iter().map(NewFolderError::text).collect();
         assert_eq!(texts.len(), all.len());
         assert!(texts.iter().all(|t| t.starts_with("Folder not made")));
+    }
+
+    #[test]
+    fn each_refusal_of_the_bridge_says_what_to_do_next() {
+        let refusals = [
+            NewFolderError::BadName,
+            NewFolderError::NoParent,
+            NewFolderError::OutsideRoots,
+            NewFolderError::NotAllowed,
+            NewFolderError::NotAFolder,
+        ];
+        for refusal in refusals {
+            let text = refusal.text();
+            assert!(text.contains(" Pick ") || text.contains(" Use "), "{text}");
+        }
     }
 }

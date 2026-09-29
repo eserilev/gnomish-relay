@@ -21,7 +21,7 @@ use protocol::version::version_fit;
 use crate::action_input::resolve;
 use crate::folder_walk::{self, Snapshot, Walk};
 use crate::new_folder::make_folder;
-use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
+use crate::relay::{BAD_AGENT, ChatId, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::settings_list::BridgeSettings;
@@ -408,7 +408,7 @@ impl RelayLane {
         // The policy refuses an agent that the config does not have, so this is a guard.
         let Some(agent) = self.agents.get(&job.agent).map(Arc::clone) else {
             let run = Run {
-                reply: Err("Agent not set up.".into()),
+                reply: Err(BAD_AGENT.into()),
                 session: None,
             };
             let _ = finished.send(Finished::Run(job, run));

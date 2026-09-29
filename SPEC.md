@@ -714,7 +714,7 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 | `list=settings` | Asks for the settings list of the bridge (13.4). The record is a message of the chat `settings`, and the reply is the list. |
 | `mkdir=1` | The folder of the record is a new folder. The bridge makes its last part before the run (9.9). Only a record with `n` makes it. Any other `mkdir=` value is ignored. |
 | `attach=<session>` | The first message of a resumed chat. It has no text. The session must be in the last list (9.6). |
-| `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not set up." |
+| `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop." |
 | `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
 | `read=<id>,<id>` | The final replies in the last body that the addon has shown. The bridge then takes them out of the slot body (7.3). A lost strip loses nothing: the next strip names them again. |
@@ -1209,7 +1209,7 @@ modes = { ask = "default" }
 
 Then run `gnomish-relay check-agent gemini`. It starts the agent, opens one session in `default_cwd`, and shows the name, the version, whether it resumes sessions, and its mode ids. It fails if a mode in `modes` does not exist.
 For `kind = "claude"`, `check-agent` runs `claude --version` and `claude auth status --json`, with no model call. It fails with "Claude Code needs a login." when `loggedIn` is not true.
-The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "Agent not set up.".
+The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop."
 `kind = "echo"` answers with the message, for a test of the path through the game with no agent.
 
 ### 9.3 Permissions
