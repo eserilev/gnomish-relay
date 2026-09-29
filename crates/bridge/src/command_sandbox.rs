@@ -26,8 +26,8 @@ pub const RUN_FLAG: &str = "--sandbox-run";
 pub const WALLS_VAR: &str = "GNOMISH_RELAY_SANDBOX";
 /// The wrapper writes it into the temp folder, so the bridge sees that the wrapper ran.
 const MARKER: &str = ".gnomish-relay-sandbox";
-/// A folder with more is too large to check at the start of each run.
-const MAX_WALK: usize = 1_000_000;
+/// A walk that takes longer gets a log line, so a slow start has a cause in the log.
+const SLOW_WALK: std::time::Duration = std::time::Duration::from_secs(5);
 /// Git outside the sandbox runs what these name, so a git folder in the chat folder hides
 /// them. `commondir` points a linked worktree at its repository.
 const GIT_FOLDER_GUARDED: [&str; 4] = ["config", "hooks", "commondir", "config.worktree"];
@@ -328,7 +328,11 @@ pub fn prepare_shaped(
         ChatAccess::Read => (vec![temp_path.clone()], vec![chat.clone()]),
     };
     check_wrapper(&sandbox.wrapper, &[chat.clone(), temp_path.clone()])?;
+    let started = std::time::Instant::now();
     let scan = scan_chat(&policy, &chat)?;
+    if let Some(note) = slow_walk_note(started.elapsed(), scan.entries) {
+        crate::run::log(&note);
+    }
     let mut in_chat = scan.hidden;
     in_chat.extend(shape.more_hidden.iter().cloned());
     let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), in_chat);
@@ -617,6 +621,7 @@ fn could_match(name: &str, lasts: &[String]) -> bool {
 struct ChatScan {
     hidden: Vec<PathBuf>,
     pinned: Vec<PathBuf>,
+    entries: usize,
 }
 
 /// macOS sees `.GIT` as `.git`.
@@ -639,7 +644,6 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
     let lasts = last_parts();
     let mut scan = ChatScan::default();
     let mut folders = vec![chat.to_path_buf()];
-    let mut seen = 0;
     while let Some(folder) = folders.pop() {
         if is_git_folder(chat, &folder) {
             for name in GIT_FOLDER_GUARDED {
@@ -647,12 +651,7 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
             }
         }
         for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
-            seen += 1;
-            if seen > MAX_WALK {
-                return Err(format!(
-                    "The chat folder holds more than {MAX_WALK} files and folders, more than the sandbox checks."
-                ));
-            }
+            scan.entries += 1;
             let path = entry.path();
             let name = entry.file_name();
             let kind = entry
@@ -675,6 +674,16 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
         }
     }
     Ok(scan)
+}
+
+fn slow_walk_note(took: std::time::Duration, entries: usize) -> Option<String> {
+    if took < SLOW_WALK {
+        return None;
+    }
+    Some(format!(
+        "sandbox: the walk of the chat folder took {} s for {entries} entries",
+        took.as_secs()
+    ))
 }
 
 /// Runs at the same time share the file, so each one only makes it when it is missing.
@@ -1204,6 +1213,43 @@ mod tests {
         let run = run_walls(&h, &h.chat).unwrap();
 
         assert!(run.walls.hidden.contains(&secret));
+    }
+
+    #[test]
+    #[ignore = "slow: makes a million files"]
+    fn a_chat_folder_with_more_than_a_million_entries_gets_a_run() {
+        let h = folders();
+        let build = h.chat.join("target");
+        for folder in 0..1000 {
+            let folder = build.join(folder.to_string());
+            std::fs::create_dir_all(&folder).unwrap();
+            for file in 0..1000 {
+                std::fs::File::create(folder.join(file.to_string())).unwrap();
+            }
+        }
+        std::fs::write(build.join("999/.env"), "TOKEN=3").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        assert!(run.walls.hidden.contains(&build.join("999/.env")));
+    }
+
+    #[test]
+    fn a_fast_walk_gets_no_log_line() {
+        assert_eq!(
+            slow_walk_note(std::time::Duration::from_millis(4999), 10),
+            None
+        );
+    }
+
+    #[test]
+    fn a_slow_walk_logs_its_time_and_its_entries() {
+        let note = slow_walk_note(std::time::Duration::from_secs(7), 3_000_000).unwrap();
+
+        assert_eq!(
+            note,
+            "sandbox: the walk of the chat folder took 7 s for 3000000 entries"
+        );
     }
 
     #[test]
