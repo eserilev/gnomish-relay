@@ -816,6 +816,38 @@ pub type Found<'a> = (&'a str, Kind, &'a [&'a str]);
 mod tests {
     use super::*;
 
+    /// The TOML code blocks of one section of SPEC.md, in their order.
+    fn spec_toml_blocks(section: &str) -> Vec<String> {
+        let spec = include_str!("../../../SPEC.md");
+        let start = spec.find(section).unwrap();
+        let rest = &spec[start + section.len()..];
+        let end = rest.find("\n## ").unwrap_or(rest.len());
+        rest[..end]
+            .split("```toml\n")
+            .skip(1)
+            .map(|block| block.split("```").next().unwrap().to_owned())
+            .collect()
+    }
+
+    #[test]
+    fn the_config_example_of_the_spec_loads() {
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("Documents/Code")).unwrap();
+        fs::create_dir_all(home.path().join("Code/lighthouse")).unwrap();
+        let blocks = spec_toml_blocks("## 12. Config");
+        let example = blocks
+            .iter()
+            .find(|block| block.contains("allowed_roots ="))
+            .unwrap();
+        let allow = blocks.iter().find(|b| b.starts_with("[allow]")).unwrap();
+        let sandbox = blocks.iter().find(|b| b.starts_with("[sandbox]")).unwrap();
+        let text = format!("{example}\n{allow}\n{sandbox}");
+
+        let config = parse(&text, home.path()).unwrap_or_else(|e| panic!("{e:#}\n{text}"));
+
+        assert!(config.relay.is_some());
+    }
+
     #[test]
     fn a_relative_folder_goes_down_from_the_base_or_up_and_over() {
         let rel = |base: &str, target: &str| {

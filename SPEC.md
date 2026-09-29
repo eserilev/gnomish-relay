@@ -86,7 +86,7 @@ So the bridge bounds what any message from the game can do (6.6).
 1. The folder of a chat must be inside `allowed_roots` from the config. The bridge rejects all other folders.
 2. The permission level of each agent comes only from the bridge config. A message from the game cannot raise it.
 3. A permanent "always allow" rule from the game follows 6.6.5.
-4. The bridge limits the message rate: at most 10 messages per minute (config key `max_messages_per_minute`).
+4. The bridge limits the message rate: at most 10 messages per minute (a planned config key, `max_messages_per_minute`, 12).
 5. The bridge never runs the agent with `full-auto` unless the config sets it for that agent. The classifier and the sandbox still apply (6.6.2).
 6. The bridge rejects frames with a timestamp more than 5 minutes old or more than 1 minute in the future (S11).
 7. The bridge never writes, renames, or deletes through a symbolic link. It opens files with `O_NOFOLLOW` (Unix) or checks the reparse point (Windows).
@@ -1961,14 +1961,12 @@ agent_network = "open"         # "strict": the agent reaches only its model host
 - Hosts that a user can add: `nodejs.org` (headers for native modules of npm), `proxy.golang.org` and `sum.golang.org` (Go modules).
 - Only the desktop changes `config.toml` (6.6.2), so no message from the game adds a host.
 
-The other keys below come with their features.
+The other keys below come with their features. Two keys are planned and not in the config yet: `max_parallel_runs` (8.2) and `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses them, so the example leaves them out. A test loads this example, so the example and the loader never differ.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
 ```toml
 default_cwd = "~/Documents/Code"
 allowed_roots = ["~/Documents/Code"]
-max_parallel_runs = 3
-max_messages_per_minute = 10
 timeout_minutes = 30
 permission_timeout_minutes = 10
 default_agent = "claude"
