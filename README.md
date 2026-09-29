@@ -119,6 +119,22 @@ The sandbox of commands is different on each OS (`SPEC.md` 6.6.4):
 `cargo run -q --bin gnomish-relay -- setup`. For addon work, `scripts/dev-link.sh`
 links `addon/GnomishRelay` into the game first. `CLAUDE.md` has the rules of the code.
 
+The tools of the checks:
+
+| Tool | For | Script |
+|---|---|---|
+| Rust stable, with `rustfmt` and `clippy` | the build, the lints, and the tests | `check-fast.sh`, `check-all.sh` |
+| `stylua` and `selene` | the format and the lints of the addon | `check-fast.sh`, `check-all.sh` |
+| `python3` and `git` | the WoW API gate | `wow-api.sh`, `selftest-api.sh`, `check-all.sh` |
+| `cargo-deny` | the licenses and advisories of the dependencies | `check-all.sh` |
+| Charon and Aeneas, at the commits in `proofs/TOOLS`, in `~/verif` or in `CHARON_DIR` and `AENEAS_DIR` | the translation of `protocol` to Lean | `extract.sh`, `check-proofs.sh` |
+| Lean through `elan`, at the version in `proofs/lean-toolchain` | the proofs | `check-proofs.sh` |
+| Quint (`npm install -g @informalsystems/quint`) | the models of the transport | `check-model.sh` |
+| Rust nightly and `cargo-fuzz` | the fuzz targets | `fuzz.sh` |
+| `cargo-llvm-cov` | the coverage gates | `check-coverage.sh` |
+
+For a quick loop, run `scripts/check-fast.sh`. Before each commit, run `scripts/check-all.sh`.
+
 ### After a game patch
 
 The tests run the addon in a fake game. A self-test addon measures the real game, so
