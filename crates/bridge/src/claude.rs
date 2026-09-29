@@ -19,6 +19,7 @@ use crate::claude_sessions;
 use crate::command_sandbox::{self, Guarded, RunWalls};
 use crate::config::{Kind, Permission};
 use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
+use crate::install;
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Work};
 use crate::turn::{STOPPED, Turn};
@@ -58,6 +59,14 @@ pub struct ClaudeAgent {
     pub gate: Gate,
     /// The wall of the agent process, with the hosts of Claude (SPEC.md 6.6.4).
     pub wall: AgentWall,
+}
+
+/// Claude says "Please run /login", which is a command inside Claude, not in the game.
+fn with_login_step(error: String) -> String {
+    if install::needs_login(&error) {
+        return "Claude needs a new login. On the desktop, run: claude".into();
+    }
+    error
 }
 
 /// The hook decides every call, so the mode matters only when the hook fails. Then
@@ -204,7 +213,9 @@ impl ClaudeAgent {
             .unwrap_or_default();
         let after = made_notice(&made, self.wall.home.as_deref());
         Run {
-            reply: reply.map(|reply| with_notes(reply, &notes, after)),
+            reply: reply
+                .map(|reply| with_notes(reply, &notes, after))
+                .map_err(with_login_step),
             session,
         }
     }

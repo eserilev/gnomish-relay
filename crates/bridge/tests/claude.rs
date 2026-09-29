@@ -218,10 +218,16 @@ fn a_message_over_the_size_limit_ends_the_run() {
 
 #[test]
 fn a_failed_turn_shows_the_text_of_the_agent() {
+    let error = run("overloaded", Permission::Ask).unwrap_err();
+    assert_eq!(error, "The agent stopped: API Error: 529 Overloaded");
+}
+
+#[test]
+fn an_expired_login_asks_for_a_new_login_on_the_desktop() {
     let error = run("failed", Permission::Ask).unwrap_err();
     assert_eq!(
         error,
-        "The agent stopped: Invalid API key · Please run /login"
+        "Claude needs a new login. On the desktop, run: claude"
     );
 }
 

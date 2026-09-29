@@ -1313,7 +1313,7 @@ Rules:
 - Stop for `command` kills the whole process group at once, with no grace: a harness has no cancel channel. On Linux the sandbox has its own process ids, so every program of the harness ends with it.
 - The bridge declares ACP client capabilities `fs` and `terminal` as false in v1. The agent uses its own tools.
 - `process.rs` starts every agent process: never through a shell, with the allowlist of 6.2 rule 12, a limit of 8 MiB on each line, and the last 2 KiB of stderr for an error. `turn.rs` holds the run timeout, Stop with its 10-second grace, and the wait for an answer from the game. ACP, `claude`, and `codex` share them.
-- If an agent needs a login, the bridge reports "agent needs login" in the game. The bridge never handles credentials.
+- If an agent needs a login, the bridge reports it in the game with the next step. For Claude, a failed run whose error names a login (for example "Please run /login", which is a command inside Claude) ends with "Claude needs a new login. On the desktop, run: claude". The bridge never handles credentials.
 - The bridge removes `CLAUDECODE` from the environment of each child process. It sets `GNOMISH_RELAY_JOB=1` (section 10).
 
 ### 9.5 Sessions and folders

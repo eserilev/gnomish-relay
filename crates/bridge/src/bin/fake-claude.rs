@@ -231,9 +231,14 @@ fn reply(
             println!("{}", "x".repeat(9 * 1024 * 1024));
             None
         }
-        "failed" => {
+        "failed" | "overloaded" => {
+            let text = if script == "failed" {
+                "Invalid API key · Please run /login"
+            } else {
+                "API Error: 529 Overloaded"
+            };
             send(
-                &json!({ "type": "result", "subtype": "success", "is_error": true, "result": "Invalid API key · Please run /login", "session_id": session }),
+                &json!({ "type": "result", "subtype": "success", "is_error": true, "result": text, "session_id": session }),
             );
             None
         }
