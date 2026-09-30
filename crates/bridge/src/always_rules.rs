@@ -72,6 +72,21 @@ impl Rule {
         day_of(now).saturating_sub(self.used_day)
     }
 
+    /// For `gnomish-relay rules`.
+    pub fn line(&self, now: u32) -> String {
+        let scope = match self.scope {
+            Scope::Tree => "and the folders inside",
+            Scope::Exact => "only",
+        };
+        let days = self.days_unused(now);
+        format!(
+            "{}  {}  in {} ({scope}), last used {days} days ago",
+            self.id,
+            self.pattern(),
+            self.folder.display()
+        )
+    }
+
     fn is_expired(&self, now: u32) -> bool {
         self.days_unused(now) > DAYS_KEPT
     }
@@ -452,6 +467,25 @@ mod tests {
         assert!(!tree.applies_to(&h("/h/Code/lib")));
         assert!(exact.applies_to(&h("/h/Code")));
         assert!(!exact.applies_to(&h("/h/Code/app")));
+    }
+
+    #[test]
+    fn a_listed_rule_shows_its_pattern_its_folder_its_scope_and_its_last_use() {
+        let mut tree = rule("a1b2", "/h/app", Scope::Tree, &["cargo", "test"]);
+        tree.used_day = day_of(NOW) - 3;
+        let exact = rule("c3d4", "/h/app", Scope::Exact, &["make"]);
+
+        let folder = h("/h/app").display().to_string();
+        assert_eq!(
+            tree.line(NOW),
+            format!(
+                "a1b2  cargo test *  in {folder} (and the folders inside), last used 3 days ago"
+            )
+        );
+        assert_eq!(
+            exact.line(NOW),
+            format!("c3d4  make *  in {folder} (only), last used 0 days ago")
+        );
     }
 
     #[test]

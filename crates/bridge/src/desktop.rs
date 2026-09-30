@@ -52,6 +52,20 @@ impl Pending {
         let end = u64::from(self.created) + self.wait_minutes * 60;
         Some(end.saturating_sub(u64::from(now)).div_ceil(60))
     }
+
+    /// For `gnomish-relay approve`: the request, then its text, indented.
+    pub fn lines(&self, now: u32) -> Vec<String> {
+        let age = now.saturating_sub(self.created);
+        let left = self
+            .minutes_left(now)
+            .map_or(String::new(), |minutes| format!("  {minutes} min left"));
+        let mut lines = vec![format!(
+            "{}  {age}s ago{left}  {} in {}",
+            self.id, self.agent, self.folder
+        )];
+        lines.extend(self.text.lines().map(|line| format!("    {line}")));
+        lines
+    }
 }
 
 /// What a desktop request asks for.
@@ -606,6 +620,33 @@ mod tests {
         assert_eq!(pending.minutes_left(1000), Some(10));
         assert_eq!(pending.minutes_left(1000 + 61), Some(9));
         assert_eq!(pending.minutes_left(1000 + 3600), Some(0));
+    }
+
+    #[test]
+    fn a_listed_request_shows_its_age_its_wait_and_its_text_indented() {
+        let (_data, approvals) = approvals();
+        approvals
+            .open(
+                "claude",
+                "/w/app",
+                "rm -rf build\nthe agent says: Bash",
+                1000,
+            )
+            .unwrap();
+        let mut pending = approvals.list().remove(0);
+        pending.wait_minutes = 10;
+
+        let lines = pending.lines(1000 + 61);
+
+        let first = format!("{}  61s ago  9 min left  claude in /w/app", pending.id);
+        assert_eq!(
+            lines,
+            [
+                first,
+                "    rm -rf build".into(),
+                "    the agent says: Bash".into()
+            ]
+        );
     }
 
     #[test]

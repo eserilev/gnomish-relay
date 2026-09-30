@@ -7,8 +7,9 @@ use bridge::agent;
 use bridge::agent::Agents;
 #[cfg(unix)]
 use bridge::agent_wall;
-use bridge::always_rules::{self, AlwaysRules};
+use bridge::always_rules::AlwaysRules;
 use bridge::app_files::private_game_paths;
+use bridge::check_agent;
 use bridge::command_sandbox;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::config_text::RelayPart;
@@ -309,7 +310,7 @@ fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay, timeways: bool
 
 /// The agent and the sandbox, which setup checks by starting them.
 fn relay_lines(dirs: &Dirs, config: &RelayConfig) -> Vec<String> {
-    let gate = check_gate(dirs, config);
+    let gate = check_agent::check_gate(dirs, config);
     let path = std::env::var_os("PATH").unwrap_or_default();
     let sandbox = SandboxFound::of(&gate.sandbox.tool, &path);
     vec![
@@ -509,16 +510,6 @@ fn story_spec(dirs: &Dirs, story: &StoryConfig, paths: &Paths) -> Result<Option<
     Ok(spec)
 }
 
-/// A check sends no prompt, so no tool call reaches this gate.
-fn check_gate(dirs: &Dirs, config: &RelayConfig) -> Gate {
-    let places = Places {
-        config_dir: &dirs.config,
-        data_dir: &dirs.data,
-        home: &dirs.home,
-    };
-    Gate::new(config, &places, Prompt::Off)
-}
-
 fn print_status(dirs: &Dirs) -> Result<()> {
     let places = Places {
         config_dir: &dirs.config,
@@ -543,15 +534,8 @@ fn list_approvals(dirs: &Dirs) {
     if pending.is_empty() {
         println!("no tool call waits for the desktop");
     }
-    for p in pending {
-        let age = now().saturating_sub(p.created);
-        let left = p
-            .minutes_left(now())
-            .map_or(String::new(), |minutes| format!("  {minutes} min left"));
-        println!("{}  {age}s ago{left}  {} in {}", p.id, p.agent, p.folder);
-        for line in p.text.lines() {
-            println!("    {line}");
-        }
+    for line in pending.iter().flat_map(|p| p.lines(now())) {
+        println!("{line}");
     }
 }
 
@@ -567,18 +551,8 @@ fn list_rules(dirs: &Dirs) {
     if rules.is_empty() {
         println!("no Always allow rules");
     }
-    for r in rules {
-        let scope = match r.scope {
-            always_rules::Scope::Tree => "and the folders inside",
-            always_rules::Scope::Exact => "only",
-        };
-        let days = r.days_unused(now());
-        println!(
-            "{}  {}  in {} ({scope}), last used {days} days ago",
-            r.id,
-            r.pattern(),
-            r.folder.display()
-        );
+    for rule in rules {
+        println!("{}", rule.line(now()));
     }
 }
 
@@ -587,54 +561,6 @@ fn remove_rule(dirs: &Dirs, id: &str) -> Result<()> {
         bail!("no rule has the id {id}. Run: gnomish-relay rules");
     }
     println!("removed {id}");
-    Ok(())
-}
-
-/// Starts one agent of the config and opens a session in the default folder, with
-/// no prompt. It shows that a new `[agents.<name>]` entry works.
-fn check_agent(dirs: &Dirs, name: &str) -> Result<()> {
-    let config = load_config(dirs)?;
-    let config = config.require_relay()?;
-    let spec = config
-        .agents
-        .get(name)
-        .with_context(|| format!("the config has no [agents.{name}]"))?;
-    let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    let report = agent::check(name, spec, &cwd, &check_gate(dirs, config))
-        .with_context(|| format!("[agents.{name}] is the echo agent: it starts nothing"))?
-        .map_err(anyhow::Error::msg)?;
-    println!("{name}: {} {}", report.name, report.version);
-    println!(
-        "resumes sessions: {}",
-        if report.load_session { "yes" } else { "no" }
-    );
-    println!(
-        "modes: {}",
-        if report.modes.is_empty() {
-            "none".into()
-        } else {
-            report.modes.join(", ")
-        }
-    );
-    for line in &report.details {
-        println!("{line}");
-    }
-    let service = install::service_file(&dirs.config, &dirs.home)
-        .and_then(|file| std::fs::read_to_string(file).ok())
-        .and_then(|text| install::service_path_var(&text));
-    let missing = spec
-        .command
-        .first()
-        .and_then(|program| status::service_path_line(program, service.as_deref()));
-    if let Some(line) = missing {
-        println!("{line}");
-    }
-    for (level, mode) in &spec.modes {
-        if !report.modes.contains(mode) {
-            bail!("the agent has no mode {mode:?}, which the config names for {level:?}");
-        }
-    }
-    println!("ok");
     Ok(())
 }
 
@@ -669,7 +595,9 @@ fn main() -> Result<()> {
         ["restart"] => service::restart(&Dirs::from_env()?, &std::env::current_exe()?),
         ["status"] => print_status(&Dirs::from_env()?),
         ["update"] => update::self_update(&Dirs::from_env()?),
-        ["check-agent", name] => check_agent(&Dirs::from_env()?, name),
+        ["check-agent", name] => {
+            check_agent::check_agent(&Dirs::from_env()?, name, &mut std::io::stdout())
+        }
         ["approve"] => {
             list_approvals(&Dirs::from_env()?);
             Ok(())
