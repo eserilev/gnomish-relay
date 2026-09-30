@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use app_protocol::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
 use app_protocol::story_lines::{
-    self, Answer, BadLine, CallId, FromStory, NO_SANDBOX, NarratorCheck, RequestId, batch_end_line,
-    hello_line, model_answered_line, model_failed_line, reply_text,
+    self, Answer, Asked, BadLine, CallId, FromStory, NO_SANDBOX, NarratorCheck, RequestId,
+    batch_end_line, hello_line, model_answered_line, model_failed_line, reply_text,
 };
 
 use crate::agent_wall::AgentWall;
@@ -152,10 +152,15 @@ struct Waiting {
 }
 
 impl Waiting {
-    /// A batch with a `lore_asked` or a `journal_asked` line. Any other batch holds only
-    /// game events, and waits for `events_seen`.
+    /// A batch with a line that asks. Any other batch holds only game events, and waits
+    /// for `events_seen`.
     fn wants_reply(&self) -> bool {
-        self.lines.iter().any(AddonLine::wants_reply)
+        self.asked().is_some()
+    }
+
+    /// Only the last line of a batch asks.
+    fn asked(&self) -> Option<Asked> {
+        self.lines.iter().find_map(AddonLine::asked)
     }
 }
 
@@ -415,7 +420,7 @@ impl Story {
             self.end_unanswered(waiting, TOO_LONG);
             return;
         };
-        if answer.is_events_seen() == waiting.wants_reply() {
+        if answer.body.asked() != waiting.asked() {
             self.bad_line(&format!("an answer of the wrong type for #{}", id.0));
             self.sent.insert(id, waiting);
             return;

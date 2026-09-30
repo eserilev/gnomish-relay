@@ -151,18 +151,32 @@ pub enum Body {
     EventsSeen,
 }
 
+/// What a line of the addon asks for. Only an answer of the same kind ends its batch.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Asked {
+    Lore,
+    Journal,
+    Talk,
+}
+
+impl Body {
+    /// `None` for `events_seen`: it answers a batch with no line that asks.
+    #[must_use]
+    pub fn asked(&self) -> Option<Asked> {
+        match self {
+            Body::LoreAnswer { .. } => Some(Asked::Lore),
+            Body::Journal { .. } => Some(Asked::Journal),
+            Body::TalkAnswer { .. } => Some(Asked::Talk),
+            Body::EventsSeen => None,
+        }
+    }
+}
+
 /// A checked answer. `narrator` is a line of the narrator, if any.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Answer {
     pub body: Body,
     pub narrator: Option<String>,
-}
-
-impl Answer {
-    #[must_use]
-    pub fn is_events_seen(&self) -> bool {
-        self.body == Body::EventsSeen
-    }
 }
 
 /// A narrator line over its limit loses only that line; the rest of the answer stays.
@@ -721,6 +735,19 @@ mod tests {
     }
 
     #[test]
+    fn each_answer_names_the_request_that_it_answers() {
+        let lore = br#"{"type":"lore_answer","id":3,"text":null,"passages":[]}"#;
+        let talk = talk_answer("n", None);
+        let seen = br#"{"type":"events_seen","id":5}"#;
+        let asked = |line: &[u8]| answer_of(line).unwrap().body.asked();
+
+        assert_eq!(asked(lore), Some(Asked::Lore));
+        assert_eq!(asked(JOURNAL.as_bytes()), Some(Asked::Journal));
+        assert_eq!(asked(talk.as_bytes()), Some(Asked::Talk));
+        assert_eq!(asked(seen), None);
+    }
+
+    #[test]
     fn the_old_name_companion_is_refused() {
         let line = br#"{"type":"events_seen","id":5,"companion":"A wolf howls."}"#;
         assert_eq!(read_line(line), Err(BadLine::Shape));
@@ -729,7 +756,7 @@ mod tests {
     #[test]
     fn events_seen_reads_with_or_without_a_narrator() {
         let quiet = answer_of(br#"{"type":"events_seen","id":5,"narrator":null}"#).unwrap();
-        assert!(quiet.is_events_seen());
+        assert_eq!(quiet.body, Body::EventsSeen);
         assert_eq!(quiet.narrator, None);
         let talk = br#"{"type":"events_seen","id":5,"narrator":"A wolf howls."}"#;
         assert_eq!(

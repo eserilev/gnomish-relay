@@ -582,6 +582,20 @@ fn an_answer_for_another_id_is_dropped() {
 }
 
 #[test]
+fn an_answer_of_another_type_than_its_request_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("wrong-type", dir.path());
+    story.send(message(7, &question("x")));
+
+    // The program writes a talk answer for the question first.
+    let answers = answers(&mut story, 1);
+
+    assert_eq!(answers.len(), 1);
+    assert_eq!(reply(&answers[0])["type"], "lore_answer");
+    assert_eq!(reply(&answers[0])["text"], "story: x");
+}
+
+#[test]
 fn a_program_that_does_not_answer_in_time_gets_the_timeout_error() {
     let dir = tempfile::tempdir().unwrap();
     let mut story = Story::new(spec("hang", dir.path(), Duration::from_secs(1)));

@@ -167,6 +167,12 @@ fn on_reply_line(script: &str, line: &Value) {
             answer_to(&json!(id + 1), &json!("wrong id"));
             answer(line, &format!("story: {}", question(line)));
         }
+        "wrong-type" => {
+            send(
+                &json!({ "type": "talk_answer", "id": line["id"], "npc": "n", "text": "wrong type" }),
+            );
+            answer(line, &format!("story: {}", question(line)));
+        }
         "null-text" => answer_to(&line["id"], &Value::Null),
         "twice" => {
             answer(line, "first");

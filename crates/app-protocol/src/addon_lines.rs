@@ -6,7 +6,7 @@
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::story_lines::{BadLine, RequestId, is_short, with_newline};
+use crate::story_lines::{Asked, BadLine, RequestId, is_short, with_newline};
 
 pub const MAX_ADDON_LINE: usize = 4096;
 const MAX_TYPE: usize = 32;
@@ -59,12 +59,17 @@ impl AddonLine {
     /// The character line and a game event give no output.
     #[must_use]
     pub fn wants_reply(&self) -> bool {
-        matches!(
-            self,
-            AddonLine::Known(
-                Known::LoreAsked { .. } | Known::JournalAsked { .. } | Known::TalkAsked { .. }
-            )
-        )
+        self.asked().is_some()
+    }
+
+    #[must_use]
+    pub fn asked(&self) -> Option<Asked> {
+        match self {
+            AddonLine::Known(Known::LoreAsked { .. }) => Some(Asked::Lore),
+            AddonLine::Known(Known::JournalAsked { .. }) => Some(Asked::Journal),
+            AddonLine::Known(Known::TalkAsked { .. }) => Some(Asked::Talk),
+            AddonLine::Known(Known::CharacterEntered { .. }) | AddonLine::Event(_) => None,
+        }
     }
 
     fn is_character(&self) -> bool {
@@ -276,6 +281,17 @@ mod tests {
             })
         );
         assert!(read_addon_line(CHARACTER).is_ok());
+    }
+
+    #[test]
+    fn each_line_that_wants_a_reply_names_what_it_asks_for() {
+        let asked = |line: &str| read_addon_line(line).unwrap().asked();
+
+        assert_eq!(asked(QUESTION), Some(Asked::Lore));
+        assert_eq!(asked(JOURNAL), Some(Asked::Journal));
+        assert_eq!(asked(&talk("n", "hi")), Some(Asked::Talk));
+        assert_eq!(asked(CHARACTER), None);
+        assert_eq!(asked(EVENT), None);
     }
 
     #[test]
