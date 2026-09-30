@@ -782,7 +782,7 @@ The addon reads and writes the value with `rawget` and `rawset`, so a metatable 
 
 #### 7.1.3 The line: a strip of 1-pixel cells
 
-**Status: new design (2026-09-29).** The old strip (7.1) is 800 by up to 200 pixels, and its size changes with each message. Players see it in play. The line is the smallest strip that reads exactly: cells of 1 physical pixel, in a line 1 pixel tall at the top-left corner. The old strip stays as the fallback.
+**Status: built (2026-09-29). It waits for its first self-test in the real game.** The old strip (7.1) is 800 by up to 200 pixels, and its size changes with each message. Players see it in play. The line is the smallest strip that reads exactly: cells of 1 physical pixel, in a line 1 pixel tall at the top-left corner. The old strip stays as the fallback.
 
 **Modes.** A mode is a cell size and a number of bits per cell. The self-test measures each mode (14.3.1), and the addon draws the smallest mode that reads exactly.
 
@@ -817,7 +817,7 @@ The table is in the order of preference: all 1-pixel modes come first, because t
 **How the mode reaches the addon.** The bridge and the self-test use the channels that exist:
 
 1. `gnomish-relay selftest collect` (14.3.1) writes the result into `strip-line.json` in the data folder of the bridge: the mode, and the physical screen size of the self-test. With no mode that reads exactly, it removes the file.
-2. At each publish, the bridge reads the file. The file is at most 1 KiB. The mode must be 1 to 6, and each side of the screen 1 to 16384 pixels. A file that fails counts as no file, and the bridge logs it once. The bridge adds one line after the body of each app (7.3): `GnomishRelay_SlotData.line = {mode = 1, width = 2560, height = 1440}`. The line holds only decimal numbers, as the key check does, so S9 still covers the table.
+2. At each publish, the bridge reads the file. The file is at most 1 KiB. The mode must be 1 to 6, and each side of the screen 1 to 16384 pixels. A file that fails counts as no file, and the bridge logs each new error once. The bridge adds one line after the body of each app (7.3): `GnomishRelay_SlotData.line = {mode = 1, width = 2560, height = 1440}`. The line holds only decimal numbers, as the key check does, so S9 still covers the table.
 3. `Slots.lua` hands the line of each loaded body to `Strip.lua`. It keeps a line with a known mode and two numbers in the saved variables of the app, as `stripLine`. A body with no line removes `stripLine`.
 4. The reader finds the mode in the marker. So the bridge needs no state for it, and a strip of either shape reads.
 
@@ -835,6 +835,8 @@ The table is in the order of preference: all 1-pixel modes come first, because t
 - The packing lives in the bridge reader (`crates/bridge/src/line.rs`) and in `Codec.lua`, with differential tests between them, as `addon_codec.rs` does for the frame. The proved core (`crates/protocol`) does not change: the frame bytes, the checksum, and the tag are the same, and S1 and S3 still cover them. The reader of the line is untrusted input, so the `screenshot` fuzz target covers it.
 - A cell of 2 pixels is the next step after 1 pixel. A cell of 3 pixels or more would be as tall as the old strip row, so the old strip covers it.
 - The self-test measures the modes, not the relay addon. A test of the modes at each login would add 6 shots and 6 flashes of color to each session.
+
+**Tests.** `line.rs` and `calibration.rs` have unit tests for each mode, the marker, the check, and each verdict. `tests/strip.rs` reads a line of each mode through a PNG. `tests/addon_codec.rs` compares `Codec.LineRows` with `line::rows`. The fake game keeps each shot as rectangles of physical pixels (`picturesOf`), so `tests/strip_line.rs` draws the line of `Strip.lua` into a PNG, reads it in every mode, and checks each fallback. `tests/selftest.rs` runs the self-test in the fake game and collect on its pictures: sharp pictures choose mode 1, and blurred pictures keep the old strip with a verdict for each mode.
 
 ### 7.2 Why each channel works
 
@@ -2434,17 +2436,17 @@ The run starts 5 seconds after `PLAYER_ENTERING_WORLD`, when the saved results d
 | Golden strips | Payloads of 0, 1, 62, 137, 500, and 3200 bytes, and two records as the relay sends them. With 62 and 137, the tag sits alone in the last row (7.1). One more strip hides right after its `Screenshot()` call: it tells whether the picture comes from the call or from the end of the frame. |
 | Line modes (7.1.3) | One line in each of the 6 modes, with a test payload of gradients and edges. |
 
-**The line modes (7.1.3).** The run draws one line in each of the 6 modes, through the real `Strip.lua`: it sets `stripLine` of the self-test to the mode and the current physical screen size for the shot, and removes it after. Each line carries the same test payload: the values 0 to 255 in each channel as gradients (each channel counts in its own direction and step), and runs of black and white cells for sharp edges. The payload fills about 4 rows at 6 bits, so the edges also run across rows.
+**The line modes (7.1.3).** The run draws one line in each of the 6 modes, through the real `Strip.lua`: it sets `stripLine` of the self-test to the mode and the current physical screen size for the shot, and removes it after. Each line carries the same test payload of 924 bytes: the values 0 to 255 in each channel as gradients (each channel counts in its own direction and step), flat runs of the bytes `00`, `FF`, `55`, and `AA` (each one gives one flat color in every mode, and `55` and `AA` are the mid levels that gamma moves), and black and white cells for sharp edges. The payload fills 7 rows at 6 bits, so the edges also run across rows.
 
-Collect judges each mode by its screenshot. It finds the screenshot by the marker, which names the mode, at any cell size from 0.5 to 4 pixels. A line that reads cleanly holds its frame, so collect also checks the frame. Each mode gets one verdict:
+Collect judges each mode by its screenshot. It judges every screenshot of the run for each mode, and keeps the best verdict: clean, then a failure, then not found. A screenshot counts for a mode only when it shows the marker of that mode, at the cell size of the mode or at any cell width from 0.5 to 4 pixels. Collect compares each cell with the frame that the self-test signed. Each mode gets one verdict:
 
 | Verdict | What collect saw | What it tells the player |
 |---|---|---|
 | clean | The marker at the right cell size, and every channel of every cell within a quarter of a level step of its value (24 bits: exact; 12 bits: 4; 6 bits: 21). | The mode works. |
-| not found | No screenshot of the run shows the marker of the mode. | The line did not draw, or it is blurred past reading. |
+| not found | No screenshot of the run shows the marker of the mode. A blur of 1-pixel cells also ends here: the marker mixes with its neighbors. | The line did not draw, or blur or scale hides it. |
 | scale | The marker shows at another cell size. | The screenshot is scaled: a render scale below 100%, or a physical screen size that is not the screenshot size. |
-| blur | Most wrong values sit next to a color edge and move toward the neighbor. | Neighbor pixels mix: anti-aliasing, a render scale, or an upscaler. |
-| color shift | Wrong values also sit away from edges. | The game changes colors: gamma, brightness, or a color filter. |
+| blur | Every wrong value sits next to a cell of another value. A blur changes nothing inside a flat run. | Neighbor pixels mix: anti-aliasing, a render scale, or an upscaler. |
+| color shift | A wrong value also sits inside a flat run. | The game changes colors: gamma, brightness, or a color filter. |
 
 The report prints one line for each mode, with the largest error, then the chosen mode: the first clean mode in the order of 7.1.3. Collect writes it into `strip-line.json` (7.1.3), and the bridge sends it to the addons with the next publish. The line shots that read also become golden vectors.
 
