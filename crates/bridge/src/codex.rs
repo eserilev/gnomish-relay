@@ -344,10 +344,12 @@ pub fn approval_call(method: &str, params: &Value, paths: &[String], cwd: &Path)
             None => Call::unknown(text, title),
         };
     }
-    let writes: Vec<PathBuf> = match text_at(params, "/grantRoot") {
-        Some(root) => vec![cwd.join(root)],
-        None => paths.iter().map(|p| cwd.join(p)).collect(),
-    };
+    // Codex applies every path of the patch, also one outside the root.
+    let root = text_at(params, "/grantRoot").map(|root| cwd.join(root));
+    let writes: Vec<PathBuf> = root
+        .into_iter()
+        .chain(paths.iter().map(|p| cwd.join(p)))
+        .collect();
     if writes.is_empty() {
         return Call::unknown(text, title);
     }
