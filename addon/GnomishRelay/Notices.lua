@@ -256,6 +256,23 @@ local function Cleared(n)
 	return n.id <= ns.Store.db.noticesCleared
 end
 
+-- A notice that the filter hides is marked as shown too, so a new setting never alerts old work.
+local function Place(n, bodyNow, list, new)
+	local seen = WasShown(n.id)
+	if not seen then
+		MarkShown(n.id)
+	end
+	if not Passes(n) then
+		return
+	end
+	n.age = math.max(0, (bodyNow or n.at) - n.at)
+	n.seenAt = GetTime()
+	table.insert(list, 1, n)
+	if not seen then
+		table.insert(new, n)
+	end
+end
+
 -- `notices` is the table of the live file, and `bodyNow` the `now` of the body in the
 -- same slot, so a clock difference between the desktop and the game has no effect.
 function Notices.Apply(notices, bodyNow)
@@ -264,14 +281,8 @@ function Notices.Apply(notices, bodyNow)
 	state.open = tonumber(t.open) or 0
 	local list, new = {}, {}
 	for _, n in ipairs(type(t.list) == "table" and t.list or {}) do
-		if Valid(n) and Passes(n) and not Cleared(n) then
-			n.age = math.max(0, (bodyNow or n.at) - n.at)
-			n.seenAt = GetTime()
-			table.insert(list, 1, n)
-			if not WasShown(n.id) then
-				MarkShown(n.id)
-				table.insert(new, n)
-			end
+		if Valid(n) and not Cleared(n) then
+			Place(n, bodyNow, list, new)
 		end
 	end
 	state.list = list

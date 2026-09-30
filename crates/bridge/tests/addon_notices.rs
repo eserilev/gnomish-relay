@@ -339,6 +339,20 @@ fn finished_work_of_unknown_length_passes_every_setting_but_never() {
 }
 
 #[test]
+fn a_lower_finished_setting_never_alerts_notices_that_the_old_setting_hid() {
+    let game = Game::start();
+    game.set("ns.Store.db.notifyFinished = 'over3'");
+    game.publish_and_poll(0, 1, &[finished(1, "quick", 90)]);
+
+    game.set("ns.Store.db.notifyFinished = 'always'");
+    game.publish_and_poll(0, 1, &[finished(1, "quick", 90)]);
+
+    assert!(game.lines_with("quick").is_empty());
+    assert!(game.sounds().is_empty());
+    assert_eq!(game.list_len(), 1, "the list shows it now");
+}
+
+#[test]
 fn three_finished_notices_of_one_poll_share_one_line() {
     let game = Game::start();
 
