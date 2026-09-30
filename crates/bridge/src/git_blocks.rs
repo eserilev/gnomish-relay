@@ -181,6 +181,7 @@ mod tests {
                 })
                 .collect(),
             odd_names: false,
+            shared: false,
             outcome: Outcome::Open,
         }
     }

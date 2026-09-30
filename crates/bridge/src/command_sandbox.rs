@@ -365,6 +365,7 @@ pub fn prepare_shaped(
     let started = std::time::Instant::now();
     let mut scan = scan_chat(&policy, &chat)?;
     remove_old_stand_ins(&mut scan);
+    remove_misplaced_stand_ins(&scan.misplaced);
     if shape.chat == ChatAccess::Write {
         make_stand_ins(&mut scan)?;
     }
@@ -673,6 +674,9 @@ struct ChatScan {
     watched: Vec<PathBuf>,
     /// Each `.git` entry and each guarded name that exists.
     git: Vec<PathBuf>,
+    git_folders: Vec<PathBuf>,
+    /// The stand-ins that an older build made in `refs/` and `logs/`.
+    misplaced: Vec<PathBuf>,
     entries: usize,
 }
 
@@ -753,6 +757,61 @@ fn is_old_stand_in(path: &Path) -> bool {
     }
     let small = std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file() && m.len() <= 2);
     small && std::fs::read(path).is_ok_and(|text| OLD_STAND_IN.contains(&text.as_slice()))
+}
+
+/// `refs/remotes/origin/HEAD` and `logs/HEAD` make a folder look like a git folder, but
+/// git reads each file there as a ref. The walk goes top down, so a git folder comes
+/// before the folders inside it.
+fn is_in_refs_or_logs(folder: &Path, git_folders: &[PathBuf]) -> bool {
+    git_folders.iter().any(|git| {
+        let first = folder.strip_prefix(git).ok().and_then(|r| r.iter().next());
+        first.is_some_and(|name| name == "refs" || name == "logs")
+    })
+}
+
+/// Only what an older build made: an empty file, a `commondir` of `.`, an empty folder.
+/// A real ref is never empty.
+fn misplaced_stand_ins(folder: &Path) -> Vec<PathBuf> {
+    GIT_FOLDER_GUARDED
+        .iter()
+        .map(|name| folder.join(name))
+        .filter(|path| is_misplaced_stand_in(path))
+        .collect()
+}
+
+fn is_misplaced_stand_in(path: &Path) -> bool {
+    let Ok(meta) = std::fs::symlink_metadata(path) else {
+        return false;
+    };
+    if meta.is_dir() {
+        return std::fs::read_dir(path).is_ok_and(|mut entries| entries.next().is_none());
+    }
+    if !meta.is_file() {
+        return false;
+    }
+    if is_commondir(path) {
+        return meta.len() <= 2
+            && std::fs::read(path).is_ok_and(|text| OLD_STAND_IN.contains(&text.as_slice()));
+    }
+    meta.len() == 0
+}
+
+fn remove_misplaced_stand_ins(paths: &[PathBuf]) {
+    for path in paths {
+        let removed = if path.is_dir() {
+            std::fs::remove_dir(path)
+        } else {
+            std::fs::remove_file(path)
+        };
+        let line = match removed {
+            Ok(()) => format!(
+                "sandbox: removed {}, a stand-in of an older build that git read as a ref",
+                path.display()
+            ),
+            Err(e) => format!("sandbox: cannot remove {}: {e}", path.display()),
+        };
+        crate::run::log(&line);
+    }
 }
 
 /// Removes each watched name that exists now, and notes it in `record` for the reply.
@@ -911,7 +970,12 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
     let mut folders = vec![chat.to_path_buf()];
     while let Some(folder) = folders.pop() {
         if is_git_folder(chat, &folder)? {
-            guard_git_folder(&folder, &mut scan)?;
+            if is_in_refs_or_logs(&folder, &scan.git_folders) {
+                scan.misplaced.extend(misplaced_stand_ins(&folder));
+            } else {
+                scan.git_folders.push(folder.clone());
+                guard_git_folder(&folder, &mut scan)?;
+            }
         }
         let entries = std::fs::read_dir(&folder).map_err(|e| unreadable(&folder, &e))?;
         for entry in entries {
@@ -1750,6 +1814,111 @@ mod tests {
         assert_eq!(std::fs::read(git.join("config.worktree")).unwrap(), b"");
         assert!(run.walls.hidden.contains(&git.join("config.worktree")));
         assert_eq!(run.walls.watched, [git.join("commondir")]);
+    }
+
+    /// `logs/HEAD` is the reflog and `refs/remotes/origin/HEAD` names the default branch
+    /// of a remote. Git reads a file there as a ref, so a stand-in breaks `git fetch`.
+    #[test]
+    fn the_refs_and_logs_of_a_repository_get_no_stand_ins() {
+        let h = folders();
+        let git = crate::git_host::GitHost::with_config(crate::git_host::UserConfig::Skip).unwrap();
+        std::fs::remove_dir_all(h.chat.join(".git")).unwrap();
+        for args in [
+            &["init", "-q", "-b", "main"][..],
+            &[
+                "-c",
+                "user.name=t",
+                "-c",
+                "user.email=t@t",
+                "commit",
+                "-q",
+                "--allow-empty",
+                "-m",
+                "one",
+            ],
+            &["update-ref", "refs/remotes/origin/main", "HEAD"],
+            &[
+                "symbolic-ref",
+                "refs/remotes/origin/HEAD",
+                "refs/remotes/origin/main",
+            ],
+        ] {
+            git.bytes(&h.chat, args).unwrap();
+        }
+
+        let run = run_walls(&h, &h.chat).unwrap();
+        drop(run);
+
+        let dot_git = h.chat.join(".git");
+        for folder in ["logs", "refs/remotes/origin", "logs/refs/remotes/origin"] {
+            for name in GIT_FOLDER_GUARDED {
+                let path = dot_git.join(folder).join(name);
+                assert!(
+                    std::fs::symlink_metadata(&path).is_err(),
+                    "{}",
+                    path.display()
+                );
+            }
+        }
+        let refs = git
+            .text(&h.chat, &["for-each-ref", "--format=%(refname)"])
+            .unwrap();
+        assert_eq!(
+            refs,
+            "refs/heads/main\nrefs/remotes/origin/HEAD\nrefs/remotes/origin/main"
+        );
+    }
+
+    #[test]
+    fn stand_ins_of_an_older_build_in_refs_and_logs_are_removed_at_the_start_of_a_run() {
+        let h = folders();
+        let dot_git = h.chat.join(".git");
+        std::fs::write(dot_git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let origin = dot_git.join("refs/remotes/origin");
+        let logs = dot_git.join("logs");
+        for folder in [&origin, &logs] {
+            std::fs::create_dir_all(folder.join("hooks")).unwrap();
+            std::fs::write(folder.join("HEAD"), "ref: refs/remotes/origin/main\n").unwrap();
+            std::fs::write(folder.join("config"), "").unwrap();
+            std::fs::write(folder.join("config.worktree"), "").unwrap();
+            std::fs::write(folder.join("commondir"), ".\n").unwrap();
+        }
+        std::fs::write(origin.join("main"), "0123\n").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+        drop(run);
+
+        for folder in [&origin, &logs] {
+            for name in GIT_FOLDER_GUARDED {
+                let path = folder.join(name);
+                assert!(
+                    std::fs::symlink_metadata(&path).is_err(),
+                    "{}",
+                    path.display()
+                );
+            }
+            assert!(folder.join("HEAD").is_file());
+        }
+        assert!(origin.join("main").is_file());
+    }
+
+    #[test]
+    fn a_ref_with_content_in_refs_is_never_removed() {
+        let h = folders();
+        let dot_git = h.chat.join(".git");
+        std::fs::write(dot_git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        let origin = dot_git.join("refs/remotes/origin");
+        std::fs::create_dir_all(origin.join("hooks/x")).unwrap();
+        std::fs::write(origin.join("HEAD"), "ref: refs/remotes/origin/main\n").unwrap();
+        std::fs::write(origin.join("config"), "0123abcd\n").unwrap();
+        std::fs::write(origin.join("commondir"), "0123abcd\n").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+        drop(run);
+
+        assert!(origin.join("hooks/x").is_dir());
+        assert!(origin.join("config").is_file());
+        assert!(origin.join("commondir").is_file());
     }
 
     /// Claude Code and other tools read a git folder with a `commondir` as a linked

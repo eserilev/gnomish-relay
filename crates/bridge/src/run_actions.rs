@@ -9,6 +9,10 @@ use crate::run::log;
 use crate::run_changes::{ChangeKind, Outcome, RunChanges, snapshot};
 
 const NO_MESSAGE: &str = "Commit needs a message.";
+const SHARED: &str = "Another chat worked in this folder during this run, so Commit and Revert can't tell its changes apart. Use git on your desktop.";
+const NOTHING_LEFT: &str = "Nothing to commit: the files of this summary are gone.";
+const NESTED_REPO: &str =
+    "This run made a git repository inside the folder, so Commit is off. Use git on your desktop.";
 const ODD_NAMES: &str =
     "A file name in this summary isn't UTF-8, so the game can't name it. Use git on your desktop.";
 
@@ -23,6 +27,7 @@ fn files(count: usize) -> String {
 fn check_open(run: &RunChanges) -> Result<(), String> {
     match run.outcome {
         Outcome::Open if run.odd_names => Err(ODD_NAMES.into()),
+        Outcome::Open if run.shared => Err(SHARED.into()),
         Outcome::Open => Ok(()),
         Outcome::Committed => Err("This change summary is already committed.".into()),
         Outcome::Reverted => Err("This change summary is already reverted.".into()),
@@ -52,10 +57,16 @@ pub fn commit(git: &GitHost, run: &RunChanges, message: &str) -> Result<String, 
         return Err(NO_MESSAGE.into());
     }
     let top = Path::new(&run.top);
+    if has_new_repository(git, run)? {
+        return Err(NESTED_REPO.into());
+    }
     let merging = git
         .yes(top, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])
         .unwrap_or(false);
-    let paths = run.paths();
+    let paths = paths_git_can_take(git, top, &run.paths())?;
+    if paths.is_empty() && !merging {
+        return Err(NOTHING_LEFT.into());
+    }
     let result = if merging {
         git.bytes(top, &["add", "-A"])
             .and_then(|_| git.bytes(top, &["commit", "-q", "--no-verify", "-m", message]))
@@ -83,6 +94,56 @@ pub fn commit(git: &GitHost, run: &RunChanges, message: &str) -> Result<String, 
         "Committed {} as {short} on {branch}.",
         files(paths.len())
     ))
+}
+
+/// A path that is neither on disk nor in the index, such as an untracked file that the
+/// run removed, makes `git add -- <path>` fail for every path.
+fn paths_git_can_take<'a>(
+    git: &GitHost,
+    top: &Path,
+    paths: &[&'a str],
+) -> Result<Vec<&'a str>, String> {
+    let listed = git
+        .bytes(top, &with_paths(&["ls-files", "-z"], paths))
+        .map_err(|e| format!("Couldn't commit: {e}"))?;
+    let indexed = nul_parts(&listed);
+    let on_disk = |p: &str| fs::symlink_metadata(top.join(p)).is_ok();
+    Ok(paths
+        .iter()
+        .copied()
+        .filter(|p| on_disk(p) || indexed.contains(&p.as_bytes()))
+        .collect())
+}
+
+/// A commit records a new repository as a gitlink. Plain git on the desktop then runs in
+/// it with its own config, which the agent wrote (SPEC.md 6.6.4).
+fn has_new_repository(git: &GitHost, run: &RunChanges) -> Result<bool, String> {
+    let top = Path::new(&run.top);
+    let now = snapshot(git, top).map_err(|e| format!("Couldn't commit: {e}"))?;
+    let raw = git
+        .bytes(
+            top,
+            &[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--raw",
+                "--no-renames",
+                &run.start.tree,
+                &now.tree,
+            ],
+        )
+        .map_err(|e| format!("Couldn't commit: {e}"))?;
+    // With -z, each change is a header part and then a path part.
+    Ok(nul_parts(&raw).into_iter().step_by(2).any(is_new_gitlink))
+}
+
+/// A `--raw` header is `:<old mode> <new mode> ...`, and a gitlink has mode 160000.
+fn is_new_gitlink(header: &[u8]) -> bool {
+    let mut modes = header.split(|b| *b == b' ');
+    let old = modes.next().unwrap_or_default();
+    let new = modes.next().unwrap_or_default();
+    old != b":160000" && new == b"160000"
 }
 
 /// git says "nothing to commit" on its output, after a line about the branch.
@@ -217,7 +278,8 @@ mod tests {
             let start = snapshot(&self.git, &self.top).unwrap();
             change(self);
             let end = snapshot(&self.git, &self.top).unwrap();
-            let (files, odd_names) = changes(&self.git, &self.top, &start.tree, &end.tree).unwrap();
+            let (files, odd_names) =
+                changes(&self.git, &self.top, &start.tree, &end.tree, "").unwrap();
             RunChanges {
                 chat: ChatId::new("c"),
                 id: MessageId(7),
@@ -226,6 +288,7 @@ mod tests {
                 end,
                 files,
                 odd_names,
+                shared: false,
                 outcome: Outcome::Open,
             }
         }
@@ -276,6 +339,76 @@ mod tests {
         commit(&repo.git, &run, "agent work").unwrap();
 
         assert_eq!(repo.run(&["status", "--porcelain"]), "M  b.txt\n");
+    }
+
+    #[test]
+    fn commit_refuses_a_git_repository_that_the_run_made() {
+        let repo = repo();
+        let run = repo.run_that(|r| {
+            r.write("a.txt", "agent\n");
+            r.write("sub/x", "x\n");
+            let sub = r.top.join("sub");
+            for args in [
+                &["init", "-q"][..],
+                &["-c", "user.email=t@t", "-c", "user.name=t", "add", "x"][..],
+                &[
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "user.name=t",
+                    "commit",
+                    "-qm",
+                    "s",
+                ][..],
+            ] {
+                r.git.bytes(&sub, args).unwrap();
+            }
+        });
+
+        let error = commit(&repo.git, &run, "agent work").unwrap_err();
+
+        assert_eq!(error, NESTED_REPO);
+        let tree = repo.run(&["ls-tree", "-r", "HEAD"]);
+        assert!(!tree.contains("160000"), "{tree}");
+    }
+
+    #[test]
+    fn commit_skips_an_untracked_file_that_the_run_removed() {
+        let repo = repo();
+        repo.write("notes.txt", "the user's notes\n");
+        let run = repo.run_that(|r| {
+            r.write("a.txt", "agent\n");
+            fs::remove_file(r.top.join("notes.txt")).unwrap();
+        });
+
+        let reply = commit(&repo.git, &run, "agent work").unwrap();
+
+        assert!(reply.starts_with("Committed 1 file as "), "{reply}");
+        let shown = repo.run(&["show", "--name-only", "--format=%s", "HEAD"]);
+        assert_eq!(shown.trim(), "agent work\n\na.txt");
+    }
+
+    #[test]
+    fn commit_of_a_summary_whose_files_are_all_gone_says_so() {
+        let repo = repo();
+        let run = repo.run_that(|r| r.write("new.txt", "new\n"));
+        fs::remove_file(repo.top.join("new.txt")).unwrap();
+
+        assert_eq!(
+            commit(&repo.git, &run, "agent work"),
+            Err(NOTHING_LEFT.into())
+        );
+    }
+
+    #[test]
+    fn a_summary_of_a_run_that_shared_its_folder_takes_no_action() {
+        let repo = repo();
+        let mut run = repo.run_that(|r| r.write("a.txt", "agent\n"));
+        run.shared = true;
+
+        assert_eq!(commit(&repo.git, &run, "agent work"), Err(SHARED.into()));
+        assert_eq!(revert(&repo.git, &run), Err(SHARED.into()));
+        assert_eq!(repo.read("a.txt").as_deref(), Some("agent\n"));
     }
 
     #[test]

@@ -288,7 +288,7 @@ fn reply(
                 }
             }
             send(
-                &json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": session }),
+                &json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": session, "total_cost_usd": 0.5 }),
             );
             None
         }

@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::active_folders::{ActiveFolders, ActiveGuard};
 use crate::chat_branch::{self, ChatWorktree};
 use crate::ci_checks::{self, CiChecks};
 use crate::folder_walk::Walk;
@@ -19,6 +20,7 @@ pub struct RunGit {
     pub host: Arc<GitHost>,
     pub ci: CiChecks,
     pub walk: Walk,
+    pub active: ActiveFolders,
 }
 
 /// A change of the own branch of a chat, for the state of the bridge.
@@ -36,6 +38,7 @@ pub struct Started {
     pub worktree: Option<ChatWorktree>,
     pub change: WorktreeChange,
     start: Option<(PathBuf, Snapshot)>,
+    active: ActiveGuard,
 }
 
 impl RunGit {
@@ -48,6 +51,7 @@ impl RunGit {
         let name = match plan {
             BranchPlan::Plain => return Ok((None, WorktreeChange::Same)),
             BranchPlan::Use(worktree) if worktree.exists() => {
+                chat_branch::check_link(&self.host, &worktree)?;
                 return Ok((Some(worktree), WorktreeChange::Same));
             }
             BranchPlan::Use(gone) => gone
@@ -77,12 +81,17 @@ impl RunGit {
         let folder = worktree
             .as_ref()
             .map_or_else(|| job.cwd.clone(), |w| w.folder.clone());
+        let real = Path::new(&folder).canonicalize();
+        let active = self
+            .active
+            .begin(real.as_deref().unwrap_or(Path::new(&folder)));
         let start = self.snapshot_of(Path::new(&folder));
         Ok(Started {
             folder,
             worktree,
             change,
             start,
+            active,
         })
     }
 
@@ -100,6 +109,12 @@ impl RunGit {
 
     /// The blocks of the bridge under the reply. The test line comes from the events.
     pub fn end(&self, job: &Job, started: &Started) -> RunBlocks {
+        if let Some(worktree) = &started.worktree
+            && let Err(e) = chat_branch::check_link(&self.host, worktree)
+        {
+            log(&format!("{}: no blocks: {e}", job.chat));
+            return RunBlocks::default();
+        }
         let folder = Path::new(&started.folder);
         let branch = chat_branch::branch_info(&self.host, folder, started.worktree.as_ref());
         let ci = branch
@@ -114,10 +129,13 @@ impl RunGit {
         }
     }
 
+    /// Only the files in the chat folder count: another chat can work in another
+    /// folder of the same repository at the same time.
     fn changes(&self, job: &Job, started: &Started) -> Option<RunChanges> {
         let (top, start) = started.start.as_ref()?;
         let end = snapshot(&self.host, top).ok()?;
-        let (files, odd_names) = changes(&self.host, top, &start.tree, &end.tree).ok()?;
+        let within = within_top(top, Path::new(&started.folder))?;
+        let (files, odd_names) = changes(&self.host, top, &start.tree, &end.tree, &within).ok()?;
         if files.is_empty() {
             return None;
         }
@@ -129,6 +147,7 @@ impl RunGit {
             end,
             files,
             odd_names,
+            shared: started.active.shared(),
             outcome: Outcome::Open,
         })
     }
@@ -145,4 +164,13 @@ impl RunGit {
             }
         }
     }
+}
+
+/// The chat folder relative to the top of its repository, with `/` as git writes it.
+/// A folder name that is not UTF-8 gets no summary.
+fn within_top(top: &Path, folder: &Path) -> Option<String> {
+    let real = folder.canonicalize().ok()?;
+    let relative = real.strip_prefix(top).ok()?;
+    let parts: Option<Vec<&str>> = relative.iter().map(|p| p.to_str()).collect();
+    Some(parts?.join("/"))
 }

@@ -40,6 +40,56 @@ impl ChatWorktree {
     }
 }
 
+/// Host git trusts the `.git` file of a copy and the files that it names. A run of
+/// another chat can rewrite them, so every git call on a copy checks the link first.
+/// A copy with no `.git` entry is gone, and has no link to check.
+pub fn check_link(git: &GitHost, worktree: &ChatWorktree) -> Result<(), String> {
+    let gone = fs::symlink_metadata(Path::new(&worktree.worktree).join(".git")).is_err();
+    if gone || link_is_intact(git, worktree) {
+        return Ok(());
+    }
+    Err(format!(
+        "The git files of {} point somewhere else now, so the desktop app won't run git there. Check that folder on your desktop.",
+        worktree.worktree
+    ))
+}
+
+/// `<copy>/.git` names `<common>/worktrees/<name>`, whose `commondir` names `<common>`
+/// and whose `gitdir` names `<copy>/.git`.
+fn link_is_intact(git: &GitHost, worktree: &ChatWorktree) -> bool {
+    let dot_git = Path::new(&worktree.worktree).join(".git");
+    let (Some(common), Some(admin), Ok(real_dot_git)) = (
+        common_dir(git, Path::new(&worktree.repo)),
+        named_path(&dot_git, "gitdir: "),
+        dot_git.canonicalize(),
+    ) else {
+        return false;
+    };
+    admin.parent() == Some(common.join("worktrees").as_path())
+        && named_path(&admin.join("commondir"), "").as_ref() == Some(&common)
+        && named_path(&admin.join("gitdir"), "").as_ref() == Some(&real_dot_git)
+}
+
+fn common_dir(git: &GitHost, top: &Path) -> Option<PathBuf> {
+    let common = git
+        .text(
+            top,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        )
+        .ok()?;
+    PathBuf::from(common).canonicalize().ok()
+}
+
+/// The real path that a one-line git file names, relative to the folder of the file.
+fn named_path(file: &Path, prefix: &str) -> Option<PathBuf> {
+    if !fs::symlink_metadata(file).ok()?.is_file() {
+        return None;
+    }
+    let text = fs::read_to_string(file).ok()?;
+    let named = text.strip_prefix(prefix)?.trim_end_matches(['\n', '\r']);
+    file.parent()?.join(named).canonicalize().ok()
+}
+
 /// The branch of a chat folder, for the `B` block of a reply.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BranchInfo {
@@ -269,9 +319,29 @@ fn delete_branch(git: &GitHost, worktree: &ChatWorktree) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+/// A commit on top of `parent` with every change of the copy, so that the line of the
+/// reply brings back work that nobody committed. The index of the copy stays as it is.
+fn save_changes(git: &GitHost, worktree: &ChatWorktree, parent: &str) -> Result<String, String> {
+    let folder = Path::new(&worktree.worktree);
+    let saved = crate::run_changes::snapshot(git, folder).map_err(|e| e.to_string())?;
+    let message = "Changes that Discard removed";
+    git.text(
+        folder,
+        &["commit-tree", &saved.tree, "-p", parent, "-m", message],
+    )
+    .map_err(|e| e.to_string())
+}
+
 /// Discard in the game: the copy and the branch go. Returns the reply.
 pub fn discard(git: &GitHost, worktree: &ChatWorktree) -> Result<String, String> {
-    let commit = tip(git, Path::new(&worktree.repo), &worktree.branch).unwrap_or_default();
+    let mut commit = tip(git, Path::new(&worktree.repo), &worktree.branch).unwrap_or_default();
+    if !is_clean(git, Path::new(&worktree.worktree))
+        .map_err(|e| format!("Couldn't discard: {e}"))?
+    {
+        commit = save_changes(git, worktree, &commit).map_err(|e| {
+            format!("Couldn't discard: the changes in its folder can't be saved: {e}")
+        })?;
+    }
     remove_worktree(git, worktree).map_err(|e| format!("Couldn't discard: {e}"))?;
     delete_branch(git, worktree).map_err(|e| format!("Couldn't discard: {e}"))?;
     crate::run::log(&format!(
@@ -289,6 +359,10 @@ pub fn discard(git: &GitHost, worktree: &ChatWorktree) -> Result<String, String>
 /// nowhere else. Returns one log line for each part.
 pub fn remove_after_delete(git: &GitHost, worktree: &ChatWorktree) -> Vec<String> {
     let mut lines = Vec::new();
+    if let Err(e) = check_link(git, worktree) {
+        lines.push(format!("kept {}: {e}", worktree.worktree));
+        return lines;
+    }
     match is_clean(git, Path::new(&worktree.worktree)) {
         Ok(true) => match remove_worktree(git, worktree) {
             Ok(()) => lines.push(format!("removed {}", worktree.worktree)),
@@ -484,6 +558,55 @@ mod tests {
     }
 
     #[test]
+    fn a_new_worktree_has_an_intact_link() {
+        let repo = repo();
+
+        let made = make_for(&repo, "link");
+
+        assert_eq!(check_link(&repo.git, &made), Ok(()));
+    }
+
+    #[test]
+    fn a_worktree_whose_git_file_names_another_git_folder_is_refused() {
+        let repo = repo();
+        let made = make_for(&repo, "moved");
+        let other = repo.root.join("evil");
+        run(&repo.git, &repo.root, &["init", "-q", "evil"]);
+        let dot_git = Path::new(&made.worktree).join(".git");
+        fs::write(&dot_git, format!("gitdir: {}/.git\n", other.display())).unwrap();
+
+        let error = check_link(&repo.git, &made).unwrap_err();
+
+        assert!(error.contains("won't run git there"), "{error}");
+    }
+
+    #[test]
+    fn a_worktree_whose_commondir_moved_is_refused() {
+        let repo = repo();
+        let made = make_for(&repo, "common");
+        let other = repo.root.join("evil");
+        run(&repo.git, &repo.root, &["init", "-q", "evil"]);
+        let admin = repo.top.join(".git/worktrees/common");
+        fs::write(
+            admin.join("commondir"),
+            format!("{}/.git\n", other.display()),
+        )
+        .unwrap();
+
+        assert!(check_link(&repo.git, &made).is_err());
+    }
+
+    #[test]
+    fn a_worktree_whose_back_link_names_another_folder_is_refused() {
+        let repo = repo();
+        let made = make_for(&repo, "back");
+        let admin = repo.top.join(".git/worktrees/back");
+        fs::write(admin.join("gitdir"), "/somewhere/else/.git\n").unwrap();
+
+        assert!(check_link(&repo.git, &made).is_err());
+    }
+
+    #[test]
     fn discard_removes_the_copy_and_the_branch_and_names_the_commit() {
         let repo = repo();
         let made = make_for(&repo, "gone");
@@ -495,6 +618,26 @@ mod tests {
         assert!(!Path::new(&made.worktree).exists());
         assert!(!branch_exists(&repo.git, &repo.top, &made.branch));
         assert!(!repo.root.join(WORKTREES).exists());
+    }
+
+    #[test]
+    fn discard_of_a_copy_with_changes_names_a_commit_that_holds_them() {
+        let repo = repo();
+        let made = make_for(&repo, "dirty");
+        fs::write(Path::new(&made.worktree).join("new.txt"), "work\n").unwrap();
+        fs::write(Path::new(&made.worktree).join("src/a.txt"), "edited\n").unwrap();
+
+        let reply = discard(&repo.git, &made).unwrap();
+
+        let short = reply.rsplit(' ').next().unwrap();
+        run(&repo.git, &repo.top, &["branch", "back", short]);
+        let new = repo.git.text(&repo.top, &["show", "back:new.txt"]).unwrap();
+        let edited = repo
+            .git
+            .text(&repo.top, &["show", "back:src/a.txt"])
+            .unwrap();
+        assert_eq!((new.as_str(), edited.as_str()), ("work", "edited"));
+        assert!(!Path::new(&made.worktree).exists());
     }
 
     #[test]

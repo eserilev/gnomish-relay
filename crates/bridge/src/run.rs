@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
+use crate::active_folders::ActiveFolders;
 use crate::agent::{
     Agent, Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal,
 };
@@ -264,6 +265,7 @@ impl Bridge {
                 host: Arc::new(host),
                 ci,
                 walk: relay.walk.clone(),
+                active: ActiveFolders::default(),
             });
         }
         self
@@ -387,7 +389,7 @@ fn rejected_text(reason: &Rejected) -> &'static str {
         Rejected::BadTag => "your game and the desktop app don't match",
         Rejected::Ambiguous => "both keys match it",
         Rejected::OtherApp => "it came from the wrong addon",
-        Rejected::Stale => "it's from before the desktop app started",
+        Rejected::Stale => "it's more than 5 minutes old",
         Rejected::Future => "its time is in the future",
         Rejected::BadRecords => "its contents are damaged",
     }
@@ -444,6 +446,7 @@ impl RelayLane {
                 host: Arc::new(host),
                 ci: CiChecks::Off,
                 walk: walk.clone(),
+                active: ActiveFolders::default(),
             }),
             Err(e) => {
                 log(&format!("no git in chats: {e:#}"));
@@ -1009,17 +1012,55 @@ fn log_version(app: App, reported: u32) {
 /// refused (SPEC.md 9.7, decision 3).
 fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<(FrameTag, Vec<Record>)> {
     let mut all = Vec::new();
+    let mut skipped = Vec::new();
     for frame in saved::frames(text) {
         match (receive_for(app, &frame, keys, now()), frame_tag(&frame)) {
             (Ok(records), Some(tag)) => all.push((tag, records)),
-            (Err(reason), _) => log(&format!(
-                "{app:?}: skipped a saved message: {}",
-                rejected_text(&reason)
-            )),
+            (Err(reason), _) => skipped.push(reason),
             (Ok(_), None) => log(&format!("{app:?} outbox frame with no tag")),
         }
     }
+    for line in skipped_lines(app, &skipped) {
+        log(&line);
+    }
     all
+}
+
+/// The file keeps old frames across reloads, so old and early frames get one line
+/// each in place of one line for each frame.
+fn skipped_lines(app: App, reasons: &[Rejected]) -> Vec<String> {
+    let mut lines = Vec::new();
+    let stale = reasons.iter().filter(|r| **r == Rejected::Stale).count();
+    if stale > 0 {
+        lines.push(format!(
+            "{app:?}: skipped {} older than 5 minutes",
+            saved_messages(stale)
+        ));
+    }
+    let future = reasons.iter().filter(|r| **r == Rejected::Future).count();
+    if future > 0 {
+        lines.push(format!(
+            "{app:?}: skipped {} with a time in the future",
+            saved_messages(future)
+        ));
+    }
+    let others = reasons
+        .iter()
+        .filter(|r| !matches!(r, Rejected::Stale | Rejected::Future));
+    for reason in others {
+        lines.push(format!(
+            "{app:?}: skipped a saved message: {}",
+            rejected_text(reason)
+        ));
+    }
+    lines
+}
+
+fn saved_messages(count: usize) -> String {
+    if count == 1 {
+        return "1 saved message".to_owned();
+    }
+    format!("{count} saved messages")
 }
 
 impl TimewaysLane {
@@ -1204,5 +1245,50 @@ pub fn run(
     loop {
         bridge.step();
         thread::sleep(TICK);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn many_stale_saved_messages_give_one_log_line() {
+        let reasons: Vec<Rejected> = (0..30).map(|_| Rejected::Stale).collect();
+
+        let lines = skipped_lines(App::Timeways, &reasons);
+
+        assert_eq!(
+            lines,
+            vec!["Timeways: skipped 30 saved messages older than 5 minutes"]
+        );
+    }
+
+    #[test]
+    fn skipped_saved_messages_get_one_line_for_each_reason() {
+        let reasons = [Rejected::Stale, Rejected::BadTag, Rejected::Stale];
+
+        let lines = skipped_lines(App::Relay, &reasons);
+
+        assert_eq!(
+            lines,
+            vec![
+                "Relay: skipped 2 saved messages older than 5 minutes",
+                "Relay: skipped a saved message: your game and the desktop app don't match",
+            ]
+        );
+    }
+
+    #[test]
+    fn no_skipped_saved_message_gives_no_log_line() {
+        assert!(skipped_lines(App::Relay, &[]).is_empty());
+    }
+
+    #[test]
+    fn a_stale_message_is_named_as_more_than_5_minutes_old() {
+        assert_eq!(
+            rejected_text(&Rejected::Stale),
+            "it's more than 5 minutes old"
+        );
     }
 }

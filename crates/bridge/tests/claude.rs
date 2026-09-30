@@ -224,6 +224,22 @@ fn a_hung_agent_times_out_and_the_run_ends() {
     assert!(start.elapsed() < Duration::from_secs(10));
 }
 
+/// The cost comes only with the `result` of the turn, so the timeout asks for it
+/// (SPEC.md 9.10).
+#[test]
+fn a_timed_out_run_interrupts_the_agent_and_keeps_its_cost() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut claude = agent("slow", dir.path());
+    claude.timeout = Duration::from_millis(300);
+    let start = Instant::now();
+
+    let run = claude.run(&job(&dir, Permission::Ask, "hi"), &Control::default());
+
+    assert_eq!(run.reply.unwrap_err(), "Timed out.");
+    assert_eq!(run.usage.and_then(|u| u.cost_usd), Some(0.5));
+    assert!(start.elapsed() < Duration::from_secs(5));
+}
+
 #[test]
 fn a_crash_reports_the_last_line_of_stderr() {
     let error = run("crash", Permission::Ask).unwrap_err();

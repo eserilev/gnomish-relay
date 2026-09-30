@@ -128,13 +128,15 @@ pub fn fetch(base: &str, dir: &Path) -> Result<Download> {
     // The tar of Windows (bsdtar) also unpacks a zip.
     let (from, to) = (archive.to_string_lossy(), unpacked.to_string_lossy());
     tool("tar", &["-xf", &from, "-C", &to])?;
+    // Another name in the list goes nowhere: `bin` also holds the desktop app, and on
+    // the PATH it can hide a tool such as git.
     let mut programs = Vec::new();
-    for name in &entry.programs {
+    for name in [STORY, PACK] {
         let file = unpacked.join(program_file(name));
         if !file.is_file() {
             bail!("{} has no {}", entry.asset, program_file(name));
         }
-        programs.push((name.clone(), file));
+        programs.push((name.to_owned(), file));
     }
     Ok(Download {
         version: manifest.version,

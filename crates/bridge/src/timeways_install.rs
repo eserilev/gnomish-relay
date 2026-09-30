@@ -168,3 +168,29 @@ pub fn update(dirs: &Dirs, sources: &Sources, story_program: &Path) -> Result<Ve
     let _ = fs::remove_dir_all(&work);
     result
 }
+
+/// An error of the chain starts in lower case and has no period, so the next sentence
+/// of a line needs both.
+pub fn sentence(text: &str) -> String {
+    let mut chars = text.chars();
+    let Some(first) = chars.next() else {
+        return String::new();
+    };
+    let mut line: String = first.to_uppercase().chain(chars).collect();
+    if !line.ends_with(['.', '!', '?']) {
+        line.push('.');
+    }
+    line
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn an_error_becomes_a_sentence_with_one_period() {
+        assert_eq!(sentence("the download failed"), "The download failed.");
+        assert_eq!(sentence("Your old lore stays."), "Your old lore stays.");
+        assert_eq!(sentence(""), "");
+    }
+}
