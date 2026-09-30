@@ -10,7 +10,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicUsize, Ordering};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use bridge::agent::{Agent, Control, Run};
 use bridge::config::{Permission, Policy};
@@ -132,19 +132,7 @@ fn slot_file(addons: &Path, app: App, file: &str) -> String {
 
 /// On a busy Windows runner the story program takes more than 30 seconds to start.
 fn step_until(bridge: &mut Bridge, done: impl Fn() -> bool) -> bool {
-    step_while(bridge, Duration::from_secs(90), done)
-}
-
-fn step_while(bridge: &mut Bridge, limit: Duration, done: impl Fn() -> bool) -> bool {
-    let start = Instant::now();
-    while start.elapsed() < limit {
-        bridge.step();
-        if done() {
-            return true;
-        }
-        std::thread::sleep(Duration::from_millis(10));
-    }
-    false
+    common::step_until_within(bridge, Duration::from_secs(90), done)
 }
 
 #[test]

@@ -6,8 +6,10 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use bridge::fixture::{self, BitResults, Fake, Fixture, SavedVariables};
+use bridge::run::Bridge;
 use mlua::{Function, IntoLuaMulti, Lua, MultiValue, Table, Value};
 use serde_json::Value as Json;
 
@@ -295,4 +297,17 @@ pub fn install_window(addons: &std::path::Path, app: protocol::apps::App) {
         std::fs::create_dir(addons.join(slots::slot_name(app, n))).unwrap();
     }
     slots::publish(addons, app, &Files::empty(app, 0), 1).unwrap();
+}
+
+/// Returns `false` when `done` is still false after `limit`.
+pub fn step_until_within(bridge: &mut Bridge, limit: Duration, done: impl Fn() -> bool) -> bool {
+    let start = Instant::now();
+    while start.elapsed() < limit {
+        bridge.step();
+        if done() {
+            return true;
+        }
+        std::thread::sleep(Duration::from_millis(10));
+    }
+    false
 }
