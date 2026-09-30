@@ -959,7 +959,7 @@ The rendered text goes into the normal `text` field, so S9, S18, and S20 do not 
 - A mark with no closing mark is text. So are `*` between spaces and `_` inside a word.
 - The output is at most 16 times the input plus 4 bytes (S25). A bold text with many `*_*_` switches costs 12 bytes for each input byte, so a bound of 10 is false.
 
-**Blocks of the bridge** (9.11). The bridge adds blocks of its own right after the marker and the usage line `u`, before the blocks of the renderer, so a cut of a long reply never takes them. Their kinds are upper-case letters, which the renderer never writes, and the renderer drops every `\n` and `US` of the agent. So no agent text can make one. Each field loses its control characters, and every `|` is doubled (S10). They go only into the body, never into the history of a restore (7.6).
+**Blocks of the bridge** (9.11). The bridge adds blocks of its own right after the marker and the usage line `u`, before the blocks of the renderer, so a cut of a long reply never takes them. Their kinds are upper-case letters, which the renderer never writes, and the renderer drops every `\n` and `US` of the agent. So no agent text can make one. Each field loses its control characters, and every `|` is doubled (S10). They go only into the body, never into the history of a restore (7.6). An error with blocks goes into that history as its plain text, with no marker, because the addon shows a restored error as plain text.
 
 | Kind | Block | Fields |
 |---|---|---|

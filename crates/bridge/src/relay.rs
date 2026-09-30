@@ -912,7 +912,7 @@ impl Relay {
             return;
         }
         let added = blocks(&run);
-        let (status, text) = match result {
+        let (status, text, history) = match result {
             Ok(text) => {
                 let rendered = render_reply(&job.work, &with_level_note(job, text));
                 let text = with_blocks(&rendered, &added);
@@ -920,15 +920,21 @@ impl Relay {
                     Some(usage) => with_usage(&text, usage),
                     None => text,
                 };
-                (Status::Done, text)
+                let history = without_blocks(&text);
+                (Status::Done, text, history)
             }
-            Err(text) if !added.is_empty() => (Status::Error, error_with_blocks(&text, &added)),
-            Err(text) => (Status::Error, plain_error(&text)),
+            // A restored error shows as plain text, so its history gets no marker.
+            Err(text) if !added.is_empty() => (
+                Status::Error,
+                error_with_blocks(&text, &added),
+                plain_error(&text),
+            ),
+            Err(text) => (Status::Error, plain_error(&text), plain_error(&text)),
         };
         if let Some(changes) = run.changes {
             self.keep_changes(changes);
         }
-        self.set_record(&job.token, &job.chat, job.id, status, text);
+        self.record_with_history(&job.token, &job.chat, job.id, status, text, &history);
     }
 
     fn keep_changes(&mut self, changes: RunChanges) {
@@ -1111,14 +1117,27 @@ impl Relay {
         status: Status,
         text: String,
     ) {
+        let history = without_blocks(&text);
+        self.record_with_history(token, chat, id, status, text, &history);
+    }
+
+    /// `history` is the text that a restore brings back (SPEC.md 7.6).
+    fn record_with_history(
+        &mut self,
+        token: &str,
+        chat: &ChatId,
+        id: MessageId,
+        status: Status,
+        text: String,
+        history: &str,
+    ) {
         let speaker = match status {
             Status::Working => None,
             Status::Done => Some(Speaker::Agent),
             Status::Error => Some(Speaker::Error),
         };
         if let Some(speaker) = speaker {
-            self.history
-                .add_reply(chat, speaker, id, &without_blocks(&text));
+            self.history.add_reply(chat, speaker, id, history);
         }
         self.lane.set_record(token, chat, id, status, text);
     }
@@ -2744,6 +2763,26 @@ mod tests {
         let restored =
             String::from_utf8(state.history.to_restore()[0].history[1].text.clone()).unwrap();
         assert_eq!(restored, "\x1bM1\np\x1fDone.\n");
+    }
+
+    /// The addon shows a restored error as plain text, so the marker and the paragraph
+    /// bytes of the renderer must not reach it (SPEC.md 7.3.1).
+    #[test]
+    fn the_restore_history_keeps_an_error_with_blocks_as_plain_text() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+        let run = RunBlocks {
+            changes: Some(changes("c1", 1)),
+            ..RunBlocks::default()
+        };
+
+        relay.finish_run(&job, Err("Stopped.".into()), run, None);
+
+        let state = relay.to_state();
+        let restored =
+            String::from_utf8(state.history.to_restore()[0].history[1].text.clone()).unwrap();
+        assert_eq!(restored, "Stopped.");
     }
 
     #[test]
