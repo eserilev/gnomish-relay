@@ -1184,7 +1184,7 @@ Each chat has a FIFO queue. A second message to a busy chat waits. It never repl
 **The limit on parallel runs.** Each agent run costs memory, CPU, and money, so at most `max_parallel_runs` runs are active at a time (12, default 3).
 
 - A run is a message or an attach (9.6) with a run in progress. A list of sessions, folders, or settings never counts and never waits: it is short and starts no turn of an agent.
-- A message over the limit waits in the queue of its chat. When a run ends, the message that came first starts next, across all chats. The bridge numbers each message when it takes it, and `state.json` keeps the number with the waiting message, so a restart keeps the order.
+- A message over the limit waits in the queue of its chat. When a run ends, the message that came first starts next, across all chats. `state.json` keeps the waiting messages oldest first, so a restart keeps the order.
 - A message that waits for the limit, and not for an earlier message of its own chat, shows one progress line of the bridge: "Waiting: 3 other chats are running", with ", 1 ahead of this one" when older messages wait too. Only the bridge writes a line that starts with "Waiting:": `Activity::step` puts "agent: " in front of such a line of an agent, as for "Level:" (9.3).
 - The addon shows the line on the cast bar of the Activity column, grey and still, as for a popup that waits (13.1), and not as a step row.
 - Stop ends a waiting message as before, and its line goes.
