@@ -101,8 +101,8 @@ To use it, run the Windows install command with `-Wsl`:
    whisper-style message in your chat when it's done.
 
 Along the way you get approval popups, a list of the files that changed with **Commit**
-and **Revert** buttons, a branch of its own for each chat, quick-action buttons, test
-and CI results under each reply, and what each run cost.
+and **Revert** buttons, a branch of its own for each chat, one-click suggestions in a new
+chat, test and CI results under each reply, and what each run cost.
 
 ## Add an agent
 

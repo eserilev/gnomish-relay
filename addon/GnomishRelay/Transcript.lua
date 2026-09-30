@@ -756,11 +756,14 @@ function Transcript.Redraw(entry)
 	end
 end
 
--- The next Show draws the whole chat again for the new width.
+-- The next Show draws the whole chat again for the new width. A new height keeps the
+-- line at the bottom of the view in place.
 function Transcript.Resize(w, h)
+	local grown = viewHeight and h - viewHeight or 0
 	width, viewHeight = w, h
 	ui.scroll:SetSize(w, h)
 	ui.child:SetWidth(w)
+	ScrollTo(ui.scroll:GetVerticalScroll() - grown)
 end
 
 -- `parent` is the inset of the log. The window gives the size, so the layout needs no

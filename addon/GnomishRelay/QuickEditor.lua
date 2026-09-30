@@ -7,7 +7,6 @@ local QuickEditor = {}
 ns.QuickEditor = QuickEditor
 
 local ROW_HEIGHT = 30
-local NAME_WIDTH = 140
 local BUTTON_WIDTH = 80
 local GREY = "8d8778"
 
@@ -20,17 +19,12 @@ end
 
 local function ShownText(box)
 	local action = ns.QuickActions.List()[box.row]
-	return action and action[box.field] or ""
+	return action and action.message or ""
 end
 
 -- An empty or unchanged text keeps the old one, and the box shows it again.
 local function Save(box)
-	local text = box:GetText()
-	if box.field == "name" then
-		ns.QuickActions.Rename(box.row, text)
-	else
-		ns.QuickActions.SetMessage(box.row, text)
-	end
+	ns.QuickActions.SetMessage(box.row, box:GetText())
 	box:SetText(ShownText(box))
 	ns.Window.Refresh()
 end
@@ -38,20 +32,18 @@ end
 -- A click on a button leaves the focus in the box, and Changed() then draws over the text.
 local function SaveFocused()
 	for _, row in ipairs(ui.rows) do
-		for _, box in ipairs({ row.name, row.message }) do
-			if box:HasFocus() then
-				box:ClearFocus()
-			end
+		if row.message:HasFocus() then
+			row.message:ClearFocus()
 		end
 	end
 end
 
-local function NewBox(name, parent, row, field, bytes)
+local function NewBox(name, parent, row)
 	local box = CreateFrame("EditBox", name, parent, "InputBoxTemplate")
 	box:SetHeight(22)
 	box:SetAutoFocus(false)
-	box:SetMaxBytes(bytes)
-	box.row, box.field = row, field
+	box:SetMaxBytes(ns.QuickActions.MESSAGE_BYTES)
+	box.row = row
 	box:SetScript("OnEnterPressed", function(self)
 		self:ClearFocus()
 	end)
@@ -95,11 +87,8 @@ local function BuildRow(i)
 		Changed()
 	end)
 	up:SetPoint("RIGHT", down, "LEFT", -4, 0)
-	row.name = NewBox(prefix .. "Name" .. i, row, i, "name", ns.QuickActions.NAME_BYTES)
-	row.name:SetPoint("LEFT", row, "LEFT", 6, 0)
-	row.name:SetWidth(NAME_WIDTH)
-	row.message = NewBox(prefix .. "Message" .. i, row, i, "message", ns.QuickActions.MESSAGE_BYTES)
-	row.message:SetPoint("LEFT", row.name, "RIGHT", 12, 0)
+	row.message = NewBox(prefix .. "Message" .. i, row, i)
+	row.message:SetPoint("LEFT", row, "LEFT", 6, 0)
 	row.message:SetPoint("RIGHT", up, "LEFT", -12, 0)
 	row.up, row.down = up, down
 	return row
@@ -114,7 +103,6 @@ function QuickEditor.Refresh()
 		local action = list[i]
 		row:SetShown(action ~= nil)
 		if action then
-			row.name:SetText(action.name)
 			row.message:SetText(action.message)
 			row.up:SetEnabled(i > 1)
 			row.down:SetEnabled(i < #list)
@@ -168,7 +156,7 @@ function QuickEditor.Build(page)
 	heading:SetText("Quick actions")
 	local hint = ui.frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	hint:SetPoint("LEFT", heading, "RIGHT", 12, 0)
-	hint:SetText("|cff" .. GREY .. "One click sends the message to the open chat.|r")
+	hint:SetText("|cff" .. GREY .. "An empty chat suggests these. A click sends one.|r")
 	for i = 1, ns.QuickActions.MOST do
 		ui.rows[i] = BuildRow(i)
 	end

@@ -52,7 +52,7 @@ const FILES: &[&str] = &[
     "Pins.lua",
     "Search.lua",
     "QuickActions.lua",
-    "QuickBar.lua",
+    "Suggestions.lua",
     "QuickEditor.lua",
     "Changes.lua",
     "Transcript.lua",
