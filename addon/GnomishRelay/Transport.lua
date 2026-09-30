@@ -363,6 +363,7 @@ local function PollEvery()
 	if next(state.working) then
 		return WORKING_POLL
 	end
+	return ns.Notices.PollEvery()
 end
 
 -- Progress goes to the run in progress of its chat. Requests wait for an answer.
@@ -389,6 +390,7 @@ local function ApplyLive(live)
 		end
 	end
 	state.requests = requests
+	ns.Notices.Apply(live.notices, Messages.Stats().bodyNow)
 end
 
 local function ApplySlot(restore, live)

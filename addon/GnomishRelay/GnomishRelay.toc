@@ -15,6 +15,7 @@ Strip.lua
 Slots.lua
 Messages.lua
 Transport.lua
+Notices.lua
 Blocks.lua
 Transcript.lua
 Folders.lua
@@ -25,4 +26,5 @@ SettingsTab.lua
 DiagTab.lua
 Window.lua
 Popup.lua
+NoticeFrames.lua
 Core.lua

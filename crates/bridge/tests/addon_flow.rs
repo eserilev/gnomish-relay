@@ -45,6 +45,7 @@ const FILES: &[&str] = &[
     "Slots.lua",
     "Messages.lua",
     "Transport.lua",
+    "Notices.lua",
     "Blocks.lua",
     "Transcript.lua",
     "Folders.lua",
@@ -55,6 +56,7 @@ const FILES: &[&str] = &[
     "DiagTab.lua",
     "Window.lua",
     "Popup.lua",
+    "NoticeFrames.lua",
     "Core.lua",
 ];
 

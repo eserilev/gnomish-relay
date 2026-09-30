@@ -152,6 +152,8 @@ function Messages.Stats()
 		outbox = #Messages.Db().outbox,
 		open = #Messages.Store.Open(),
 		online = Messages.Online(),
+		-- The clock of the bridge in the last body.
+		bodyNow = state.lastNow,
 	}
 end
 

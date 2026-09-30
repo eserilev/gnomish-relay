@@ -46,6 +46,7 @@ const RELAY_FILES: &[&str] = &[
     "Slots.lua",
     "Messages.lua",
     "Transport.lua",
+    "Notices.lua",
     "Blocks.lua",
     "Transcript.lua",
     "Folders.lua",
@@ -56,6 +57,7 @@ const RELAY_FILES: &[&str] = &[
     "DiagTab.lua",
     "Window.lua",
     "Popup.lua",
+    "NoticeFrames.lua",
     "Core.lua",
 ];
 /// The App.lua of the test addon: the Timeways names of SPEC.md 9.7, decision 5.

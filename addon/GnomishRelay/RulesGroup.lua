@@ -12,7 +12,7 @@ local ROW_HEIGHT = 20
 local GREY = "8d8778"
 local CODE = "b8c8b8"
 
-local ui = { rows = {}, offset = 0, removing = {} }
+local ui = { rows = {}, offset = 0, removing = {}, shown = ROWS }
 
 local function Plain(text)
 	return ns.Relay.Plain(text)
@@ -57,10 +57,10 @@ function RulesGroup.Refresh()
 		return
 	end
 	local rules = Rules()
-	ui.offset = math.max(0, math.min(ui.offset, #rules - ROWS))
+	ui.offset = math.max(0, math.min(ui.offset, #rules - ui.shown))
 	ui.empty:SetShown(#rules == 0)
 	for i, row in ipairs(ui.rows) do
-		ShowRow(row, rules[ui.offset + i])
+		ShowRow(row, i <= ui.shown and rules[ui.offset + i] or nil)
 	end
 end
 
@@ -79,10 +79,9 @@ local function Text(parent, font, x, width)
 	return text
 end
 
-local function BuildRow(page, i, y)
+local function BuildRow(page, i)
 	local row = CreateFrame("Frame", "GnomishRelayRule" .. i, page)
 	row:SetSize(page:GetWidth() - 40, ROW_HEIGHT)
-	row:SetPoint("TOPLEFT", page, "TOPLEFT", 20, y - (i - 1) * ROW_HEIGHT)
 	row.pattern = Text(row, "GameFontHighlight", 0, 190)
 	row.folder = Text(row, "GameFontHighlight", 200, 220)
 	row.used = Text(row, "GameFontHighlightSmall", 430, 110)
@@ -99,26 +98,42 @@ local function BuildRow(page, i, y)
 	return row
 end
 
--- `y` is the top of the group on the page.
-function RulesGroup.Build(page, y)
-	ui.heading = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
+-- `y` is the top of the group on the page. The group shows `rows` rules at a time, so
+-- it fits below the Notifications group (SPEC.md 13.1).
+function RulesGroup.Place(y, rows)
+	local page = ui.page
+	ui.shown = rows
+	ui.heading:ClearAllPoints()
 	ui.heading:SetPoint("TOPLEFT", page, "TOPLEFT", 16, y)
+	ui.empty:ClearAllPoints()
+	ui.empty:SetPoint("TOPLEFT", page, "TOPLEFT", 20, y - 30)
+	for i, row in ipairs(ui.rows) do
+		row:ClearAllPoints()
+		row:SetPoint("TOPLEFT", page, "TOPLEFT", 20, y - 28 - (i - 1) * ROW_HEIGHT)
+	end
+	ui.area:ClearAllPoints()
+	ui.area:SetPoint("TOPLEFT", page, "TOPLEFT", 16, y - 24)
+	ui.area:SetSize(page:GetWidth() - 32, rows * ROW_HEIGHT + 8)
+	RulesGroup.Refresh()
+end
+
+function RulesGroup.Build(page, y)
+	ui.page = page
+	ui.heading = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
 	ui.heading:SetText("Always Allowed")
 	local hint = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	hint:SetPoint("LEFT", ui.heading, "RIGHT", 12, 0)
 	hint:SetText("|cff" .. GREY .. "A rule ends 30 days after its last use.|r")
 	ui.empty = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	ui.empty:SetPoint("TOPLEFT", page, "TOPLEFT", 20, y - 30)
 	ui.empty:SetText("|cff" .. GREY .. "No rules yet. Click Always allow in a popup to add one.|r")
 	for i = 1, ROWS do
-		ui.rows[i] = BuildRow(page, i, y - 28)
+		ui.rows[i] = BuildRow(page, i)
 	end
-	local area = CreateFrame("Frame", "GnomishRelayRules", page)
-	area:SetPoint("TOPLEFT", page, "TOPLEFT", 16, y - 24)
-	area:SetSize(page:GetWidth() - 32, ROWS * ROW_HEIGHT + 8)
-	area:EnableMouseWheel(true)
-	area:SetScript("OnMouseWheel", function(_, delta)
+	ui.area = CreateFrame("Frame", "GnomishRelayRules", page)
+	ui.area:EnableMouseWheel(true)
+	ui.area:SetScript("OnMouseWheel", function(_, delta)
 		ui.offset = ui.offset - delta
 		RulesGroup.Refresh()
 	end)
+	RulesGroup.Place(y, ROWS)
 end

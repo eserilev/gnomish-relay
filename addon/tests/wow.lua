@@ -50,6 +50,8 @@ local wow = {
 	missingFiles = {},
 	-- Makes every SimpleHTML fail, as a client with a different SimpleHTML could.
 	brokenHtml = false,
+	-- The mouse, in the pixels of the screen, for GetCursorPosition().
+	cursor = { 0, 0 },
 }
 
 local Object = {}
@@ -234,6 +236,13 @@ function methods:SetPoint(point, relative, relativePoint, x, y)
 	self.anchor = { point, relative, relativePoint, x, y }
 end
 
+-- The fake has no layout, so a test sets `center` on the objects that need it.
+function methods:GetCenter()
+	if self.center then
+		return self.center[1], self.center[2]
+	end
+end
+
 function methods:GetPoint()
 	if self.anchor then
 		return unpack(self.anchor)
@@ -390,6 +399,10 @@ end
 
 function methods:Clear()
 	self.lines = {}
+end
+
+function methods:SetAlpha(alpha)
+	self.alpha = alpha
 end
 
 function methods:SetScale(scale)
@@ -551,7 +564,10 @@ GameTooltip = New("GameTooltip", "GameTooltip")
 UIErrorsFrame = New("MessageFrame", "UIErrorsFrame")
 ActionStatus = New("Frame", "ActionStatus")
 UISpecialFrames = {}
-SOUNDKIT = { TELL_MESSAGE = 3081, READY_CHECK = 8960 }
+SOUNDKIT = { TELL_MESSAGE = 3081, READY_CHECK = 8960, UI_BNET_TOAST = 18019 }
+Minimap = New("Minimap", "Minimap", UIParent)
+Minimap:SetSize(140, 140)
+Minimap.center = { 1200, 600 }
 ChatFontNormal, GameFontNormal = {}, {}
 SlashCmdList = {}
 
@@ -590,6 +606,10 @@ end
 
 function InCombatLockdown()
 	return wow.combat
+end
+
+function GetCursorPosition()
+	return wow.cursor[1], wow.cursor[2]
 end
 
 -- The game opens a chat link through it. The relay hooks it.

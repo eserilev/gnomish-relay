@@ -94,6 +94,10 @@ def ui_globals():
     for path in xml_files():
         text = path.read_text(encoding="utf-8", errors="replace")
         names.update(re.findall(r'<(?:Font|FontFamily) name="(\w+)"', text))
+        # A named frame that is not a template is a global, for example Minimap.
+        for tag in re.findall(r'<\w+ [^>]*name="[A-Za-z_]\w*"[^>]*>', text):
+            if 'virtual="true"' not in tag:
+                names.update(re.findall(r' name="([A-Za-z_]\w*)"', tag))
     return names
 
 

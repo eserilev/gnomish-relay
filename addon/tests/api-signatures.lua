@@ -80,6 +80,12 @@ return {
 				{ Name = "buildInfo", Type = "string", Nilable = false },
 			},
 		},
+		GetCursorPosition = {
+			Returns = {
+				{ Name = "posX", Type = "number", Nilable = false },
+				{ Name = "posY", Type = "number", Nilable = false },
+			},
+		},
 		GetPhysicalScreenSize = {
 			Returns = {
 				{ Name = "sizeX", Type = "number", Nilable = false },
@@ -466,6 +472,12 @@ return {
 				{ Name = "justifyH", Type = "JustifyHorizontal", Nilable = false },
 			},
 		},
+		["SimpleFontStringAPI:SetMaxLines"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "maxLines", Type = "number", Nilable = false },
+			},
+		},
 		["SimpleFontStringAPI:SetNonSpaceWrap"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
@@ -522,6 +534,13 @@ return {
 			},
 			Returns = {
 				{ Name = "texture", Type = "SimpleTexture", Nilable = false },
+			},
+		},
+		["SimpleFrameAPI:GetEffectiveScale"] = {
+			SecretReturnsForAspect = { Enum.SecretAspect.Scale },
+			Arguments = {},
+			Returns = {
+				{ Name = "effectiveScale", Type = "number", Nilable = false },
 			},
 		},
 		["SimpleFrameAPI:Hide"] = {
@@ -752,6 +771,13 @@ return {
 				{ Name = "a", Type = "SingleColorValue", Nilable = true },
 			},
 		},
+		["SimpleRegionAPI:GetEffectiveScale"] = {
+			SecretReturnsForAspect = { Enum.SecretAspect.Scale },
+			Arguments = {},
+			Returns = {
+				{ Name = "effectiveScale", Type = "number", Nilable = false },
+			},
+		},
 		["SimpleRegionAPI:SetAlpha"] = {
 			SecretArguments = "AllowedWhenTainted",
 			SecretArgumentsAddAspect = { Enum.SecretAspect.Alpha },
@@ -786,6 +812,15 @@ return {
 			SecretArguments = "NotAllowed",
 			Arguments = {
 				{ Name = "enable", Type = "bool", Nilable = false, Default = false },
+			},
+		},
+		["SimpleScriptRegionAPI:GetCenter"] = {
+			MayReturnNothing = true,
+			SecretWhenAnchoringSecret = true,
+			Arguments = {},
+			Returns = {
+				{ Name = "x", Type = "uiUnit", Nilable = false },
+				{ Name = "y", Type = "uiUnit", Nilable = false },
 			},
 		},
 		["SimpleScriptRegionAPI:GetHeight"] = {
@@ -1022,6 +1057,23 @@ return {
 				{ Name = "interpolation", Type = "StatusBarInterpolation", Nilable = false, NeverSecret = true, Default = "Immediate" },
 			},
 		},
+		["SimpleTextureBaseAPI:SetAtlas"] = {
+			SecretArguments = "AllowedWhenTainted",
+			Arguments = {
+				{ Name = "atlas", Type = "textureAtlas", Nilable = false },
+				{ Name = "useAtlasSize", Type = "bool", Nilable = false, NeverSecret = true, Default = false },
+				{ Name = "filterMode", Type = "FilterMode", Nilable = true, NeverSecret = true },
+				{ Name = "resetTexCoords", Type = "bool", Nilable = true, NeverSecret = true },
+				{ Name = "wrapModeHorizontal", Type = "cstring", Nilable = true, NeverSecret = true },
+				{ Name = "wrapModeVertical", Type = "cstring", Nilable = true, NeverSecret = true },
+			},
+		},
+		["SimpleTextureBaseAPI:SetBlendMode"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "blendMode", Type = "BlendMode", Nilable = false },
+			},
+		},
 		["SimpleTextureBaseAPI:SetColorTexture"] = {
 			ChecksForbiddenAspects = { { Argument = "self", Aspect = Enum.ForbiddenAspect.SetTexture } },
 			SecretArguments = "AllowedWhenTainted",
@@ -1068,6 +1120,9 @@ return {
 			},
 		},
 		PLAYER_LOGIN = {
+			SynchronousEvent = true,
+		},
+		PLAYER_REGEN_ENABLED = {
 			SynchronousEvent = true,
 		},
 		SCREENSHOT_FAILED = {

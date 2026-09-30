@@ -29,6 +29,15 @@ function Store.Load()
 	if db.whisperSound == nil then
 		db.whisperSound = true
 	end
+	-- The notifications of terminal sessions (SPEC.md 10.4). The saved ids show nothing twice.
+	for _, key in ipairs({ "notifyOn", "notifyChat", "notifySound", "notifyToast" }) do
+		if db[key] == nil then
+			db[key] = true
+		end
+	end
+	db.notifyFinished = db.notifyFinished or "over1"
+	db.noticesShown = db.noticesShown or {}
+	db.noticesCleared = db.noticesCleared or 0
 	Store.db = db
 end
 

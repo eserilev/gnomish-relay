@@ -16,6 +16,12 @@ local COLORS = { "f0a860", "ff80ff", "69ccf0", "9fe39f", "ffd100" }
 local FONT_MIN, FONT_MAX = 12, 20
 -- A list older than this shows its age in orange.
 local STALE_AFTER = 600
+local APPEARANCE_TOP = -40 - 2 * ROW - 14
+local NOTIFY_TOP = APPEARANCE_TOP - 28 - 4 * ROW - 10
+-- The Notifications group takes a heading and two rows. The rules group then shows
+-- fewer rows, so the page still fits the least window.
+local NOTIFY_HEIGHT = 28 + 2 * ROW + 6
+local RULE_ROWS, RULE_ROWS_WITH_NOTIFY = 6, 3
 
 local ui = { dropdowns = {} }
 
@@ -30,15 +36,16 @@ local function Heading(text, y)
 	Label(ui.page, "GameFontNormalLarge", 16, y):SetText(text)
 end
 
-local function RowLabel(text, y)
-	Label(ui.page, "GameFontHighlight", 20, y - 6):SetText(text)
+local function RowLabel(text, y, parent)
+	Label(parent or ui.page, "GameFontHighlight", 20, y - 6):SetText(text)
 end
 
 -- A button that shows the value, and a list of choices below it while open.
-local function Dropdown(name, y, width, onPick)
-	local button = CreateFrame("Button", name, ui.page, "UIPanelButtonTemplate")
+local function Dropdown(name, y, width, onPick, x, parent)
+	parent = parent or ui.page
+	local button = CreateFrame("Button", name, parent, "UIPanelButtonTemplate")
 	button:SetSize(width, 22)
-	button:SetPoint("TOPLEFT", ui.page, "TOPLEFT", 20 + LABEL_WIDTH, y)
+	button:SetPoint("TOPLEFT", parent, "TOPLEFT", x or 20 + LABEL_WIDTH, y)
 	local list = CreateFrame("Frame", name .. "List", ui.page)
 	list:SetFrameStrata("DIALOG")
 	list:SetPoint("TOPLEFT", button, "BOTTOMLEFT", 0, 0)
@@ -169,6 +176,35 @@ local function RefreshSwatches()
 	end
 end
 
+local function FinishedText()
+	for _, choice in ipairs(ns.Notices.FINISHED) do
+		if choice.value == ns.Store.db.notifyFinished then
+			return choice.text
+		end
+	end
+	return "?"
+end
+
+-- Off stops the lines, the sounds, the toasts, the bell, and the faster polls, and
+-- greys the other rows (SPEC.md 13.1).
+local function RefreshNotify()
+	local db = ns.Store.db
+	local shown = ns.BridgeSettings.HooksOn()
+	ui.notify:SetShown(shown)
+	ns.RulesGroup.Place(
+		shown and NOTIFY_TOP - NOTIFY_HEIGHT or NOTIFY_TOP,
+		shown and RULE_ROWS_WITH_NOTIFY or RULE_ROWS
+	)
+	ui.notifyOn:SetChecked(db.notifyOn)
+	ui.finished:SetText(FinishedText())
+	ui.notifyChat:SetChecked(db.notifyChat)
+	ui.notifySound:SetChecked(db.notifySound)
+	ui.notifyToast:SetChecked(db.notifyToast)
+	for _, part in ipairs(ui.notifyParts) do
+		part:SetAlpha(db.notifyOn and 1 or 0.35)
+	end
+end
+
 function SettingsTab.Refresh()
 	if not ui.page or not ui.page:IsShown() then
 		return
@@ -186,7 +222,7 @@ function SettingsTab.Refresh()
 	RefreshSwatches()
 	ui.preview:SetText(PreviewLine())
 	ui.status.text:SetText(SettingsTab.Status())
-	ns.RulesGroup.Refresh()
+	RefreshNotify()
 end
 
 local function BuildNewChats()
@@ -225,10 +261,11 @@ local function BuildFontSize(y)
 	ui.fontValue = Label(ui.page, "GameFontHighlight", 20 + LABEL_WIDTH + 212, y - 6)
 end
 
-local function Checkbox(name, x, y, onClick)
-	local box = CreateFrame("CheckButton", name, ui.page, "UICheckButtonTemplate")
+local function Checkbox(name, x, y, onClick, parent)
+	parent = parent or ui.page
+	local box = CreateFrame("CheckButton", name, parent, "UICheckButtonTemplate")
 	box:SetSize(24, 24)
-	box:SetPoint("TOPLEFT", ui.page, "TOPLEFT", x, y)
+	box:SetPoint("TOPLEFT", parent, "TOPLEFT", x, y)
 	box:SetScript("OnClick", function(self)
 		onClick(self:GetChecked() and true or false)
 		SettingsTab.Refresh()
@@ -274,7 +311,7 @@ local function BuildReplyLine(y)
 end
 
 local function BuildAppearance()
-	local top = -40 - 2 * ROW - 14
+	local top = APPEARANCE_TOP
 	Heading("Appearance", top)
 	BuildFontSize(top - 28)
 	BuildReplyLine(top - 28 - ROW)
@@ -285,6 +322,44 @@ local function BuildAppearance()
 	reset:SetPoint("TOPLEFT", ui.page, "TOPLEFT", 20 + LABEL_WIDTH, y)
 	reset:SetText("Reset")
 	reset:SetScript("OnClick", ns.Window.ResetPosition)
+end
+
+local function Alert(name, key, text, x, y)
+	local box = Checkbox(name, x, y + 2, function(on)
+		ns.Store.db[key] = on
+	end, ui.notify)
+	Label(ui.notify, "GameFontHighlight", x + 26, y - 6):SetText(text)
+	return box
+end
+
+local function BuildNotify()
+	ui.notify = CreateFrame("Frame", "GnomishRelaySettingsNotify", ui.page)
+	ui.notify:SetPoint("TOPLEFT", ui.page, "TOPLEFT", 0, NOTIFY_TOP)
+	ui.notify:SetSize(ui.page:GetWidth(), NOTIFY_HEIGHT)
+	Label(ui.notify, "GameFontNormalLarge", 16, 0):SetText("Notifications")
+	RowLabel("Notifications", -28, ui.notify)
+	ui.notifyOn = Checkbox("GnomishRelaySettingsNotifyOn", 20 + LABEL_WIDTH, -26, function(on)
+		ns.Store.db.notifyOn = on
+		ns.NoticeFrames.Refresh()
+	end, ui.notify)
+	local finishedLabel = Label(ui.notify, "GameFontHighlight", 20 + LABEL_WIDTH + 44, -34)
+	finishedLabel:SetText("Finished work")
+	ui.finished = Dropdown("GnomishRelaySettingsFinished", -28, 110, function(value)
+		ns.Store.db.notifyFinished = value
+		SettingsTab.Refresh()
+	end, 20 + LABEL_WIDTH + 140, ui.notify)
+	local choices = {}
+	for _, choice in ipairs(ns.Notices.FINISHED) do
+		table.insert(choices, { value = choice.value, text = choice.text })
+	end
+	SetChoices(ui.finished, choices)
+	RowLabel("Alerts", -28 - ROW, ui.notify)
+	local x = 20 + LABEL_WIDTH
+	ui.notifyChat = Alert("GnomishRelaySettingsNotifyChat", "notifyChat", "Chat line", x, -28 - ROW)
+	ui.notifySound = Alert("GnomishRelaySettingsNotifySound", "notifySound", "Sound", x + 100, -28 - ROW)
+	ui.notifyToast = Alert("GnomishRelaySettingsNotifyToast", "notifyToast", "Toast", x + 180, -28 - ROW)
+	ui.notifyParts = { finishedLabel, ui.finished, ui.notifyChat, ui.notifySound, ui.notifyToast }
+	ui.notify:Hide()
 end
 
 local function BuildStatus()
@@ -305,7 +380,8 @@ function SettingsTab.Build(page)
 	ui.page = page
 	BuildNewChats()
 	BuildAppearance()
-	ns.RulesGroup.Build(page, -40 - 2 * ROW - 14 - 28 - 4 * ROW - 10)
+	BuildNotify()
+	ns.RulesGroup.Build(page, NOTIFY_TOP)
 	BuildStatus()
 	WatchClicks()
 end

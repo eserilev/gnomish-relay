@@ -170,9 +170,12 @@ end
 local events = CreateFrame("Frame")
 events:RegisterEvent("ADDON_LOADED")
 events:RegisterEvent("PLAYER_LOGIN")
+events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event, name)
 	if event == "ADDON_LOADED" and name == addonName then
 		ns.Store.Load()
+	elseif event == "PLAYER_REGEN_ENABLED" then
+		ns.Notices.CombatEnded()
 	elseif event == "PLAYER_LOGIN" then
 		local missing = ns.Health.Missing()
 		if missing then
@@ -200,6 +203,7 @@ events:SetScript("OnEvent", function(_, event, name)
 		ns.Transport.OnDesktop = function(chat, notice)
 			WhisperLine(chat, DesktopText(chat, notice))
 		end
+		ns.NoticeFrames.Build()
 		ns.Transport.Init()
 		C_Timer.NewTicker(1, ns.Transport.Tick)
 		C_Timer.After(BRIDGE_WAIT, function()
@@ -214,6 +218,10 @@ hooksecurefunc("SetItemRef", function(link)
 	if link == "gnomishrelayrules" then
 		ns.Window.Open()
 		ns.Window.ShowTab("settings")
+		return
+	end
+	if link == ns.Notices.LINK then
+		ns.NoticeFrames.OpenList()
 		return
 	end
 	local chatId = type(link) == "string" and link:match("^gnomishrelay:([%w_-]+)$")

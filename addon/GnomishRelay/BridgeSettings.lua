@@ -48,6 +48,17 @@ local function Rule(value)
 	return { id = id, folder = folder, pattern = pattern, days = tonumber(days) }
 end
 
+local HOOK_STATES = { on = true, off = true, moved = true, disabled = true }
+
+-- `agent \t state`: the hooks of one agent for notifications (SPEC.md 10.5).
+local function Hook(value)
+	local agent, hookState = value:match("^(%l+)\t(%l+)$")
+	if not agent or not HOOK_STATES[hookState] then
+		return nil
+	end
+	return { agent = agent, state = hookState }
+end
+
 -- The keys that can come on many lines, and how each line of them reads.
 local LISTS = {
 	allowed_root = { field = "roots", Read = tostring },
@@ -55,11 +66,13 @@ local LISTS = {
 	allow = { field = "allow", Read = tostring },
 	allow_folder = { field = "folders", Read = Folder },
 	rule = { field = "rules", Read = Rule },
+	hook = { field = "hooks", Read = Hook },
 }
 
 -- Every other key once: the first value wins. A line that does not fit is left out.
 function BridgeSettings.Parse(text)
-	local parsed = { values = {}, roots = {}, agents = {}, allow = {}, folders = {}, rules = {}, cut = false }
+	local parsed =
+		{ values = {}, roots = {}, agents = {}, allow = {}, folders = {}, rules = {}, hooks = {}, cut = false }
 	for line in Lines(text) do
 		local key, value = Split(line)
 		local list = LISTS[key]
@@ -113,6 +126,18 @@ function BridgeSettings.AskIfOld()
 	if not age or age >= FRESH_FOR or saved.old then
 		BridgeSettings.Ask()
 	end
+end
+
+-- True after `gnomish-relay hooks install`: the Settings group and the Diag rows of
+-- notifications show only then.
+function BridgeSettings.HooksOn()
+	local last = BridgeSettings.Last()
+	for _, hook in ipairs(last and last.hooks or {}) do
+		if hook.state == "on" then
+			return true
+		end
+	end
+	return false
 end
 
 function BridgeSettings.FindAgent(name)

@@ -92,6 +92,36 @@ local function StoryRows(v, rows)
 	table.insert(rows, BridgeRow("Budget", Plain(budget)))
 end
 
+local HOOK_WORDS = { on = "on", off = "off", moved = "moved: run hooks install", disabled = "hooks turned off" }
+
+local function Hooks(last)
+	local parts = {}
+	for _, hook in ipairs(last.hooks) do
+		table.insert(parts, ns.Relay.AgentName(hook.agent) .. " " .. HOOK_WORDS[hook.state])
+	end
+	return table.concat(parts, " · ")
+end
+
+local function LastNotification()
+	local newest = ns.Notices.List()[1]
+	if not newest then
+		return "none"
+	end
+	return ns.Notices.Duration(math.floor(ns.Notices.Age(newest))) .. " ago"
+end
+
+-- Only after `gnomish-relay hooks install` (SPEC.md 10.4).
+local function NoticeRows(last, rows)
+	if not ns.BridgeSettings.HooksOn() then
+		return
+	end
+	local busy, open = ns.Notices.Sessions()
+	table.insert(rows, Heading("Notifications"))
+	table.insert(rows, BridgeRow("Hooks", Plain(Hooks(last))))
+	table.insert(rows, BridgeRow("Sessions", string.format("%d running · %d open", busy, open)))
+	table.insert(rows, BridgeRow("Last notification", LastNotification()))
+end
+
 local function Rows()
 	local rows = { Heading("Bridge") }
 	local last = ns.BridgeSettings.Last()
@@ -100,6 +130,7 @@ local function Rows()
 	else
 		BridgeRows(last, rows)
 		StoryRows(last.values, rows)
+		NoticeRows(last, rows)
 	end
 	table.insert(rows, Heading("Versions"))
 	local bridge = last and last.values.version or "?"

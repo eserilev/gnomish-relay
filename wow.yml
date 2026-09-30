@@ -44,6 +44,10 @@ globals:
     args: []
   InCombatLockdown:
     args: []
+  GetCursorPosition:
+    args: []
+  Minimap:
+    any: true
   ReloadUI:
     args: []
   Screenshot:
