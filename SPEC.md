@@ -1040,7 +1040,7 @@ Total file count for slots and signals: about 17,000.
 
 The addon uses the reload fallback when the strip gets no acknowledgment, the pool is empty, or the slots are missing.
 
-1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store. A frame counts only if the key of the app whose saved variables hold it signed it (9.7, decision 3).
+1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store. A frame counts only if the key of the app whose saved variables hold it signed it (9.7, decision 3). The file keeps old frames across reloads. So at each read, the log gets one line with a count for the frames more than 5 minutes old, and one for the frames with a time in the future. Every other skipped frame gets its own line.
 2. The window shows "1 message is waiting. Reload to send it." with a **Reload** button. `ReloadUI` needs a hardware event, and a click is one. The button does nothing in combat.
 3. WoW writes the saved variables file at reload.
 4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 250 ms).
