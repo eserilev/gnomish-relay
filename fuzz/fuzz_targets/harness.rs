@@ -25,13 +25,20 @@ fn check_expand(data: &[u8]) {
     let args = expand(&template, &extra, prompt, Path::new("/t/p.txt"));
 
     assert_eq!(args.len(), template.len());
-    let at = template[1..].iter().position(|a| a == "--").unwrap_or(template.len() - 1);
+    let at = template[1..]
+        .iter()
+        .position(|a| a == "--")
+        .unwrap_or(template.len() - 1);
     assert_eq!(args[at], "--more");
     let mut filled = args.clone();
     filled.remove(at);
     for (arg, from) in filled.iter().zip(&template[1..]) {
         if from == PROMPT {
-            let expected = if prompt.starts_with('-') { format!(" {prompt}") } else { prompt.to_owned() };
+            let expected = if prompt.starts_with('-') {
+                format!(" {prompt}")
+            } else {
+                prompt.to_owned()
+            };
             assert_eq!(*arg, expected);
         } else if !from.contains(PROMPT) && !from.contains(PROMPT_FILE) {
             assert_eq!(arg, from);
@@ -42,7 +49,8 @@ fn check_expand(data: &[u8]) {
 fn check_output(data: &[u8]) {
     let text = clean(data);
     assert!(
-        text.chars().all(|c| c == '\n' || c == '\t' || !c.is_control()),
+        text.chars()
+            .all(|c| c == '\n' || c == '\t' || !c.is_control()),
         "{text:?}"
     );
     if let Some(line) = progress_line(data, 200) {

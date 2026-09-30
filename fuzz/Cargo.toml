@@ -213,3 +213,24 @@ path = "fuzz_targets/harness.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "hook_input"
+path = "fuzz_targets/hook_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "notice_file"
+path = "fuzz_targets/notice_file.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "hooks_merge"
+path = "fuzz_targets/hooks_merge.rs"
+test = false
+doc = false
+bench = false

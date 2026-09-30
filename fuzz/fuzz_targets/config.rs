@@ -17,5 +17,10 @@ fuzz_target!(|text: &str| {
     for root in &relay.policy.folders.roots {
         assert!(root.starts_with(b"/"));
     }
-    assert!(relay.policy.agents.contains_key(&relay.policy.default_agent));
+    assert!(
+        relay
+            .policy
+            .agents
+            .contains_key(&relay.policy.default_agent)
+    );
 });

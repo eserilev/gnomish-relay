@@ -6,9 +6,9 @@
 
 use bridge::flags::{coding, transport};
 use bridge::versions::update_text;
+use libfuzzer_sys::fuzz_target;
 use protocol::apps::App;
 use protocol::version::{VersionFit, newest, oldest, version_fit};
-use libfuzzer_sys::fuzz_target;
 
 const CODING: [&str; 9] = [
     "perm", "level", "agent", "attach", "list", "d", "n", "stop", "mkdir",

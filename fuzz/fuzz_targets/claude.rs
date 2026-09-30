@@ -17,10 +17,24 @@ fuzz_target!(|data: &[u8]| {
         };
         match read_message(&message) {
             Message::Said { steps, .. } => assert!(steps.iter().all(|s| s.len() <= 200)),
-            Message::Ask { request, .. } | Message::Hook { request: Some(request), .. } => {
-                assert!(request.text.iter().all(|b| *b == b'\n' || (b' '..=b'~').contains(b)), "S15");
+            Message::Ask { request, .. }
+            | Message::Hook {
+                request: Some(request),
+                ..
+            } => {
+                assert!(
+                    request
+                        .text
+                        .iter()
+                        .all(|b| *b == b'\n' || (b' '..=b'~').contains(b)),
+                    "S15"
+                );
                 assert!(request.title.len() <= 200);
-                let _ = tool_call(&request, std::path::Path::new("/w"), std::path::Path::new("/home/x"));
+                let _ = tool_call(
+                    &request,
+                    std::path::Path::new("/w"),
+                    std::path::Path::new("/home/x"),
+                );
             }
             _ => {}
         }

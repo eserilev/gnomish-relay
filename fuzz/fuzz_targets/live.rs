@@ -63,7 +63,11 @@ fuzz_target!(|data: &[u8]| {
         .map(|i| Notice {
             id: i as u32,
             at: u32::MAX - i as u32,
-            source: if i % 2 == 0 { Source::Claude } else { Source::Codex },
+            source: if i % 2 == 0 {
+                Source::Claude
+            } else {
+                Source::Codex
+            },
             kind: NOTICE_KINDS[i % 3].0,
             repo: part(i),
             took: part(i + 1).len() as u32,

@@ -32,7 +32,9 @@ fn check_text(text: &[u8], html: bool) {
                 assert!(b != b'<' && b != b'>', "raw markup: {text:?}");
                 if b == b'&' {
                     assert!(
-                        [&b"&lt;"[..], b"&gt;", b"&amp;"].iter().any(|e| rest.starts_with(e)),
+                        [&b"&lt;"[..], b"&gt;", b"&amp;"]
+                            .iter()
+                            .any(|e| rest.starts_with(e)),
                         "a raw ampersand: {text:?}"
                     );
                 }
@@ -85,7 +87,12 @@ fn check_block(line: &[u8]) {
 
 fuzz_target!(|data: &[u8]| {
     let out = render_markdown(data);
-    assert!(out.len() <= 16 * data.len() + 4, "{} bytes from {}", out.len(), data.len());
+    assert!(
+        out.len() <= 16 * data.len() + 4,
+        "{} bytes from {}",
+        out.len(),
+        data.len()
+    );
     assert!(out.starts_with(&MARKER));
     assert_eq!(out.last(), Some(&b'\n'));
     let body = &out[MARKER.len()..out.len() - 1];

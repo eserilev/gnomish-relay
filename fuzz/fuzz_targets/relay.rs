@@ -89,9 +89,17 @@ fuzz_target!(|data: &[u8]| {
                     job.cwd
                 );
                 if job.new_folder {
-                    assert_eq!(job.session, Session::New, "only a first message makes a folder");
+                    assert_eq!(
+                        job.session,
+                        Session::New,
+                        "only a first message makes a folder"
+                    );
                     let last = job.cwd.rsplit('/').next().unwrap_or_default();
-                    assert!(is_folder_name(last), "a new folder with a bad name: {}", job.cwd);
+                    assert!(
+                        is_folder_name(last),
+                        "a new folder with a bad name: {}",
+                        job.cwd
+                    );
                 }
                 let result = if step.len() > 1 && step[1] % 2 == 0 {
                     Ok("ok".into())

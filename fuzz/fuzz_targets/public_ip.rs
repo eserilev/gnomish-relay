@@ -65,10 +65,19 @@ fn model_v6(ip: u128) -> bool {
 fuzz_target!(|data: &[u8]| {
     if let Ok(bytes) = <[u8; 4]>::try_from(&data[..data.len().min(4)]) {
         let ip = u32::from(Ipv4Addr::from(bytes));
-        assert_eq!(is_public_v4(bytes), model_v4(ip), "{}", Ipv4Addr::from(bytes));
+        assert_eq!(
+            is_public_v4(bytes),
+            model_v4(ip),
+            "{}",
+            Ipv4Addr::from(bytes)
+        );
     }
     if let Ok(bytes) = <[u8; 16]>::try_from(&data[..data.len().min(16)]) {
         let ip = Ipv6Addr::from(bytes);
-        assert_eq!(is_public_v6(ip.segments()), model_v6(u128::from(ip)), "{ip}");
+        assert_eq!(
+            is_public_v6(ip.segments()),
+            model_v6(u128::from(ip)),
+            "{ip}"
+        );
     }
 });

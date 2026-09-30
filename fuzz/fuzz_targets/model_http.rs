@@ -14,7 +14,11 @@ fuzz_target!(|data: &[u8]| {
     };
     let clean = clean_answer(&text);
     assert!(clean.len() <= MAX_ANSWER);
-    assert!(clean.chars().all(|c| !c.is_control() || c == '\n' || c == '\t'));
+    assert!(
+        clean
+            .chars()
+            .all(|c| !c.is_control() || c == '\n' || c == '\t')
+    );
     let line = model_answered_line(CallId(1), &clean);
     assert_eq!(line.matches('\n').count(), 1, "one line");
     let value: serde_json::Value = serde_json::from_str(&line).unwrap();

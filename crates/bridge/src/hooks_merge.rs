@@ -131,7 +131,7 @@ fn group_program(group: &Value, source: Source) -> Option<&str> {
     our_program(handler.get("command")?.as_str()?, source)
 }
 
-fn is_our_group(group: &Value, source: Source) -> bool {
+pub fn is_our_group(group: &Value, source: Source) -> bool {
     group_program(group, source).is_some()
 }
 

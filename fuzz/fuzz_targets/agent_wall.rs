@@ -72,24 +72,42 @@ fuzz_target!(|data: &[u8]| {
         local_ports: vec![5432],
     };
 
-    let (options, command) = read(&wall_args(&spec, &PathBuf::from("/usr/bin/agent"), &agent_args));
+    let (options, command) = read(&wall_args(
+        &spec,
+        &PathBuf::from("/usr/bin/agent"),
+        &agent_args,
+    ));
 
-    for flag in ["--unshare-net", "--unshare-pid", "--die-with-parent", "--new-session"] {
+    for flag in [
+        "--unshare-net",
+        "--unshare-pid",
+        "--die-with-parent",
+        "--new-session",
+    ] {
         assert!(at(&options, &os(&[flag])).is_some(), "{flag}");
     }
     assert!(at(&options, &os(&["--proc", "/proc"])).is_some());
     for option in options.iter().filter(|o| o[0] == "--bind") {
         let from = std::path::Path::new(&option[1]);
-        let whole = ["/run", "/tmp", "/var/tmp", "/dev/shm"].iter().any(|f| from == std::path::Path::new(f));
+        let whole = ["/run", "/tmp", "/var/tmp", "/dev/shm"]
+            .iter()
+            .any(|f| from == std::path::Path::new(f));
         assert!(!whole, "a bind back of a whole private folder: {option:?}");
     }
     let tmp = at(&options, &os(&["--tmpfs", "/tmp"])).unwrap();
     let run = "/tmp/gnomish-relay-run-1";
     let back = at(&options, &os(&["--bind", run, run])).unwrap();
     assert!(tmp < back);
-    let socket_bind = at(&options, &os(&["--bind", "/data/sandbox/agent-1.sock", INNER_SOCKET]));
+    let socket_bind = at(
+        &options,
+        &os(&["--bind", "/data/sandbox/agent-1.sock", INNER_SOCKET]),
+    );
     assert!(tmp < socket_bind.unwrap());
-    let ro: Vec<OsString> = vec!["--ro-bind".into(), read_only.clone().into(), read_only.into()];
+    let ro: Vec<OsString> = vec![
+        "--ro-bind".into(),
+        read_only.clone().into(),
+        read_only.into(),
+    ];
     assert!(at(&options, &ro).is_some());
     let covered: Vec<OsString> = vec!["--ro-bind".into(), "/dev/null".into(), socket.into()];
     assert!(at(&options, &covered).is_some());

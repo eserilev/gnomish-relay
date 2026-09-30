@@ -26,7 +26,10 @@ fn first_line(data: &[u8]) -> Option<(String, u16)> {
     };
     let digit = version.strip_prefix("HTTP/1.")?;
     assert_eq!(method, "CONNECT");
-    assert!(digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit(), "{version}");
+    assert!(
+        digit.len() == 1 && digit.as_bytes()[0].is_ascii_digit(),
+        "{version}"
+    );
     let (host, port) = target.rsplit_once(':')?;
     assert!(!port.is_empty() && port.len() <= 5 && port.bytes().all(|b| b.is_ascii_digit()));
     Some((host.to_owned(), port.parse().ok()?))
@@ -41,7 +44,10 @@ fn check_remote(mode: Mode, data: &[u8], host: &[u8], port: u16) {
     assert!(check_host_name(host).is_ok(), "{host}");
     assert!(host.parse::<std::net::IpAddr>().is_err(), "{host}");
     let last = host.rsplit('.').next().unwrap_or_default();
-    assert!(last.starts_with(|c: char| c.is_ascii_alphabetic()), "{host}");
+    assert!(
+        last.starts_with(|c: char| c.is_ascii_alphabetic()),
+        "{host}"
+    );
     if mode == Mode::Listed {
         assert!(LIST.contains(&host), "{host}");
     }

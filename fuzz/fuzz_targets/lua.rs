@@ -34,7 +34,9 @@ fuzz_target!(|data: &[u8]| {
     let replies = prepare_replies(&[reply]);
     for (app, own, other) in APPS {
         let lua = Lua::new();
-        lua.load(&slot_body(app, 0, &replies)[..]).exec().expect("the body loads");
+        lua.load(&slot_body(app, 0, &replies)[..])
+            .exec()
+            .expect("the body loads");
         let body: mlua::Table = lua.globals().get(own).expect("the global of the app");
         let got: mlua::Table = body.get::<mlua::Table>("replies").unwrap().get(1).unwrap();
         let text: mlua::String = got.get("text").unwrap();

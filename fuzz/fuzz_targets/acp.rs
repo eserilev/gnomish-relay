@@ -15,7 +15,18 @@ fuzz_target!(|data: &[u8]| {
     }
     let request = read_request(&params);
     assert!(request.options.len() <= MAX_OPTIONS);
-    assert!(request.options.iter().all(|(_, kind, _)| !matches!(kind, OptionKind::AllowAlways)));
-    assert!(request.text.iter().all(|b| *b == b'\n' || (b' '..=b'~').contains(b)), "S15");
+    assert!(
+        request
+            .options
+            .iter()
+            .all(|(_, kind, _)| !matches!(kind, OptionKind::AllowAlways))
+    );
+    assert!(
+        request
+            .text
+            .iter()
+            .all(|b| *b == b'\n' || (b' '..=b'~').contains(b)),
+        "S15"
+    );
     let _ = request_call(&params, std::path::Path::new("/w"));
 });

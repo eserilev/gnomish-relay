@@ -23,11 +23,25 @@ fuzz_target!(|data: &[u8]| {
             assert!(step.len() <= 200);
         }
     }
-    for method in ["item/commandExecution/requestApproval", "item/fileChange/requestApproval"] {
+    for method in [
+        "item/commandExecution/requestApproval",
+        "item/fileChange/requestApproval",
+    ] {
         let request = read_request(method, &message, &["src/a.rs".to_owned()]);
-        assert!(request.text.iter().all(|b| *b == b'\n' || (b' '..=b'~').contains(b)), "S15");
+        assert!(
+            request
+                .text
+                .iter()
+                .all(|b| *b == b'\n' || (b' '..=b'~').contains(b)),
+            "S15"
+        );
         assert!(request.title.len() <= 200);
-        let _ = approval_call(method, &message, &["a.rs".to_owned()], std::path::Path::new("/w"));
+        let _ = approval_call(
+            method,
+            &message,
+            &["a.rs".to_owned()],
+            std::path::Path::new("/w"),
+        );
     }
     if let Some(command) = message.get("command").and_then(|c| c.as_str()) {
         let _ = unwrap_shell(command);

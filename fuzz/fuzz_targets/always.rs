@@ -27,7 +27,9 @@ fn is_plain(word: &[u8]) -> bool {
         && word.len() <= MAX_WORD
         && word[0] != b'-'
         && word[0] != b'+'
-        && word.iter().all(|&b| (b'!'..=b'~').contains(&b) && !SPECIAL.contains(&b))
+        && word
+            .iter()
+            .all(|&b| (b'!'..=b'~').contains(&b) && !SPECIAL.contains(&b))
 }
 
 fn check_proposals(raw: &[u8]) {

@@ -1,0 +1,1 @@
+{"model":"opus","hooks":{"Stop":[{"hooks":[{"type":"command","command":"notify-send done"}]}],"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"\"/old/gnomish-relay\" hook claude"}]}]}}

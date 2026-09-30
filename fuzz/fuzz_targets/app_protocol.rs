@@ -30,7 +30,10 @@ fn check_batch(text: &str) {
 /// for a hostile answer of the model.
 fn check_model_call(call: CallId, prompt: &str) {
     assert!(prompt.len() <= MAX_PROMPT);
-    for line in [model_answered_line(call, &clean_answer(prompt)), model_failed_line(call)] {
+    for line in [
+        model_answered_line(call, &clean_answer(prompt)),
+        model_failed_line(call),
+    ] {
         assert_eq!(line.matches('\n').count(), 1, "one line");
         let value: serde_json::Value = serde_json::from_str(&line).unwrap();
         assert_eq!(value["call"], call.0);
@@ -40,9 +43,7 @@ fn check_model_call(call: CallId, prompt: &str) {
 fn check_reply(reply: &str) {
     assert!(serde_json::from_str::<serde_json::Value>(reply).is_ok());
     assert!(!reply.contains('\n'), "one line");
-    let odd_pipes = reply
-        .split(|c| c != '|')
-        .any(|run| run.len() % 2 == 1);
+    let odd_pipes = reply.split(|c| c != '|').any(|run| run.len() % 2 == 1);
     assert!(!odd_pipes, "S10: every | is doubled");
     let slot = Reply {
         chat: Vec::new(),
@@ -50,7 +51,11 @@ fn check_reply(reply: &str) {
         status: Status::Done,
         text: reply.as_bytes().to_vec(),
     };
-    assert_eq!(prepare_replies(&[slot])[0].text.len(), reply.len(), "S12 keeps it whole");
+    assert_eq!(
+        prepare_replies(&[slot])[0].text.len(),
+        reply.len(),
+        "S12 keeps it whole"
+    );
 }
 
 fuzz_target!(|data: &[u8]| {
@@ -64,7 +69,10 @@ fuzz_target!(|data: &[u8]| {
         }) => {
             assert!(data.len() <= MAX_ANSWER_LINE);
             if let Body::Journal { content, .. } = &answer.body {
-                assert!(!content.contains_key("note"), "the note is the bridge's own");
+                assert!(
+                    !content.contains_key("note"),
+                    "the note is the bridge's own"
+                );
             }
             if let Some(reply) = reply_text(&answer, Some("note")) {
                 check_reply(&reply);
