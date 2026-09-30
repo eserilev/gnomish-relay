@@ -597,13 +597,13 @@ pub fn expand(path: &str, home: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// `canonicalize` resolves links, so a root that is a link names its real folder
+/// `canonicalize` resolves links, so a folder that is a link names its real folder
 /// (SPEC.md 6.2, rule 10).
-fn real_root(path: &str, home: &Path) -> Result<Vec<u8>> {
+fn real_folder(path: &str, home: &Path, key: &str) -> Result<Vec<u8>> {
     let path = expand(path, home)?;
     let real = path
         .canonicalize()
-        .with_context(|| format!("allowed root {} does not exist", path.display()))?;
+        .with_context(|| format!("{key} {} does not exist", path.display()))?;
     Ok(path_bytes(&real))
 }
 
@@ -653,10 +653,10 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
     };
     let roots = allowed_roots
         .iter()
-        .map(|root| real_root(root, home))
+        .map(|root| real_folder(root, home, "allowed root"))
         .collect::<Result<Vec<_>>>()?;
     let base = match &file.default_cwd {
-        Some(cwd) => path_bytes(&expand(cwd, home)?),
+        Some(cwd) => real_folder(cwd, home, "default_cwd")?,
         None => roots.first().context("allowed_roots is empty")?.clone(),
     };
     if resolve_folder(&roots, &base, b"").is_none() {
@@ -1536,6 +1536,23 @@ mod tests {
         let home = Home::new();
         let text = GOOD.replace("default_agent", "default_cwd = \"/etc\"\ndefault_agent");
         assert!(home.parse(&text).is_err());
+    }
+
+    // The temp folder of macOS is such a link: /var is /private/var.
+    #[cfg(unix)]
+    #[test]
+    fn a_default_folder_through_a_link_is_the_real_folder_in_the_root() {
+        let home = Home::new();
+        std::os::unix::fs::symlink(home.path().join("Code"), home.path().join("link")).unwrap();
+        let text = GOOD.replace("default_agent", "default_cwd = \"~/link\"\ndefault_agent");
+
+        let config = home.parse(&text).unwrap();
+
+        let root = home.path().join("Code").canonicalize().unwrap();
+        assert_eq!(
+            config.require_relay().unwrap().policy.folders.base,
+            path_bytes(&root)
+        );
     }
 
     #[test]

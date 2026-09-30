@@ -2358,7 +2358,7 @@ ci_checks = true   # show the CI checks of the pull request of a chat branch, th
 
 The other keys below come with their features. One key is planned and not in the config yet: `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses it, so the example leaves it out. A test loads this example, so the example and the loader never differ.
 `max_parallel_runs` is 1 to 16 (8.2). `daily_cost_cap_usd` is a number of US dollars above 0 and at most 10000 (9.10). With no key, there is no cap.
-Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
+Each root and `default_cwd` must exist. The bridge resolves links in them at start. `default_cwd` must be inside a root.
 
 ```toml
 default_cwd = "~/Documents/Code"
