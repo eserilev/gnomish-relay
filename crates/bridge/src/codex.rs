@@ -265,6 +265,8 @@ pub enum Event {
     },
     /// The final text of one agent message.
     Said(String),
+    /// The output of a command that ended, for the test line (SPEC.md 9.10).
+    Output(String),
     /// The end of the turn: the reply, or an error text.
     Ended(Result<(), String>),
     Other,
@@ -275,6 +277,13 @@ pub fn read_event(method: &str, params: &Value) -> Event {
         "item/started" => read_started(params.get("item").unwrap_or(&Value::Null)),
         "item/completed" if text_at(params, "/item/type") == Some("agentMessage") => {
             Event::Said(text_at(params, "/item/text").unwrap_or("").to_owned())
+        }
+        "item/completed" if text_at(params, "/item/type") == Some("commandExecution") => {
+            Event::Output(
+                text_at(params, "/item/aggregatedOutput")
+                    .unwrap_or("")
+                    .to_owned(),
+            )
         }
         "turn/completed" => Event::Ended(read_ending(params.get("turn").unwrap_or(&Value::Null))),
         _ => Event::Other,
@@ -630,6 +639,7 @@ impl Connection {
                 }
             }
             Event::Said(text) => self.said.push(text),
+            Event::Output(text) => self.turn.output(text),
             Event::Ended(ending) => self.ended = Some(ending),
             Event::Other => {}
         }
@@ -666,6 +676,21 @@ impl Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_command_that_ended_gives_its_output_for_the_test_line() {
+        let params = serde_json::json!({ "item": {
+            "type": "commandExecution", "id": "c1",
+            "aggregatedOutput": "test result: ok. 3 passed; 0 failed;",
+        }});
+
+        let event = read_event("item/completed", &params);
+
+        assert_eq!(
+            event,
+            Event::Output("test result: ok. 3 passed; 0 failed;".into())
+        );
+    }
 
     #[test]
     fn a_shell_wrapper_gives_its_script_and_any_other_command_stays() {

@@ -1,6 +1,7 @@
 //! The git actions of the player on a chat (SPEC.md 6.6.6, 9.10). Each one is a message
 //! of the chat, so it waits for a run of the chat to end.
 
+use std::path::Path;
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
@@ -8,8 +9,10 @@ use serde::{Deserialize, Serialize};
 use crate::agent::Control;
 use crate::chat_branch::{self, ChatWorktree};
 use crate::chat_merge;
+use crate::ci_checks::{self, CiChecks};
 use crate::desktop::Approvals;
 use crate::gate;
+use crate::git_blocks::{ci_block, with_blocks};
 use crate::git_host::GitHost;
 use crate::lane::MessageId;
 use crate::run::{log, now};
@@ -23,6 +26,7 @@ const TOO_OLD: &str = "This change summary is too old. Nothing changed.";
 const NO_DESKTOP: &str =
     "Merge needs your approval on the desktop, and the desktop app can't ask here.";
 const NOT_MERGED: &str = "Not merged.";
+const NOT_ON_A_BRANCH: &str = "This folder isn't on a branch.";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GitAction {
@@ -31,9 +35,10 @@ pub enum GitAction {
     Revert(MessageId),
     Merge,
     Discard,
+    Checks,
 }
 
-/// The value of `git=`: `commit:<id>`, `revert:<id>`, `merge`, or `discard`.
+/// The value of `git=`: `commit:<id>`, `revert:<id>`, `merge`, `discard`, or `checks`.
 pub fn git_action(value: &str) -> Option<GitAction> {
     let run = |id: &str| id.parse().ok().map(MessageId);
     match value.split_once(':') {
@@ -41,6 +46,7 @@ pub fn git_action(value: &str) -> Option<GitAction> {
         Some(("revert", id)) => run(id).map(GitAction::Revert),
         None if value == "merge" => Some(GitAction::Merge),
         None if value == "discard" => Some(GitAction::Discard),
+        None if value == "checks" => Some(GitAction::Checks),
         _ => None,
     }
 }
@@ -59,6 +65,9 @@ pub struct Context<'a> {
     pub worktree: Option<&'a ChatWorktree>,
     /// The record of the run that Commit or Revert names, if the bridge still has it.
     pub run: Option<&'a RunChanges>,
+    /// The chat folder, for the checks of a chat with no own branch.
+    pub folder: &'a Path,
+    pub ci: &'a CiChecks,
     pub desk: Option<&'a MergeDesk>,
     pub control: &'a Control,
 }
@@ -105,6 +114,7 @@ pub fn perform(action: &GitAction, text: &str, context: &Context) -> Done {
         }
         GitAction::Merge => done(merge(context), Effect::Nothing),
         GitAction::Discard => done(discard(context), Effect::Discarded),
+        GitAction::Checks => done(checks(context), Effect::Nothing),
     }
 }
 
@@ -151,6 +161,25 @@ fn discard(context: &Context) -> Result<String, String> {
     chat_branch::discard(context.git, worktree)
 }
 
+fn checks(context: &Context) -> Result<String, String> {
+    let CiChecks::On { program } = context.ci else {
+        return Err(ci_checks::OFF.into());
+    };
+    let (folder, branch) = match context.worktree {
+        Some(worktree) => (Path::new(&worktree.folder), Some(worktree.branch.clone())),
+        None => (
+            context.folder,
+            chat_branch::current_branch(context.git, context.folder),
+        ),
+    };
+    let branch = branch.ok_or_else(|| NOT_ON_A_BRANCH.to_owned())?;
+    match ci_checks::checks(program, folder, &branch) {
+        Ok(Some(counts)) => Ok(with_blocks("", &ci_block(&counts))),
+        Ok(None) => Ok(ci_checks::no_pull_request(&branch)),
+        Err(e) => Err(e.text()),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -168,6 +197,7 @@ mod tests {
         );
         assert_eq!(git_action("merge"), Some(GitAction::Merge));
         assert_eq!(git_action("discard"), Some(GitAction::Discard));
+        assert_eq!(git_action("checks"), Some(GitAction::Checks));
         for bad in [
             "commit",
             "commit:",
@@ -181,11 +211,18 @@ mod tests {
         }
     }
 
-    fn context<'a>(git: &'a GitHost, control: &'a Control) -> Context<'a> {
+    fn context<'a>(
+        git: &'a GitHost,
+        folder: &'a Path,
+        ci: &'a CiChecks,
+        control: &'a Control,
+    ) -> Context<'a> {
         Context {
             git,
             worktree: None,
             run: None,
+            folder,
+            ci,
             desk: None,
             control,
         }
@@ -194,12 +231,13 @@ mod tests {
     #[test]
     fn an_action_on_a_summary_that_the_bridge_forgot_changes_nothing() {
         let git = GitHost::with_config(UserConfig::Skip).unwrap();
-        let control = Control::default();
+        let (ci, control) = (CiChecks::Off, Control::default());
+        let dir = tempfile::tempdir().unwrap();
 
         let done = perform(
             &GitAction::Revert(MessageId(4)),
             "",
-            &context(&git, &control),
+            &context(&git, dir.path(), &ci, &control),
         );
 
         assert_eq!(done.reply, Err(TOO_OLD.into()));
@@ -209,8 +247,9 @@ mod tests {
     #[test]
     fn merge_and_discard_need_an_own_branch() {
         let git = GitHost::with_config(UserConfig::Skip).unwrap();
-        let control = Control::default();
-        let context = context(&git, &control);
+        let (ci, control) = (CiChecks::Off, Control::default());
+        let dir = tempfile::tempdir().unwrap();
+        let context = context(&git, dir.path(), &ci, &control);
 
         assert_eq!(
             perform(&GitAction::Merge, "", &context).reply,
@@ -220,6 +259,21 @@ mod tests {
             perform(&GitAction::Discard, "", &context).reply,
             Err(NO_BRANCH.into())
         );
+    }
+
+    #[test]
+    fn checks_that_are_off_run_nothing_and_say_how_to_turn_them_on() {
+        let git = GitHost::with_config(UserConfig::Skip).unwrap();
+        let (ci, control) = (CiChecks::Off, Control::default());
+        let dir = tempfile::tempdir().unwrap();
+
+        let done = perform(
+            &GitAction::Checks,
+            "",
+            &context(&git, dir.path(), &ci, &control),
+        );
+
+        assert_eq!(done.reply, Err(ci_checks::OFF.into()));
     }
 
     #[test]

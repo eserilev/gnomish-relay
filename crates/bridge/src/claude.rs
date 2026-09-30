@@ -336,8 +336,12 @@ pub enum Message {
         id: Value,
         request: Option<Request>,
     },
-    /// The tool calls that ran and did not fail, by id.
-    Ran(Vec<String>),
+    /// The tool calls that ran and did not fail, by id, and the text of every result by
+    /// the id of its call, also of one that failed: a failed test run fails its call.
+    Ran {
+        ran: Vec<String>,
+        outputs: Vec<(String, String)>,
+    },
     /// A control request that the bridge does not serve.
     Unsupported {
         id: Value,
@@ -426,14 +430,33 @@ fn read_ran(message: &Value) -> Message {
     let blocks = message
         .pointer("/message/content")
         .and_then(Value::as_array);
-    let ran = blocks
+    let results: Vec<&Value> = blocks
         .into_iter()
         .flatten()
         .filter(|b| text_at(b, "/type") == Some("tool_result"))
+        .collect();
+    let ran = results
+        .iter()
         .filter(|b| b.get("is_error").and_then(Value::as_bool) != Some(true))
         .filter_map(|b| text_at(b, "/tool_use_id").map(str::to_owned))
         .collect();
-    Message::Ran(ran)
+    let outputs = results.iter().filter_map(|b| result_text(b)).collect();
+    Message::Ran { ran, outputs }
+}
+
+/// The id of a tool result and its text: a string, or a list of text blocks.
+fn result_text(result: &Value) -> Option<(String, String)> {
+    let id = text_at(result, "/tool_use_id")?.to_owned();
+    let content = result.get("content")?;
+    if let Some(text) = content.as_str() {
+        return Some((id, text.to_owned()));
+    }
+    let parts: Vec<&str> = content
+        .as_array()?
+        .iter()
+        .filter_map(|part| text_at(part, "/text"))
+        .collect();
+    Some((id, parts.join("\n")))
 }
 
 fn read_control(message: &Value) -> Message {
@@ -798,12 +821,17 @@ impl Stream {
                     &json!({ "subtype": "success", "request_id": id, "response": output }),
                 )?;
             }
-            Message::Ran(ids) => {
-                if ids.iter().any(|id| !self.checked.contains(id)) {
+            Message::Ran { ran, outputs } => {
+                if ran.iter().any(|id| !self.checked.contains(id)) {
                     return Err(UNCHECKED.into());
                 }
-                if ids.iter().any(|id| self.commands.contains(id)) && !self.wrapper_ran() {
+                if ran.iter().any(|id| self.commands.contains(id)) && !self.wrapper_ran() {
                     return Err(UNWRAPPED.into());
+                }
+                for (id, output) in outputs {
+                    if self.commands.contains(&id) {
+                        self.turn.output(output);
+                    }
                 }
             }
             Message::Unsupported { id } => {
@@ -917,5 +945,32 @@ impl Stream {
             Ok(()) => allow(&request.input),
             Err(refusal) => deny(refusal.reason()),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_tool_result_gives_its_text_also_when_the_call_failed() {
+        let message = json!({ "type": "user", "message": { "role": "user", "content": [
+            { "type": "tool_result", "tool_use_id": "t1", "content": "4 passed", "is_error": false },
+            { "type": "tool_result", "tool_use_id": "t2", "is_error": true,
+              "content": [{ "type": "text", "text": "test result: FAILED." }, { "type": "text", "text": "1 failed" }] },
+        ]}});
+
+        let read = read_message(&message);
+
+        assert_eq!(
+            read,
+            Message::Ran {
+                ran: vec!["t1".into()],
+                outputs: vec![
+                    ("t1".into(), "4 passed".into()),
+                    ("t2".into(), "test result: FAILED.\n1 failed".into()),
+                ],
+            }
+        );
     }
 }

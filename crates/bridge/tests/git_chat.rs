@@ -11,7 +11,8 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use bridge::agent::{Agent, Control, Run};
+use bridge::agent::{Agent, Control, Event, Run};
+use bridge::ci_checks::CiChecks;
 use bridge::config::{Permission, Policy};
 use bridge::desktop::{Approvals, Prompt, Verdict};
 use bridge::folder_path::path_bytes;
@@ -27,19 +28,24 @@ use protocol::apps::App;
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 
-/// An agent that writes one file into the folder of its run, and tells what it saw.
+/// An agent that writes one file into the folder of its run, and tells what it saw. It
+/// can also report the output of a command.
 struct Editor {
     folders: Arc<Mutex<Vec<String>>>,
+    output: Option<String>,
 }
 
 impl Agent for Editor {
-    fn run(&self, job: &Job, _control: &Control) -> Run {
+    fn run(&self, job: &Job, control: &Control) -> Run {
         self.folders.lock().unwrap().push(job.cwd.clone());
         fs::write(
             Path::new(&job.cwd).join("agent.txt"),
             format!("{}\n", job.text),
         )
         .unwrap();
+        if let Some(output) = &self.output {
+            control.events.send(Event::CommandOutput(output.clone()));
+        }
         Run {
             reply: Ok("Done.".into()),
             session: None,
@@ -96,6 +102,10 @@ fn world() -> World {
 }
 
 fn bridge(w: &World) -> Bridge {
+    bridge_with(w, None, CiChecks::Off)
+}
+
+fn bridge_with(w: &World, output: Option<&str>, ci: CiChecks) -> Bridge {
     let code = path_bytes(&w.code);
     let policy = Policy {
         folders: Folders {
@@ -114,12 +124,13 @@ fn bridge(w: &World) -> Bridge {
     };
     let editor = Editor {
         folders: Arc::clone(&w.folders),
+        output: output.map(str::to_owned),
     };
     let agents = [("claude".to_owned(), Arc::new(editor) as Arc<dyn Agent>)].into();
     let keys = KeySet::new(StripKey::from_hex(&hex(KEY)).unwrap(), None).unwrap();
     Bridge::new(paths, policy, keys, agents)
         .unwrap()
-        .with_git(GitHost::with_config(UserConfig::Skip).unwrap())
+        .with_git(GitHost::with_config(UserConfig::Skip).unwrap(), ci)
 }
 
 fn with_desktop(bridge: Bridge, w: &World) -> (Bridge, Approvals) {
@@ -429,4 +440,83 @@ fn a_deleted_chat_removes_a_clean_worktree_and_its_merged_branch() {
     });
 
     assert!(gone, "{}", branches());
+}
+
+#[test]
+fn the_last_test_output_of_a_run_becomes_its_test_line() {
+    let mut w = world();
+    let output = "test result: FAILED. 7 passed; 2 failed; 1 ignored; 0 measured";
+    let mut bridge = bridge_with(&w, Some(output), CiChecks::Off);
+
+    send(&mut w, 1, "n", "app", "test it");
+    let line = reply(&mut bridge, &w, 1);
+
+    assert!(line.contains(r"\010T\0317\0312\0311"), "{line}");
+}
+
+#[test]
+fn output_with_no_test_summary_gives_no_test_line() {
+    let mut w = world();
+    let mut bridge = bridge_with(&w, Some("Compiling app"), CiChecks::Off);
+
+    send(&mut w, 1, "n", "app", "build it");
+    let line = reply(&mut bridge, &w, 1);
+
+    assert!(!line.contains(r"\010T\031"), "{line}");
+}
+
+#[test]
+fn checks_that_are_off_say_how_to_turn_them_on() {
+    let mut w = world();
+    let mut bridge = bridge(&w);
+
+    send(&mut w, 1, "git=checks", "app", "");
+    let line = reply(&mut bridge, &w, 1);
+
+    assert!(line.contains("Checks are off."), "{line}");
+}
+
+#[cfg(unix)]
+fn fake_gh(w: &World, answer: &str) -> PathBuf {
+    use std::os::unix::fs::PermissionsExt;
+    let gh = w.data.join("gh");
+    fs::write(&gh, format!("#!/bin/sh\n{answer}\n")).unwrap();
+    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    gh
+}
+
+#[cfg(unix)]
+#[test]
+fn the_ci_checks_of_the_branch_come_under_the_reply_and_on_request() {
+    let mut w = world();
+    let rollup = r#"{"statusCheckRollup":[{"name":"build","status":"COMPLETED","conclusion":"SUCCESS"},{"name":"lint","status":"COMPLETED","conclusion":"FAILURE"}]}"#;
+    let gh = fake_gh(&w, &format!("echo '{rollup}'"));
+    let mut bridge = bridge_with(&w, None, CiChecks::On { program: gh });
+
+    send(&mut w, 1, "n", "app", "write it");
+    let line = reply(&mut bridge, &w, 1);
+    send(&mut w, 2, "git=checks", "app", "");
+    let checks = reply(&mut bridge, &w, 2);
+
+    assert!(line.contains(r"\010C\0311\0311\0310\031lint"), "{line}");
+    assert!(
+        checks.contains(r#"status = "done", text = "\027M1\010C\0311\0311\0310\031lint\010""#),
+        "{checks}"
+    );
+}
+
+#[cfg(unix)]
+#[test]
+fn checks_of_a_branch_with_no_pull_request_say_so() {
+    let mut w = world();
+    let gh = fake_gh(
+        &w,
+        "echo 'no pull requests found for branch \"main\"' >&2\nexit 1",
+    );
+    let mut bridge = bridge_with(&w, None, CiChecks::On { program: gh });
+
+    send(&mut w, 1, "git=checks", "app", "");
+    let line = reply(&mut bridge, &w, 1);
+
+    assert!(line.contains("No pull request for main yet."), "{line}");
 }

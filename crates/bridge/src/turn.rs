@@ -49,6 +49,11 @@ impl Turn {
         self.events.send(Event::Progress(line));
     }
 
+    /// The output of a command of the agent, for the test line (SPEC.md 9.10).
+    pub fn output(&self, text: String) {
+        self.events.send(Event::CommandOutput(text));
+    }
+
     /// The next message of the agent. At the first Stop, `interrupt` asks the agent to
     /// end the turn. An error from `interrupt` ends the run at once.
     pub fn receive(

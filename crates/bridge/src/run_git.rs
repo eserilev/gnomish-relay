@@ -1,10 +1,11 @@
 //! Git around one run, in the thread of the run (SPEC.md 9.10): the own branch before
-//! the agent starts, and the snapshot and the branch after it.
+//! the agent starts, and the snapshot, the branch, and the checks after it.
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::chat_branch::{self, ChatWorktree};
+use crate::ci_checks::{self, CiChecks};
 use crate::folder_walk::Walk;
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
@@ -16,6 +17,7 @@ use crate::run_changes::{Outcome, RunChanges, Snapshot, changes, snapshot};
 #[derive(Clone)]
 pub struct RunGit {
     pub host: Arc<GitHost>,
+    pub ci: CiChecks,
     pub walk: Walk,
 }
 
@@ -96,12 +98,19 @@ impl RunGit {
         }
     }
 
-    /// The blocks of the bridge under the reply.
+    /// The blocks of the bridge under the reply. The test line comes from the events.
     pub fn end(&self, job: &Job, started: &Started) -> RunBlocks {
         let folder = Path::new(&started.folder);
+        let branch = chat_branch::branch_info(&self.host, folder, started.worktree.as_ref());
+        let ci = branch
+            .as_ref()
+            .filter(|b| !b.branch.is_empty())
+            .and_then(|b| self.checks(folder, &b.branch));
         RunBlocks {
-            branch: chat_branch::branch_info(&self.host, folder, started.worktree.as_ref()),
+            branch,
             changes: self.changes(job, started),
+            tests: None,
+            ci,
         }
     }
 
@@ -122,5 +131,18 @@ impl RunGit {
             odd_names,
             outcome: Outcome::Open,
         })
+    }
+
+    fn checks(&self, folder: &Path, branch: &str) -> Option<ci_checks::CiCounts> {
+        let CiChecks::On { program } = &self.ci else {
+            return None;
+        };
+        match ci_checks::checks(program, folder, branch) {
+            Ok(counts) => counts,
+            Err(e) => {
+                log(&format!("no CI checks for {branch}: {}", e.text()));
+                None
+            }
+        }
     }
 }

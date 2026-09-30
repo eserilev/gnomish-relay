@@ -4,7 +4,9 @@
 use protocol::markdown::render_markdown;
 
 use crate::chat_branch::{BranchInfo, Own};
+use crate::ci_checks::CiCounts;
 use crate::run_changes::{ChangeKind, RunChanges};
+use crate::test_summary::TestCounts;
 
 const MARKER: &str = "\x1bM1";
 const US: char = '\x1f';
@@ -16,6 +18,8 @@ const MAX_FILES: usize = 12;
 pub struct RunBlocks {
     pub branch: Option<BranchInfo>,
     pub changes: Option<RunChanges>,
+    pub tests: Option<TestCounts>,
+    pub ci: Option<CiCounts>,
 }
 
 /// A field with no control character and every `|` doubled (S10).
@@ -80,6 +84,18 @@ fn changes_blocks(changes: &RunChanges) -> String {
     block('G', &summary) + &file_blocks(changes)
 }
 
+fn tests_block(tests: &TestCounts) -> String {
+    let counts = [tests.passed, tests.failed, tests.skipped].map(|n| n.to_string());
+    block('T', &counts)
+}
+
+pub fn ci_block(ci: &CiCounts) -> String {
+    let counts = [ci.passed, ci.failed, ci.running].map(|n| n.to_string());
+    let mut fields = counts.to_vec();
+    fields.push(ci.failed_names.join(", "));
+    block('C', &fields)
+}
+
 /// The blocks, each with its `\n` in front, in the order of the addon.
 pub fn blocks(run: &RunBlocks) -> String {
     let mut text = String::new();
@@ -88,6 +104,12 @@ pub fn blocks(run: &RunBlocks) -> String {
     }
     if let Some(changes) = &run.changes {
         text.push_str(&changes_blocks(changes));
+    }
+    if let Some(tests) = &run.tests {
+        text.push_str(&tests_block(tests));
+    }
+    if let Some(ci) = &run.ci {
+        text.push_str(&ci_block(ci));
     }
     text
 }
@@ -235,6 +257,37 @@ mod tests {
         assert_eq!(without_blocks(text), "\x1bM1\np\x1fDone.\n");
         assert_eq!(without_blocks("\x1bM1\nG\x1f1\x1f1\x1f0\n"), "");
         assert_eq!(without_blocks("plain"), "plain");
+    }
+
+    #[test]
+    fn the_test_line_follows_the_change_summary() {
+        let run = RunBlocks {
+            changes: Some(changes(1)),
+            tests: Some(TestCounts {
+                passed: 4,
+                failed: 1,
+                skipped: 0,
+            }),
+            ..RunBlocks::default()
+        };
+
+        let text = blocks(&run);
+
+        assert!(text.ends_with("\x1fM\nT\x1f4\x1f1\x1f0"), "{text:?}");
+    }
+
+    #[test]
+    fn the_ci_line_names_its_failed_checks() {
+        let ci = CiCounts {
+            passed: 5,
+            failed: 2,
+            running: 1,
+            failed_names: vec!["lint".into(), "e2e|x".into()],
+        };
+
+        let text = with_blocks("", &ci_block(&ci));
+
+        assert_eq!(text, "\x1bM1\nC\x1f5\x1f2\x1f1\x1flint, e2e||x\n");
     }
 
     #[test]

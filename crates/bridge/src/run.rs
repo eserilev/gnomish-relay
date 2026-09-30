@@ -13,6 +13,7 @@ use crate::agent::{
     Agent, Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal,
 };
 use crate::chat_branch;
+use crate::ci_checks::CiChecks;
 use crate::config::{Permission, Policy};
 use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
 use crate::git_blocks::RunBlocks;
@@ -21,6 +22,7 @@ use crate::raise::{RaiseGuard, Raised, Raiser};
 use crate::receive::{KeySet, Rejected, frame_tag, receive, receive_for};
 use crate::relay::BranchPlan;
 use crate::run_git::{RunGit, WorktreeChange};
+use crate::test_summary::{self, TestCounts};
 use crate::turn::STOPPED;
 use protocol::apps::App;
 use protocol::record::Record;
@@ -165,8 +167,10 @@ struct RelayLane {
     terminal: TerminalSessions,
     spool: PathBuf,
     notices_changed: bool,
-    /// With no git on this computer, runs have no own branch (SPEC.md 9.10).
+    /// With no git on this computer, runs have no own branch and no summary (SPEC.md 9.10).
     git: Option<RunGit>,
+    /// The test line of each run in progress, from the output of its commands.
+    tests: BTreeMap<ChatId, TestCounts>,
 }
 
 /// The Timeways app: its lane and its files. Its messages go to the story program, and
@@ -220,6 +224,9 @@ impl Bridge {
     #[must_use]
     pub fn with_settings(mut self, settings: BridgeSettings) -> Bridge {
         if let Some(relay) = &mut self.relay {
+            if let Some(git) = &mut relay.git {
+                git.ci = settings.ci_checks.clone();
+            }
             relay.settings = settings;
         }
         self
@@ -228,10 +235,11 @@ impl Bridge {
     /// Git in the chats with another host, for example one that skips the config of the
     /// user in a test.
     #[must_use]
-    pub fn with_git(mut self, host: GitHost) -> Bridge {
+    pub fn with_git(mut self, host: GitHost, ci: CiChecks) -> Bridge {
         if let Some(relay) = &mut self.relay {
             relay.git = Some(RunGit {
                 host: Arc::new(host),
+                ci,
                 walk: relay.walk.clone(),
             });
         }
@@ -407,6 +415,7 @@ impl RelayLane {
         let git = match GitHost::new() {
             Ok(host) => Some(RunGit {
                 host: Arc::new(host),
+                ci: CiChecks::Off,
                 walk: walk.clone(),
             }),
             Err(e) => {
@@ -416,6 +425,7 @@ impl RelayLane {
         };
         Ok(RelayLane {
             git,
+            tests: BTreeMap::new(),
             relay,
             files: LaneFiles::new(paths.state.clone(), &paths.accounts, App::Relay),
             agents,
@@ -569,7 +579,7 @@ impl RelayLane {
             GitAction::Commit(id) | GitAction::Revert(id) => {
                 self.relay.changes_of(&job.chat, id).cloned()
             }
-            GitAction::Merge | GitAction::Discard => None,
+            GitAction::Merge | GitAction::Discard | GitAction::Checks => None,
         };
         let desk = self.raiser.as_ref().map(|r| MergeDesk {
             approvals: r.approvals.clone(),
@@ -580,6 +590,8 @@ impl RelayLane {
                 git: &git.host,
                 worktree: worktree.as_ref(),
                 run: run.as_ref(),
+                folder: Path::new(&job.cwd),
+                ci: &git.ci,
                 desk: desk.as_ref(),
                 control: &control,
             };
@@ -648,6 +660,7 @@ impl RelayLane {
         let raise = self.raise_for(&job);
         let plan = self.relay.branch_plan(&job.chat);
         let git = self.git.clone();
+        self.tests.remove(&job.chat);
         thread::spawn(move || {
             let mut job = job;
             if let Some((raiser, level)) = raise {
@@ -749,6 +762,13 @@ impl RelayLane {
                     let relay = &self.relay;
                     self.answers.retain(|request, _| relay.is_asked(request));
                 }
+                // The last command with a test summary gives the test line of the run.
+                Event::CommandOutput(output) => {
+                    if let Some(counts) = test_summary::summary(&output) {
+                        self.tests.insert(chat, counts);
+                    }
+                    continue;
+                }
                 Event::Question(question) => {
                     let request = self
                         .relay
@@ -807,11 +827,15 @@ impl RelayLane {
             };
             log(&format!("done {} #{}", job.chat, job.id.0));
             self.stops.remove(&job.chat);
+            // The thread of the run sent its events before its end, so they are all here.
+            self.take_events();
+            let mut blocks = end.blocks;
+            blocks.tests = self.tests.remove(&job.chat);
             if let WorktreeChange::Set(worktree) = end.change {
                 self.relay.set_worktree(&job.chat, worktree);
             }
             self.relay.keep_session(&job, run.session);
-            self.relay.finish_run(&job, run.reply, end.blocks);
+            self.relay.finish_run(&job, run.reply, blocks);
             // A request of a run that ended gets no answer: its run stopped waiting.
             let relay = &self.relay;
             self.answers.retain(|request, _| relay.is_asked(request));

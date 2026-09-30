@@ -3379,6 +3379,7 @@ fn settings_text(story: bool) -> String {
         allow_folders: vec![("~/Code/lighthouse".into(), "npm test".into())],
         rules: bridge::always_rules::RuleList::default(),
         hooks: Vec::new(),
+        ci_checks: bridge::ci_checks::CiChecks::Off,
     };
     let policy = Policy {
         folders: Folders {

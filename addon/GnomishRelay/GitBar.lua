@@ -1,5 +1,5 @@
 -- The git part of the chat header (SPEC.md 9.10): the Own branch box of a new chat in a
--- repository, and after the first reply the branch with Merge and Discard.
+-- repository, and after the first reply the branch with Merge, Discard, and Checks.
 
 local _, ns = ...
 
@@ -49,17 +49,14 @@ local function ShowBranch(branch)
 	local own = branch ~= nil and branch.own
 	ui.merge:SetShown(own)
 	ui.discard:SetShown(own)
+	ui.checks:SetShown(branch ~= nil)
 	ui.branch:SetShown(branch ~= nil)
 	if not branch then
 		return
 	end
 	ui.branch:SetText(string.format("|cff%s%s|r", GREY, branch.name))
 	ui.branch:ClearAllPoints()
-	if own then
-		ui.branch:SetPoint("RIGHT", ui.merge, "LEFT", -8, 0)
-	else
-		ui.branch:SetPoint("BOTTOMRIGHT", ui.anchor, "TOPRIGHT", 0, 7)
-	end
+	ui.branch:SetPoint("RIGHT", own and ui.merge or ui.checks, "LEFT", -8, 0)
 end
 
 -- The branch of the chat comes from the last reply with a branch block.
@@ -145,10 +142,13 @@ end
 
 -- `anchor` is the transcript: the bar sits right above its top right corner.
 function GitBar.Build(parent, anchor)
-	ui.anchor = anchor
 	BuildBox(parent, anchor)
+	ui.checks = Button(parent, "GnomishRelayGitChecks", "Checks", function()
+		Send("checks")
+	end)
+	ui.checks:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 3)
 	ui.discard = Button(parent, "GnomishRelayGitDiscard", "Discard", AskDiscard)
-	ui.discard:SetPoint("BOTTOMRIGHT", anchor, "TOPRIGHT", 0, 3)
+	ui.discard:SetPoint("RIGHT", ui.checks, "LEFT", -4, 0)
 	ui.merge = Button(parent, "GnomishRelayGitMerge", "Merge", function()
 		Send("merge")
 	end)

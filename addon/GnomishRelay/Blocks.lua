@@ -107,6 +107,12 @@ local GIT_BLOCKS = {
 	M = function(git, p)
 		git.more = Count(p[2])
 	end,
+	T = function(git, p)
+		git.tests = { passed = Count(p[2]), failed = Count(p[3]), skipped = Count(p[4]) }
+	end,
+	C = function(git, p)
+		git.ci = { passed = Count(p[2]), failed = Count(p[3]), running = Count(p[4]), names = p[5] or "" }
+	end,
 }
 
 -- The blocks of the bridge in a reply, or nil when it has none. A cut last line is left out.

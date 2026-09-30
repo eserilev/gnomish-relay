@@ -1,5 +1,6 @@
 //! Git in a chat in the fake game (SPEC.md 9.10, 13.1): the change block with Commit and
-//! Revert, the Own branch box, the branch bar, and the git messages of the player.
+//! Revert, the test and CI lines, the Own branch box, the branch bar, and the git
+//! messages of the player.
 
 // Clippy sees helper functions outside `#[test]` as normal code, so its test exceptions miss them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -43,8 +44,8 @@ const FILES: &[&str] = &[
     "NoticeFrames.lua",
     "Core.lua",
 ];
-/// A reply of a run on its own branch that changed two files.
-const REPLY: &str = "\x1bM1\nB\x1fgnomish/fix\x1f1\x1fmain\nG\x1f2\x1f5\x1f1\nF\x1fsrc/a.rs\x1f4\x1f1\x1fM\nF\x1fnew.txt\x1f1\x1f0\x1fA\np\x1fDone.\n";
+/// A reply of a run on its own branch that changed two files, with its tests and checks.
+const REPLY: &str = "\x1bM1\nB\x1fgnomish/fix\x1f1\x1fmain\nG\x1f2\x1f5\x1f1\nF\x1fsrc/a.rs\x1f4\x1f1\x1fM\nF\x1fnew.txt\x1f1\x1f0\x1fA\nT\x1f41\x1f2\x1f0\nC\x1f5\x1f1\x1f0\x1flint\np\x1fDone.\n";
 
 struct Game {
     lua: Lua,
@@ -474,4 +475,59 @@ fn an_error_with_changes_shows_the_error_and_the_block() {
     let texts = game.texts().join("\n");
     assert!(texts.contains("[Relay]: Stopped."), "{texts}");
     assert!(texts.contains("1 file changed"), "{texts}");
+}
+
+#[test]
+fn the_test_and_ci_lines_show_their_counts_with_each_failure_in_red() {
+    let (game, _) = game_with_reply();
+
+    let texts = game.texts().join("\n");
+
+    assert!(
+        texts.contains("Tests: 41 passed, |cffff40402 failed|r"),
+        "{texts}"
+    );
+    assert!(
+        texts.contains("CI: 5 passed, |cffff40401 failed|r (lint)"),
+        "{texts}"
+    );
+}
+
+#[test]
+fn checks_sends_a_checks_message_for_any_branch() {
+    let game = Game::start();
+    game.send("go");
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "\x1bM1\nB\x1fmain\x1f0\x1f\np\x1fDone.\n",
+    );
+
+    game.run("GnomishRelayGitChecks:Click()");
+    game.advance(1.0);
+
+    assert!(flags(&game.message_record()).starts_with("git=checks;"));
+    assert!(game.texts().iter().any(|t| t.contains("[You]|r: Checks")));
+}
+
+#[test]
+fn the_answer_to_checks_shows_the_ci_line() {
+    let game = Game::start();
+    game.send("go");
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "\x1bM1\nB\x1fmain\x1f0\x1f\np\x1fDone.\n",
+    );
+    game.run("GnomishRelayGitChecks:Click()");
+    game.advance(1.0);
+
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "\x1bM1\nC\x1f3\x1f0\x1f2\x1f\n",
+    );
+
+    let texts = game.texts().join("\n");
+    assert!(texts.contains("CI: 3 passed, 2 running"), "{texts}");
 }

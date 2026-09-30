@@ -1,5 +1,5 @@
 -- The blocks of the bridge under a reply (SPEC.md 9.10): the change summary with Commit
--- and Revert. The bridge doubled every | of their fields.
+-- and Revert, the test line, and the CI line. The bridge doubled every | of their fields.
 
 local _, ns = ...
 
@@ -60,8 +60,34 @@ local function Plural(count, one, many)
 	return count == 1 and one or string.format(many, count)
 end
 
+-- "412 passed, 2 failed": each number that failed is red.
+local function Tally(parts)
+	local words = {}
+	for _, part in ipairs(parts) do
+		local count, word, bad = part[1], part[2], part[3]
+		if count and count > 0 then
+			local text = string.format("%d %s", count, word)
+			table.insert(words, bad and string.format("|cff%s%s|r", RED, text) or text)
+		end
+	end
+	return table.concat(words, ", ")
+end
+
+function Changes.TestsText(tests)
+	return "Tests: "
+		.. Tally({ { tests.passed, "passed" }, { tests.failed, "failed", true }, { tests.skipped, "skipped" } })
+end
+
+function Changes.CiText(ci)
+	local text = "CI: " .. Tally({ { ci.passed, "passed" }, { ci.failed, "failed", true }, { ci.running, "running" } })
+	if ci.names ~= "" then
+		text = text .. " (" .. ci.names .. ")"
+	end
+	return text
+end
+
 -- The label of a git message in the transcript: `Commit "fix the test"`.
-local LABELS = { commit = "Commit", revert = "Revert", merge = "Merge", discard = "Discard" }
+local LABELS = { commit = "Commit", revert = "Revert", merge = "Merge", discard = "Discard", checks = "Checks" }
 
 function Changes.Label(entry)
 	if not entry.git then
@@ -135,6 +161,12 @@ function Changes.Draw(chat, entry, y, width)
 	end
 	if git.summary then
 		y = DrawSummary(chat, entry, git, y + 2, width)
+	end
+	if git.tests then
+		y = Line(Changes.TestsText(git.tests), 0, y, width)
+	end
+	if git.ci then
+		y = Line(Changes.CiText(git.ci), 0, y, width)
 	end
 	return y
 end
