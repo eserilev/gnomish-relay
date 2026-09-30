@@ -13,6 +13,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Output, Stdio};
 use std::time::{Duration, Instant};
 
+use bridge::dirs::{Dirs, Os};
 use bridge::hooks_merge::our_hooks;
 use bridge::slots::{LIVE_FILE, slot_name};
 use bridge::spool::Source;
@@ -57,8 +58,20 @@ impl Home {
         self.dir.path()
     }
 
+    /// The folders of the bridge on this OS: macOS has no XDG folders.
+    fn dirs(&self) -> Dirs {
+        let home = self.path().to_owned();
+        let var = |name: &str| match name {
+            "HOME" => Some(home.clone()),
+            "XDG_CONFIG_HOME" => Some(home.join("config")),
+            "XDG_DATA_HOME" => Some(home.join("data")),
+            _ => None,
+        };
+        Dirs::of(Os::this(), &var).unwrap()
+    }
+
     fn data(&self) -> PathBuf {
-        self.path().join("data").join("gnomish-relay")
+        self.dirs().data
     }
 
     fn addons(&self) -> PathBuf {
@@ -86,7 +99,7 @@ impl Home {
     fn set_up_bridge(&self) {
         fs::create_dir_all(self.path().join("Code")).unwrap();
         fs::create_dir_all(self.path().join("wow").join("Screenshots")).unwrap();
-        let config = self.path().join("config").join("gnomish-relay");
+        let config = self.dirs().config;
         bridge::setup::write_config(&config, CONFIG, self.path()).unwrap();
         fs::write(config.join("strip.key"), "ab".repeat(32)).unwrap();
         fs::create_dir_all(self.addons()).unwrap();

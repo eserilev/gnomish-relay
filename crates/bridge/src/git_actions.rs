@@ -11,13 +11,15 @@ use crate::chat_branch::{self, ChatWorktree};
 use crate::chat_merge;
 use crate::ci_checks::{self, CiChecks};
 use crate::desktop::Approvals;
+use crate::folder_path::path_bytes;
 use crate::gate;
 use crate::git_blocks::{ci_block, with_blocks};
 use crate::git_host::GitHost;
 use crate::lane::MessageId;
-use crate::run::{log, now};
+use crate::run::{home_folder, log, now};
 use crate::run_actions;
 use crate::run_changes::RunChanges;
+use crate::settings_list::shown;
 use crate::turn::{Answer, Turn};
 
 const NO_BRANCH: &str = "This chat has no branch of its own.";
@@ -138,11 +140,8 @@ fn own_branch<'a>(context: &Context<'a>) -> Result<&'a ChatWorktree, String> {
 
 /// `~/Code/app` for a folder in the home folder, as the player reads it.
 fn shown_path(path: &str) -> String {
-    let home = std::env::var("HOME").unwrap_or_default();
-    match path.strip_prefix(&home) {
-        Some(rest) if !home.is_empty() && rest.starts_with('/') => format!("~{rest}"),
-        _ => path.to_owned(),
-    }
+    let home = home_folder().map(|h| path_bytes(&h));
+    shown(&path_bytes(Path::new(path)), home.as_deref())
 }
 
 fn merge(context: &Context) -> Result<String, String> {
@@ -288,9 +287,9 @@ mod tests {
 
     #[test]
     fn a_path_in_the_home_folder_shows_with_a_tilde() {
-        let home = std::env::var("HOME").unwrap();
+        let app = home_folder().unwrap().join("Code").join("app");
 
-        assert_eq!(shown_path(&format!("{home}/Code/app")), "~/Code/app");
+        assert_eq!(shown_path(&app.to_string_lossy()), "~/Code/app");
         assert_eq!(shown_path("/srv/app"), "/srv/app");
     }
 }

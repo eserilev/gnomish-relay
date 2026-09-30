@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::folder_path::real_path;
 use crate::folder_walk::{Walk, is_shown};
 use crate::git_host::GitHost;
 use crate::lane::ChatId;
@@ -61,7 +62,7 @@ fn link_is_intact(git: &GitHost, worktree: &ChatWorktree) -> bool {
     let (Some(common), Some(admin), Ok(real_dot_git)) = (
         common_dir(git, Path::new(&worktree.repo)),
         named_path(&dot_git, "gitdir: "),
-        dot_git.canonicalize(),
+        real_path(&dot_git),
     ) else {
         return false;
     };
@@ -77,7 +78,7 @@ fn common_dir(git: &GitHost, top: &Path) -> Option<PathBuf> {
             &["rev-parse", "--path-format=absolute", "--git-common-dir"],
         )
         .ok()?;
-    PathBuf::from(common).canonicalize().ok()
+    real_path(Path::new(&common)).ok()
 }
 
 /// The real path that a one-line git file names, relative to the folder of the file.
@@ -87,7 +88,7 @@ fn named_path(file: &Path, prefix: &str) -> Option<PathBuf> {
     }
     let text = fs::read_to_string(file).ok()?;
     let named = text.strip_prefix(prefix)?.trim_end_matches(['\n', '\r']);
-    file.parent()?.join(named).canonicalize().ok()
+    real_path(&file.parent()?.join(named)).ok()
 }
 
 /// The branch of a chat folder, for the `B` block of a reply.
@@ -127,7 +128,7 @@ pub fn slug(name: &str) -> String {
 /// The top of the repository of `folder`, or `None` outside a repository.
 pub fn repo_top(git: &GitHost, folder: &Path) -> Option<PathBuf> {
     let top = git.text(folder, &["rev-parse", "--show-toplevel"]).ok()?;
-    PathBuf::from(top).canonicalize().ok()
+    real_path(Path::new(&top)).ok()
 }
 
 /// The branch that `HEAD` names, or `None` for a detached `HEAD`.
@@ -167,7 +168,7 @@ fn copies_folder(walk: &Walk, top: &Path) -> Result<PathBuf, String> {
         return Err(outside());
     }
     fs::create_dir_all(&copies).map_err(|e| format!("Couldn't make {}: {e}", copies.display()))?;
-    let real = copies.canonicalize().map_err(|e| e.to_string())?;
+    let real = real_path(&copies).map_err(|e| e.to_string())?;
     if real != copies {
         return Err(format!(
             "Couldn't give this chat its own branch: {} is a link. Remove it, then send again.",
@@ -204,8 +205,7 @@ pub fn make(
     };
     let start_commit = head_commit(git, &top).ok_or_else(|| NO_COMMITS.to_owned())?;
     let start_branch = current_branch(git, &top);
-    let inside = folder
-        .canonicalize()
+    let inside = real_path(folder)
         .ok()
         .and_then(|f| f.strip_prefix(&top).ok().map(Path::to_path_buf))
         .unwrap_or_default();
@@ -408,7 +408,7 @@ mod tests {
     /// `root/app` with one commit on `main`, and `root` as the only root.
     fn repo() -> Repo {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap().join("code");
+        let root = real_path(tmp.path()).unwrap().join("code");
         let top = root.join("app");
         fs::create_dir_all(top.join("src")).unwrap();
         let git = GitHost::with_config(UserConfig::Skip).unwrap();
@@ -455,8 +455,8 @@ mod tests {
         let made = make_for(&repo, "Fix tests");
 
         let place = repo.root.join(".gnomish-worktrees/app/fix-tests");
-        assert_eq!(made.worktree, place.to_string_lossy());
-        assert_eq!(made.folder, place.to_string_lossy());
+        assert_eq!(Path::new(&made.worktree), place);
+        assert_eq!(Path::new(&made.folder), place);
         assert_eq!(made.branch, "gnomish/fix-tests");
         assert_eq!(made.start_branch.as_deref(), Some("main"));
         assert!(place.join("src/a.txt").is_file());
@@ -513,7 +513,7 @@ mod tests {
         .unwrap();
 
         assert!(
-            made.folder.ends_with(".gnomish-worktrees/app/sub/src"),
+            Path::new(&made.folder).ends_with(".gnomish-worktrees/app/sub/src"),
             "{}",
             made.folder
         );

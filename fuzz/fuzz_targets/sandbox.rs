@@ -202,6 +202,7 @@ fuzz_target!(|data: &[u8]| {
         readable: Vec::new(),
         home_view: None,
         watched: Vec::new(),
+        git_configs: Vec::new(),
     };
     check_tools(&walls);
 });

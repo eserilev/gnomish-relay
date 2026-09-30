@@ -551,25 +551,30 @@ fn codex_gets_a_private_temp_folder_that_goes_away_with_the_run() {
 /// Codex applies every path of the patch, also one outside the root that it asks for.
 #[test]
 fn a_change_with_a_root_is_checked_at_the_root_and_at_each_path_of_the_patch() {
-    let chat = std::path::Path::new("/home/x/Code/app");
+    // The call resolves links, so the paths lie in a real folder: on macOS `/home` is one.
+    let tmp = tempfile::tempdir().unwrap();
+    let home = bridge::folder_path::real_path(tmp.path()).unwrap();
+    let chat = home.join("Code").join("app");
+    let bashrc = home.join(".bashrc");
     let params = serde_json::json!({ "grantRoot": "src" });
     let paths = [
         bridge::codex::Change::at("src/a.rs"),
-        bridge::codex::Change::at("/home/x/.bashrc"),
+        bridge::codex::Change::at(&bashrc.to_string_lossy()),
     ];
 
     let call =
-        bridge::codex::approval_call("item/fileChange/requestApproval", &params, &paths, chat);
+        bridge::codex::approval_call("item/fileChange/requestApproval", &params, &paths, &chat);
 
     let protocol::action::ToolCall::Files { writes, .. } = call.tool else {
         panic!("a change is a file call");
     };
+    let bytes = bridge::action_input::resolved_bytes;
     assert_eq!(
         writes,
         [
-            b"/home/x/Code/app/src".to_vec(),
-            b"/home/x/Code/app/src/a.rs".to_vec(),
-            b"/home/x/.bashrc".to_vec(),
+            bytes(&chat.join("src")),
+            bytes(&chat.join("src").join("a.rs")),
+            bytes(&bashrc),
         ]
     );
 }

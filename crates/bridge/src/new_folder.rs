@@ -5,7 +5,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::folder_path::{is_inside_folder, path_bytes};
+use crate::folder_path::{is_inside_folder, path_bytes, real_path};
 use crate::folder_walk::{Walk, is_shown};
 
 /// The longest file name on the file systems that the bridge runs on.
@@ -50,23 +50,15 @@ pub fn is_folder_name(name: &str) -> bool {
 /// The real path of the folder of a chat, inside a root. The relay checks only the text
 /// of the folder, and a link in it can leave every root.
 pub fn real_chat_folder(walk: &Walk, folder: &Path) -> Result<String, String> {
-    let real = folder.canonicalize().map_err(|_| MISSING.to_owned())?;
+    let real = real_path(folder).map_err(|_| MISSING.to_owned())?;
     let bytes = path_bytes(&real);
     let inside = |root: &PathBuf| is_inside_folder(&bytes, &path_bytes(root));
     if !walk.roots.iter().any(inside) {
         return Err(OUTSIDE_ROOTS.into());
     }
-    let text = real.to_str().ok_or_else(|| MISSING.to_owned())?;
-    Ok(without_verbatim(text).to_owned())
-}
-
-/// `canonicalize` on Windows starts a path with `\\?\`, which many programs refuse.
-/// A network path keeps it, because it has no other form with the same meaning.
-fn without_verbatim(path: &str) -> &str {
-    match path.strip_prefix(r"\\?\") {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest,
-        _ => path,
-    }
+    real.into_os_string()
+        .into_string()
+        .map_err(|_| MISSING.to_owned())
 }
 
 /// Makes the last part of `folder` with `create_dir`, never a parent. A folder that
@@ -117,7 +109,7 @@ mod tests {
 
     fn home() -> Home {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap().join("Code");
+        let root = real_path(tmp.path()).unwrap().join("Code");
         fs::create_dir_all(&root).unwrap();
         Home { _tmp: tmp, root }
     }
@@ -172,16 +164,6 @@ mod tests {
         let real = real_chat_folder(&walk(&h), &h.root.join("gone"));
 
         assert_eq!(real, Err(MISSING.into()));
-    }
-
-    #[test]
-    fn a_verbatim_prefix_goes_only_before_a_drive() {
-        assert_eq!(without_verbatim(r"\\?\C:\Code\app"), r"C:\Code\app");
-        assert_eq!(
-            without_verbatim(r"\\?\UNC\server\share"),
-            r"\\?\UNC\server\share"
-        );
-        assert_eq!(without_verbatim("/home/x/Code"), "/home/x/Code");
     }
 
     #[test]
@@ -259,16 +241,8 @@ mod tests {
         let h = home();
         let made = make_folder(&walk(&h), &h.root.join("a\u{7}b"));
         assert_eq!(made, Err(NewFolderError::BadName));
-        // On Windows, `join("..")` on a canonical `\\?\` path goes up by itself, so the
-        // function gets the parent of the root, which is outside the roots.
         let up = make_folder(&walk(&h), &h.root.join(".."));
-        assert!(
-            matches!(
-                up,
-                Err(NewFolderError::BadName | NewFolderError::OutsideRoots)
-            ),
-            "{up:?}"
-        );
+        assert_eq!(up, Err(NewFolderError::BadName));
     }
 
     #[test]

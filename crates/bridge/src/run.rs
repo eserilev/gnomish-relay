@@ -1190,7 +1190,7 @@ fn repo_walk(policy: &Policy, paths: &Paths) -> Walk {
     }
 }
 
-fn home_folder() -> Option<PathBuf> {
+pub fn home_folder() -> Option<PathBuf> {
     std::env::var_os("HOME")
         .or_else(|| std::env::var_os("USERPROFILE"))
         .map(PathBuf::from)

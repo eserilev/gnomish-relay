@@ -14,9 +14,9 @@
 set -euo pipefail
 
 UI_REPO=https://github.com/Gethe/wow-ui-source
-UI_COMMIT=bd2470aed543f72697a044e989285b6c83e63f73 # forever, 1.60.1.70009
+UI_COMMIT=966519cf0ad2c10301ea011a88c14b25697c9687 # forever, 1.60.1.70124
 BIR_REPO=https://github.com/Ketho/BlizzardInterfaceResources
-BIR_COMMIT=659e8042049df854c114714f8ecd640823a1cd5c # forever, 1.60.1.69913
+BIR_COMMIT=4149af6437af8631d045f3c6add51555fba3d784 # forever, 1.60.1.70009
 
 scripts=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 root=$(git rev-parse --show-toplevel)

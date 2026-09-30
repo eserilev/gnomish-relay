@@ -16,7 +16,7 @@ use bridge::agent::{Agent, Control, Event, Run};
 use bridge::ci_checks::CiChecks;
 use bridge::config::{Permission, Policy};
 use bridge::desktop::{Approvals, Prompt, Verdict};
-use bridge::folder_path::path_bytes;
+use bridge::folder_path::{path_bytes, real_path};
 use bridge::git_host::{GitHost, UserConfig};
 use bridge::ids::hex;
 use bridge::raise::Raiser;
@@ -80,7 +80,7 @@ fn git(dir: &Path, args: &[&str]) -> String {
 /// `code/app`, a repository with one commit on `main`, and `code` as the only root.
 fn world() -> World {
     let root = tempfile::tempdir().unwrap();
-    let base = root.path().canonicalize().unwrap();
+    let base = real_path(root.path()).unwrap();
     let code = base.join("code");
     let repo = code.join("app");
     fs::create_dir_all(&repo).unwrap();
@@ -345,10 +345,14 @@ fn an_own_branch_works_in_a_worktree_next_to_the_repository() {
     let line = reply(&mut bridge, &w, 1);
 
     let copy = w.code.join(".gnomish-worktrees/app/fix-it");
-    assert_eq!(
-        *w.folders.lock().unwrap(),
-        [copy.to_string_lossy().into_owned()]
-    );
+    let folders: Vec<PathBuf> = w
+        .folders
+        .lock()
+        .unwrap()
+        .iter()
+        .map(PathBuf::from)
+        .collect();
+    assert_eq!(folders, [copy.as_path()]);
     assert!(copy.join("agent.txt").is_file());
     assert!(!w.repo.join("agent.txt").exists());
     assert!(

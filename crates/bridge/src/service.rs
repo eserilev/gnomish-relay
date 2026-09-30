@@ -390,6 +390,8 @@ mod tests {
         assert_eq!(last_log_line(&log), None);
     }
 
+    // The service is a systemd unit only on Linux (SPEC.md 11.3, step 6).
+    #[cfg(target_os = "linux")]
     #[test]
     fn the_systemd_unit_lies_where_the_user_manager_reads_it_also_with_xdg_config_home() {
         let root = tempfile::tempdir().unwrap();

@@ -7,6 +7,7 @@ use std::sync::Arc;
 use crate::active_folders::{ActiveFolders, ActiveGuard};
 use crate::chat_branch::{self, ChatWorktree};
 use crate::ci_checks::{self, CiChecks};
+use crate::folder_path::real_path;
 use crate::folder_walk::Walk;
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
@@ -81,7 +82,7 @@ impl RunGit {
         let folder = worktree
             .as_ref()
             .map_or_else(|| job.cwd.clone(), |w| w.folder.clone());
-        let real = Path::new(&folder).canonicalize();
+        let real = real_path(Path::new(&folder));
         let active = self
             .active
             .begin(real.as_deref().unwrap_or(Path::new(&folder)));
@@ -169,7 +170,7 @@ impl RunGit {
 /// The chat folder relative to the top of its repository, with `/` as git writes it.
 /// A folder name that is not UTF-8 gets no summary.
 fn within_top(top: &Path, folder: &Path) -> Option<String> {
-    let real = folder.canonicalize().ok()?;
+    let real = real_path(folder).ok()?;
     let relative = real.strip_prefix(top).ok()?;
     let parts: Option<Vec<&str>> = relative.iter().map(|p| p.to_str()).collect();
     Some(parts?.join("/"))

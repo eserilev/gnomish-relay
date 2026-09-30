@@ -249,7 +249,7 @@ mod tests {
 
     fn repo() -> Repo {
         let tmp = tempfile::tempdir().unwrap();
-        let root = tmp.path().canonicalize().unwrap();
+        let root = crate::folder_path::real_path(tmp.path()).unwrap();
         let top = root.join("app");
         fs::create_dir_all(&top).unwrap();
         let git = GitHost::with_config(UserConfig::Skip).unwrap();

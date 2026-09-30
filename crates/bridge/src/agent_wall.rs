@@ -973,11 +973,17 @@ mod tests {
         assert!(!paths.contains(&PathBuf::from("/home/x/.claude/projects")));
     }
 
+    /// `/cfg` has no drive, so Windows takes it for a relative path.
+    fn absolute_cfg() -> PathBuf {
+        std::env::temp_dir().join("cfg")
+    }
+
     #[test]
     fn a_folder_that_the_hooks_command_saved_is_read_only_too() {
         let data = tempfile::tempdir().unwrap();
         let home = Path::new("/home/x");
-        let moved = |name: &str| (name == "CODEX_HOME").then(|| PathBuf::from("/cfg/codex"));
+        let cfg = absolute_cfg();
+        let moved = |name: &str| (name == "CODEX_HOME").then(|| cfg.join("codex"));
         let used = crate::hooks_install::HookFiles::both(home, &moved);
         crate::hooks_install::save_folders(data.path(), &used).unwrap();
         let mut dirs = AgentDirs::of(home, &|_| None);
@@ -985,29 +991,24 @@ mod tests {
         dirs.add_saved(data.path());
 
         assert_eq!(dirs.claude, [home.join(".claude")]);
-        assert_eq!(
-            dirs.codex,
-            [home.join(".codex"), PathBuf::from("/cfg/codex")]
-        );
+        assert_eq!(dirs.codex, [home.join(".codex"), cfg.join("codex")]);
     }
 
     #[test]
     fn a_moved_agent_config_is_read_only_next_to_the_default_one() {
         let home = Path::new("/home/x");
+        let cfg = absolute_cfg();
         let var = |name: &str| match name {
-            "CLAUDE_CONFIG_DIR" => Some(PathBuf::from("/cfg/claude")),
+            "CLAUDE_CONFIG_DIR" => Some(cfg.join("claude")),
             "CODEX_HOME" => Some(PathBuf::from("relative/codex")),
             _ => None,
         };
 
         let paths = startup_paths(home, &AgentDirs::of(home, &var));
 
-        for path in [
-            "/cfg/claude/settings.json",
-            "/cfg/claude/hooks",
-            "/home/x/.claude/settings.json",
-            "/home/x/.codex/rules",
-        ] {
+        assert!(paths.contains(&cfg.join("claude").join("settings.json")));
+        assert!(paths.contains(&cfg.join("claude").join("hooks")));
+        for path in ["/home/x/.claude/settings.json", "/home/x/.codex/rules"] {
             assert!(paths.contains(&PathBuf::from(path)), "{path}");
         }
         assert!(!paths.iter().any(|p| p.starts_with("relative")));

@@ -201,6 +201,11 @@ pub struct Walls {
     /// `bwrap` mount needs a path, so the bridge removes a new one after each command.
     #[serde(default)]
     pub watched: Vec<PathBuf>,
+    /// The `config` and `config.worktree` of each git folder, also in `hidden`. Seatbelt
+    /// cannot show an empty file in their place, and git stops at a config that it cannot
+    /// read. So on macOS they stay readable, and a write to them fails.
+    #[serde(default)]
+    pub git_configs: Vec<PathBuf>,
     /// An empty file that shows in place of a hidden file.
     pub empty: PathBuf,
     /// The way to the proxy of the run. With none, commands have no network.
@@ -412,6 +417,7 @@ pub fn prepare_shaped(
             ChatAccess::Read => Vec::new(),
         },
         watched: scan.watched,
+        git_configs: scan.configs,
         empty: empty_file(&place)?,
         local_ports: match (&proxy, &sandbox.proxy) {
             (Some(_), Some(settings)) => settings.local_ports.to_vec(),
@@ -687,6 +693,8 @@ struct ChatScan {
     missing: Vec<PathBuf>,
     /// The missing ones with no stand-in.
     watched: Vec<PathBuf>,
+    /// The hidden `config` and `config.worktree` of the git folders.
+    configs: Vec<PathBuf>,
     /// Each `.git` entry and each guarded name that exists.
     git: Vec<PathBuf>,
     git_folders: Vec<PathBuf>,
@@ -701,6 +709,9 @@ impl ChatScan {
             self.pinned.push(path.clone());
         } else {
             self.hidden.push(path.clone());
+        }
+        if is_config(&path) {
+            self.configs.push(path.clone());
         }
         self.git.push(path);
     }
@@ -724,6 +735,11 @@ fn make_stand_ins(scan: &mut ChatScan) -> Result<(), String> {
 
 fn is_commondir(path: &Path) -> bool {
     path.file_name().is_some_and(|n| n == COMMONDIR)
+}
+
+fn is_config(path: &Path) -> bool {
+    path.file_name()
+        .is_some_and(|n| n == "config" || n == "config.worktree")
 }
 
 /// `create_new` and `create_dir` never follow a link.
@@ -1224,6 +1240,7 @@ pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
     let hidden: Vec<&Path> = walls
         .hidden
         .iter()
+        .filter(|p| !walls.git_configs.contains(p))
         .map(PathBuf::as_path)
         .chain(private)
         .collect();
@@ -1237,6 +1254,7 @@ fn fixed_paths(walls: &Walls) -> Vec<PathBuf> {
     let mut fixed = walls.pinned.clone();
     // A rule also covers a path that does not exist, so no command makes a watched name.
     fixed.extend(walls.watched.iter().cloned());
+    fixed.extend(walls.git_configs.iter().cloned());
     for path in walls.hidden.iter().chain(&walls.pinned) {
         let inside = |w: &&PathBuf| path.starts_with(w) && path != *w;
         let Some(root) = walls.writable.iter().find(inside) else {
@@ -2212,6 +2230,7 @@ mod tests {
             readable: Vec::new(),
             home_view: None,
             watched: Vec::new(),
+            git_configs: Vec::new(),
         }
     }
 
@@ -2377,6 +2396,42 @@ mod tests {
         assert!(
             profile.contains("(literal \"/home/x/Code/app/.git/commondir\")"),
             "{profile}"
+        );
+    }
+
+    #[test]
+    fn seatbelt_lets_git_read_a_git_config_and_denies_a_write_to_it() {
+        let config = PathBuf::from("/home/x/Code/app/.git/config");
+        let mut walls = sample();
+        walls.hidden.push(config.clone());
+        walls.git_configs = vec![config];
+
+        let profile = String::from_utf8(seatbelt_profile(&walls).unwrap()).unwrap();
+
+        let fixed = profile.find("(deny file-write* (literal").unwrap();
+        let hidden = profile.find("(deny file-read* file-write*").unwrap();
+        let rule = profile
+            .find("(literal \"/home/x/Code/app/.git/config\")")
+            .unwrap();
+        assert!(fixed < rule && rule < hidden, "{profile}");
+        assert!(!profile.contains("(subpath \"/home/x/Code/app/.git/config\")"));
+    }
+
+    #[test]
+    fn the_walls_note_the_config_files_of_each_git_folder() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        let mut configs = run.walls.git_configs.clone();
+        configs.sort();
+        assert_eq!(
+            configs,
+            [
+                h.chat.join(".git/config"),
+                h.chat.join(".git/config.worktree")
+            ]
         );
     }
 
