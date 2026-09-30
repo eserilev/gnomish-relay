@@ -1613,6 +1613,37 @@ fn with_no_dialog_the_whisper_line_names_the_command_and_a_raise_names_the_level
 }
 
 #[test]
+fn a_folder_request_asks_to_approve_this_folder_on_the_desktop() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("work in lighthouse");
+    game.advance(1.0);
+    wait_on_desktop(&game, "Desktop: wait a1b2c3d4e5f6 dialog folder");
+    game.run("local ns = ... ns.Transport.Poll()");
+    wait_on_desktop(&game, "Desktop: wait 0123456789ab command folder");
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"Approve this folder on your desktop".to_owned()),
+        "{texts:?}"
+    );
+    assert_eq!(
+        whispers_with(&game, "] Approve this folder on your desktop."),
+        1
+    );
+    assert_eq!(
+        whispers_with(
+            &game,
+            "] Approve this folder on your desktop: run gnomish-relay approve 0123456789ab"
+        ),
+        1
+    );
+    let popup = game.run("return GnomishRelayPopup and GnomishRelayPopup:IsShown() or false");
+    assert_eq!(popup, Value::Boolean(false));
+}
+
+#[test]
 fn a_desktop_line_in_the_wrong_place_or_shape_is_only_a_step() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");

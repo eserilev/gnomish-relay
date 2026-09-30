@@ -88,8 +88,11 @@ end
 
 -- The id comes from the bridge, so no agent text is in this line.
 local function DesktopText(chat, notice)
+	local start = notice.folder and "Approve this folder on your desktop" or "Approve on your desktop"
 	if notice.how == "command" then
-		return "Approve on your desktop: run gnomish-relay approve " .. notice.id
+		return start .. ": run gnomish-relay approve " .. notice.id
+	elseif notice.folder then
+		return start .. "."
 	elseif notice.raise then
 		return string.format("Approve on your desktop to let %s work at %s.", Relay.AgentName(chat.agent), notice.raise)
 	end

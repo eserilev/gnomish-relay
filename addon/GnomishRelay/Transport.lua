@@ -30,6 +30,8 @@ local DESKTOP_STATES = {
 	none = "No answer on your desktop",
 }
 local DESKTOP_HOW = { dialog = true, command = true }
+-- A folder under no root waits for one click on the desktop (SPEC.md 9.12).
+local FOLDER_WAIT = "Approve this folder on your desktop"
 -- The bridge writes this line as the only line of a message that waits for other chats,
 -- and no agent line can start with "Waiting:" (SPEC.md 8.2).
 local WAITING = "Waiting: "
@@ -323,17 +325,19 @@ local function ValidRequest(r)
 	return #r.options > 0
 end
 
--- `Desktop: <state> <id> <how>`, and ` raise <level>` for a raise. Nil for any other line.
+-- `Desktop: <state> <id> <how>`, and ` raise <level>` for a raise or ` folder` for a
+-- new folder. Nil for any other line.
 local function ParseDesktop(line)
 	local waiting, id, how, rest = tostring(line):match("^Desktop: (%l+) (%x+) (%l+)(.*)$")
 	if not DESKTOP_STATES[waiting] or #id ~= 12 or not DESKTOP_HOW[how] then
 		return nil
 	end
+	local folder = rest == " folder"
 	local raise = rest:match("^ raise ([%l-]+)$")
-	if rest ~= "" and not RAISE_LEVELS[raise] then
+	if rest ~= "" and not folder and not RAISE_LEVELS[raise] then
 		return nil
 	end
-	return { state = waiting, id = id, how = how, raise = raise }
+	return { state = waiting, id = id, how = how, raise = raise, folder = folder }
 end
 
 local function Whispered(id)
@@ -367,7 +371,11 @@ local function ApplyDesktop(chat, working, lines)
 	if not notice then
 		return
 	end
-	lines[at] = DESKTOP_STATES[notice.state]
+	if notice.folder and notice.state == "wait" then
+		lines[at] = FOLDER_WAIT
+	else
+		lines[at] = DESKTOP_STATES[notice.state]
+	end
 	if notice.state == "wait" and not Whispered(notice.id) then
 		Transport.OnDesktop(chat, notice)
 	end
