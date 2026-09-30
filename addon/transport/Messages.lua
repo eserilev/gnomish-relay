@@ -363,6 +363,32 @@ local function ShowFrame(frame, ids, controls, reporting, riders)
 	end)
 end
 
+-- A strip that only reports or asks for a list can wait for the end of a fight: a
+-- strip is a flash of color and the hitch of a screenshot.
+local function Urgent(due, stored)
+	if #due > 0 or #stored > 0 then
+		return true
+	end
+	for _, control in ipairs(state.controls) do
+		if not control.later then
+			return true
+		end
+	end
+	return false
+end
+
+-- A player who never read about the strip takes its flash for a bug.
+local function ExplainStripOnce()
+	local db = Messages.Db()
+	if not db.stripExplained then
+		db.stripExplained = true
+		print(
+			ns.App.title
+				.. ": the colored bar at the top left carries your messages to the desktop. It shows for half a second."
+		)
+	end
+end
+
 function Messages.ShowNextStrip()
 	if ns.Strip.Busy() or not ns.key then
 		return
@@ -371,11 +397,15 @@ function Messages.ShowNextStrip()
 	if #stored == 0 and #due == 0 and #state.controls == 0 and not state.helloDue then
 		return
 	end
+	if InCombatLockdown() and not Urgent(due, stored) then
+		return
+	end
 	-- While another app holds the corner, nothing is signed and no show counts. So the
 	-- retry timer and the shows wait too (SPEC.md 7.1).
 	if not ns.Strip.TakeTurn() then
 		return
 	end
+	ExplainStripOnce()
 	if #stored > 0 then
 		local message = stored[1].message
 		ShowFrame(ns.Codec.FromHex(message.frame), { message.id }, 0, nil)
@@ -424,6 +454,12 @@ end
 -- A control record goes out once, on the next strip. It is no message: it has no retry.
 function Messages.Control(chat, id, flags)
 	table.insert(state.controls, { chat = chat, id = id, flags = flags })
+	Messages.ShowNextStrip()
+end
+
+-- A control that can wait. In combat it only rides on a strip that goes anyway.
+function Messages.ControlLater(chat, id, flags)
+	table.insert(state.controls, { chat = chat, id = id, flags = flags, later = true })
 	Messages.ShowNextStrip()
 end
 

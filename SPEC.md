@@ -656,6 +656,8 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - The addon sets the `screenshotFormat` CVar to `png` at login.
 - The addon hides the "Screen captured" text for its own screenshots through the `ActionStatus` frame. Normal screenshots still show it.
 - The bridge ignores screenshots with no valid strip. Those are the screenshots of the user.
+- The first strip ever prints one line: "<title>: the colored bar at the top left carries your messages to the desktop. It shows for half a second." The saved variables remember it, so the line shows once.
+- In combat, a strip waits for the end of the fight unless it carries a message or a control of the player (Stop, a permission answer, a delete of a rule). So a hello and a request for a list (sessions, folders, settings) wait. They still ride on a strip that goes anyway. A long fight can then pass the window of slots (7.3): the replies wait for the next strip, and none is lost.
 
 **Frame layout (bytes):**
 

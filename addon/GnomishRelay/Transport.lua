@@ -105,7 +105,7 @@ end
 
 local function List(chat, flags)
 	state.listing[chat] = Messages.NewId()
-	Messages.Control(chat, state.listing[chat], flags)
+	Messages.ControlLater(chat, state.listing[chat], flags)
 	Messages.StartPolls()
 end
 

@@ -1071,6 +1071,50 @@ fn with_no_message_open_the_addon_polls_every_ten_minutes() {
 }
 
 #[test]
+fn the_first_strip_ever_explains_the_colored_bar_once() {
+    let game = Game::start();
+    game.advance(3.0);
+    let explained = |game: &Game| {
+        game.printed()
+            .iter()
+            .filter(|l| l.contains("colored bar"))
+            .count()
+    };
+    assert_eq!(explained(&game), 1);
+
+    game.send("more strips");
+    game.advance(3.0);
+    let game = game.reload();
+    game.advance(3.0);
+    assert_eq!(explained(&game), 0, "the saved variables remember it");
+}
+
+#[test]
+fn a_list_request_waits_for_the_end_of_combat_but_a_message_does_not() {
+    let game = Game::start();
+    game.advance(5.0);
+    let shots = game.shots();
+    game.wow.set("combat", true).unwrap();
+
+    game.run("local ns = ... ns.Transport.ListSessions()");
+    game.advance(5.0);
+    assert_eq!(game.shots(), shots, "no strip in combat for a list");
+
+    game.send("fix it now");
+    game.advance(2.0);
+    assert_eq!(game.shots(), shots + 1, "a message goes at once");
+
+    game.wow.set("combat", false).unwrap();
+    game.advance(2.0);
+    assert!(
+        (shots + 1..=game.shots())
+            .flat_map(|n| game.strip(n))
+            .any(|r| flags(&r).contains(&"list".into())),
+        "the list goes after combat"
+    );
+}
+
+#[test]
 fn stop_sends_a_stop_record_for_the_chat() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
