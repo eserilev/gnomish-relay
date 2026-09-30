@@ -30,16 +30,6 @@ local function Acquire(pool)
 	return widget
 end
 
-function Changes.Clear()
-	for _, pool in pairs(ui.pools or {}) do
-		for _, widget in ipairs(pool.used) do
-			widget:Hide()
-			table.insert(pool.free, widget)
-		end
-		pool.used = {}
-	end
-end
-
 local function Place(widget, x, y)
 	widget:SetPoint("TOPLEFT", ui.child, "TOPLEFT", x, -y)
 end
@@ -324,9 +314,11 @@ local function BuildDialog()
 	ui.dialog = dialog
 end
 
--- `child` is the scroll child of the transcript.
+-- `child` is the scroll child of the transcript. The transcript gives back the widgets
+-- of the pools that this returns, with its own.
 function Changes.Build(child)
 	ui.child = child
 	ui.pools = { text = Pool(NewText), buttons = Pool(NewButton) }
 	BuildDialog()
+	return ui.pools
 end

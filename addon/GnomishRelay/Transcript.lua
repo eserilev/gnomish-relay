@@ -570,7 +570,6 @@ local function Clear(chat)
 	for _, pool in pairs(ui.pools) do
 		ReleaseAll(pool)
 	end
-	ns.Changes.Clear()
 	contentHeight = 0
 	drawn = {
 		count = 0,
@@ -776,5 +775,8 @@ function Transcript.Build(parent, w, h)
 		rule = NewPool(NewTexture("ARTWORK", 0.6, 0.5, 0.2, 0.8)),
 		band = NewPool(NewTexture("BACKGROUND")),
 	}
-	ns.Changes.Build(ui.child)
+	-- A draw again from one entry gives back the change blocks below it too.
+	for name, pool in pairs(ns.Changes.Build(ui.child)) do
+		ui.pools["changes_" .. name] = pool
+	end
 end

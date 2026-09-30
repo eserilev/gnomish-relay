@@ -536,3 +536,22 @@ fn the_answer_to_checks_shows_the_ci_line() {
     let texts = game.texts().join("\n");
     assert!(texts.contains("CI: 3 passed, 2 running"), "{texts}");
 }
+
+#[test]
+fn show_more_above_a_reply_with_changes_leaves_one_change_block() {
+    let game = Game::start();
+    game.send("explain it");
+    let long = String::from_utf8(render_markdown("x\n\n".repeat(10).as_bytes())).unwrap();
+    game.reply(game.last_id(), Status::Done, &long);
+    game.send("fix it");
+    game.reply(game.last_id(), Status::Done, REPLY);
+
+    game.run("local ns = ... ns.Transcript.Toggle(ns.Store.db.chats[1].history[2])");
+
+    let blocks = game
+        .texts()
+        .iter()
+        .filter(|t| t.contains("2 files changed"))
+        .count();
+    assert_eq!(blocks, 1);
+}
