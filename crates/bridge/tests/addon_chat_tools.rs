@@ -1,5 +1,5 @@
 //! The reading and sending tools of the chat window in a fake game (SPEC.md 13.1): the
-//! summary of a long reply, quick actions, search, and pinned replies.
+//! summary of a long reply, the quick actions as suggestions, search, and pinned replies.
 
 // Clippy sees helper functions outside `#[test]` as normal code, so its test exceptions miss them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -35,7 +35,7 @@ const FILES: &[&str] = &[
     "Pins.lua",
     "Search.lua",
     "QuickActions.lua",
-    "QuickBar.lua",
+    "Suggestions.lua",
     "QuickEditor.lua",
     "Changes.lua",
     "Transcript.lua",
@@ -350,17 +350,31 @@ fn a_message_below_an_opened_reply_keeps_its_delivery_state() {
     assert!(!game.shows("Sending..."));
 }
 
-// Quick actions
+// Quick actions: suggestions in an empty chat
 
-fn quick_names(game: &Game) -> Vec<String> {
+const SUGGESTED: [&str; 5] = [
+    "Run the tests and tell me what fails",
+    "Fix the failing tests",
+    "Show git status",
+    "Summarize my uncommitted changes",
+    "Open a pull request for these changes",
+];
+
+fn suggestions(game: &Game) -> Vec<String> {
     (1..=6)
-        .filter(|i| game.shown(&format!("GnomishRelayQuick{i}")))
-        .map(|i| game.text(&format!("return GnomishRelayQuick{i}.label:GetText()")))
+        .filter(|i| game.shown(&format!("GnomishRelaySuggestion{i}")))
+        .map(|i| game.text(&format!("return GnomishRelaySuggestion{i}.label:GetText()")))
         .collect()
 }
 
-fn quick_width(game: &Game, i: usize) -> i64 {
-    game.run(&format!("return GnomishRelayQuick{i}:GetWidth()"))
+fn width_of(game: &Game, name: &str) -> i64 {
+    game.run(&format!("return {name}:GetWidth()"))
+        .as_integer()
+        .unwrap()
+}
+
+fn height_of(game: &Game, name: &str) -> i64 {
+    game.run(&format!("return {name}:GetHeight()"))
         .as_integer()
         .unwrap()
 }
@@ -377,121 +391,185 @@ fn type_into(game: &Game, name: &str, text: &str, end_with: &str) {
     ));
 }
 
-#[test]
-fn the_quick_actions_start_with_the_defaults_in_a_row_above_the_input() {
-    let game = Game::start();
-
-    assert_eq!(
-        quick_names(&game),
-        [
-            "Run tests",
-            "Fix tests",
-            "Git status",
-            "Summarize changes",
-            "Open PR"
-        ]
+fn show_reload_banner(game: &Game) {
+    game.run(
+        "local ns = ... table.insert(ns.Messages.Db().outbox, { chat = 'c', id = 1 }) \
+         ns.Window.Refresh()",
     );
-    let above = game.run(
-        "return select(5, GnomishRelayQuickBar:GetPoint()) > select(5, GnomishRelayInput:GetPoint())",
-    );
-    assert_eq!(above.as_boolean(), Some(true));
 }
 
 #[test]
-fn a_quick_action_sends_its_message_as_a_signed_strip() {
+fn an_empty_chat_suggests_the_quick_actions_by_their_messages() {
     let game = Game::start();
 
-    game.click("GnomishRelayQuick1");
+    assert!(game.shown("GnomishRelaySuggestionsHint"));
+    assert_eq!(
+        game.text("return GnomishRelaySuggestionsHint:GetText()"),
+        "Try one of these:"
+    );
+    assert_eq!(suggestions(&game), SUGGESTED);
+}
+
+#[test]
+fn a_suggestion_sends_its_message_as_a_signed_strip() {
+    let game = Game::start();
+
+    game.click("GnomishRelaySuggestion1");
     game.advance(1.0);
 
     let records = game.last_strip();
     assert_eq!(records.len(), 1);
     assert_eq!(
         String::from_utf8_lossy(&records[0].text),
-        "Run the tests. Tell me what passes and what fails. Change no code."
+        "Run the tests and tell me what fails"
     );
-    assert!(game.shows("[You]|r: Run the tests."));
+    assert!(game.shows("[You]|r: Run the tests and tell me what fails"));
 }
 
 #[test]
-fn a_quick_action_shows_its_name_and_message_in_a_tooltip() {
+fn a_suggestion_shows_its_whole_message_in_a_tooltip() {
     let game = Game::start();
+    let long = "Run the tests, fix each failure at its cause, and run them again. ".repeat(4);
+    game.run(&format!(
+        "local ns = ... ns.QuickActions.SetMessage(3, {long:?}) ns.Window.Refresh()"
+    ));
 
-    game.run("GnomishRelayQuick3:GetScript('OnEnter')(GnomishRelayQuick3)");
+    game.run("GnomishRelaySuggestion3:GetScript('OnEnter')(GnomishRelaySuggestion3)");
 
-    let tooltip = game.text("return GameTooltip.text");
-    assert_eq!(tooltip, "Git status");
+    assert_eq!(game.text("return GameTooltip.text"), long.trim());
     assert!(game.run("return GameTooltip.shown").as_boolean().unwrap());
 }
 
 #[test]
-fn the_quick_actions_row_gives_way_to_the_reload_banner() {
+fn the_suggestions_hide_after_the_first_message_of_the_chat() {
     let game = Game::start();
 
-    game.run(
-        "local ns = ... table.insert(ns.Messages.Db().outbox, { chat = 'c', id = 1 }) \
-         ns.Window.Refresh()",
-    );
+    game.send("hello");
 
-    assert!(game.shown("GnomishRelayBanner"));
-    assert!(!game.shown("GnomishRelayQuickBar"));
+    assert!(!game.shown("GnomishRelaySuggestions"));
+    assert!(suggestions(&game).is_empty());
 }
 
 #[test]
-fn the_quick_actions_row_hides_while_the_input_counts_the_bytes_left() {
+fn a_new_chat_suggests_the_quick_actions_again() {
     let game = Game::start();
+    game.send("hello");
+
     game.run("local ns = ... ns.Window.NewChat() ns.Window.CloseBrowser()");
 
-    game.run("GnomishRelayInput:SetText(string.rep('x', 2500))");
-    assert!(!game.shown("GnomishRelayQuickBar"));
-
-    game.run("GnomishRelayInput:SetText('')");
-    assert!(game.shown("GnomishRelayQuickBar"));
+    assert_eq!(suggestions(&game), SUGGESTED);
 }
 
 #[test]
-fn names_that_do_not_fit_share_the_row_equally() {
+fn the_suggestions_stay_hidden_after_a_reload() {
     let game = Game::start();
-    assert_ne!(quick_width(&game, 1), quick_width(&game, 4));
+    game.send("hello");
 
-    game.run(
-        "local ns = ... ns.QuickActions.Add() \
-         ns.QuickActions.Rename(6, 'Deploy to staging now') \
-         ns.QuickActions.SetMessage(6, 'Deploy.') ns.Window.Refresh()",
-    );
+    let game = game.reload();
 
-    assert_eq!(quick_names(&game).len(), 6);
-    let first = quick_width(&game, 1);
-    assert!((2..=6).all(|i| quick_width(&game, i) == first));
+    assert!(game.shows("hello"));
+    assert!(!game.shown("GnomishRelaySuggestions"));
 }
 
 #[test]
-fn a_wider_window_gives_each_button_the_width_of_its_name_again() {
+fn no_row_of_quick_actions_sits_above_the_input() {
     let game = Game::start();
-    game.run(
-        "local ns = ... ns.QuickActions.Add() \
-         ns.QuickActions.Rename(6, 'Deploy to staging now') \
-         ns.QuickActions.SetMessage(6, 'Deploy.') ns.Window.Refresh()",
-    );
-    assert_eq!(quick_width(&game, 1), quick_width(&game, 6));
+
+    let gone = game.run("return GnomishRelayQuickBar == nil and GnomishRelayQuick1 == nil");
+
+    assert_eq!(gone.as_boolean(), Some(true));
+}
+
+#[test]
+fn the_suggestion_rows_span_the_transcript_at_every_window_size() {
+    let game = Game::start();
+    let small = width_of(&game, "GnomishRelaySuggestion1");
+    assert!(small * 10 > width_of(&game, "GnomishRelayScroll") * 8);
+    assert!(width_of(&game, "GnomishRelaySuggestion1.label") < small);
+    assert!(height_of(&game, "GnomishRelaySuggestions") < height_of(&game, "GnomishRelayScroll"));
 
     game.run(
         "GnomishRelayFrame:SetSize(1400, 700) \
          GnomishRelayResizeGrip:GetScript('OnMouseUp')(GnomishRelayResizeGrip)",
     );
 
-    assert!(quick_width(&game, 1) < quick_width(&game, 6));
+    assert_eq!(width_of(&game, "GnomishRelaySuggestion1"), small + 500);
+    assert!(width_of(&game, "GnomishRelaySuggestion1.label") < small + 500);
 }
 
 #[test]
-fn the_editor_renames_moves_and_removes_a_quick_action_and_the_row_follows() {
+fn six_suggestions_fit_in_the_smallest_window() {
+    let game = Game::start();
+    game.run(
+        "local ns = ... ns.QuickActions.Add() ns.QuickActions.SetMessage(6, 'Deploy.') \
+         ns.Window.Refresh()",
+    );
+    show_reload_banner(&game);
+
+    assert_eq!(suggestions(&game).len(), 6);
+    assert!(height_of(&game, "GnomishRelaySuggestions") < height_of(&game, "GnomishRelayScroll"));
+}
+
+#[test]
+fn with_no_quick_action_an_empty_chat_shows_no_hint() {
+    let game = Game::start();
+
+    game.run("local ns = ... for _ = 1, 5 do ns.QuickActions.Remove(1) end ns.Window.Refresh()");
+
+    assert!(!game.shown("GnomishRelaySuggestionsHint"));
+    assert!(suggestions(&game).is_empty());
+}
+
+#[test]
+fn the_transcript_takes_the_row_above_the_input_until_the_reload_banner_needs_it() {
+    let game = Game::start();
+    let tall = height_of(&game, "GnomishRelayScroll");
+
+    show_reload_banner(&game);
+    assert!(game.shown("GnomishRelayBanner"));
+    assert_eq!(height_of(&game, "GnomishRelayScroll"), tall - 28);
+
+    game.run("local ns = ... ns.Messages.Db().outbox = {} ns.Window.Refresh()");
+    assert!(!game.shown("GnomishRelayBanner"));
+    assert_eq!(height_of(&game, "GnomishRelayScroll"), tall);
+}
+
+#[test]
+fn the_byte_counter_takes_the_row_back_from_the_transcript() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.NewChat() ns.Window.CloseBrowser()");
+    let tall = height_of(&game, "GnomishRelayScroll");
+
+    game.run("GnomishRelayInput:SetText(string.rep('x', 2500))");
+    assert!(game.shown("GnomishRelayInputCount"));
+    assert_eq!(height_of(&game, "GnomishRelayScroll"), tall - 28);
+
+    game.run("GnomishRelayInput:SetText('')");
+    assert_eq!(height_of(&game, "GnomishRelayScroll"), tall);
+}
+
+#[test]
+fn the_newest_line_stays_in_view_when_the_banner_takes_the_row() {
+    let game = Game::start();
+    for _ in 0..40 {
+        game.send("more");
+    }
+    let bottom = scroll(&game);
+
+    show_reload_banner(&game);
+
+    assert_eq!(scroll(&game), bottom + 28);
+}
+
+#[test]
+fn the_editor_changes_moves_and_removes_a_quick_action_and_the_suggestions_follow() {
     let game = Game::start();
     open_quick_editor(&game);
 
     type_into(
         &game,
-        "GnomishRelayQuickEditName1",
-        "Test",
+        "GnomishRelayQuickEditMessage1",
+        "Run only the unit tests",
         "OnEnterPressed",
     );
     game.click("GnomishRelayQuickEditDown1");
@@ -499,24 +577,31 @@ fn the_editor_renames_moves_and_removes_a_quick_action_and_the_row_follows() {
     game.run("local ns = ... ns.Window.ShowTab('chats')");
 
     assert_eq!(
-        quick_names(&game),
-        ["Fix tests", "Test", "Git status", "Summarize changes"]
+        suggestions(&game),
+        [
+            "Fix the failing tests",
+            "Run only the unit tests",
+            "Show git status",
+            "Summarize my uncommitted changes"
+        ]
     );
 }
 
 #[test]
-fn move_up_keeps_a_name_that_is_still_being_typed() {
+fn move_up_keeps_a_message_that_is_still_being_typed() {
     let game = Game::start();
     open_quick_editor(&game);
-    game.run("GnomishRelayQuickEditName2:SetFocus() GnomishRelayQuickEditName2:SetText('Fix')");
+    game.run(
+        "GnomishRelayQuickEditMessage2:SetFocus() GnomishRelayQuickEditMessage2:SetText('Fix it')",
+    );
 
     game.click("GnomishRelayQuickEditUp2");
 
-    let name = game.text("local ns = ... return ns.QuickActions.List()[1].name");
-    assert_eq!(name, "Fix");
+    let message = game.text("local ns = ... return ns.QuickActions.List()[1].message");
+    assert_eq!(message, "Fix it");
     assert_eq!(
-        game.text("return GnomishRelayQuickEditName1:GetText()"),
-        "Fix"
+        game.text("return GnomishRelayQuickEditMessage1:GetText()"),
+        "Fix it"
     );
 }
 
@@ -537,28 +622,33 @@ fn a_changed_message_saves_when_its_box_loses_the_focus() {
 }
 
 #[test]
-fn escape_puts_the_old_name_back_and_an_empty_name_keeps_the_old_one() {
+fn escape_puts_the_old_message_back_and_an_empty_message_keeps_the_old_one() {
     let game = Game::start();
     open_quick_editor(&game);
 
     type_into(
         &game,
-        "GnomishRelayQuickEditName1",
+        "GnomishRelayQuickEditMessage1",
         "Oops",
         "OnEscapePressed",
     );
     assert_eq!(
-        game.text("return GnomishRelayQuickEditName1:GetText()"),
-        "Run tests"
+        game.text("return GnomishRelayQuickEditMessage1:GetText()"),
+        SUGGESTED[0]
     );
 
-    type_into(&game, "GnomishRelayQuickEditName1", "  ", "OnEnterPressed");
-    assert_eq!(
-        game.text("return GnomishRelayQuickEditName1:GetText()"),
-        "Run tests"
+    type_into(
+        &game,
+        "GnomishRelayQuickEditMessage1",
+        "  ",
+        "OnEnterPressed",
     );
-    let saved = game.text("local ns = ... return ns.QuickActions.List()[1].name");
-    assert_eq!(saved, "Run tests");
+    assert_eq!(
+        game.text("return GnomishRelayQuickEditMessage1:GetText()"),
+        SUGGESTED[0]
+    );
+    let saved = game.text("local ns = ... return ns.QuickActions.List()[1].message");
+    assert_eq!(saved, SUGGESTED[0]);
 }
 
 #[test]
@@ -567,23 +657,25 @@ fn add_stops_at_six_and_reset_brings_the_defaults_back() {
     open_quick_editor(&game);
 
     game.click("GnomishRelayQuickEditAdd");
+    assert!(game.shown("GnomishRelayQuickEditRow6"));
     assert_eq!(
-        game.text("return GnomishRelayQuickEditName6:GetText()"),
-        "New action"
+        game.text("return GnomishRelayQuickEditMessage6:GetText()"),
+        ""
     );
+    assert!(game.shown("GnomishRelayQuickEditMessage6"));
     assert!(!game.shown("GnomishRelayQuickEditAdd"));
 
     game.click("GnomishRelayQuickEditRemove1");
     game.click("GnomishRelayQuickEditReset");
     assert!(!game.shown("GnomishRelayQuickEditRow6"));
     assert_eq!(
-        game.text("return GnomishRelayQuickEditName1:GetText()"),
-        "Run tests"
+        game.text("return GnomishRelayQuickEditMessage1:GetText()"),
+        SUGGESTED[0]
     );
 }
 
 #[test]
-fn a_new_action_with_no_message_does_not_show_in_the_row() {
+fn a_new_action_with_no_message_is_not_suggested() {
     let game = Game::start();
     open_quick_editor(&game);
 
@@ -591,7 +683,7 @@ fn a_new_action_with_no_message_does_not_show_in_the_row() {
     game.click("GnomishRelayQuickEditDone");
     game.run("local ns = ... ns.Window.ShowTab('chats')");
 
-    assert_eq!(quick_names(&game).len(), 5);
+    assert_eq!(suggestions(&game).len(), 5);
 }
 
 #[test]
@@ -616,9 +708,42 @@ fn the_quick_actions_stay_after_a_reload() {
     let game = game.reload();
 
     assert_eq!(
-        quick_names(&game),
-        ["Git status", "Fix tests", "Summarize changes", "Open PR"]
+        suggestions(&game),
+        [SUGGESTED[2], SUGGESTED[1], SUGGESTED[3], SUGGESTED[4]]
     );
+}
+
+#[test]
+fn a_saved_list_of_names_and_messages_from_0_3_0_still_loads() {
+    let game = Game::start();
+    game.run(
+        "local ns = ... ns.Store.db.quickActions = \
+         { { name = 'Deploy', message = 'Deploy to staging and tell me the link.' } }",
+    );
+
+    let game = game.reload();
+
+    assert_eq!(
+        suggestions(&game),
+        ["Deploy to staging and tell me the link."]
+    );
+}
+
+#[test]
+fn the_unchanged_defaults_of_0_3_0_become_the_new_defaults() {
+    let game = Game::start();
+    game.run(
+        "local ns = ... ns.Store.db.quickActions = { \
+         { name = 'Run tests', message = 'Run the tests. Tell me what passes and what fails. Change no code.' }, \
+         { name = 'Fix tests', message = 'Run the tests and fix each failure at its cause. Then run the tests again.' }, \
+         { name = 'Git status', message = 'Show the git status: the branch and the changed files. Change nothing.' }, \
+         { name = 'Summarize changes', message = 'Summarize the changes that are not committed yet: what changed and why. Change nothing.' }, \
+         { name = 'Open PR', message = 'Commit the changes on a new branch, push it, and open a pull request with a short title and description. Tell me the link.' } }",
+    );
+
+    let game = game.reload();
+
+    assert_eq!(suggestions(&game), SUGGESTED);
 }
 
 #[test]
@@ -628,7 +753,7 @@ fn a_saved_list_that_is_not_a_list_of_names_and_messages_gives_the_defaults() {
 
     let game = game.reload();
 
-    assert_eq!(quick_names(&game).len(), 5);
+    assert_eq!(suggestions(&game), SUGGESTED);
 }
 
 #[test]
@@ -640,8 +765,7 @@ fn moving_past_either_end_changes_nothing() {
          ns.Window.Refresh()",
     );
 
-    assert_eq!(quick_names(&game)[0], "Run tests");
-    assert_eq!(quick_names(&game)[4], "Open PR");
+    assert_eq!(suggestions(&game), SUGGESTED);
 }
 
 // Pinned replies
@@ -824,13 +948,14 @@ fn three_exchanges(game: &Game) {
 }
 
 #[test]
-fn search_opens_a_bar_with_the_focus_in_place_of_the_quick_actions() {
+fn search_opens_a_bar_with_the_focus_in_the_row_above_the_input() {
     let game = Game::start();
+    let tall = height_of(&game, "GnomishRelayScroll");
 
     game.click("GnomishRelaySearchButton");
 
     assert!(game.shown("GnomishRelaySearch"));
-    assert!(!game.shown("GnomishRelayQuickBar"));
+    assert_eq!(height_of(&game, "GnomishRelayScroll"), tall - 28);
     let focused = game.run("return GnomishRelaySearchBox:HasFocus()");
     assert_eq!(focused.as_boolean(), Some(true));
     assert_eq!(
@@ -908,13 +1033,14 @@ fn enter_gives_the_keys_back_and_keeps_the_bar() {
 fn escape_closes_the_search_and_removes_the_mark() {
     let game = Game::start();
     three_exchanges(&game);
+    let tall = height_of(&game, "GnomishRelayScroll");
     search_for(&game, "flaky");
 
     game.run("GnomishRelaySearchBox:GetScript('OnEscapePressed')(GnomishRelaySearchBox)");
 
     assert!(!game.shown("GnomishRelaySearch"));
     assert_eq!(marked(&game), "nothing");
-    assert!(game.shown("GnomishRelayQuickBar"));
+    assert_eq!(height_of(&game, "GnomishRelayScroll"), tall);
     let focused = game.run("return GnomishRelaySearchBox:HasFocus()");
     assert_eq!(focused.as_boolean(), Some(false));
 }

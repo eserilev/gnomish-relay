@@ -32,6 +32,8 @@ local BODY_FONT = "Fonts\\ARIALN.TTF"
 local FONT_MIN, FONT_MAX = 12, 20
 -- The room at the right end of the header of a chat, for Pinned and Search.
 local HEADER_RIGHT = 140
+-- The bottom of the transcript: above the input, or above the row over the input.
+local LOG_BOTTOM, LOG_BOTTOM_ROW = 44, 72
 -- Pings has no content yet, so it has no tab (SPEC.md 13.1).
 local TABS =
 	{ { id = "chats", name = "Chats" }, { id = "settings", name = "Settings" }, { id = "diag", name = "Diag" } }
@@ -383,13 +385,27 @@ local function RefreshPages()
 	ns.DiagTab.Refresh()
 end
 
--- The row above the input: the search bar while it is open, else the quick actions. The
--- quick actions give way to the banner and to the byte counter.
+-- The transcript is the center inset less 8 at each side and 6 at the top and bottom.
+local function TranscriptSize()
+	return CenterWidth() - 16, frame:GetHeight() - 84 - ui.logBottom - 12
+end
+
+local function FitTranscript(bottom)
+	if bottom == ui.logBottom then
+		return
+	end
+	ui.logBottom = bottom
+	ui.log:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", SIDE + 14, bottom)
+	ns.Transcript.Resize(TranscriptSize())
+end
+
+-- The search bar, the banner, and the byte counter share the row above the input. While
+-- none of them shows, the transcript takes the row.
 local function RefreshInputRow()
 	local chats = ui.tab == "chats" and not ui.picking
 	ns.Search.Show(chats)
-	local room = chats and not ns.Search.IsOpen() and not ui.banner:IsShown() and not ui.count:IsShown()
-	ns.QuickBar.Refresh(room)
+	local rowUsed = ns.Search.IsOpen() or ui.banner:IsShown() or ui.count:IsShown()
+	FitTranscript(rowUsed and LOG_BOTTOM_ROW or LOG_BOTTOM)
 end
 
 local function RefreshChats(chat)
@@ -402,6 +418,7 @@ local function RefreshChats(chat)
 		RefreshPicker()
 	elseif not browsing then
 		ns.Transcript.Show(chat)
+		ns.Suggestions.Refresh(chat)
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
@@ -616,11 +633,6 @@ local function BuildInputHelp()
 	ui.input:SetScript("OnEditFocusLost", RefreshInputHelp)
 end
 
--- The transcript is the center inset less 8 at each side and 6 at the top and bottom.
-local function TranscriptSize()
-	return CenterWidth() - 16, frame:GetHeight() - 84 - 72 - 12
-end
-
 -- The Settings and Diag pages cover the window right of the chat column.
 local function PageSize()
 	return frame:GetWidth() - SIDE - 20, frame:GetHeight() - 60 - 16
@@ -635,10 +647,12 @@ local function BuildCenter()
 	ui.pinned = ns.Pins.Build(frame, left, -61)
 	ui.searchButton = ns.Search.Build(frame, left + 6, 46, ui.pinned)
 
-	local log = Inset(frame, left, -84, width, 72)
+	ui.logBottom = LOG_BOTTOM
+	local log = Inset(frame, left, -84, width, LOG_BOTTOM)
 	Stretch(log, left, -84)
 	ui.log = log
 	ns.Transcript.Build(log, TranscriptSize())
+	ns.Suggestions.Build(log, CenterWidth() - 16)
 	ns.GitBar.Build(frame, left, -34)
 
 	ui.picker = Inset(frame, left, -84, width, 16)
@@ -672,7 +686,6 @@ local function BuildCenter()
 		ReloadUI()
 	end)
 	ui.banner:Hide()
-	ns.QuickBar.Build(frame, left + 6, 46, CenterWidth() - 12)
 
 	ui.input = CreateFrame("EditBox", "GnomishRelayInput", frame, "InputBoxTemplate")
 	ui.input:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left + 6, 16)
@@ -883,7 +896,7 @@ end
 local function Resized()
 	ns.Transcript.Resize(TranscriptSize())
 	ns.Browser.Resize(CenterWidth())
-	ns.QuickBar.Resize(CenterWidth() - 12)
+	ns.Suggestions.Resize(CenterWidth() - 16)
 	ns.DiagTab.Resize(PageSize())
 	Window.Refresh()
 end

@@ -9,22 +9,23 @@ QuickActions.MOST = 6
 QuickActions.NAME_BYTES = 24
 QuickActions.MESSAGE_BYTES = 1000
 
+-- A name shows nowhere now. It keeps the saved list in the format of 0.3.0.
 local DEFAULTS = {
-	{ name = "Run tests", message = "Run the tests. Tell me what passes and what fails. Change no code." },
-	{
-		name = "Fix tests",
-		message = "Run the tests and fix each failure at its cause. Then run the tests again.",
-	},
-	{ name = "Git status", message = "Show the git status: the branch and the changed files. Change nothing." },
-	{
-		name = "Summarize changes",
-		message = "Summarize the changes that are not committed yet: what changed and why. Change nothing.",
-	},
-	{
-		name = "Open PR",
-		message = "Commit the changes on a new branch, push it, and open a pull request with a short title "
-			.. "and description. Tell me the link.",
-	},
+	{ name = "Run tests", message = "Run the tests and tell me what fails" },
+	{ name = "Fix tests", message = "Fix the failing tests" },
+	{ name = "Git status", message = "Show git status" },
+	{ name = "Summarize changes", message = "Summarize my uncommitted changes" },
+	{ name = "Open PR", message = "Open a pull request for these changes" },
+}
+
+-- The messages of the 0.3.0 defaults: too long for a suggestion row.
+local OLD_DEFAULTS = {
+	"Run the tests. Tell me what passes and what fails. Change no code.",
+	"Run the tests and fix each failure at its cause. Then run the tests again.",
+	"Show the git status: the branch and the changed files. Change nothing.",
+	"Summarize the changes that are not committed yet: what changed and why. Change nothing.",
+	"Commit the changes on a new branch, push it, and open a pull request with a short title "
+		.. "and description. Tell me the link.",
 }
 
 local function Defaults()
@@ -52,9 +53,21 @@ local function IsList(list)
 	return true
 end
 
+local function IsOldDefaults(list)
+	if #list ~= #OLD_DEFAULTS then
+		return false
+	end
+	for i, message in ipairs(OLD_DEFAULTS) do
+		if list[i].message ~= message then
+			return false
+		end
+	end
+	return true
+end
+
 function QuickActions.Load()
 	local db = ns.Store.db
-	if not IsList(db.quickActions) then
+	if not IsList(db.quickActions) or IsOldDefaults(db.quickActions) then
 		db.quickActions = Defaults()
 	end
 end
@@ -110,7 +123,7 @@ function QuickActions.SetMessage(i, message)
 	return SetField(i, "message", message)
 end
 
--- The actions that the row shows: those with a message.
+-- The actions that an empty chat suggests: those with a message.
 function QuickActions.Ready()
 	local ready = {}
 	for _, action in ipairs(QuickActions.List()) do
