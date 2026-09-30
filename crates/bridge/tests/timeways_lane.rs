@@ -65,6 +65,7 @@ impl Agent for Counting {
         Run {
             reply: Ok(format!("echo: {}", job.text)),
             session: None,
+            usage: None,
         }
     }
 }

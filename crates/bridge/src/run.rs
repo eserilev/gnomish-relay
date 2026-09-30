@@ -533,6 +533,7 @@ impl RelayLane {
             let run = Run {
                 reply: Err(BAD_AGENT.into()),
                 session: None,
+                usage: None,
             };
             let _ = finished.send(Finished::Run(job, run));
             return;
@@ -555,6 +556,7 @@ impl RelayLane {
                 let run = Run {
                     reply: Err(refused),
                     session: None,
+                    usage: None,
                 };
                 let _ = finished.send(Finished::Run(job, run));
                 return;
@@ -570,6 +572,7 @@ impl RelayLane {
                 Run {
                     reply: Err(STOPPED.into()),
                     session: job.resume.clone(),
+                    usage: None,
                 }
             } else {
                 agent.run(&job, &control)

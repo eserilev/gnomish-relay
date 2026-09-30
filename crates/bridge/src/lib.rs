@@ -90,5 +90,6 @@ pub mod terminal_sessions;
 pub mod timeways;
 pub mod turn;
 pub mod update;
+pub mod usage;
 pub mod vectors;
 pub mod versions;

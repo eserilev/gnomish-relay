@@ -11,6 +11,7 @@ use bridge::codex::CodexAgent;
 use bridge::config::Permission;
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Open, Session, Work};
+use bridge::usage::Usage;
 
 fn agent(script: &str) -> CodexAgent {
     CodexAgent {
@@ -94,6 +95,32 @@ fn ask_runs_in_the_read_only_sandbox_and_asks_for_every_untrusted_command() {
         full.contains("sandbox=workspace-write approval=untrusted"),
         "{full}"
     );
+}
+
+#[test]
+fn a_turn_gives_its_own_tokens_and_no_cost() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let run = agent("usage").run(&job(&dir, Permission::Ask, "hi"), &Control::default());
+
+    assert_eq!(
+        run.usage,
+        Some(Usage {
+            input: 7000,
+            cached: 5500,
+            output: 350,
+            cost_usd: None,
+        })
+    );
+}
+
+#[test]
+fn a_turn_with_no_usage_report_gives_no_usage() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &Control::default());
+
+    assert_eq!(run.usage, None);
 }
 
 #[test]

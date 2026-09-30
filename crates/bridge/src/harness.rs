@@ -81,6 +81,7 @@ impl Agent for CommandAgent {
         Run {
             reply,
             session: session.or_else(|| job.resume.clone()),
+            usage: None,
         }
     }
 }

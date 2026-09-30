@@ -10,10 +10,11 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use bridge::agent::{Agent, Control, Event, Events, Question, SessionId, StopSignal};
-use bridge::claude::ClaudeAgent;
+use bridge::claude::{ClaudeAgent, Message, read_message};
 use bridge::config::Permission;
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Open, Session, Work};
+use bridge::usage::Usage;
 
 const OLD: &str = "0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01";
 
@@ -123,6 +124,35 @@ fn the_modes_table_of_the_config_replaces_the_default_mode() {
         .reply
         .unwrap();
     assert!(reply.contains("mode=plan"), "{reply}");
+}
+
+#[test]
+fn a_run_gives_the_tokens_and_the_cost_of_its_result() {
+    let dir = tempfile::tempdir().unwrap();
+
+    let run =
+        agent("reply", dir.path()).run(&job(&dir, Permission::Ask, "hi"), &Control::default());
+
+    assert_eq!(
+        run.usage,
+        Some(Usage {
+            input: 1200 + 3000 + 500,
+            cached: 3000,
+            output: 350,
+            cost_usd: Some(0.0412),
+        })
+    );
+}
+
+#[test]
+fn a_result_with_no_usage_and_no_cost_gives_no_usage() {
+    let message = serde_json::json!({ "type": "result", "subtype": "success", "is_error": false, "result": "hi" });
+
+    let Message::Ended { usage, .. } = read_message(&message) else {
+        panic!("not an end");
+    };
+
+    assert_eq!(usage, None);
 }
 
 #[test]

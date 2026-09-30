@@ -24,6 +24,7 @@ use crate::install;
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Open, Work};
 use crate::turn::{STOPPED, Turn};
+use crate::usage::{Usage, cost_at, tokens_at};
 
 /// The modes of `claude --permission-mode` that the config can name.
 pub const MODES: [&str; 5] = ["acceptEdits", "auto", "dontAsk", "manual", "plan"];
@@ -102,6 +103,7 @@ impl ClaudeAgent {
             return Run {
                 reply: Err("The session is gone.".into()),
                 session: None,
+                usage: None,
             };
         };
         let session = if open == Open::Fork {
@@ -113,10 +115,12 @@ impl ClaudeAgent {
             Ok(session) => Run {
                 reply: claude_sessions::read_last_exchange(&path),
                 session: Some(SessionId::from(session)),
+                usage: None,
             },
             Err(e) => Run {
                 reply: Err(e),
                 session: None,
+                usage: None,
             },
         }
     }
@@ -124,8 +128,13 @@ impl ClaudeAgent {
     /// A run that fails before the agent starts keeps the session of the chat.
     fn prompt(&self, job: &Job, control: &Control) -> Run {
         let mut session = job.resume.clone();
-        let reply = self.talk(job, control, &mut session);
-        Run { reply, session }
+        let mut usage = None;
+        let reply = self.talk(job, control, &mut session, &mut usage);
+        Run {
+            reply,
+            session,
+            usage,
+        }
     }
 
     fn talk(
@@ -133,6 +142,7 @@ impl ClaudeAgent {
         job: &Job,
         control: &Control,
         session: &mut Option<SessionId>,
+        usage: &mut Option<Usage>,
     ) -> Result<String, String> {
         let (resume, note) = self.resumable(job);
         let mut walls = self.walls(&job.cwd, &format!("chat {}", job.chat))?;
@@ -151,6 +161,7 @@ impl ClaudeAgent {
         stream.session = resume.map(str::to_owned);
         let reply = stream.talk(&job.text);
         *session = stream.session.take().map(SessionId::from);
+        *usage = stream.usage.take();
         // The agent must end before the check of the files that it made.
         drop(stream);
         let made = wall
@@ -349,6 +360,7 @@ pub enum Message {
     Ended {
         session: Option<String>,
         reply: Result<String, String>,
+        usage: Option<Usage>,
     },
     Other,
 }
@@ -604,7 +616,30 @@ fn read_ended(message: &Value) -> Message {
     } else {
         Ok(cut(text, MAX_REPLY).to_owned())
     };
-    Message::Ended { session, reply }
+    Message::Ended {
+        session,
+        reply,
+        usage: read_usage(message),
+    }
+}
+
+/// The tokens and the cost of the turn (SPEC.md 9.10). The cached tokens count as input.
+fn read_usage(result: &Value) -> Option<Usage> {
+    let cost_usd = cost_at(result, "/total_cost_usd");
+    let usage = result.get("usage");
+    if usage.is_none() && cost_usd.is_none() {
+        return None;
+    }
+    let tokens = |key: &str| usage.map_or(0, |u| tokens_at(u, key));
+    let cached = tokens("/cache_read_input_tokens");
+    Some(Usage {
+        input: tokens("/input_tokens")
+            .saturating_add(cached)
+            .saturating_add(tokens("/cache_creation_input_tokens")),
+        cached,
+        output: tokens("/output_tokens"),
+        cost_usd,
+    })
 }
 
 fn text_at<'a>(value: &'a Value, pointer: &str) -> Option<&'a str> {
@@ -702,6 +737,8 @@ struct Stream {
     refused: Vec<String>,
     /// The text of the model, for a result with no text.
     said: String,
+    /// The tokens and the cost of the result.
+    usage: Option<Usage>,
 }
 
 impl Stream {
@@ -723,6 +760,7 @@ impl Stream {
             prompted: false,
             refused: Vec::new(),
             said: String::new(),
+            usage: None,
         }
     }
 
@@ -809,7 +847,14 @@ impl Stream {
                     &json!({ "subtype": "error", "request_id": id, "error": "not supported" }),
                 )?;
             }
-            Message::Ended { session, reply } => return self.end(session, reply).map(Some),
+            Message::Ended {
+                session,
+                reply,
+                usage,
+            } => {
+                self.usage = usage;
+                return self.end(session, reply).map(Some);
+            }
             Message::Answered { .. } | Message::Other => {}
         }
         Ok(None)

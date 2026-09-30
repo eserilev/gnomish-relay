@@ -336,6 +336,7 @@ impl Agent for Counting {
         Run {
             reply: Ok(format!("echo: {}", job.text)),
             session: None,
+            usage: None,
         }
     }
 }
@@ -503,6 +504,7 @@ impl Agent for Held {
         Run {
             reply: Ok("let go".into()),
             session: None,
+            usage: None,
         }
     }
 }
@@ -654,6 +656,7 @@ impl Agent for Sessions {
         Run {
             reply: Ok(String::new()),
             session: None,
+            usage: None,
         }
     }
 
@@ -708,6 +711,7 @@ impl Agent for LevelOf {
         Run {
             reply: Ok(format!("ran at {}", job.permission.word())),
             session: None,
+            usage: None,
         }
     }
 }

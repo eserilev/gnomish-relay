@@ -33,9 +33,11 @@ fn said(content: &Value) {
     send(&json!({ "type": "assistant", "message": { "role": "assistant", "content": content } }));
 }
 
+/// The usage and the cost as Claude Code 2.1.285 reports them.
 fn result(session: &str, text: &str) {
+    let usage = json!({ "input_tokens": 1200, "cache_creation_input_tokens": 500, "cache_read_input_tokens": 3000, "output_tokens": 350, "service_tier": "standard" });
     send(
-        &json!({ "type": "result", "subtype": "success", "is_error": false, "result": text, "session_id": session }),
+        &json!({ "type": "result", "subtype": "success", "is_error": false, "result": text, "session_id": session, "total_cost_usd": 0.0412, "usage": usage }),
     );
 }
 
