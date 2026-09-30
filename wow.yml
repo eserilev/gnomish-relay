@@ -26,6 +26,10 @@ globals:
     any: true
   UISpecialFrames:
     property: new-fields
+  StaticPopupDialogs:
+    property: new-fields
+  StaticPopup_Show:
+    args: [{type: string}, {type: any, required: false}, {type: any, required: false}, {type: any, required: false}]
   SlashCmdList:
     property: new-fields
   CreateFrame:

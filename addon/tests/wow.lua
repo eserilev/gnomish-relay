@@ -645,6 +645,28 @@ function Screenshot()
 	C_Timer.After(wow.shotDelay, Saved)
 end
 
+-- The dialogs of the game. One shows at a time: `wow.dialog` holds it.
+StaticPopupDialogs = {}
+
+function StaticPopup_Show(which, arg1, arg2, data)
+	local info = StaticPopupDialogs[which]
+	wow.dialog = { which = which, text = info.text:format(arg1, arg2), data = data, info = info }
+	return wow.dialog
+end
+
+-- `button` is "button1", "button2", or "escape", as the player presses it.
+function wow.PressInDialog(button)
+	local dialog = wow.dialog
+	wow.dialog = nil
+	if button == "button1" and dialog.info.OnAccept then
+		dialog.info.OnAccept(dialog, dialog.data)
+	elseif button == "button2" and dialog.info.OnCancel then
+		dialog.info.OnCancel(dialog, dialog.data)
+	elseif button == "escape" and not dialog.info.hideOnEscape then
+		wow.dialog = dialog
+	end
+end
+
 C_Timer = {}
 
 function C_Timer.After(delay, fn)

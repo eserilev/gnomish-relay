@@ -2013,6 +2013,22 @@ fn chat_count(game: &Game) -> usize {
     game.db().get::<Table>("chats").unwrap().raw_len()
 }
 
+/// The text of the open dialog of the game, or nil.
+fn dialog(game: &Game) -> Option<String> {
+    game.wow
+        .get::<Option<Table>>("dialog")
+        .unwrap()
+        .map(|d| d.get("text").unwrap())
+}
+
+fn press_in_dialog(game: &Game, button: &str) {
+    game.wow
+        .get::<Function>("PressInDialog")
+        .unwrap()
+        .call::<()>(button)
+        .unwrap();
+}
+
 #[test]
 fn a_right_click_and_delete_removes_the_chat_and_tells_the_bridge() {
     let game = Game::start();
@@ -2024,9 +2040,8 @@ fn a_right_click_and_delete_removes_the_chat_and_tells_the_bridge() {
     game.advance(5.0);
 
     right_click(&game, "GnomishRelayTile1");
-    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
-    assert!(confirm.get::<bool>("shown").unwrap());
-    game.run("GnomishRelayConfirmDelete:Click()");
+    assert_eq!(dialog(&game).as_deref(), Some("Delete \"Chat 1\"?"));
+    press_in_dialog(&game, "button1");
     game.advance(1.0);
 
     assert_eq!(chat_count(&game), 0);
@@ -2045,11 +2060,23 @@ fn cancel_keeps_the_chat() {
     game.send("hi");
 
     right_click(&game, "GnomishRelayTile1");
-    game.run("GnomishRelayConfirmCancel:Click()");
+    press_in_dialog(&game, "button2");
 
     assert_eq!(chat_count(&game), 1);
-    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
-    assert!(!confirm.get::<bool>("shown").unwrap());
+    assert_eq!(dialog(&game), None);
+}
+
+#[test]
+fn escape_closes_the_delete_question_and_keeps_the_chat() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+
+    right_click(&game, "GnomishRelayTile1");
+    press_in_dialog(&game, "escape");
+
+    assert_eq!(chat_count(&game), 1);
+    assert_eq!(dialog(&game), None);
 }
 
 #[test]
@@ -2059,8 +2086,7 @@ fn a_right_click_on_new_chat_asks_nothing() {
 
     right_click(&game, "GnomishRelayTile1");
 
-    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
-    assert!(!confirm.get::<bool>("shown").unwrap());
+    assert_eq!(dialog(&game), None);
 }
 
 #[test]

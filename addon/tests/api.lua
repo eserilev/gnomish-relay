@@ -31,6 +31,8 @@ return {
 		"SetCVar",
 		"SetItemRef",
 		"SlashCmdList",
+		"StaticPopupDialogs",
+		"StaticPopup_Show",
 		"UIErrorsFrame",
 		"UIParent",
 		"UISpecialFrames",

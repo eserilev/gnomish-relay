@@ -683,37 +683,22 @@ local function BuildActivity()
 	ui.stop:Hide()
 end
 
-local function BuildConfirm()
-	ui.confirm = CreateFrame("Frame", "GnomishRelayConfirm", frame)
-	ui.confirm:SetFrameStrata("DIALOG")
-	ui.confirm:SetSize(320, 90)
-	ui.confirm:SetPoint("CENTER", frame, "CENTER", 0, 40)
-	ui.confirm:EnableMouse(true)
-	local background = ui.confirm:CreateTexture(nil, "BACKGROUND")
-	background:SetAllPoints()
-	background:SetColorTexture(0, 0, 0, 0.9)
-	ui.confirmText = Label(ui.confirm, "GameFontHighlight", "TOPLEFT", 12, -14)
-	ui.confirmText:SetWidth(296)
-	local delete = CreateFrame("Button", "GnomishRelayConfirmDelete", ui.confirm, "UIPanelButtonTemplate")
-	delete:SetSize(100, 22)
-	delete:SetPoint("BOTTOMLEFT", ui.confirm, "BOTTOMLEFT", 12, 12)
-	delete:SetText("Delete")
-	delete:SetScript("OnClick", function()
-		local chat = ns.Store.Chat(ui.confirm.chatId)
-		ui.confirm:Hide()
+-- The dialog of the game has a border, and Escape closes only the dialog.
+StaticPopupDialogs.GNOMISHRELAY_DELETE = {
+	text = "%s",
+	button1 = "Delete",
+	button2 = "Cancel",
+	OnAccept = function(_, chatId)
+		local chat = ns.Store.Chat(chatId)
 		if chat then
 			ns.Transport.Delete(chat)
 		end
-	end)
-	local cancel = CreateFrame("Button", "GnomishRelayConfirmCancel", ui.confirm, "UIPanelButtonTemplate")
-	cancel:SetSize(100, 22)
-	cancel:SetPoint("BOTTOMRIGHT", ui.confirm, "BOTTOMRIGHT", -12, 12)
-	cancel:SetText("Cancel")
-	cancel:SetScript("OnClick", function()
-		ui.confirm:Hide()
-	end)
-	ui.confirm:Hide()
-end
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 -- A chat that still works gets Stop and Delete in one click: the bridge stops the run.
 function Window.AskDelete(chatId)
@@ -722,13 +707,11 @@ function Window.AskDelete(chatId)
 		return
 	end
 	local name = ns.Relay.Plain(chat.name)
+	local question = string.format('Delete "%s"?', name)
 	if ns.Transport.Working(chat.id) then
-		ui.confirmText:SetText(string.format('Stop and delete "%s"?', name))
-	else
-		ui.confirmText:SetText(string.format('Delete "%s"?', name))
+		question = string.format('Stop and delete "%s"?', name)
 	end
-	ui.confirm.chatId = chat.id
-	ui.confirm:Show()
+	StaticPopup_Show("GNOMISHRELAY_DELETE", question, nil, chat.id)
 end
 
 -- The saved variables keep the place, so the window opens where the player left it.
@@ -821,7 +804,6 @@ local function Build()
 	end)
 	BuildCenter()
 	BuildActivity()
-	BuildConfirm()
 	BuildTabs()
 	BuildPages()
 	ui.chatParts = { ui.agent, ui.folderButton, ui.activity[1], ui.activity[2] }
