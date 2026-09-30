@@ -38,6 +38,20 @@ pub struct Pending {
     pub text: String,
     #[serde(default)]
     pub kind: Kind,
+    /// How long the run waits for an answer. 0 in a request of an older bridge.
+    #[serde(default)]
+    pub wait_minutes: u64,
+}
+
+impl Pending {
+    /// Whole minutes, rounded up, so the last minute shows as 1 and not 0.
+    pub fn minutes_left(&self, now: u32) -> Option<u64> {
+        if self.wait_minutes == 0 {
+            return None;
+        }
+        let end = u64::from(self.created) + self.wait_minutes * 60;
+        Some(end.saturating_sub(u64::from(now)).div_ceil(60))
+    }
 }
 
 /// What a desktop request asks for.
@@ -146,6 +160,8 @@ pub enum Prompt {
 pub struct Approvals {
     dir: PathBuf,
     prompt: Prompt,
+    /// `permission_timeout_minutes` of the config, for the text of the dialog.
+    wait: Duration,
 }
 
 fn is_id(id: &str) -> bool {
@@ -183,7 +199,14 @@ impl Approvals {
         Approvals {
             dir: data.join(FOLDER),
             prompt,
+            wait: Duration::ZERO,
         }
+    }
+
+    #[must_use]
+    pub fn with_wait(mut self, wait: Duration) -> Approvals {
+        self.wait = wait;
+        self
     }
 
     fn file(&self, id: &str, extension: &str) -> PathBuf {
@@ -236,6 +259,7 @@ impl Approvals {
             folder: folder.to_owned(),
             text: text.to_owned(),
             kind,
+            wait_minutes: self.wait.as_secs().div_ceil(60),
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
         eprintln!(
@@ -364,9 +388,9 @@ fn read_pending(path: &Path) -> Option<Pending> {
     (named && is_id(&pending.id)).then_some(pending)
 }
 
-/// The honest text of S15, then who asks, and the id for the command line.
+/// The honest text of S15, then who asks, the id for the command line, and the wait.
 pub fn dialog_text(pending: &Pending) -> String {
-    match pending.kind {
+    let text = match pending.kind {
         Kind::ToolCall => format!(
             "An agent from the game asks to:\n{}\n\nAgent: {}. Folder: {}. Request {}.",
             pending.text, pending.agent, pending.folder, pending.id
@@ -374,6 +398,12 @@ pub fn dialog_text(pending: &Pending) -> String {
         Kind::Raise => format!(
             "{}\n\nConfig: {}. Request {}.",
             pending.text, pending.folder, pending.id
+        ),
+    };
+    match pending.wait_minutes {
+        0 => text,
+        minutes => format!(
+            "{text}\nIt waits {minutes} minutes for an answer. After that, the agent does not get it."
         ),
     }
 }
@@ -547,7 +577,7 @@ mod tests {
     }
 
     #[test]
-    fn the_dialog_shows_the_popup_text_and_who_asks() {
+    fn the_dialog_shows_the_popup_text_who_asks_and_how_long_it_waits() {
         let pending = Pending {
             id: "a1b2c3d4e5f6".into(),
             created: 1,
@@ -555,12 +585,42 @@ mod tests {
             folder: "/w/app".into(),
             text: "cat ~/.ssh/id_rsa\nthe agent says: Bash".into(),
             kind: Kind::ToolCall,
+            wait_minutes: 10,
         };
         assert_eq!(
             dialog_text(&pending),
             "An agent from the game asks to:\ncat ~/.ssh/id_rsa\nthe agent says: Bash\n\n\
-             Agent: claude. Folder: /w/app. Request a1b2c3d4e5f6."
+             Agent: claude. Folder: /w/app. Request a1b2c3d4e5f6.\n\
+             It waits 10 minutes for an answer. After that, the agent does not get it."
         );
+    }
+
+    #[test]
+    fn a_request_counts_down_the_minutes_before_its_wait_ends() {
+        let (_data, approvals) = approvals();
+        approvals.open("claude", "/w", "x", 1000).unwrap();
+        let mut pending = approvals.list().remove(0);
+        assert_eq!(
+            pending.minutes_left(1000),
+            None,
+            "an older bridge set no wait"
+        );
+
+        pending.wait_minutes = 10;
+
+        assert_eq!(pending.minutes_left(1000), Some(10));
+        assert_eq!(pending.minutes_left(1000 + 61), Some(9));
+        assert_eq!(pending.minutes_left(1000 + 3600), Some(0));
+    }
+
+    #[test]
+    fn a_request_keeps_the_wait_of_its_approvals() {
+        let data = tempfile::tempdir().unwrap();
+        let approvals = Approvals::new(data.path(), Prompt::Off).with_wait(Duration::from_mins(10));
+
+        approvals.open("claude", "/w", "x", 1).unwrap();
+
+        assert_eq!(approvals.list()[0].wait_minutes, 10);
     }
 
     /// Shows a real dialog on this desktop. Click Approve.

@@ -210,7 +210,8 @@ There are four answers, in this order from strict to open:
 
 **Desktop approval.** The bridge runs in the background with no window. So it shows a dialog of the OS with Approve and Deny, and the command line is the fallback:
 
-- The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15).
+- The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15), and the wait in minutes (`permission_timeout_minutes`). The dialog ends with "It waits <n> minutes for an answer. After that, the agent does not get it.", and `gnomish-relay approve` shows the minutes left of each request.
+- Not yet: the reason for the desktop, for example "It reads ~/.ssh, outside the chat folder". The classifier (6.6.3) gives a verdict with no reason, so a reason needs a second, proved function beside it. The in-game line is built in `Core.lua` from the `Desktop:` line, so the minutes in the game need a change of that line and of the addon.
 - `gnomish-relay approve` lists the open requests. `gnomish-relay approve <id>` allows one, and `gnomish-relay deny <id>` refuses one. Each writes an answer file next to the request, with `create_new`, so it never follows a link. A request has at most one answer.
 - The bridge checks for the answer every 100 ms, up to `permission_timeout_minutes`. No answer refuses the call. The bridge then deletes the files. At start it deletes the files of an old bridge.
 - **The game gets a notice, not a popup** (decided with a UX advisor on 2026-09-26). The game sends no request for a desktop call, and has no Deny for it. The desktop dialog is the only prompt, so the player never sees two prompts for one call.

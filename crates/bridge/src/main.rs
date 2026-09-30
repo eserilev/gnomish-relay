@@ -849,7 +849,10 @@ fn list_approvals() -> Result<()> {
     }
     for p in pending {
         let age = now().saturating_sub(p.created);
-        println!("{}  {age}s ago  {} in {}", p.id, p.agent, p.folder);
+        let left = p
+            .minutes_left(now())
+            .map_or(String::new(), |minutes| format!("  {minutes} min left"));
+        println!("{}  {age}s ago{left}  {} in {}", p.id, p.agent, p.folder);
         for line in p.text.lines() {
             println!("    {line}");
         }
