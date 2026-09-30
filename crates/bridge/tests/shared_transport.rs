@@ -1281,3 +1281,32 @@ fn an_app_with_no_key_addon_has_no_key() {
 
     assert!(timeways.get::<Value>("key").unwrap().is_nil());
 }
+
+/// A fresh install from an addon site has no key addon yet. The shared transport then
+/// signs nothing and shows no strip, and no call fails (SPEC.md 7.3.2).
+#[test]
+fn with_no_key_a_send_is_refused_and_nothing_is_signed() {
+    let game = Game::new();
+    let ns = game.take_key(&TIMEWAYS);
+    load_addon(&game.lua, TIMEWAYS.addon, &ns, SHARED);
+    game.lua
+        .load(TIMEWAYS_LINK)
+        .call::<()>((TIMEWAYS.addon, ns.clone()))
+        .unwrap();
+
+    let sent: bool = game
+        .lua
+        .load("local ns = ... return ns.Link.Send('hello')")
+        .call(ns.clone())
+        .unwrap();
+    let queued: Value = game
+        .lua
+        .load("local ns = ... return ns.Messages.Queue({ id = 'story' }, { id = 1, text = 'x' })")
+        .call(ns)
+        .unwrap();
+    game.advance(120.0);
+
+    assert!(!sent);
+    assert!(queued.is_nil());
+    assert!(game.shots(TIMEWAYS.strip).is_empty());
+}

@@ -439,8 +439,12 @@ function Messages.StartPolls()
 	state.nextPoll = state.lastSend + SCHEDULE[1]
 end
 
--- Signs and sends a message that the store already holds.
+-- Signs and sends a message that the store already holds. With no key, nothing is
+-- signed, and the message stays unsent (SPEC.md 7.3.2).
 function Messages.Queue(chat, message)
+	if not ns.key then
+		return nil
+	end
 	local record = MessageRecord(chat, message)
 	state.private[message.id] = record
 	message.frame = ns.Codec.Hex(Sign({ record }, message.id))
@@ -458,9 +462,9 @@ function Messages.PrivateText(id)
 	return record and record.text
 end
 
--- Returns nil for a message that does not fit in one strip.
+-- Returns nil with no key, and for a message that does not fit in one strip.
 function Messages.Send(chat, text)
-	if not Messages.Fits(chat, text) then
+	if not ns.key or not Messages.Fits(chat, text) then
 		return nil
 	end
 	return Messages.Queue(chat, Messages.Store.Add(chat, text))
