@@ -1112,6 +1112,15 @@ Planned, not built: a crate `agents/` for the `Agent` trait and the backends of 
 Each chat has a FIFO queue. A second message to a busy chat waits. It never replaces the first.
 (`wow-claude` keeps one queued job per chat, so a second message replaces the first. Do not copy this.)
 
+**The limit on parallel runs.** Each agent run costs memory, CPU, and money, so at most `max_parallel_runs` runs are active at a time (12, default 3).
+
+- A run is a message or an attach (9.6) with a run in progress. A list of sessions, folders, or settings never counts and never waits: it is short and starts no turn of an agent.
+- A message over the limit waits in the queue of its chat. When a run ends, the message that came first starts next, across all chats. The bridge numbers each message when it takes it, and `state.json` keeps the number with the waiting message, so a restart keeps the order.
+- A message that waits for the limit, and not for an earlier message of its own chat, shows one progress line of the bridge: "Waiting: 3 other chats are running", with ", 1 ahead of this one" when older messages wait too. Only the bridge writes a line that starts with "Waiting:": `Activity::step` puts "agent: " in front of such a line of an agent, as for "Level:" (9.3).
+- The addon shows the line on the cast bar of the Activity column, grey and still, as for a popup that waits (13.1), and not as a step row.
+- Stop ends a waiting message as before, and its line goes.
+- A lower `max_parallel_runs` in the config takes effect at the next start of the bridge. Runs in progress then go on, and new runs wait until fewer than the new limit are active.
+
 ### 8.3 State
 
 The bridge keeps its state in JSON files in the data folder of the OS:
@@ -1395,7 +1404,7 @@ Rules:
 
 - ACP: one agent process per run. ACP agents have no sandbox, so each of their calls asks at most (6.6.4).
 - `claude`, `codex`, and `command`: one process per run. For `command`, the process is the sandbox, with the harness and every program that it starts.
-- `max_parallel_runs` counts active runs, not processes.
+- `max_parallel_runs` counts active runs, not processes (8.2).
 - If an ACP process stops, the bridge starts it again and resumes the open sessions. If a session cannot resume, the bridge reports an error for that chat.
 - Stop for `command` kills the whole process group at once, with no grace: a harness has no cancel channel. On Linux the sandbox has its own process ids, so every program of the harness ends with it.
 - The bridge declares ACP client capabilities `fs` and `terminal` as false in v1. The agent uses its own tools.
@@ -1997,7 +2006,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -2029,7 +2038,7 @@ local_model = "llama3.2"
 - A model name has no space and does not start with `-`, because `claude_model` goes into an argument of `claude`.
 - The model route takes nothing from `[agents.*]`: `model = "claude"` always runs `claude` from `PATH`, with the environment allowlist of 6.2 and no `env` list (9.7, decision 10).
 
-**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `[agents]`, `[allow]`, and `[sandbox]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
+**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `[agents]`, `[allow]`, and `[sandbox]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
 
 ```toml
 [wow]
@@ -2074,7 +2083,8 @@ agent_network = "open"         # "strict": the agent reaches only its model host
 - Hosts that a user can add: `nodejs.org` (headers for native modules of npm), `proxy.golang.org` and `sum.golang.org` (Go modules).
 - Only the desktop changes `config.toml` (6.6.2), so no message from the game adds a host.
 
-The other keys below come with their features. Two keys are planned and not in the config yet: `max_parallel_runs` (8.2) and `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses them, so the example leaves them out. A test loads this example, so the example and the loader never differ.
+The other keys below come with their features. One key is planned and not in the config yet: `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses it, so the example leaves it out. A test loads this example, so the example and the loader never differ.
+`max_parallel_runs` is 1 to 16 (8.2).
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
 ```toml
@@ -2082,6 +2092,7 @@ default_cwd = "~/Documents/Code"
 allowed_roots = ["~/Documents/Code"]
 timeout_minutes = 30
 permission_timeout_minutes = 10
+max_parallel_runs = 3         # runs over the limit wait for their turn (8.2)
 default_agent = "claude"
 
 [wow]
@@ -2133,7 +2144,7 @@ The mockup is the reference for the layout.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Errors:** an error comes from the relay, not from the agent. So it shows as a grey line `[Relay]: Not sent.`, never under the name of the agent. Below it, a blue "Resend" link sends the message again. Before a `/reload`, the addon still holds the text in its private table, so Resend signs it and sends it at once. After a `/reload`, only the saved variables hold the text, and the addon never signs that text (6.6.1). So Resend then puts the text in the input with the focus, and Enter sends it.
 - **Input:** one line, with no label. While it is empty and has no focus, it shows a grey hint: "Type a message, then press Enter." Enter sends, empties the line, and clears the focus, so the keys of the game work again. The limit is the room of one strip: a payload of 3200 bytes (7.1), less the other fields of the record and 440 bytes for the report. That leaves about 2600 bytes of text. With fewer than 400 bytes left, a small counter above the right end says "100 left", and past the limit it says "5 over the limit" in red.
-- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for your approval" in orange: the run makes no progress then. At the bottom, a grey line gives the time to the next poll: "Checking again in 12s". The cast bar and this line change at most 5 times a second.
+- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for your approval" in orange: the run makes no progress then. While the message waits for the limit on parallel runs (8.2), the cast bar stands still in grey and shows the waiting line of the bridge, for example "Waiting: 3 other chats are running". At the bottom, a grey line gives the time to the next poll: "Checking again in 12s". The cast bar and this line change at most 5 times a second.
 - **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. The window stays on screen with its tabs: the clamp of the window counts the tabs as part of it. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
   - **New chats:** Agent, a dropdown of the agents in the settings list (13.4), and Permissions, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Up to <level> (set on your desktop)", the level of the chosen agent in the config.
@@ -2141,7 +2152,7 @@ The mockup is the reference for the layout.
   - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the banners, the bell, and the faster polls of 10.4, and greys the other two rows. Finished tasks, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Banner (default on).
   - **Always allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
   - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "Not loaded yet". A click asks for a new list.
-- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
+- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, the limit on parallel runs, and the sandbox. With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
 - **Key binding:** `Bindings.xml` adds "Toggle window" under "Gnomish Relay" in the Key Bindings menu of the game. It calls the global `GnomishRelay_Toggle`.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
 - **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A notification of a terminal session gets its own line with a bell (10.4).
@@ -2275,6 +2286,7 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 | `default_agent` | The name of the default agent. |
 | `agent` | `name \t kind \t level`: one line for each agent. The level is the level of the config now, so a raise on the desktop (9.3) shows at the next list. |
 | `timeout_minutes`, `permission_timeout_minutes` | The two timeouts. |
+| `max_parallel_runs` | The limit on parallel runs (8.2). |
 | `story_model` | Only with `[story]`: `none`, `claude`, `claude <model>`, or `local <model>`. The address of a local model stays on the desktop. |
 | `story_budget_window_minutes` | Only with `[story]`. |
 | `rule` | `id \t folder \t pattern \t days`: one "Always allow" rule (6.6.5), with the days since its last use. |
