@@ -187,6 +187,9 @@ Where a command runs depends on your OS and your agent (`SPEC.md` 6.6.4):
   It can't see `~/.ssh`, the desktop app's keys, or your other credential folders. It can
   only reach the package hosts you allow.
 - **Linux without a working `bwrap`** acts like Windows: every command asks.
+- **On macOS**, a command can read (never write) each repository's `.git/config`, because git
+  can't run without it. If a remote URL there holds a token, keep the token in a credential
+  helper instead.
 - **Codex's sandbox** lets a command read the whole disk, `~/.ssh` included, but gives it no network.
 - **Other ACP agents** run their commands themselves, with no sandbox, so every tool call
   asks you first.
