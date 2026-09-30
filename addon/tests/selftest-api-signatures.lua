@@ -1,9 +1,9 @@
--- The documented WoW Forever 1.60.1.70009 API that GnomishRelaySelfTest, GnomishRelaySelfTest_Off, GnomishRelaySelfTest_Slot uses.
+-- The documented WoW Forever 1.60.1.70124 API that GnomishRelaySelfTest, GnomishRelaySelfTest_Off, GnomishRelaySelfTest_Slot uses.
 -- Written by scripts/wow-api.sh from Blizzard_APIDocumentationGenerated. Do not edit.
 -- A patch can change the arguments, returns, or secret flags and keep the name. The diff shows it.
 -- The scan does not know the type of each object, so methods has each widget type with a called name.
 return {
-	build = "1.60.1.70009",
+	build = "1.60.1.70124",
 	functions = {
 		["C_AddOns.DisableAddOn"] = {
 			SecretArguments = "AllowedWhenUntainted",
