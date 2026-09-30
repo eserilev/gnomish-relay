@@ -38,8 +38,10 @@ fn relay_keys(relay: &RelayPart) -> String {
     )
 }
 
-fn wow_table(wow: &Path) -> String {
-    format!("[wow]\npath = {}\n", quote(&wow.to_string_lossy()))
+/// With no game yet, the config has no `[wow]`, and the next setup adds it.
+fn wow_table(wow: Option<&Path>) -> String {
+    wow.map(|wow| format!("[wow]\npath = {}\n", quote(&wow.to_string_lossy())))
+        .unwrap_or_default()
 }
 
 fn agent_tables(agents: &[Found]) -> String {
@@ -145,7 +147,7 @@ pub fn story_table(models: &[FoundModel]) -> String {
 }
 
 /// The first config of a player with the relay.
-pub fn relay_config(wow: &Path, relay: &RelayPart) -> String {
+pub fn relay_config(wow: Option<&Path>, relay: &RelayPart) -> String {
     format!(
         "{}\n{}{}",
         relay_keys(relay),
@@ -155,7 +157,7 @@ pub fn relay_config(wow: &Path, relay: &RelayPart) -> String {
 }
 
 /// The first config of a player with only Timeways: no agents, no folders.
-pub fn timeways_config(wow: &Path, models: &[FoundModel]) -> String {
+pub fn timeways_config(wow: Option<&Path>, models: &[FoundModel]) -> String {
     wow_table(wow) + &story_table(models)
 }
 
@@ -219,8 +221,14 @@ mod tests {
             ..with_model
         };
 
-        let found = parsed(&relay_config(&home.path().join("wow"), &with_model), &home);
-        let none = parsed(&relay_config(&home.path().join("wow"), &without), &home);
+        let found = parsed(
+            &relay_config(Some(&home.path().join("wow")), &with_model),
+            &home,
+        );
+        let none = parsed(
+            &relay_config(Some(&home.path().join("wow")), &without),
+            &home,
+        );
 
         assert_eq!(found.require_relay().unwrap().local_ports, vec![11434]);
         assert!(none.require_relay().unwrap().local_ports.is_empty());
@@ -246,7 +254,7 @@ mod tests {
             roots: &roots,
             local_ports: &[],
         };
-        let config = parsed(&relay_config(Path::new(wow), &relay), &home);
+        let config = parsed(&relay_config(Some(Path::new(wow)), &relay), &home);
         let relay = config.require_relay().unwrap();
         assert_eq!(relay.policy.agents["claude"], Permission::AutoEdit);
         assert_eq!(relay.policy.agents["gemini"], Permission::AutoEdit);
@@ -267,7 +275,7 @@ mod tests {
             roots: &roots,
             local_ports: &[],
         };
-        let config = parsed(&relay_config(&home.path().join("wow"), &relay), &home);
+        let config = parsed(&relay_config(Some(&home.path().join("wow")), &relay), &home);
         let relay = config.require_relay().unwrap();
         assert_eq!(relay.policy.default_agent, "echo");
         assert_eq!(relay.agents["echo"].kind, Kind::Echo);
@@ -283,7 +291,7 @@ mod tests {
             roots: &roots,
             local_ports: &[],
         };
-        let config = parsed(&relay_config(&home.path().join("wow"), &relay), &home);
+        let config = parsed(&relay_config(Some(&home.path().join("wow")), &relay), &home);
         let relay = config.require_relay().unwrap();
         assert_eq!(relay.policy.default_agent, "aider");
         assert_eq!(relay.agents["aider"].kind, Kind::Command);
@@ -302,7 +310,7 @@ mod tests {
                 model: "llama3.2".into(),
             },
         ];
-        let text = timeways_config(&home.path().join("wow"), &models);
+        let text = timeways_config(Some(&home.path().join("wow")), &models);
         let config = parsed(&text, &home);
         assert!(config.relay.is_none());
         let story = config.story.unwrap();
@@ -324,7 +332,10 @@ mod tests {
             url: "http://127.0.0.1:1234".into(),
             model: "qwen3".into(),
         }];
-        let config = parsed(&timeways_config(&home.path().join("wow"), &models), &home);
+        let config = parsed(
+            &timeways_config(Some(&home.path().join("wow")), &models),
+            &home,
+        );
         let choice = config.story.unwrap().model.choice;
         assert!(matches!(choice, ModelChoice::Local(_)), "{choice:?}");
     }
@@ -332,7 +343,7 @@ mod tests {
     #[test]
     fn with_no_model_found_the_story_has_no_model() {
         let home = home();
-        let text = timeways_config(&home.path().join("wow"), &[]);
+        let text = timeways_config(Some(&home.path().join("wow")), &[]);
         let config = parsed(&text, &home);
         assert_eq!(config.story.unwrap().model.choice, ModelChoice::None);
         assert!(text.contains("# model = \"claude\""));
@@ -348,7 +359,7 @@ mod tests {
             roots: &roots,
             local_ports: &[],
         };
-        let old = relay_config(&home.path().join("wow"), &relay);
+        let old = relay_config(Some(&home.path().join("wow")), &relay);
         let text = with_story(&old, &[FoundModel::Claude]);
         assert!(text.starts_with(&old));
         let config = parsed(&text, &home);
@@ -359,7 +370,7 @@ mod tests {
     #[test]
     fn a_timeways_config_gets_the_relay_and_keeps_its_story() {
         let home = home();
-        let old = timeways_config(&home.path().join("wow"), &[FoundModel::Claude]);
+        let old = timeways_config(Some(&home.path().join("wow")), &[FoundModel::Claude]);
         let roots = roots();
         let relay = RelayPart {
             agents: &[],

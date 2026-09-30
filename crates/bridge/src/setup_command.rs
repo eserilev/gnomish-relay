@@ -9,6 +9,7 @@ use crate::check_agent;
 use crate::config::{self, Config, RelayConfig, with_tilde};
 use crate::config_text::RelayPart;
 use crate::dirs::Dirs;
+use crate::game_choice;
 use crate::hooks_install;
 use crate::install;
 use crate::model::ModelChoice;
@@ -21,36 +22,6 @@ use crate::setup::{self, KeyChoice};
 use crate::status::{self, SandboxFound};
 use crate::timeways_install::{self, Lore, Sources};
 use crate::wsl;
-
-/// The game folder: the one given, the one found, or the answer to a question.
-pub fn pick_game(dirs: &Dirs, given: Option<&str>) -> Result<PathBuf> {
-    if let Some(folder) = given {
-        return Ok(install::game_folder(folder));
-    }
-    let games = install::find_games(&dirs.home);
-    if let [game] = games.as_slice() {
-        return Ok(game.clone());
-    }
-    for (n, game) in games.iter().enumerate() {
-        println!("{}. {}", n + 1, game.display());
-    }
-    let answer = ask("WoW folder", if games.is_empty() { "" } else { "1" })?;
-    if answer.is_empty() {
-        bail!("setup needs your WoW folder. Run gnomish-relay setup <folder>");
-    }
-    Ok(chosen_game(&answer, &games))
-}
-
-/// A number picks a listed game. Anything else is a folder.
-fn chosen_game(answer: &str, games: &[PathBuf]) -> PathBuf {
-    let listed = answer
-        .parse::<usize>()
-        .ok()
-        .and_then(|n| games.get(n.checked_sub(1)?));
-    listed
-        .cloned()
-        .unwrap_or_else(|| install::game_folder(answer))
-}
 
 /// Reads one answer in a terminal. With no terminal, or an empty answer, the default.
 fn ask(question: &str, default: &str) -> Result<String> {
@@ -141,8 +112,9 @@ enum TimewaysInstall {
     IfMissing,
 }
 
-/// `setup [folder] [--roots a,b] [--relay] [--timeways] [--new-key] [--autostart]
+/// `setup [--wow folder] [--roots a,b] [--relay] [--timeways] [--new-key] [--autostart]
 /// [--no-autostart]`. The installers always add `--autostart`, so `--no-autostart` wins.
+/// The folder can also come with no `--wow`, as before 0.3.1.
 #[derive(Debug, PartialEq, Eq)]
 struct SetupArgs<'a> {
     folder: Option<&'a str>,
@@ -157,12 +129,13 @@ struct SetupArgs<'a> {
 impl<'a> SetupArgs<'a> {
     fn parse(args: &[&'a str]) -> SetupArgs<'a> {
         let roots = option(args, "--roots");
-        let folder = args
+        let wow = option(args, "--wow");
+        let bare = args
             .iter()
             .copied()
-            .find(|a| !a.starts_with("--") && Some(*a) != roots);
+            .find(|a| !a.starts_with("--") && Some(*a) != roots && Some(*a) != wow);
         SetupArgs {
-            folder,
+            folder: wow.or(bare),
             roots,
             relay_asked: args.contains(&"--relay") || roots.is_some(),
             timeways: if args.contains(&"--timeways") {
@@ -187,19 +160,25 @@ impl<'a> SetupArgs<'a> {
 /// Every step leaves alone what works, so a second run is safe (SPEC.md 11.3).
 pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     let args = SetupArgs::parse(args);
-    let wow = pick_game(dirs, args.folder)?;
-    if !wow.is_dir() {
-        bail!("{} isn't a folder", wow.display());
-    }
-    // WoW makes Interface/AddOns at its first start. Setup makes it earlier.
-    let addons = install::addons_dir(&wow);
-    std::fs::create_dir_all(&addons)
-        .with_context(|| format!("cannot make {}", addons.display()))?;
-    println!("WoW: {}", wow.display());
     let existing = match std::fs::read_to_string(dirs.config.join(config::FILE)) {
         Ok(text) => Some((text, config::load(&dirs.config, &dirs.home)?)),
         Err(_) => None,
     };
+    let config_wow = existing.as_ref().map(|(_, config)| config.wow.as_path());
+    let game = game_choice::choose(args.folder, config_wow, &dirs.home);
+    let Some(wow) = game.folder() else {
+        bail!(game_choice::NO_WOW);
+    };
+    if !wow.is_dir() {
+        bail!("{} isn't a folder", wow.display());
+    }
+    // WoW makes Interface/AddOns at its first start. Setup makes it earlier.
+    let addons = install::addons_dir(wow);
+    std::fs::create_dir_all(&addons)
+        .with_context(|| format!("cannot make {}", addons.display()))?;
+    if let Some(line) = game_choice::game_line(&game) {
+        println!("{line}");
+    }
     let timeways_folder = install::timeways_dir(&addons).is_some();
     let timeways = setup::timeways_choice(timeways_folder, args.timeways == TimewaysInstall::Asked);
     let found = setup::Found {
@@ -219,7 +198,7 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     // The key addons and the slots first: they need nothing else, and a later step can fail.
     let changed = setup::install_files(&folders, relay, timeways, args.keys)?;
     let addon = (relay == setup::Relay::On).then(|| relay_addon::find(&folders.addons));
-    let config = setup_config(dirs, &wow, existing.as_ref(), relay, timeways, args.roots)?;
+    let config = setup_config(dirs, wow, existing.as_ref(), relay, timeways, args.roots)?;
     print_setup(dirs, &config, relay);
     let config = if timeways == setup::Timeways::On {
         let config = setup_story_model(dirs, config);
@@ -366,8 +345,9 @@ fn setup_config(
     };
     let local_ports = model_setup::local_ports(&models);
     let new_agents = setup::new_agents(&agents, existing.map(|(_, config)| config));
+    let old_wow = existing.map(|(_, config)| config.wow.as_path());
     let parts = setup::ConfigParts {
-        wow,
+        wow: (old_wow != Some(wow)).then_some(wow),
         relay: roots.as_deref().map(|roots| RelayPart {
             agents: &agents,
             harnesses: &harnesses,
@@ -378,7 +358,7 @@ fn setup_config(
         story: wants_story.then_some(models.as_slice()),
     };
     let text = existing.map(|(text, _)| text.as_str());
-    let config = match setup::config_text(text, &parts) {
+    let config = match setup::config_text(text, &parts)? {
         Some(new) => setup::write_config(&dirs.config, &new, &dirs.home)?,
         None => config::load(&dirs.config, &dirs.home)?,
     };
@@ -693,9 +673,9 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         let wow = home.path().join("wow");
         let parse = |text: &str| config::parse(text, home.path()).unwrap();
-        let none = parse(&crate::config_text::timeways_config(&wow, &[]));
+        let none = parse(&crate::config_text::timeways_config(Some(&wow), &[]));
         let local = parse(&crate::config_text::timeways_config(
-            &wow,
+            Some(&wow),
             &[model_setup::FoundModel::Local {
                 url: model_setup::OLLAMA.into(),
                 model: LOCAL_STORY_MODEL.into(),
@@ -834,13 +814,13 @@ mod tests {
     }
 
     #[test]
-    fn a_number_picks_a_listed_game_and_other_text_names_a_folder() {
-        let root = tempfile::tempdir().unwrap();
-        let games = [root.path().join("a"), root.path().join("b")];
-        assert_eq!(chosen_game("2", &games), games[1]);
-        let typed = root.path().join("c").to_string_lossy().into_owned();
-        assert_eq!(chosen_game(&typed, &games), install::game_folder(&typed));
-        assert_eq!(chosen_game("0", &games), install::game_folder("0"));
+    fn setup_takes_the_wow_folder_with_or_with_no_flag() {
+        let flag = SetupArgs::parse(&["--relay", "--wow", "/games/wow", "--roots", "~/a"]);
+        let bare = SetupArgs::parse(&["/games/wow", "--relay"]);
+
+        assert_eq!(flag.folder, Some("/games/wow"));
+        assert_eq!(flag.roots, Some("~/a"));
+        assert_eq!(bare.folder, Some("/games/wow"));
     }
 
     #[test]

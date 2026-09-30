@@ -237,3 +237,110 @@ fn setup_with_no_code_folder_trusts_no_folder_and_says_to_pick_one_in_the_game()
         "{stdout}"
     );
 }
+
+/// Setup with the given arguments in a fresh home, with no agent and stdin closed.
+#[cfg(target_os = "linux")]
+fn setup_in(home: &std::path::Path, args: &[&str]) -> Output {
+    let empty = home.join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    Command::new(env!("CARGO_BIN_EXE_gnomish-relay"))
+        .arg("setup")
+        .args(args)
+        .env_clear()
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("PATH", &empty)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[cfg(target_os = "linux")]
+fn config_of(home: &std::path::Path) -> String {
+    std::fs::read_to_string(home.join("config/gnomish-relay/config.toml")).unwrap_or_default()
+}
+
+/// A WoW install in a Wine prefix, last played `age` seconds ago.
+#[cfg(target_os = "linux")]
+fn game_played(prefix: &std::path::Path, age: u64) -> std::path::PathBuf {
+    let game = prefix.join("drive_c/Program Files (x86)/World of Warcraft/_classic_beta_");
+    std::fs::create_dir_all(game.join("WTF")).unwrap();
+    let saved = game.join("WTF/Config.wtf");
+    std::fs::write(&saved, "SET x 1\n").unwrap();
+    let time = std::time::SystemTime::now() - std::time::Duration::from_secs(age);
+    std::fs::File::options()
+        .write(true)
+        .open(&saved)
+        .unwrap()
+        .set_modified(time)
+        .unwrap();
+    game
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn with_two_installs_setup_takes_the_one_played_last_and_asks_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    game_played(&home.path().join(".wine"), 86_400);
+    let newer = game_played(&home.path().join("Games/battlenet"), 60);
+
+    let out = setup_in(home.path(), &[]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.starts_with(&format!(
+            "Using WoW at {}. To use another one, run gnomish-relay setup --wow <folder>.\n",
+            newer.display()
+        )),
+        "{stdout}"
+    );
+    let config = config_of(home.path());
+    assert!(
+        config.contains(&format!("path = \"{}\"", newer.display())),
+        "{config}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_wow_flag_overrides_the_install_played_last_and_changes_the_config() {
+    let home = tempfile::tempdir().unwrap();
+    let older = game_played(&home.path().join(".wine"), 86_400);
+    let newer = game_played(&home.path().join("Games/battlenet"), 60);
+    setup_in(home.path(), &[]);
+
+    let out = setup_in(home.path(), &["--wow", &older.to_string_lossy()]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.starts_with(&format!("WoW: {}\n", older.display())),
+        "{stdout}"
+    );
+    let config = config_of(home.path());
+    assert!(
+        config.contains(&format!("path = \"{}\"", older.display())),
+        "{config}"
+    );
+    assert!(!config.contains(&*newer.to_string_lossy()), "{config}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_second_setup_keeps_the_wow_folder_of_the_config() {
+    let home = tempfile::tempdir().unwrap();
+    let older = game_played(&home.path().join(".wine"), 86_400);
+    setup_in(home.path(), &["--wow", &older.to_string_lossy()]);
+    game_played(&home.path().join("Games/battlenet"), 60);
+
+    let out = setup_in(home.path(), &[]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.starts_with(&format!("WoW: {}\n", older.display())),
+        "{stdout}"
+    );
+}

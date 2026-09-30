@@ -164,7 +164,7 @@ mod tests {
     #[test]
     fn a_story_with_no_model_gets_the_local_model_and_loads() {
         let home = tempfile::tempdir().unwrap();
-        let text = crate::config_text::timeways_config(&home.path().join("wow"), &[]);
+        let text = crate::config_text::timeways_config(Some(&home.path().join("wow")), &[]);
 
         let new = with_story_model(&text, &ollama("llama3.2:3b"));
 

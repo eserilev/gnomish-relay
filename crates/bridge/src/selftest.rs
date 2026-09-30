@@ -12,11 +12,11 @@ use serde_json::Value;
 use crate::calibration::{self, Verdict};
 use crate::dirs::Dirs;
 use crate::fixture::{self, PLACEHOLDER};
+use crate::game_choice;
 use crate::ids::hex;
 use crate::line::{CELLS_PER_ROW, Mode};
 use crate::line_choice::{self, LineChoice};
 use crate::saved;
-use crate::setup_command;
 use crate::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
 
 pub const SAVED_FILE: &str = "GnomishRelaySelfTest.lua";
@@ -348,7 +348,7 @@ pub fn collect_command(dirs: &Dirs, args: &[&str]) -> Result<()> {
     if !repo.join("addon").join("GnomishRelaySelfTest").is_dir() {
         bail!("run this in the gnomish-relay repo, or give --out <repo>");
     }
-    let collected = collect(&setup_command::pick_game(dirs, game)?, &repo)?;
+    let collected = collect(&game_choice::require(dirs, game)?, &repo)?;
     println!("wrote {}", collected.fixture.display());
     println!(
         "wrote {} golden vectors to tests/vectors/{}",

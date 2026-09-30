@@ -32,8 +32,10 @@ your agents. To install both:
      ```powershell
      irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex
      ```
-4. **Let setup finish.** It finds WoW and your code folders, such as `~/code`, and says
-   where agents can work.
+4. **Let setup finish.** It asks no questions about folders. It finds WoW and your code
+   folders, such as `~/code`, and says where agents can work. With more than one WoW, it
+   uses the one you played last. To use another one, run
+   `gnomish-relay setup --wow <folder>`.
 5. **Start WoW** and type `/relay`. To work in another folder, pick it in the game, then
    click **Approve** on your desktop. You approve each new folder once.
 
@@ -53,6 +55,8 @@ If a line shows a problem, it also says how to fix it. See also
 - It runs `gnomish-relay setup --autostart`. Setup finds the game, makes a key that only
   your computer has, writes its settings file `config.toml`, and starts the desktop
   app each time you log in.
+- Setup asks no questions about folders. With more than one WoW, it uses the one you
+  played last, and says so.
 - Setup uses the agents it finds on your computer: `claude`, `codex`, `gemini`, `qwen`,
   `opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
 - If the addon is missing or too old, setup ends with a line that says what to get or

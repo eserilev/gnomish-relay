@@ -37,20 +37,23 @@ fn is_permission_key(line: &str) -> bool {
         .is_some_and(|rest| rest.trim_start().starts_with('='))
 }
 
-/// The table runs from its header to the next line that starts with `[`.
-fn permission_line(lines: &[&str], agent: &str) -> Result<usize> {
-    let header = format!("[agents.{agent}]");
+/// The lines after the header of a plain table, up to the next line that starts with `[`.
+fn table_body(lines: &[&str], header: &str) -> Option<std::ops::Range<usize>> {
     let start = lines
         .iter()
-        .position(|line| without_comment(line) == header)
-        .with_context(|| format!("config.toml has no plain {header} table"))?;
+        .position(|line| without_comment(line) == header)?;
     let end = lines[start + 1..]
         .iter()
         .position(|line| line.trim_start().starts_with('['))
         .map_or(lines.len(), |n| start + 1 + n);
-    let found: Vec<usize> = (start + 1..end)
-        .filter(|&i| is_permission_key(lines[i]))
-        .collect();
+    Some(start + 1..end)
+}
+
+fn permission_line(lines: &[&str], agent: &str) -> Result<usize> {
+    let header = format!("[agents.{agent}]");
+    let body = table_body(lines, &header)
+        .with_context(|| format!("config.toml has no plain {header} table"))?;
+    let found: Vec<usize> = body.filter(|&i| is_permission_key(lines[i])).collect();
     match found.as_slice() {
         [one] => Ok(*one),
         _ => bail!("{header} in config.toml has no single permission = \"...\" line"),
@@ -85,6 +88,36 @@ fn check_only_the_level_changed(
         bail!("the change of config.toml changed more than the level of {agent}");
     }
     Ok(())
+}
+
+fn is_path_key(line: &str) -> bool {
+    line.trim_start()
+        .strip_prefix("path")
+        .is_some_and(|rest| rest.trim_start().starts_with('='))
+}
+
+/// The text with `path` of `[wow]` set to `wow`. A config with no `[wow]` gets it at
+/// the end. Any other form of `[wow]` is an error, and nothing changes.
+pub fn with_wow_path(text: &str, wow: &Path) -> Result<String> {
+    let new_line = format!("path = {}\n", quote(&wow.to_string_lossy()));
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let Some(body) = table_body(&lines, "[wow]") else {
+        let gap = if text.is_empty() || text.ends_with('\n') {
+            ""
+        } else {
+            "\n"
+        };
+        return Ok(format!("{text}{gap}\n[wow]\n{new_line}"));
+    };
+    let found: Vec<usize> = body.filter(|&i| is_path_key(lines[i])).collect();
+    let [at] = found.as_slice() else {
+        bail!("[wow] in config.toml has no single path = \"...\" line");
+    };
+    let mut changed = String::with_capacity(text.len() + new_line.len());
+    for (i, line) in lines.iter().enumerate() {
+        changed.push_str(if i == *at { &new_line } else { line });
+    }
+    Ok(changed)
 }
 
 const ROOTS: &str = "allowed_roots";
@@ -336,5 +369,31 @@ mod tests {
 
         assert!(with_root(CONFIG, "~/lighthouse", home.path()).is_err());
         assert!(with_root(CONFIG, "~/Code", home.path()).is_err());
+    }
+
+    #[test]
+    fn a_new_wow_folder_replaces_only_the_path_line_of_wow() {
+        let changed = with_wow_path(CONFIG, Path::new("/games/wow")).unwrap();
+
+        assert_eq!(
+            changed,
+            CONFIG.replace("path = \"~/wow\"\n", "path = \"/games/wow\"\n")
+        );
+    }
+
+    #[test]
+    fn a_config_with_no_wow_table_gets_one_at_the_end() {
+        let text = "allowed_roots = []\n[agents.echo]\nkind = \"echo\"";
+
+        let changed = with_wow_path(text, Path::new("/games/wow")).unwrap();
+
+        assert_eq!(changed, format!("{text}\n\n[wow]\npath = \"/games/wow\"\n"));
+    }
+
+    #[test]
+    fn a_wow_table_with_no_single_path_line_is_never_changed() {
+        let two = CONFIG.replace("[wow]\n", "[wow]\npath = \"~/a\"\n");
+
+        assert!(with_wow_path(&two, Path::new("/games/wow")).is_err());
     }
 }
