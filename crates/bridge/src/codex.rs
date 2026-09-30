@@ -592,7 +592,7 @@ impl Connection {
             self.handle(&message)?;
         }
         if self.turn.stopping() {
-            return Err(STOPPED.into());
+            return Err(self.turn.ended().into());
         }
         self.ended.take().unwrap_or(Ok(()))?;
         Ok(self.reply())

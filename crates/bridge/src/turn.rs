@@ -16,13 +16,24 @@ pub const TIMED_OUT: &str = "Timed out.";
 const POLL: Duration = Duration::from_millis(100);
 /// After Stop, the agent gets this long to end the turn. Then it is killed.
 const STOP_GRACE: Duration = Duration::from_secs(10);
+/// After the timeout, the agent gets this long to end the turn and report its cost.
+/// The run already took the whole timeout, so this grace is shorter.
+const TIMEOUT_GRACE: Duration = Duration::from_secs(5);
+
+/// Why the agent was asked to end the turn.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum Ending {
+    No,
+    Stop,
+    Timeout,
+}
 
 pub struct Turn {
     deadline: Instant,
     stop: StopSignal,
     events: Events,
     permission_timeout: Duration,
-    stopping: bool,
+    ending: Ending,
 }
 
 impl Turn {
@@ -32,13 +43,13 @@ impl Turn {
             stop: control.stop,
             events: control.events,
             permission_timeout,
-            stopping: false,
+            ending: Ending::No,
         }
     }
 
-    /// True once Stop came and the agent was asked to end the turn.
+    /// True once Stop or the timeout came and the agent was asked to end the turn.
     pub fn stopping(&self) -> bool {
-        self.stopping
+        self.ending != Ending::No
     }
 
     pub fn listening(&self) -> bool {
@@ -54,8 +65,9 @@ impl Turn {
         self.events.send(Event::CommandOutput(text));
     }
 
-    /// The next message of the agent. At the first Stop, `interrupt` asks the agent to
-    /// end the turn. An error from `interrupt` ends the run at once.
+    /// The next message of the agent. At the first Stop or at the timeout, `interrupt`
+    /// asks the agent to end the turn. The agent then sends its last message, with the
+    /// cost of the turn (SPEC.md 9.10). An error from `interrupt` ends the run at once.
     pub fn receive(
         &mut self,
         agent: &mut AgentProcess,
@@ -63,28 +75,40 @@ impl Turn {
     ) -> Result<Value, String> {
         let mut interrupt = Some(interrupt);
         loop {
-            if self.stop.requested() && !self.stopping {
-                self.stopping = true;
+            if self.stop.requested() && self.ending == Ending::No {
+                self.ending = Ending::Stop;
                 if let Some(interrupt) = interrupt.take() {
                     interrupt(agent)?;
                 }
                 self.deadline = self.deadline.min(Instant::now() + STOP_GRACE);
             }
             let left = self.deadline.saturating_duration_since(Instant::now());
+            if left.is_zero() && self.ending == Ending::No {
+                self.ending = Ending::Timeout;
+                if let Some(interrupt) = interrupt.take() {
+                    interrupt(agent).map_err(|_| TIMED_OUT.to_owned())?;
+                }
+                self.deadline = Instant::now() + TIMEOUT_GRACE;
+                continue;
+            }
             if left.is_zero() {
                 return Err(self.ended().into());
             }
             match agent.next(left.min(POLL)) {
                 Next::Line(line) => return line,
                 Next::Quiet => {}
-                Next::Ended if self.stopping => return Err(STOPPED.into()),
+                Next::Ended if self.stopping() => return Err(self.ended().into()),
                 Next::Ended => return Err(agent.stopped()),
             }
         }
     }
 
-    fn ended(&self) -> &'static str {
-        if self.stopping { STOPPED } else { TIMED_OUT }
+    /// The error of a turn that ended after Stop or the timeout.
+    pub fn ended(&self) -> &'static str {
+        match self.ending {
+            Ending::Timeout => TIMED_OUT,
+            Ending::No | Ending::Stop => STOPPED,
+        }
     }
 
     /// Tells the bridge where a desktop request of the run stands.

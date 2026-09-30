@@ -513,7 +513,7 @@ impl Connection {
             &json!({ "sessionId": session, "prompt": [{ "type": "text", "text": text }] }),
         )?;
         if self.turn.stopping() {
-            return Err(STOPPED.into());
+            return Err(self.turn.ended().into());
         }
         let reply = std::mem::take(&mut self.reply);
         let reply = match text_at(&result, "/stopReason") {

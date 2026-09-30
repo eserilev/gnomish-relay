@@ -1239,7 +1239,7 @@ Each run of the `command` backend starts the harness inside the sandbox of the r
 
 - **Resume.** The bridge keeps the agent session of each chat in `state.json`, with its agent and its folder. The next message of the chat resumes it, unless the message has the `n` flag, or the agent or the folder changed. The client uses `session/resume` if the agent offers it, else `session/load`. The history that `session/load` replays stays out of the reply. If neither works, the run opens a new session, and the reply starts with "(Started a new session: the old one couldn't be resumed.)".
 - **Later: continue a terminal session.** A new chat can take the session of a Claude or other agent session that runs in a terminal. The bridge lists the recent sessions of each agent (`session/list`, where the agent offers it), and the chat resumes the one you pick. The terminal window does not show the game messages live: no agent lets another program type into its open window. `claude --resume` shows them later.
-- **Stop.** Stop in the game ends the waiting messages of the chat, and signals the run in progress. The client sends `session/cancel` (`claude`: an `interrupt` control request, `codex`: `turn/interrupt`), answers every open permission request with "cancelled" (`claude`: a deny, `codex`: `cancel`), and waits 10 seconds for the agent to end the turn. Then it kills the process. The reply is "Stopped.", and the session stays for the next message. A Stop before the prompt ends the run at once.
+- **Stop.** Stop in the game ends the waiting messages of the chat, and signals the run in progress. The client sends `session/cancel` (`claude`: an `interrupt` control request, `codex`: `turn/interrupt`), answers every open permission request with "cancelled" (`claude`: a deny, `codex`: `cancel`), and waits 10 seconds for the agent to end the turn. Then it kills the process. The reply is "Stopped.", and the session stays for the next message. A Stop before the prompt ends the run at once. **The timeout** (`timeout_minutes`) asks the agent to end the turn in the same way, and waits 5 seconds. Then it kills the process. The reply is "Timed out.". Why the wait: Claude reports the cost of a turn only in its last message, so a run that timed out with no wait adds nothing to the daily cost (9.10).
 
 Next, the trait grows events for progress and for permission requests from the game (9.3). Those need new fields in the slot body, so they wait for an approved S9 statement.
 
@@ -1298,7 +1298,7 @@ The agent process is untrusted:
 
 - It gets only `PATH`, `HOME`, `LANG`, `TERM`, `USER`, the temp and Windows profile variables, the `env` list of its entry, and `GNOMISH_RELAY_JOB=1`.
 - Each line from it is at most 8 MiB, and the reply is at most 256 KiB. A line that is not JSON ends the run.
-- The run ends at `timeout_minutes` (default 30). The bridge then kills the process.
+- The run ends at `timeout_minutes` (default 30). The bridge then asks the agent to end the turn, and kills the process 5 seconds later (9.3, Stop).
 - The bridge declares no `fs` and no `terminal` capability, and answers every other request from the agent with "method not found".
 - If the config names a mode for the level, and the agent does not offer it, the run stops. With no mode, the agent runs at its own default, which can be more open.
 - The gate (6.6.3, 9.3) answers each permission request. With nobody in the game, a question refuses the call. The reply then ends with "Not allowed from the game:" and the calls that a rule, the desktop, or no answer refused.

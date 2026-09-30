@@ -905,7 +905,7 @@ impl Stream {
             self.session = session;
         }
         if self.turn.stopping() {
-            return Err(STOPPED.into());
+            return Err(self.turn.ended().into());
         }
         let reply = match reply? {
             text if text.is_empty() => std::mem::take(&mut self.said),
