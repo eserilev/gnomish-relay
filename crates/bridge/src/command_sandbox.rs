@@ -34,8 +34,9 @@ const SLOW_WALK: std::time::Duration = std::time::Duration::from_secs(5);
 const GIT_FOLDER_GUARDED: [&str; 4] = ["config", "hooks", COMMONDIR, "config.worktree"];
 /// Git in the sandbox needs to read it, so it is read-only, not hidden.
 const COMMONDIR: &str = "commondir";
-/// Git reads a `commondir` of `.` as no `commondir`: the folder is its own repository.
-const COMMONDIR_STAND_IN: &str = ".\n";
+/// The `commondir` stand-in of an older build. Claude Code then took a repository for a
+/// linked worktree and could not make a worktree.
+const OLD_STAND_IN: [&[u8]; 2] = [b".\n", b"."];
 pub const NO_SANDBOX: &str = "(No sandbox on this computer: every command asks in the game.)";
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// The Unix socket of the proxy, in the temp folder of the run.
@@ -183,6 +184,10 @@ pub struct Walls {
     /// git outside the sandbox never finds a new one there. A `.git` file is read-only, and
     /// so is the `commondir` of each git folder.
     pub pinned: Vec<PathBuf>,
+    /// Each missing `commondir` of a git folder. A stand-in breaks Claude Code, and a
+    /// `bwrap` mount needs a path, so the bridge removes a new one after each command.
+    #[serde(default)]
+    pub watched: Vec<PathBuf>,
     /// An empty file that shows in place of a hidden file.
     pub empty: PathBuf,
     /// The way to the proxy of the run. With none, commands have no network.
@@ -308,6 +313,11 @@ impl RunWalls {
     pub fn wrapper_ran(&self) -> bool {
         self.walls.temp.join(MARKER).exists()
     }
+
+    /// Before each tool call, so a background command has less time with a new `commondir`.
+    pub fn sweep(&self) {
+        sweep(&self.walls.watched, &self.git.record);
+    }
 }
 
 /// Claude Code quotes the part before the last " -" as the program, so a flag keeps a
@@ -353,16 +363,13 @@ pub fn prepare_shaped(
     check_wrapper(&sandbox.wrapper, &[chat.clone(), temp_path.clone()])?;
     let started = std::time::Instant::now();
     let mut scan = scan_chat(&policy, &chat)?;
+    remove_old_stand_ins(&mut scan);
     if shape.chat == ChatAccess::Write {
         make_stand_ins(&mut scan)?;
     }
     if let Some(note) = slow_walk_note(started.elapsed(), scan.entries) {
         crate::run::log(&note);
     }
-    let git = GitCheck {
-        chat: chat.clone(),
-        before: scan.git,
-    };
     let mut in_chat = scan.hidden;
     in_chat.extend(shape.more_hidden.iter().cloned());
     let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), in_chat);
@@ -387,6 +394,7 @@ pub fn prepare_shaped(
             ChatAccess::Write => scan.pinned,
             ChatAccess::Read => Vec::new(),
         },
+        watched: scan.watched,
         empty: empty_file(&place)?,
         local_ports: match (&proxy, &sandbox.proxy) {
             (Some(_), Some(settings)) => settings.local_ports.to_vec(),
@@ -398,6 +406,12 @@ pub fn prepare_shaped(
         home_view,
     };
     let file = write_walls(&place, &walls)?;
+    let git = GitCheck {
+        chat: chat.clone(),
+        before: scan.git,
+        watched: walls.watched.clone(),
+        record: record_of(&file),
+    };
     Ok(RunWalls {
         holder: None,
         walls,
@@ -654,6 +668,8 @@ struct ChatScan {
     pinned: Vec<PathBuf>,
     /// The guarded names of the git folders that do not exist.
     missing: Vec<PathBuf>,
+    /// The missing ones with no stand-in.
+    watched: Vec<PathBuf>,
     /// Each `.git` entry and each guarded name that exists.
     git: Vec<PathBuf>,
     entries: usize,
@@ -672,13 +688,22 @@ impl ChatScan {
 
 /// A mount needs a path that exists, and a command could make a missing guarded name. So
 /// each one gets a stand-in that git reads as no file, and the walls then cover it. The
-/// stand-ins stay: a run at the same time in the same folder covers them too.
+/// stand-ins stay: a run at the same time in the same folder covers them too. Tools read
+/// any `commondir` as a linked worktree, so a missing one is watched instead.
 fn make_stand_ins(scan: &mut ChatScan) -> Result<(), String> {
     for path in std::mem::take(&mut scan.missing) {
+        if is_commondir(&path) {
+            scan.watched.push(path);
+            continue;
+        }
         make_stand_in(&path).map_err(|e| format!("No stand-in {}: {e}", path.display()))?;
         scan.guard(path);
     }
     Ok(())
+}
+
+fn is_commondir(path: &Path) -> bool {
+    path.file_name().is_some_and(|n| n == COMMONDIR)
 }
 
 /// `create_new` and `create_dir` never follow a link.
@@ -686,16 +711,100 @@ fn make_stand_in(path: &Path) -> std::io::Result<()> {
     if path.file_name().is_some_and(|n| n == "hooks") {
         return std::fs::create_dir(path);
     }
-    let text = if path.file_name().is_some_and(|n| n == COMMONDIR) {
-        COMMONDIR_STAND_IN
-    } else {
-        ""
-    };
-    let mut file = std::fs::OpenOptions::new()
+    std::fs::OpenOptions::new()
         .write(true)
         .create_new(true)
-        .open(path)?;
-    std::io::Write::write_all(&mut file, text.as_bytes())
+        .open(path)
+        .map(|_| ())
+}
+
+/// A real `commondir` never holds `.`, and one of a linked worktree lies under `worktrees`.
+fn remove_old_stand_ins(scan: &mut ChatScan) {
+    let old: Vec<PathBuf> = scan
+        .pinned
+        .iter()
+        .filter(|p| is_old_stand_in(p))
+        .cloned()
+        .collect();
+    for path in old {
+        if let Err(e) = std::fs::remove_file(&path) {
+            crate::run::log(&format!("sandbox: cannot remove {}: {e}", path.display()));
+            continue;
+        }
+        crate::run::log(&format!(
+            "sandbox: removed {}, a stand-in of an older build",
+            path.display()
+        ));
+        scan.pinned.retain(|p| *p != path);
+        scan.git.retain(|p| *p != path);
+        scan.missing.push(path);
+    }
+}
+
+fn is_old_stand_in(path: &Path) -> bool {
+    let in_worktrees = path
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::file_name)
+        .is_some_and(|n| n == "worktrees");
+    if !is_commondir(path) || in_worktrees {
+        return false;
+    }
+    let small = std::fs::symlink_metadata(path).is_ok_and(|m| m.is_file() && m.len() <= 2);
+    small && std::fs::read(path).is_ok_and(|text| OLD_STAND_IN.contains(&text.as_slice()))
+}
+
+/// Removes each watched name that exists now, and notes it in `record` for the reply.
+fn sweep(watched: &[PathBuf], record: &Path) -> Vec<String> {
+    let lines: Vec<String> = watched.iter().filter_map(|p| remove_made(p)).collect();
+    if lines.is_empty() {
+        return lines;
+    }
+    let text = lines.join("\n") + "\n";
+    let appended = std::fs::OpenOptions::new()
+        .append(true)
+        .create(true)
+        .open(record)
+        .and_then(|mut file| std::io::Write::write_all(&mut file, text.as_bytes()));
+    if let Err(e) = appended {
+        crate::run::log(&format!("sandbox: cannot write {}: {e}", record.display()));
+    }
+    lines
+}
+
+/// An unlink never follows a link, but a link stays, so that the user sees what it names.
+fn remove_made(path: &Path) -> Option<String> {
+    let meta = std::fs::symlink_metadata(path).ok()?;
+    let shown = path.display();
+    let removed = if meta.is_dir() {
+        std::fs::remove_dir(path)
+    } else if meta.is_file() {
+        std::fs::remove_file(path)
+    } else {
+        return Some(format!(
+            "A command made {shown}, which is a link. Remove it before you run git there."
+        ));
+    };
+    match removed {
+        Ok(()) => Some(format!("Removed {shown}, which a command made.")),
+        Err(e) => Some(format!(
+            "A command made {shown}, and it can't be removed ({e}). Remove it before you run git there."
+        )),
+    }
+}
+
+/// Next to the walls file, where no command reaches.
+fn record_of(walls_file: &Path) -> PathBuf {
+    walls_file.with_extension("removed")
+}
+
+/// Reads the notes of `sweep` once, and removes the file.
+fn take_record(record: &Path) -> Vec<String> {
+    let text = std::fs::read_to_string(record).unwrap_or_default();
+    let _ = std::fs::remove_file(record);
+    let mut lines: Vec<String> = text.lines().map(str::to_owned).collect();
+    lines.dedup();
+    lines
 }
 
 /// A mount covers the target of a link, and a command can replace the link itself.
@@ -752,6 +861,8 @@ fn unreadable(folder: &Path, e: &std::io::Error) -> String {
 pub struct GitCheck {
     chat: PathBuf,
     before: Vec<PathBuf>,
+    watched: Vec<PathBuf>,
+    record: PathBuf,
 }
 
 impl GitCheck {
@@ -764,8 +875,16 @@ impl GitCheck {
             .collect())
     }
 
-    /// The notice for the end of the reply, when the run made one.
+    /// The notice for the end of the reply: the names that a sweep removed, and the git
+    /// files that the run made. Only after the run.
     pub fn notice(&self) -> Option<String> {
+        sweep(&self.watched, &self.record);
+        let mut lines = take_record(&self.record);
+        lines.extend(self.made_notice());
+        (!lines.is_empty()).then(|| lines.join(" "))
+    }
+
+    fn made_notice(&self) -> Option<String> {
         match self.made() {
             Ok(made) if made.is_empty() => None,
             Ok(made) => {
@@ -1036,6 +1155,8 @@ pub fn seatbelt_profile(walls: &Walls) -> Result<Vec<u8>, String> {
 /// take the path out of its rule. Each such folder in a writable folder stays in place.
 fn fixed_paths(walls: &Walls) -> Vec<PathBuf> {
     let mut fixed = walls.pinned.clone();
+    // A rule also covers a path that does not exist, so no command makes a watched name.
+    fixed.extend(walls.watched.iter().cloned());
     for path in walls.hidden.iter().chain(&walls.pinned) {
         let inside = |w: &&PathBuf| path.starts_with(w) && path != *w;
         let Some(root) = walls.writable.iter().find(inside) else {
@@ -1182,7 +1303,11 @@ fn wrapped(command: &str) -> Result<i32, String> {
         #[cfg(unix)]
         Launch::Holder { socket } => {
             let request = crate::launch::Request::new(&shell, &cwd, command, env);
-            crate::launch::run_in_holder(&socket, &request)
+            let code = crate::launch::run_in_holder(&socket, &request);
+            for line in sweep(&walls.watched, &record_of(Path::new(&file))) {
+                eprintln!("gnomish-relay sandbox: {line}");
+            }
+            code
         }
         // Only Linux has a holder.
         #[cfg(not(unix))]
@@ -1602,14 +1727,8 @@ mod tests {
 
         let mut pinned = run.walls.pinned.clone();
         pinned.sort();
-        assert_eq!(
-            pinned,
-            [
-                h.chat.join(".git"),
-                module.join("commondir"),
-                h.chat.join("lib/.git")
-            ]
-        );
+        assert_eq!(pinned, [h.chat.join(".git"), h.chat.join("lib/.git")]);
+        assert!(run.walls.watched.contains(&module.join("commondir")));
         assert!(run.walls.hidden.contains(&module.join("config")));
         assert!(run.walls.hidden.contains(&module.join("hooks")));
         assert!(run.walls.hidden.contains(&module.join("config.worktree")));
@@ -1619,21 +1738,143 @@ mod tests {
     /// Git outside the sandbox trusts a guarded name that a command makes, and a mount
     /// needs a path that exists.
     #[test]
-    fn each_missing_guarded_name_of_a_git_folder_gets_a_stand_in_that_git_reads_as_none() {
+    fn each_missing_guarded_name_but_commondir_gets_a_stand_in() {
         let h = folders();
         let git = h.chat.join(".git");
         std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
 
         let run = run_walls(&h, &h.chat).unwrap();
 
-        assert_eq!(
-            std::fs::read_to_string(git.join("commondir")).unwrap(),
-            ".\n"
-        );
         assert_eq!(std::fs::read(git.join("config")).unwrap(), b"");
         assert_eq!(std::fs::read(git.join("config.worktree")).unwrap(), b"");
-        assert!(run.walls.pinned.contains(&git.join("commondir")));
         assert!(run.walls.hidden.contains(&git.join("config.worktree")));
+        assert_eq!(run.walls.watched, [git.join("commondir")]);
+    }
+
+    /// Claude Code and other tools read a git folder with a `commondir` as a linked
+    /// worktree, and then fail to make a worktree.
+    #[test]
+    fn a_run_in_a_repository_with_no_commondir_leaves_no_commondir() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+        let notice = run.git.notice();
+        drop(run);
+
+        assert!(!h.chat.join(".git/commondir").exists());
+        assert_eq!(notice, None);
+    }
+
+    #[test]
+    fn a_commondir_that_a_command_made_is_removed_after_the_run_and_named() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let run = run_walls(&h, &h.chat).unwrap();
+        let commondir = h.chat.join(".git/commondir");
+        std::fs::write(&commondir, "../../evil\n").unwrap();
+
+        let notice = run.git.notice().unwrap();
+
+        assert!(!commondir.exists());
+        let removed = format!("Removed {}, which a command made.", commondir.display());
+        assert!(notice.contains(&removed), "{notice}");
+    }
+
+    #[test]
+    fn a_commondir_that_a_command_made_is_removed_at_the_sweep_and_named_after_the_run() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let run = run_walls(&h, &h.chat).unwrap();
+        let commondir = h.chat.join(".git/commondir");
+        std::fs::write(&commondir, "../../evil\n").unwrap();
+
+        run.sweep();
+
+        assert!(!commondir.exists());
+        let notice = run.git.notice().unwrap();
+        assert_eq!(
+            notice,
+            format!("Removed {}, which a command made.", commondir.display())
+        );
+    }
+
+    #[test]
+    fn an_empty_folder_at_a_watched_name_is_removed() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let run = run_walls(&h, &h.chat).unwrap();
+        std::fs::create_dir(h.chat.join(".git/commondir")).unwrap();
+
+        run.sweep();
+
+        assert!(!h.chat.join(".git/commondir").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_at_a_watched_name_stays_and_is_named() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let run = run_walls(&h, &h.chat).unwrap();
+        let commondir = h.chat.join(".git/commondir");
+        std::os::unix::fs::symlink("../../evil", &commondir).unwrap();
+
+        run.sweep();
+        let notice = run.git.notice().unwrap();
+
+        assert!(commondir.symlink_metadata().is_ok());
+        assert!(notice.contains("is a link"), "{notice}");
+        assert!(
+            notice.contains("Remove it before you run git there."),
+            "{notice}"
+        );
+    }
+
+    #[test]
+    fn the_real_commondir_of_a_linked_worktree_is_never_touched() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let tree = h.chat.join(".git/worktrees/w");
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::write(tree.join("HEAD"), "ref: refs/heads/w\n").unwrap();
+        std::fs::write(tree.join("commondir"), "../..\n").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+        run.sweep();
+        let notice = run.git.notice();
+
+        assert_eq!(std::fs::read(tree.join("commondir")).unwrap(), b"../..\n");
+        assert!(run.walls.pinned.contains(&tree.join("commondir")));
+        assert!(!run.walls.watched.contains(&tree.join("commondir")));
+        assert_eq!(notice, None);
+    }
+
+    #[test]
+    fn a_commondir_stand_in_of_an_older_build_is_removed_at_the_start_of_a_run() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(h.chat.join(".git/commondir"), ".\n").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        assert!(!h.chat.join(".git/commondir").exists());
+        assert_eq!(run.walls.watched, [h.chat.join(".git/commondir")]);
+        assert_eq!(run.git.notice(), None);
+    }
+
+    #[test]
+    fn a_commondir_of_a_dot_in_a_worktree_folder_stays() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let tree = h.chat.join(".git/worktrees/w");
+        std::fs::create_dir_all(&tree).unwrap();
+        std::fs::write(tree.join("HEAD"), "ref: refs/heads/w\n").unwrap();
+        std::fs::write(tree.join("commondir"), ".\n").unwrap();
+
+        run_walls(&h, &h.chat).unwrap();
+
+        assert_eq!(std::fs::read(tree.join("commondir")).unwrap(), b".\n");
     }
 
     #[test]
@@ -1766,6 +2007,7 @@ mod tests {
             overlays: Vec::new(),
             readable: Vec::new(),
             home_view: None,
+            watched: Vec::new(),
         }
     }
 
@@ -1919,6 +2161,19 @@ mod tests {
             .unwrap();
         assert!(deny < local);
         assert_eq!(profile.matches("(allow network").count(), 2);
+    }
+
+    #[test]
+    fn seatbelt_denies_a_write_of_a_watched_name() {
+        let mut walls = sample();
+        walls.watched = vec![PathBuf::from("/home/x/Code/app/.git/commondir")];
+
+        let profile = String::from_utf8(seatbelt_profile(&walls).unwrap()).unwrap();
+
+        assert!(
+            profile.contains("(literal \"/home/x/Code/app/.git/commondir\")"),
+            "{profile}"
+        );
     }
 
     #[test]

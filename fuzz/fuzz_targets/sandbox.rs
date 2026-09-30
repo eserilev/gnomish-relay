@@ -201,6 +201,7 @@ fuzz_target!(|data: &[u8]| {
         overlays: Vec::new(),
         readable: Vec::new(),
         home_view: None,
+        watched: Vec::new(),
     };
     check_tools(&walls);
 });

@@ -869,6 +869,11 @@ impl Stream {
 
     /// A hook with no readable tool call gets a deny.
     fn hook(&mut self, request: Option<&Request>) -> Result<(), Refusal> {
+        if let Rules::Gate(gated) = &self.rules
+            && let Some(walls) = &gated.walls
+        {
+            walls.sweep();
+        }
         let Some(request) = request else {
             return Err(Refusal::ByRule(
                 "The bridge cannot read this tool call.".into(),
