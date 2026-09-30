@@ -6,7 +6,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use std::fs;
-use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
@@ -34,8 +33,7 @@ fn file_url(dir: &Path) -> String {
 }
 
 fn write_program(path: &Path, text: &str) {
-    fs::write(path, text).unwrap();
-    fs::set_permissions(path, fs::Permissions::from_mode(0o755)).unwrap();
+    bridge::fake_program::write(path, text).unwrap();
 }
 
 fn sum(path: &Path) -> String {

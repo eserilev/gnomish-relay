@@ -294,12 +294,11 @@ mod tests {
         let (dir, git) = repo();
         let hook = dir.path().join(".git/hooks/pre-commit");
         let mark = dir.path().join("hook-ran");
-        std::fs::write(&hook, format!("#!/bin/sh\ntouch {}\n", mark.display())).unwrap();
         #[cfg(unix)]
-        {
-            use std::os::unix::fs::PermissionsExt;
-            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-        }
+        crate::fake_program::write(&hook, &format!("#!/bin/sh\ntouch {}\n", mark.display()))
+            .unwrap();
+        #[cfg(not(unix))]
+        std::fs::write(&hook, format!("#!/bin/sh\ntouch {}\n", mark.display())).unwrap();
         std::fs::write(dir.path().join("a"), "a").unwrap();
         git.bytes(dir.path(), &["add", "a"]).unwrap();
 
