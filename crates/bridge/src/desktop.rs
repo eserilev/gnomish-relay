@@ -272,7 +272,7 @@ impl Approvals {
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
         eprintln!(
-            "{now} approve on the desktop: gnomish-relay approve {id} ({})",
+            "{now} waiting for your approval: run gnomish-relay approve {id} ({})",
             text.escape_debug()
         );
         let tool = match self.prompt {
@@ -377,10 +377,12 @@ impl Approvals {
     /// Answers an open request, for `gnomish-relay approve` and `gnomish-relay deny`.
     pub fn answer(&self, id: &str, verdict: Verdict) -> Result<()> {
         if !is_id(id) || !self.file(id, REQUEST).is_file() {
-            bail!("no open request {id}. Run: gnomish-relay approve");
+            bail!(
+                "no request {id} is waiting. To see the waiting requests, run gnomish-relay approve"
+            );
         }
         if self.answer_of(id).is_some() {
-            bail!("request {id} has an answer already");
+            bail!("request {id} already has an answer");
         }
         check_real_dir(&self.dir)?;
         write_new(&self.file(id, verdict.extension()), b"")

@@ -79,7 +79,7 @@ fn the_agent_line_of_a_missing_login_says_how_to_log_in() {
 
     let line = status::agent_line(config.relay.as_ref().unwrap(), &computer.gate(&config));
 
-    assert_eq!(line, "Agent: claude needs a login. Run: claude");
+    assert_eq!(line, "Agent: claude isn't logged in. Run claude");
 }
 
 #[test]
@@ -89,7 +89,10 @@ fn the_agent_line_of_the_echo_agent_says_how_to_set_up_an_agent() {
 
     let line = status::agent_line(config.relay.as_ref().unwrap(), &computer.gate(&config));
 
-    assert!(line.starts_with("Agent: none. No agent yet."), "{line}");
+    assert!(
+        line.starts_with("Agent: none. Install Claude Code or Codex"),
+        "{line}"
+    );
 }
 
 impl Computer {
@@ -111,9 +114,15 @@ fn status_with_no_config_says_the_bridge_is_stopped_and_how_to_set_up() {
 
     let lines = computer.status();
 
-    assert_eq!(lines[0], "Bridge: stopped. Start it: gnomish-relay restart");
-    assert_eq!(lines[1], "Last strip: none yet. Send a message in the game");
-    assert!(lines[2].starts_with("Config: does not load."), "{lines:?}");
+    assert_eq!(
+        lines[0],
+        "Desktop app: stopped. To start it, run gnomish-relay restart"
+    );
+    assert_eq!(
+        lines[1],
+        "Last message from WoW: none yet. Send one in the game to test"
+    );
+    assert!(lines[2].starts_with("Config: has an error."), "{lines:?}");
     assert!(lines[2].contains("gnomish-relay setup"), "{lines:?}");
     assert_eq!(lines.len(), 3);
 }
@@ -140,9 +149,9 @@ fn status_of_a_working_setup_shows_the_sandbox_and_the_agent() {
 
     let lines = computer.status();
 
-    assert!(lines[1].starts_with("Last strip: "), "{lines:?}");
+    assert!(lines[1].starts_with("Last message from WoW: "), "{lines:?}");
     assert!(lines[1].ends_with(" s ago"), "{lines:?}");
-    assert_eq!(lines[2], "Config: loads");
+    assert_eq!(lines[2], "Config: OK");
     assert!(lines[3].starts_with("Sandbox: "), "{lines:?}");
     assert_eq!(lines[4], "Agent: claude (Claude Code 9.9.9)");
 }

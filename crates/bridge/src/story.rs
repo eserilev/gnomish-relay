@@ -26,7 +26,7 @@ use crate::run::log;
 use crate::story_sandbox::{self, Sandbox, Walls};
 use crate::timeways::StoryMessage;
 
-pub const UPDATE_BRIDGE: &str = "Update the desktop program: gnomish-relay update.";
+pub const UPDATE_BRIDGE: &str = "Update the desktop app: run gnomish-relay update.";
 pub const UPDATE_TIMEWAYS: &str = "Update Timeways.";
 pub const STOPPED: &str = "The Timeways story program stopped.";
 pub const NO_ANSWER: &str = "The Timeways story program did not answer in time.";

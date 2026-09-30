@@ -235,7 +235,7 @@ fn chosen(flags: &[&str], all: Vec<HookFiles>, path: &OsStr) -> Result<Vec<HookF
         match *flag {
             "--claude" => wanted.push(Source::Claude),
             "--codex" => wanted.push(Source::Codex),
-            other => bail!("unknown flag {other}. Use --claude or --codex."),
+            other => bail!("unknown option {other}. Use --claude or --codex"),
         }
     }
     if wanted.is_empty() {
@@ -262,7 +262,7 @@ pub fn install_command(
     if agents.is_empty() {
         writeln!(
             out,
-            "Neither claude nor codex is on PATH. Name one: gnomish-relay hooks install --claude"
+            "Can't find claude or codex on your PATH. To pick one, run gnomish-relay hooks install --claude or --codex"
         )?;
         return Ok(());
     }
@@ -281,7 +281,7 @@ pub fn install_command(
             }
             Ok(Change::Unchanged) => writeln!(out, "{name}: notifications already on")?,
             Err(e) => {
-                writeln!(out, "{name}: nothing changed: {e:#}")?;
+                writeln!(out, "{name}: can't turn on notifications: {e:#}")?;
                 failed = true;
             }
         }
@@ -291,18 +291,18 @@ pub fn install_command(
         // Both agents load hooks only at the start of a session.
         writeln!(
             out,
-            "Restart the {} sessions that run now.",
+            "Restart any {} sessions that are open now.",
             names.join(" and ")
         )?;
     }
     if changed.contains(&Source::Codex) {
         writeln!(
             out,
-            "Codex asks you to trust the new hooks at the start of its next session. Trust them, or no notification comes."
+            "Codex asks you to trust the new hooks when its next session starts. Trust them to get notifications."
         )?;
     }
     if failed {
-        bail!("some hooks were not added");
+        bail!("some notifications can't be turned on");
     }
     Ok(())
 }
@@ -333,14 +333,14 @@ fn state_line(files: &HookFiles) -> String {
         HookState::On => format!("{name}: notifications on"),
         HookState::Off => format!("{name}: notifications off"),
         HookState::Moved => format!(
-            "{name}: the hooks name a program that does not exist. Run: gnomish-relay hooks install"
+            "{name}: notifications broken: the hooks point to a program that moved. Run gnomish-relay hooks install"
         ),
         HookState::Disabled if files.source == Source::Claude => format!(
-            "{name}: hooks are there, but disableAllHooks is true in {}",
+            "{name}: notifications off: disableAllHooks is true in {}",
             files.hooks.display()
         ),
         HookState::Disabled => {
-            format!("{name}: hooks are there, but config.toml turns hooks off under [features]")
+            format!("{name}: notifications off: its config.toml turns hooks off under [features]")
         }
     }
 }
@@ -362,14 +362,15 @@ pub fn command(dirs: &Dirs, action: &str, flags: &[&str], out: &mut dyn Write) -
         "remove" => remove_command(flags, all, out),
         "status" if flags.is_empty() => status_command(&all, out),
         _ => {
-            bail!("usage: gnomish-relay hooks install|remove [--claude] [--codex], or hooks status")
+            bail!(
+                "usage: gnomish-relay hooks install|remove [--claude] [--codex], or gnomish-relay hooks status"
+            )
         }
     }
 }
 
 /// The last line of `setup`, which changes no agent settings itself.
-pub const SETUP_HINT: &str =
-    "For notifications from Claude Code and Codex in a terminal, run: gnomish-relay hooks install";
+pub const SETUP_HINT: &str = "To get notified in WoW about Claude Code and Codex in a terminal, run gnomish-relay hooks install";
 
 #[cfg(test)]
 mod tests {
@@ -632,7 +633,7 @@ mod tests {
 
         assert!(text.contains("Codex: notifications on"), "{text}");
         assert!(!text.contains("Claude Code"), "{text}");
-        assert!(text.contains("Restart the Codex sessions that run now."));
+        assert!(text.contains("Restart any Codex sessions that are open now."));
         assert!(text.contains("trust the new hooks"));
     }
 

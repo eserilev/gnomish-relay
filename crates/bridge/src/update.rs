@@ -130,12 +130,12 @@ pub fn self_update(dirs: &Dirs) -> Result<()> {
     let replaced = fetch(&base, name, &work).and_then(|new| replace(&exe, &new));
     let _ = std::fs::remove_dir_all(&work);
     if replaced? == Replaced::Same {
-        println!("gnomish-relay is the latest release");
+        println!("You already have the latest version.");
         return Ok(());
     }
-    println!("updated {}", exe.display());
+    println!("Updated {}", exe.display());
     crate::service::restart(dirs, &exe)?;
-    println!("type /reload in the game");
+    println!("Type /reload in WoW to finish.");
     Ok(())
 }
 

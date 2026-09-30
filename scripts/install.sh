@@ -10,7 +10,7 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) target=aarch64-apple-darwin ;;
   Darwin-x86_64) target=x86_64-apple-darwin ;;
   *)
-    echo "error: there is no build for $(uname -s) $(uname -m)" >&2
+    echo "error: Gnomish Relay has no build for $(uname -s) $(uname -m) yet" >&2
     exit 1
     ;;
 esac
@@ -32,10 +32,10 @@ fi
 tar -xzf "$name"
 mkdir -p "$bin"
 install -m 0755 gnomish-relay "$bin/gnomish-relay"
-echo "installed $bin/gnomish-relay"
+echo "Installed $bin/gnomish-relay"
 case ":$PATH:" in
   *":$bin:"*) ;;
-  *) echo "Add to PATH: export PATH=\"$bin:\$PATH\"" ;;
+  *) echo "To run gnomish-relay from any folder, add this line to your shell profile: export PATH=\"$bin:\$PATH\"" ;;
 esac
 
 if [ $# -eq 0 ]; then

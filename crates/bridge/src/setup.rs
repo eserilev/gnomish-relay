@@ -234,7 +234,7 @@ pub fn level_line(relay: &config::RelayConfig, config_file: &Path) -> String {
     let name = &relay.policy.default_agent;
     let level = relay.policy.agents.get(name).copied().unwrap_or_default();
     format!(
-        "Level: {}. {} To change it, edit permission in {}",
+        "Permissions: {}. {} To change it, edit permission in {}",
         level.word(),
         level.meaning(),
         config_file.display()
@@ -326,11 +326,12 @@ mod tests {
     fn setup_says_the_level_of_the_default_agent_and_where_to_change_it() {
         assert_eq!(
             level_line_of("auto-edit"),
-            "Level: auto-edit. It edits files in the chat folder with no question, and asks in \
+            "Permissions: auto-edit. It edits files in the chat folder without asking, and asks in \
              the game before each command. To change it, edit permission in /c/config.toml"
         );
         assert!(
-            level_line_of("ask").starts_with("Level: ask. It asks in the game before each edit")
+            level_line_of("ask")
+                .starts_with("Permissions: ask. It asks in the game before each edit")
         );
     }
 }

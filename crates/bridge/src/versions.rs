@@ -8,7 +8,7 @@ use crate::story::{UPDATE_BRIDGE, UPDATE_TIMEWAYS};
 
 /// The bridge writes the relay addon again at each start, so an old relay addon only
 /// means that the game did not reload.
-pub const RELOAD_RELAY: &str = "Type /reload in the game to load the new Gnomish Relay.";
+pub const RELOAD_RELAY: &str = "Type /reload to load the new version of Gnomish Relay.";
 
 pub fn update_text(app: App, fit: VersionFit) -> Option<&'static str> {
     match (app, fit) {

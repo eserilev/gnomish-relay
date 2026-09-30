@@ -31,7 +31,7 @@ pub fn pick_game(dirs: &Dirs, given: Option<&str>) -> Result<PathBuf> {
     }
     let answer = ask("WoW folder", if games.is_empty() { "" } else { "1" })?;
     if answer.is_empty() {
-        bail!("give the WoW folder: gnomish-relay setup <folder>");
+        bail!("setup needs your WoW folder. Run gnomish-relay setup <folder>");
     }
     Ok(chosen_game(&answer, &games))
 }
@@ -80,7 +80,7 @@ fn choose_roots(home: &Path, given: Option<&str>) -> Result<Vec<String>> {
         Some(list) => list.to_owned(),
         // No default of the home folder: it holds ~/.ssh and the browser profiles.
         None => ask(
-            "Folders the agents can work in, divided by commas",
+            "Folders the agents can work in (separate them with commas)",
             &found.join(", "),
         )?,
     };
@@ -96,11 +96,13 @@ fn roots_in(answer: &str, home: &Path) -> Result<Vec<String>> {
         .map(str::to_owned)
         .collect();
     if roots.is_empty() {
-        bail!("give the folders that the agents can work in: gnomish-relay setup --roots ~/code");
+        bail!(
+            "setup needs the folders that agents can work in. Run gnomish-relay setup --roots ~/code"
+        );
     }
     for root in &roots {
         if !config::expand(root, home)?.is_dir() {
-            bail!("{root} is not a folder");
+            bail!("{root} isn't a folder");
         }
     }
     Ok(roots)
@@ -158,7 +160,7 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     let args = SetupArgs::parse(args);
     let wow = pick_game(dirs, args.folder)?;
     if !wow.is_dir() {
-        bail!("{} is not a folder", wow.display());
+        bail!("{} isn't a folder", wow.display());
     }
     // WoW makes Interface/AddOns at its first start. Setup makes it earlier.
     let addons = install::addons_dir(&wow);
@@ -190,8 +192,10 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     print_setup(dirs, &config, relay, timeways);
     if args.autostart == Autostart::On {
         match service::autostart(dirs) {
-            Ok(()) => println!("Bridge: on, starts at login"),
-            Err(e) => println!("Bridge: not started at login ({e:#}). Run: gnomish-relay run"),
+            Ok(()) => println!("Desktop app: on, starts at login"),
+            Err(e) => println!(
+                "Desktop app: can't start at login ({e:#}). To start it now, run gnomish-relay run"
+            ),
         }
     }
     println!("{}", last_line(&changed, relay, args.keys));
@@ -205,7 +209,7 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
 /// A player who came for Timeways says no, so no is the answer with no terminal.
 fn ask_relay() -> Result<setup::Relay> {
     let answer = ask(
-        "Also set up Gnomish Relay, coding agents in the game? (y/N)",
+        "Also set up Gnomish Relay, to chat with coding agents in WoW? (y/N)",
         "n",
     )?;
     Ok(if answer.eq_ignore_ascii_case("y") {
@@ -267,7 +271,7 @@ fn setup_config(
     let added = config.relay.as_ref().map(|relay| &relay.agents);
     for (name, _, _) in &new_agents {
         if added.is_some_and(|agents| agents.contains_key(*name)) {
-            println!("Added agent: {name}. Pick it for a new chat in the game, in Settings");
+            println!("Added agent: {name}. To use it, pick it in Settings in the game");
         }
     }
     Ok(config)
@@ -279,7 +283,7 @@ fn choose_harnesses(path_var: &std::ffi::OsStr) -> Result<Vec<&'static str>> {
     for name in install::find_harnesses(path_var) {
         let answer = ask(
             &format!(
-                "Found {name}. Add it as an agent? It runs its own commands with no question, inside the sandbox. (y/N)"
+                "Found {name}. Add it as an agent? It runs its own commands without asking, inside the sandbox. (y/N)"
             ),
             "n",
         )?;
@@ -300,7 +304,7 @@ fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay, timeways: bool
             println!("{}", setup::level_line(relay_config, &config_file));
         }
         None if relay == setup::Relay::Off => {
-            println!("Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay");
+            println!("Coding agents: off. To turn them on, run gnomish-relay setup --relay");
         }
         None => {}
     }
@@ -329,7 +333,7 @@ fn story_line(config: &Config) -> String {
         ),
         Some(ModelChoice::Local(local)) => format!("Story model: local {}", local.model),
         _ => {
-            "Story model: none. Set model in [story] of the config, then run: gnomish-relay restart"
+            "Story model: none. Set model in [story] of config.toml, then run gnomish-relay restart"
                 .into()
         }
     }
@@ -340,16 +344,16 @@ fn last_line(changed: &setup::Changed, relay: setup::Relay, keys: KeyChoice) -> 
     let new_relay = changed.relay_addon == Some(install::Installed::New);
     if changed.new_slots || new_relay {
         return match relay {
-            setup::Relay::On => "Restart WoW, then type /relay",
-            setup::Relay::Off => "Restart WoW, then log in",
+            setup::Relay::On => "All set. Restart WoW, then type /relay",
+            setup::Relay::Off => "All set. Restart WoW to load the addon",
         };
     }
     let updated = [changed.relay_addon.as_ref(), changed.timeways_key.as_ref()]
         .contains(&Some(&install::Installed::Updated));
     if updated || keys == KeyChoice::New {
-        return "Type /reload in WoW";
+        return "All set. Type /reload in WoW";
     }
-    "Ready"
+    "All set"
 }
 
 /// `gnomish-relay install`: the slots of each app of the config.
@@ -362,7 +366,7 @@ pub fn install_slots(dirs: &Dirs) -> Result<()> {
     };
     for app in setup::install_all_slots(&dir, relay)? {
         println!(
-            "made {} slots of {app:?} in {}",
+            "Made {} addon files for {app:?} in {}",
             protocol::slot::SLOTS,
             dir.display()
         );
@@ -424,7 +428,7 @@ mod tests {
         assert!(roots_in(" , ", home.path()).is_err());
         let missing = roots_in("~/none", home.path()).unwrap_err();
         assert!(
-            missing.to_string().contains("~/none is not a folder"),
+            missing.to_string().contains("~/none isn't a folder"),
             "{missing}"
         );
     }
@@ -443,18 +447,21 @@ mod tests {
         let keep = KeyChoice::Keep;
         assert_eq!(
             last_line(&changed(true, None), on, keep),
-            "Restart WoW, then type /relay"
+            "All set. Restart WoW, then type /relay"
         );
         assert_eq!(
             last_line(&changed(true, None), setup::Relay::Off, keep),
-            "Restart WoW, then log in"
+            "All set. Restart WoW to load the addon"
         );
         let updated = changed(false, Some(install::Installed::Updated));
-        assert_eq!(last_line(&updated, on, keep), "Type /reload in WoW");
+        assert_eq!(
+            last_line(&updated, on, keep),
+            "All set. Type /reload in WoW"
+        );
         assert_eq!(
             last_line(&changed(false, None), on, KeyChoice::New),
-            "Type /reload in WoW"
+            "All set. Type /reload in WoW"
         );
-        assert_eq!(last_line(&changed(false, None), on, keep), "Ready");
+        assert_eq!(last_line(&changed(false, None), on, keep), "All set");
     }
 }
