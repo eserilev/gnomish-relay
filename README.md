@@ -50,6 +50,16 @@ addon files, and adds a `[story]` section to `config.toml` with the model it fin
 (`claude`, Ollama, or LM Studio). With only Timeways, setup skips the folder question and
 sets up no coding agent. To add coding agents later, run `gnomish-relay setup --relay`.
 
+Setup also installs the Timeways story program from the latest Timeways release, and
+builds its lore on your computer from the public Wowpedia dump (a download of about
+133 MB, deleted after the build). To do this in the install line, add `--timeways`:
+
+- Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh -s -- --timeways`
+- Windows (PowerShell): `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways`
+
+To install the story program again and build fresh lore later, run
+`gnomish-relay setup --timeways`.
+
 ## Add an agent
 
 Claude Code needs only the `claude` program, and Codex only the `codex` program:
@@ -144,8 +154,8 @@ To turn the chat lines, sounds, or banners on or off, open Settings in the game.
 
 ## Update
 
-`gnomish-relay update` installs the latest version and restarts the desktop app.
-Then type `/reload` in WoW.
+`gnomish-relay update` installs the latest version and restarts the desktop app. It also
+updates the Timeways story program when setup installed it. Then type `/reload` in WoW.
 
 ## Troubleshooting
 

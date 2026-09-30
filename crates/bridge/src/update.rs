@@ -13,18 +13,25 @@ use crate::app_files::key_addon_name;
 use crate::config;
 use crate::dirs::Dirs;
 use crate::install;
+use crate::timeways_install;
 
 pub const RELEASES: &str = "https://github.com/eserilev/gnomish-relay/releases/latest/download";
 
-/// The archive that `scripts/package.sh` makes for this OS and CPU.
-pub fn archive_name() -> Option<&'static str> {
+/// The target of the release builds for this OS and CPU. Timeways uses the same names.
+pub fn target() -> Option<&'static str> {
     match (std::env::consts::OS, std::env::consts::ARCH) {
-        ("linux", "x86_64") => Some("gnomish-relay-x86_64-unknown-linux-gnu.tar.gz"),
-        ("macos", "aarch64") => Some("gnomish-relay-aarch64-apple-darwin.tar.gz"),
-        ("macos", "x86_64") => Some("gnomish-relay-x86_64-apple-darwin.tar.gz"),
-        ("windows", "x86_64") => Some("gnomish-relay-x86_64-pc-windows-msvc.zip"),
+        ("linux", "x86_64") => Some("x86_64-unknown-linux-gnu"),
+        ("macos", "aarch64") => Some("aarch64-apple-darwin"),
+        ("macos", "x86_64") => Some("x86_64-apple-darwin"),
+        ("windows", "x86_64") => Some("x86_64-pc-windows-msvc"),
         _ => None,
     }
+}
+
+/// The archive that `scripts/package.sh` makes for this OS and CPU.
+pub fn archive_name() -> Option<String> {
+    let extension = if cfg!(windows) { "zip" } else { "tar.gz" };
+    target().map(|target| format!("gnomish-relay-{target}.{extension}"))
 }
 
 fn program_name() -> String {
@@ -44,7 +51,7 @@ pub fn parse_sum(line: &str) -> Option<[u8; 32]> {
     Some(sum)
 }
 
-fn tool(program: &str, args: &[&str]) -> Result<()> {
+pub fn tool(program: &str, args: &[&str]) -> Result<()> {
     let status = Command::new(program)
         .args(args)
         .status()
@@ -55,7 +62,7 @@ fn tool(program: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-fn download(url: &str, to: &Path) -> Result<()> {
+pub fn download(url: &str, to: &Path) -> Result<()> {
     tool("curl", &["-fsSL", url, "-o", &to.to_string_lossy()])
 }
 
@@ -123,6 +130,24 @@ pub fn replace(exe: &Path, new: &Path) -> Result<Replaced> {
     Ok(Replaced::New)
 }
 
+/// Puts the program `new` at `target`, in place of an older one or as a first install.
+pub fn install_program(target: &Path, new: &Path) -> Result<Replaced> {
+    if target.exists() {
+        return replace(target, new);
+    }
+    let dir = target.parent().context("the program has no folder")?;
+    fs::create_dir_all(dir).with_context(|| format!("cannot make {}", dir.display()))?;
+    let staged = target.with_extension("new");
+    fs::copy(new, &staged).with_context(|| format!("cannot write {}", staged.display()))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(&staged, fs::Permissions::from_mode(0o755))?;
+    }
+    fs::rename(&staged, target).with_context(|| format!("cannot write {}", target.display()))?;
+    Ok(Replaced::New)
+}
+
 /// A key addon that is new since the launch of the game loads only after a restart
 /// (SPEC.md 7.3.2). `relay_addons` is `None` with the relay off.
 pub fn finish_line(relay_addons: Option<&Path>) -> &'static str {
@@ -142,6 +167,25 @@ fn relay_addons(dirs: &Dirs) -> Option<PathBuf> {
     Some(install::addons_dir(&config.wow))
 }
 
+/// The Timeways programs that setup installed, from the latest Timeways release
+/// (SPEC.md 11.4). A failure prints one line: the desktop app still updates.
+fn update_timeways(dirs: &Dirs) -> Vec<String> {
+    let Ok(config) = config::load(&dirs.config, &dirs.home) else {
+        return Vec::new();
+    };
+    let Some(program) = timeways_install::installed_story_program(&config) else {
+        return Vec::new();
+    };
+    let sources = timeways_install::Sources::from_env();
+    match timeways_install::update(dirs, &sources, &program) {
+        Ok(changed) => changed,
+        Err(e) => {
+            println!("Timeways: couldn't update the story program. {e:#}");
+            Vec::new()
+        }
+    }
+}
+
 /// Installs the latest release in place of `current_exe`, and restarts the bridge.
 pub fn self_update(dirs: &Dirs) -> Result<()> {
     let name = archive_name().context("there is no release build for this OS and CPU")?;
@@ -150,13 +194,20 @@ pub fn self_update(dirs: &Dirs) -> Result<()> {
     let work = dirs.data.join("update");
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work)?;
-    let replaced = fetch(&base, name, &work).and_then(|new| replace(&exe, &new));
+    let replaced = fetch(&base, &name, &work).and_then(|new| replace(&exe, &new));
     let _ = std::fs::remove_dir_all(&work);
-    if replaced? == Replaced::Same {
+    let replaced = replaced?;
+    let timeways = update_timeways(dirs);
+    if replaced == Replaced::Same && timeways.is_empty() {
         println!("You already have the latest version.");
         return Ok(());
     }
-    println!("Updated {}", exe.display());
+    if replaced == Replaced::New {
+        println!("Updated {}", exe.display());
+    }
+    if !timeways.is_empty() {
+        println!("Updated Timeways: {}", timeways.join(", "));
+    }
     // Before the restart: the new bridge writes the key addon at its start.
     let finish = finish_line(relay_addons(dirs).as_deref());
     crate::service::restart(dirs, &exe)?;
@@ -278,6 +329,25 @@ mod tests {
             "Type /reload in WoW to finish."
         );
         assert_eq!(finish_line(None), "Type /reload in WoW to finish.");
+    }
+
+    #[test]
+    fn a_first_install_puts_the_program_into_a_new_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let new = dir.path().join("download");
+        fs::write(&new, b"story").unwrap();
+        let target = dir.path().join("bin").join("timeways-story");
+
+        assert_eq!(install_program(&target, &new).unwrap(), Replaced::New);
+        assert_eq!(install_program(&target, &new).unwrap(), Replaced::Same);
+
+        assert_eq!(fs::read(&target).unwrap(), b"story");
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let mode = fs::metadata(&target).unwrap().permissions().mode();
+            assert_eq!(mode & 0o777, 0o755);
+        }
     }
 
     #[test]

@@ -1518,7 +1518,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
     - **Relay on or off.** Setup decides in this order. `--relay` or `--roots` turns the relay on. Then a config decides: on only when it has the relay part (12). Then a `GnomishRelay` folder turns it on, and so does a game with no `Timeways` folder, as before step 8. Only a player with Timeways, no relay folder, and no config gets a question: "Also set up Gnomish Relay, to chat with coding agents in WoW? (y/N)". With no terminal, the answer is no. Why: no fits a player who came for Timeways, and a relay user with Timeways already has the relay folder or the config.
     - **The config with no relay.** It holds `[wow]` and `[story]`, and no relay key (12). `allowed_roots` alone turns the relay on. The bridge then has no relay lane, and a `Config` holds `relay: Option<RelayConfig>`. Why: an idle relay lane needs a fake policy, and a fake policy is a trap, because an admitted strip then reaches an agent path. Setup still makes `strip.key`, so `KeySet` and S29 need no change. `setup --relay` adds the relay later: its top keys before the old text, because TOML needs them before the first table, and its tables after.
     - **One `--new-key` for every app.** It makes a new `strip.key`, and a new `timeways.key` when the `Timeways` folder exists, and writes both key addons. Why: an addon that reads one key reads both (decision 18), so after a leak both change. A new Timeways key is never equal to the relay key, and setup loads both keys at its end, as the bridge does.
-    - **`program` and `lore_pack` are optional**, both or neither (12). Setup writes them as commented lines, and searches for nothing. Why: the story program does not ship yet, so a search finds nothing. `// TODO: find timeways-story when Timeways ships it`.
+    - **`program` and `lore_pack` are optional**, both or neither (12). Setup writes them as commented lines. It sets both when it installs the programs of the Timeways release and builds the lore pack (11.4).
     - **The model.** Setup takes the first model it finds: `claude` on `PATH` (with `claude_model = "haiku"`), then Ollama on 127.0.0.1:11434, then LM Studio on 127.0.0.1:1234. It asks a local server for `/v1/models` with `curl` and the flags of a model call, and takes the first id that is not an embedding model. Another model that it finds goes in as commented lines. With none, `[story]` has no model. Why: `claude` is a deliberate install, its answers are better than a small local model, and the budget of decision 10 bounds its use. `curl` is already the only HTTP client of the bridge.
     - **An existing config.** Setup adds `[story]` to a config that has none when the `Timeways` folder exists, for a relay user who installs Timeways later. It checks every new text with the config loader before it writes. It never changes a key that exists.
     - **`## Group:`** is in neither app's slots. Nothing shows yet that the Forever client reads it. After a test in the game, both apps get it in one commit.
@@ -2011,6 +2011,53 @@ The last lines say what setup found and the next action, for example "Agent: cla
   - A test checks that the folder holds exactly the files that the desktop app installs.
   - Later: Wago Addons.
 
+### 11.4 The Timeways programs and the lore pack
+
+Setup installs the story program of Timeways and builds its lore pack (planned with the Timeways session on 2026-09-30; the tests came first). The release format below is the one that the release job of `eserilev/timeways` makes. `crates/bridge/src/timeways_release.rs` holds every asset name in one place, `lore_pack.rs` the dump and the build, and `timeways_install.rs` the steps.
+
+**When.** `setup --timeways` always installs the programs, builds the lore pack again, and sets the config. Setup with a `Timeways` addon folder and no `--timeways` does the same only when `[story]` has no `program` yet. `gnomish-relay update` installs new programs when `[story] program` is set, into the folder of that program. It builds no lore pack. A failed Timeways step prints one line with the next step, and setup and update go on.
+
+**The release.** The base is `https://github.com/eserilev/timeways/releases/latest/download`. `TIMEWAYS_URL` changes it, as `GNOMISH_URL` does for the desktop app (11.3). The files:
+
+| File | What |
+|---|---|
+| `timeways-manifest.json` | The version, the tag, the addon version, and one entry for each target |
+| `SHA256SUMS` | One `sha256sum` line for each archive |
+| `timeways-<target>.tar.gz` | Linux and macOS: `timeways-story`, `timeways-pack`, and `LICENSE` at the top level |
+| `timeways-x86_64-pc-windows-msvc.zip` | Windows: `timeways-story.exe`, `timeways-pack.exe`, and `LICENSE` |
+| `<archive>.sha256` | The sum of one archive. Setup does not need it. |
+| `timeways-addon.zip` | The addon for CurseForge. Setup does not need it. |
+
+The manifest:
+
+```json
+{"version": "0.1.0", "tag": "v0.1.0", "app_version": 1,
+ "targets": {"x86_64-unknown-linux-gnu": {"asset": "timeways-x86_64-unknown-linux-gnu.tar.gz",
+   "sha256": "<64 hex digits>", "programs": ["timeways-story", "timeways-pack"]}},
+ "addon": {"asset": "timeways-addon.zip", "sha256": "<64 hex digits>"}}
+```
+
+- The target is the one of the desktop app on this computer, the same as in the names of 11.3. With no entry for it, setup says "Timeways has no build for this computer yet."
+- An asset or a program is a plain file name: no folder, no `..`, and no leading dot. `programs` must hold `timeways-story` and `timeways-pack`. A Windows program gets `.exe`.
+- `app_version` is the `ns.App.version` of the Timeways addon of that release. Setup checks it with `version_fit` (7.7, S30). A version out of the range of this desktop app stops the install: "This Timeways needs a newer desktop app. Run gnomish-relay update first." or "This Timeways is older than this desktop app supports."
+- Setup checks the SHA-256 sum of the archive against the manifest and against `SHA256SUMS`, and refuses the archive when either one differs or is missing. As in 11.3, the sums come from the same release, so they find a broken download, not a changed release.
+- Setup unpacks the archive with `tar` into a new work folder in the data folder, and installs each program: into `GNOMISH_BIN` when it is set, else into `~/.local/bin` on Linux and macOS, and `%LOCALAPPDATA%\timeways\bin` on Windows. The data folder of the desktop app holds that `bin` folder of `install.ps1`, and the bridge refuses a story program in a folder that the sandbox hides (9.8), so Timeways gets a folder of its own. A program that is the same as the installed one stays. A new one goes in place of the old one as in `update` (11.3).
+
+**The lore pack.** The pack is never shipped: each computer builds it from the public Wowpedia dump.
+
+- The dump is `https://s3.amazonaws.com/wikia_xml_dumps/w/wo/wowpedia_pages_current.xml.7z`, about 133 MB. `TIMEWAYS_DUMP_URL` changes it. It changes over time, so no sum is pinned.
+- Setup downloads it with `curl`, as `update` does, into the Timeways work folder in the data folder. The sandbox hides the data folder (6.6.3), so no agent or command of a game run reads it. While `curl` runs, setup prints the megabytes so far: "Downloading the Wowpedia lore: 45 MB".
+- Then it runs `timeways-pack from-dump <dump> <pack>.new`. The program reads the `.7z` itself, and never writes over a file, so setup first deletes an old `<pack>.new`. It prints one line for each page. Setup shows only its last two lines: "read N pages, skipped M" and "wrote N passages to <path>".
+- On success, setup renames `<pack>.new` over the pack. On a failure, the old pack stays, and setup says "Couldn't build the Timeways lore. Your old lore stays. To try again, run gnomish-relay setup --timeways." Setup deletes the dump at the end either way.
+- The pack is `lore.sqlite` in the `timeways` folder next to the data folder: `~/.local/share/timeways/lore.sqlite` on Linux, `~/Library/Application Support/timeways/lore.sqlite` on macOS, and `%LOCALAPPDATA%\timeways\lore.sqlite` on Windows. It is outside the folders that the sandbox hides, because the story program reads it.
+
+**The config.** After the programs and a pack, setup sets `program` and `lore_pack` in `[story]`, with `~/` for a path in the home folder. It replaces the lines of both keys, also the commented ones of 12, and keeps every other line. A config with no `[story]` gets one at its end. As in 11.3, setup checks the new text with the config loader before it writes. With no pack, setup sets neither key: they go together (12).
+
+**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. `--no-autostart` turns it off.
+
+- Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh -s -- --timeways`
+- Windows: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways`
+
 ## 12. Config
 
 The config file is `config.toml` in the config folder of the OS:
@@ -2021,7 +2068,7 @@ The config file is `config.toml` in the config folder of the OS:
 | macOS | `~/Library/Application Support/gnomish-relay` | the same |
 | Windows | `%APPDATA%\gnomish-relay` | `%LOCALAPPDATA%\gnomish-relay` |
 
-`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
+`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists, but `program` and `lore_pack` of `[story]` after it installs Timeways (11.4). It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
 Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
@@ -2048,7 +2095,7 @@ local_model = "llama3.2"
 ```
 
 - The bridge never looks up `program` on `PATH`. A name with no folder is an error, for `program` and for `lore_pack`.
-- `program` and `lore_pack` go together: both, or neither. With neither, the story program does not start, the bridge logs one line at start, and each Timeways message gets "Timeways story program not running.". Setup cannot know them before Timeways ships its program, so it writes them as commented lines (11.3).
+- `program` and `lore_pack` go together: both, or neither. With neither, the story program does not start, the bridge logs one line at start, and each Timeways message gets "Timeways story program not running.". Setup writes them as commented lines, and sets both when it installs the Timeways programs and builds the lore pack (11.4).
 - With no `[story]`, each Timeways message gets the answer "Timeways story program not running.".
 - With `[story]` and no `timeways.key`, the bridge logs one line and starts no story program.
 - `local_url` is only `http://127.0.0.1:<port>` or `http://[::1]:<port>`, with nothing after the port. Config load refuses `localhost`, any other host, `https`, and a path, because `localhost` can resolve to another host.
