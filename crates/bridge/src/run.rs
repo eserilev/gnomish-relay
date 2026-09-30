@@ -195,6 +195,15 @@ impl Bridge {
         self
     }
 
+    /// Messages over the limit wait for their turn (SPEC.md 8.2).
+    #[must_use]
+    pub fn with_max_runs(mut self, max_runs: usize) -> Bridge {
+        if let Some(lane) = &mut self.relay {
+            lane.relay.set_max_runs(max_runs);
+        }
+        self
+    }
+
     /// The values that the Settings and Diag tabs of the game show.
     #[must_use]
     pub fn with_settings(mut self, settings: BridgeSettings) -> Bridge {
@@ -494,6 +503,9 @@ impl RelayLane {
                 }
                 Work::Prompt | Work::Attach { .. } => self.start_run(job),
             }
+        }
+        if self.relay.show_waiting() {
+            self.files.changed = true;
         }
     }
 
@@ -911,18 +923,28 @@ fn list_sessions(agents: &Agents, cwd: &str) -> Found {
     Ok(found)
 }
 
+/// What the relay lane takes from the config.
+pub struct RelayParts {
+    pub policy: Policy,
+    pub agents: Agents,
+    pub raiser: Raiser,
+    pub settings: BridgeSettings,
+    pub max_parallel_runs: usize,
+}
+
 /// With no relay part, `relay` is `None`, and the bridge serves Timeways alone.
 pub fn run(
     paths: Paths,
-    relay: Option<(Policy, Agents, Raiser, BridgeSettings)>,
+    relay: Option<RelayParts>,
     keys: KeySet,
     story: Option<StorySpec>,
 ) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
     let mut bridge = match relay {
-        Some((policy, agents, raiser, settings)) => Bridge::new(paths, policy, keys, agents)?
-            .with_raises(raiser)
-            .with_settings(settings),
+        Some(parts) => Bridge::new(paths, parts.policy, keys, parts.agents)?
+            .with_raises(parts.raiser)
+            .with_settings(parts.settings)
+            .with_max_runs(parts.max_parallel_runs),
         None => Bridge::without_relay(paths, keys)?,
     };
     if let Some(spec) = story {

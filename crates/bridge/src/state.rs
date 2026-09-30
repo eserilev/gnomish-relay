@@ -25,7 +25,7 @@ const MAX_FILE: u64 = 16 * 1024 * 1024;
 pub struct State {
     #[serde(flatten)]
     pub lane: LaneState,
-    /// The messages that wait for a run, in queue order.
+    /// The messages that wait for a run, oldest first.
     pub waiting: Vec<Job>,
     pub history: History,
     pub restore_for: Option<String>,

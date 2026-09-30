@@ -49,6 +49,22 @@ pub fn level_line(level: Permission, asked: Permission) -> String {
     }
 }
 
+/// Only the bridge writes a line with this start (SPEC.md 8.2).
+const WAITING: &str = "Waiting: ";
+
+/// The line of a message that waits for the limit on parallel runs.
+pub fn waiting_line(running: usize, ahead: usize) -> String {
+    let chats = if running == 1 {
+        "1 other chat is running".to_owned()
+    } else {
+        format!("{running} other chats are running")
+    };
+    if ahead == 0 {
+        return format!("{WAITING}{chats}");
+    }
+    format!("{WAITING}{chats}, {ahead} ahead of this one")
+}
+
 struct Asked {
     request: String,
     chat: ChatId,
@@ -80,7 +96,7 @@ impl Activity {
 
     /// An agent line never looks like a line of the bridge.
     pub fn step(&mut self, chat: &ChatId, id: MessageId, line: String) {
-        let bridge_like = [LEVEL, NOTICE]
+        let bridge_like = [LEVEL, NOTICE, WAITING]
             .iter()
             .any(|p| line.starts_with(p.trim_end()));
         let line = if bridge_like {
@@ -91,6 +107,17 @@ impl Activity {
         let steps = self.steps_of(chat, id);
         steps.lines.push(line);
         steps.trim();
+    }
+
+    /// A message that waits for a free run has this one line. Returns true when the
+    /// line changed, so the bridge publishes only then.
+    pub fn wait(&mut self, chat: &ChatId, id: MessageId, line: String) -> bool {
+        let steps = self.steps_of(chat, id);
+        if steps.lines == [line.as_str()] {
+            return false;
+        }
+        steps.lines = vec![line];
+        true
     }
 
     /// The desktop request of a run opened or ended (SPEC.md 6.6.3).
@@ -460,6 +487,47 @@ mod tests {
         let file = String::from_utf8(activity.file(&no_notices())).unwrap();
         assert!(
             file.contains(r#"lines = {"agent: Desktop: approved a1b2c3d4e5f6 dialog", }"#),
+            "{file}"
+        );
+    }
+
+    #[test]
+    fn the_waiting_line_names_the_running_chats_and_the_messages_ahead() {
+        assert_eq!(waiting_line(1, 0), "Waiting: 1 other chat is running");
+        assert_eq!(waiting_line(3, 0), "Waiting: 3 other chats are running");
+        assert_eq!(
+            waiting_line(3, 2),
+            "Waiting: 3 other chats are running, 2 ahead of this one"
+        );
+    }
+
+    #[test]
+    fn a_waiting_line_is_the_only_line_of_its_message_and_reports_a_change() {
+        let mut activity = Activity::default();
+
+        let first = activity.wait(&chat(), MessageId(7), waiting_line(3, 0));
+        let again = activity.wait(&chat(), MessageId(7), waiting_line(3, 0));
+        let changed = activity.wait(&chat(), MessageId(7), waiting_line(3, 1));
+
+        assert_eq!((first, again, changed), (true, false, true));
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
+        assert!(
+            file.contains(
+                r#"lines = {"Waiting: 3 other chats are running, 1 ahead of this one", }"#
+            ),
+            "{file}"
+        );
+    }
+
+    #[test]
+    fn an_agent_line_that_starts_with_waiting_gets_a_prefix() {
+        let mut activity = Activity::default();
+
+        activity.step(&chat(), MessageId(7), "Waiting: 9 other chats".into());
+
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
+        assert!(
+            file.contains(r#"lines = {"agent: Waiting: 9 other chats", }"#),
             "{file}"
         );
     }

@@ -121,6 +121,8 @@ pub struct RelayConfig {
     pub agents: BTreeMap<String, AgentSpec>,
     pub timeout: Duration,
     pub permission_timeout: Duration,
+    /// Messages over this limit wait for their turn (SPEC.md 8.2).
+    pub max_parallel_runs: usize,
     /// Commands that run from the game with no question (SPEC.md 12).
     pub allow: AllowTable,
     /// The hosts that commands reach through the proxy of the sandbox (SPEC.md 6.6.4).
@@ -204,6 +206,7 @@ struct File {
     default_agent: Option<String>,
     timeout_minutes: Option<u64>,
     permission_timeout_minutes: Option<u64>,
+    max_parallel_runs: Option<usize>,
     wow: Wow,
     agents: Option<BTreeMap<String, Agent>>,
     allow: Option<AllowFile>,
@@ -422,6 +425,8 @@ struct Agent {
 const DEFAULT_TIMEOUT_MINUTES: u64 = 30;
 const MAX_TIMEOUT_MINUTES: u64 = 240;
 const DEFAULT_PERMISSION_MINUTES: u64 = 10;
+pub const DEFAULT_MAX_PARALLEL_RUNS: usize = 3;
+const MAX_PARALLEL_RUNS: usize = 16;
 const MAX_PERMISSION_MINUTES: u64 = 60;
 
 fn minutes(value: Option<u64>, default: u64, max: u64, key: &str) -> Result<Duration> {
@@ -591,6 +596,7 @@ fn no_relay_keys(file: &File) -> Result<()> {
             "permission_timeout_minutes",
             file.permission_timeout_minutes.is_some(),
         ),
+        ("max_parallel_runs", file.max_parallel_runs.is_some()),
         ("[agents]", file.agents.is_some()),
         ("[allow]", file.allow.is_some()),
         ("[sandbox]", file.sandbox.is_some()),
@@ -634,6 +640,10 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         MAX_PERMISSION_MINUTES,
         "permission_timeout_minutes",
     )?;
+    let max_parallel_runs = file.max_parallel_runs.unwrap_or(DEFAULT_MAX_PARALLEL_RUNS);
+    if !(1..=MAX_PARALLEL_RUNS).contains(&max_parallel_runs) {
+        bail!("max_parallel_runs must be 1 to {MAX_PARALLEL_RUNS}");
+    }
     let default_agent = file
         .default_agent
         .context("allowed_roots needs default_agent")?;
@@ -665,6 +675,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         agents,
         timeout,
         permission_timeout,
+        max_parallel_runs,
         allow,
         hosts,
         local_ports,
@@ -1161,6 +1172,36 @@ mod tests {
         );
         assert!(home.parse(&with(0)).is_err());
         assert!(home.parse(&with(241)).is_err());
+    }
+
+    #[test]
+    fn max_parallel_runs_is_three_by_default_and_one_to_sixteen() {
+        let home = Home::new();
+        let with = |runs: u64| {
+            GOOD.replace(
+                "default_agent",
+                &format!("max_parallel_runs = {runs}\ndefault_agent"),
+            )
+        };
+        let runs = |text: &str| home.parse(text).unwrap().relay.unwrap().max_parallel_runs;
+
+        assert_eq!(runs(GOOD), 3);
+        assert_eq!(runs(&with(1)), 1);
+        assert_eq!(runs(&with(16)), 16);
+        assert!(home.parse(&with(0)).is_err());
+        assert!(home.parse(&with(17)).is_err());
+    }
+
+    #[test]
+    fn max_parallel_runs_needs_allowed_roots() {
+        let home = Home::new();
+
+        let error = home
+            .parse("max_parallel_runs = 2\n[wow]\npath = \"~/wow\"\n")
+            .err()
+            .unwrap();
+
+        assert_eq!(error.to_string(), "max_parallel_runs needs allowed_roots");
     }
 
     #[test]

@@ -3,9 +3,9 @@
 
 use anyhow::Result;
 
-use crate::agent::{self, Agents};
+use crate::agent;
 use crate::app_files::private_game_paths;
-use crate::config::{self, Policy, RelayConfig, StoryConfig};
+use crate::config::{self, RelayConfig, StoryConfig};
 use crate::desktop::Prompt;
 use crate::dirs::Dirs;
 use crate::fs_safe::make_private_dir;
@@ -15,7 +15,7 @@ use crate::install;
 use crate::lock;
 use crate::raise::Raiser;
 use crate::receive::{KeySet, RELAY_KEY_FILE};
-use crate::run::{Paths, run};
+use crate::run::{Paths, RelayParts, run};
 use crate::settings_list::BridgeSettings;
 use crate::setup;
 use crate::story::StorySpec;
@@ -57,7 +57,7 @@ pub fn start_relay(
     relay: RelayConfig,
     story: Option<&StoryConfig>,
     paths: &Paths,
-) -> Result<(Policy, Agents, Raiser, BridgeSettings)> {
+) -> Result<RelayParts> {
     let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
         println!("Updated the Gnomish Relay addon. Type /reload in WoW");
@@ -91,7 +91,13 @@ pub fn start_relay(
     settings.rules.store = gate.always.clone();
     let var = |name: &str| std::env::var_os(name).map(std::path::PathBuf::from);
     settings.hooks = files_for_bridge(&dirs.home, &dirs.data, &var);
-    Ok((relay.policy, agents, raiser, settings))
+    Ok(RelayParts {
+        policy: relay.policy,
+        agents,
+        raiser,
+        settings,
+        max_parallel_runs: relay.max_parallel_runs,
+    })
 }
 
 fn story_spec(dirs: &Dirs, story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
@@ -130,8 +136,7 @@ mod tests {
             config: dirs.config.clone(),
         };
 
-        let (policy, _, raiser, _) =
-            start_relay(&dirs, config.relay.unwrap(), None, &paths).unwrap();
+        let parts = start_relay(&dirs, config.relay.unwrap(), None, &paths).unwrap();
 
         assert!(
             paths
@@ -140,7 +145,8 @@ mod tests {
                 .join(install::KEY_FILE)
                 .is_file()
         );
-        assert_eq!(policy.default_agent, "echo");
-        assert!(raiser.free_commands.is_empty());
+        assert_eq!(parts.policy.default_agent, "echo");
+        assert!(parts.raiser.free_commands.is_empty());
+        assert_eq!(parts.max_parallel_runs, 3);
     }
 }

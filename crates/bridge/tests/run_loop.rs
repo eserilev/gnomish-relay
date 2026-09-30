@@ -529,6 +529,35 @@ fn a_run_shows_its_level_as_its_first_progress_line() {
     assert!(shown, "{}", live_text(&f.addons));
 }
 
+#[test]
+fn a_message_over_the_parallel_limit_waits_and_says_so_in_the_game() {
+    let f = folders();
+    let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut bridge = bridge_with(&f, Arc::new(Held(release.clone()))).with_max_runs(1);
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "", "first"),
+    )
+    .unwrap();
+    assert!(step_until(&mut bridge, || live_text(&f.addons)
+        .contains("Level: auto-edit")));
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        chat_strip("c2", 8, "", "second"),
+    )
+    .unwrap();
+    let waits = step_until(&mut bridge, || {
+        live_text(&f.addons).contains(r#"id = 8, lines = {"Waiting: 1 other chat is running", }"#)
+    });
+    release.store(true, Ordering::SeqCst);
+
+    assert!(waits, "{}", live_text(&f.addons));
+    assert!(step_until(&mut bridge, || {
+        slot_body(&f.addons).contains("id = 8, status = \"done\"")
+    }));
+}
+
 /// An agent with saved sessions, or one whose list fails.
 struct Sessions(Result<Vec<bridge::agent::SessionInfo>, String>);
 
