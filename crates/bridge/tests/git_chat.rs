@@ -602,10 +602,8 @@ fn checks_that_are_off_say_how_to_turn_them_on() {
 
 #[cfg(unix)]
 fn fake_gh(w: &World, answer: &str) -> PathBuf {
-    use std::os::unix::fs::PermissionsExt;
     let gh = w.data.join("gh");
-    fs::write(&gh, format!("#!/bin/sh\n{answer}\n")).unwrap();
-    fs::set_permissions(&gh, fs::Permissions::from_mode(0o755)).unwrap();
+    bridge::fake_program::write(&gh, &format!("#!/bin/sh\n{answer}\n")).unwrap();
     gh
 }
 

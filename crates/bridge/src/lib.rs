@@ -33,6 +33,8 @@ pub mod daily_usage;
 pub mod desktop;
 pub mod dialog;
 pub mod dirs;
+#[cfg(unix)]
+pub mod fake_program;
 pub mod fixture;
 pub mod flags;
 pub mod folder_list;
