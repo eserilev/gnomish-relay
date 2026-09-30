@@ -923,6 +923,7 @@ The rendered text goes into the normal `text` field, so S9, S18, and S20 do not 
 | `c` | One line of a code fence (```` ``` ```` or `~~~`). A tab becomes 4 spaces. | text |
 | `t` | Table row. The delimiter row (`\|---\|`) shows nothing. | `1` for the row above a delimiter row, else `0`, then one field per cell |
 | `r` | Rule (`---`, `***`, `___`) | none |
+| `u` | The usage of the run (9.10): one grey line below the reply. Only the bridge writes it, as the first block after the marker, so a cut never drops it. | the line, for example `1.2k in · 350 out · $0.04` |
 
 **Text rules:**
 
@@ -1137,6 +1138,7 @@ The bridge keeps its state in JSON files in the data folder of the OS:
 - `state.json`: the replay store, the unread records, the waiting messages, the slot window of each token, the tokens, the account folder of each token, and the restore history (7.6).
 - `timeways/state.json`: the lane of Timeways (9.7), only with a Timeways key. Later also agent session IDs per chat, the folder of each session, and signal counters.
 - `timeways/story/`: the folder of the story program (9.8). Only the story program writes there, and the bridge never reads it.
+- `usage.json`: the tokens and the cost of each of the last 31 days (9.10).
 - Planned, not built: `transcripts.json`, with every prompt and reply of each chat: 200 messages per chat, 4000 characters each. Today `state.json` keeps only the short history of the restore bundle (7.6).
 
 Rules:
@@ -1719,6 +1721,37 @@ parent \t name \t mark
 
 **The browser** is in 13.1.
 
+### 9.10 Cost and usage
+
+Agents cost money, and a player in the game cannot see a bill. So the bridge records the tokens of each run, and its cost when the agent gives it (asked for by the user on 2026-09-29).
+
+**What each agent reports.** Checked against Claude Code 2.1.285 and codex-cli 0.157.0 (`codex app-server generate-json-schema`).
+
+| Agent | Where | Tokens | Cost |
+|---|---|---|---|
+| `claude` | The `result` message at the end of the turn: `usage` and `total_cost_usd`. | In: `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`. Out: `output_tokens`. Cached: `cache_read_input_tokens`. | `total_cost_usd` |
+| `codex` | The `thread/tokenUsage/updated` notification, after each model call of the turn. `tokenUsage.total` counts the whole thread, and `tokenUsage.last` the last call. | The turn is the newest `total` less the `total` before the first call of the turn (the first `total` less its `last`). In: `inputTokens`, which holds the cached ones. Out: `outputTokens`. Cached: `cachedInputTokens`. | none |
+| `acp`, `command`, `echo` | none | none | none |
+
+- A run with no report records nothing and shows nothing. So does an attach (9.6): it calls no model.
+- A number that is missing, negative, or not a number counts as 0. A cost that is not a finite number of at least 0 counts as no cost.
+
+**In the game.** A `done` reply with a report carries the line of block `u` (7.3.1), for example "1.2k in · 350 out · $0.04". Codex gives no cost, so its line is "1.2k in · 350 out". The addon shows the line in grey below the reply, and never in the whisper line.
+
+- A count below 1000 shows as it is. Up to 999,999 it shows in thousands with one decimal ("1.2k", and "12k" from 10,000). From a million it shows in millions ("1.2M").
+- A cost shows with two decimals ("$0.04"). A cost above 0 and below one cent shows as "<$0.01".
+- An error reply shows no line, but its report still counts for the day.
+
+**The total for today.** The bridge adds each report to the total of its day, in `usage.json` in the data folder, with mode 0600. A day is the UTC date, because the bridge has no time zone database. The file keeps the last 31 days. A damaged file logs one line and starts a new one: the total only informs, and a lost total never runs a message twice.
+
+- The settings list (13.4) carries the total for today, and the cap when the config sets one. The Settings tab shows "Today (UTC): 12k in · 4.1k out · $1.20", and " · limit $5.00" with a cap.
+
+**The daily cap.** `daily_cost_cap_usd` in the config (12) is off by default. When the cost of today reaches the cap, a new message does not start its agent. Its reply is the error "Not started: today's agent cost reached your $5.00 limit. It resets at 00:00 UTC, or raise daily_cost_cap_usd in config.toml on your desktop."
+
+- The check comes when the message would start. A run in progress goes on past the cap: a stop in the middle of a task leaves half-changed files.
+- Only a cost counts. Codex reports no cost, so its runs never raise the total. The cap still stops a Codex message when the cost of other agents reached it.
+- A list and an attach never call a model, so the cap never stops them.
+
 ## 10. Notifications from terminal sessions
 
 **Status: built (2026-09-29).** The pure parts in `protocol` with their proofs: `notice.rs` (S40), `sessions.rs` (S41), and the notices of `live.rs` (S20 restated). In the bridge: the `hook` subcommand (`hook.rs`, `hook_input.rs`), the spool folder (`spool.rs`), the session table (`terminal_sessions.rs`), and `hooks install` (`hooks_merge.rs`, `hooks_install.rs`). In the addon: `Notices.lua`, `NoticeFrames.lua`, and the Settings and Diag parts. The fuzz targets `hook_input`, `notice_file`, and `hooks_merge`, and `crates/bridge/tests/notices_e2e.rs`. The build checked the design against Claude Code 2.1.285 and codex-cli 0.157.0 (2026-09-29), and changed the lines that real use showed wrong. Each change says "Changed in the build" and why.
@@ -2015,7 +2048,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -2047,7 +2080,7 @@ local_model = "llama3.2"
 - A model name has no space and does not start with `-`, because `claude_model` goes into an argument of `claude`.
 - The model route takes nothing from `[agents.*]`: `model = "claude"` always runs `claude` from `PATH`, with the environment allowlist of 6.2 and no `env` list (9.7, decision 10).
 
-**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `[agents]`, `[allow]`, and `[sandbox]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
+**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[agents]`, `[allow]`, and `[sandbox]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
 
 ```toml
 [wow]
@@ -2093,7 +2126,7 @@ agent_network = "open"         # "strict": the agent reaches only its model host
 - Only the desktop changes `config.toml` (6.6.2), so no message from the game adds a host.
 
 The other keys below come with their features. One key is planned and not in the config yet: `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses it, so the example leaves it out. A test loads this example, so the example and the loader never differ.
-`max_parallel_runs` is 1 to 16 (8.2).
+`max_parallel_runs` is 1 to 16 (8.2). `daily_cost_cap_usd` is a number of US dollars above 0 and at most 10000 (9.10). With no key, there is no cap.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
 ```toml
@@ -2102,6 +2135,7 @@ allowed_roots = ["~/Documents/Code"]
 timeout_minutes = 30
 permission_timeout_minutes = 10
 max_parallel_runs = 3         # runs over the limit wait for their turn (8.2)
+daily_cost_cap_usd = 5.0      # optional; no new run after $5 of agent cost in a UTC day (9.10)
 default_agent = "claude"
 
 [wow]
@@ -2149,6 +2183,7 @@ The mockup is the reference for the layout.
   - Headings, paragraphs, list items, and quotes go into one SimpleHTML frame, with real sizes for `h1` to `h3`, and a bullet or the number before each item.
   - Code shows in a black box in the shipped mono font (13.2).
   - A table is a grid of font strings with a gold header row. A table with more than 8 columns, or too wide for the transcript, shows each row as a card: the first cell in gold, and each other cell below it with the name of its column.
+  - The usage line (9.10) shows in grey below the last block.
   - If anything fails while a reply draws, it shows as plain text.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Errors:** an error comes from the relay, not from the agent. So it shows as a grey line `[Relay]: Not sent.`, never under the name of the agent. Below it, a blue "Resend" link sends the message again. Before a `/reload`, the addon still holds the text in its private table, so Resend signs it and sends it at once. After a `/reload`, only the saved variables hold the text, and the addon never signs that text (6.6.1). So Resend then puts the text in the input with the focus, and Enter sends it.
@@ -2160,11 +2195,12 @@ The mockup is the reference for the layout.
   - **Appearance:** Font size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply whisper: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center, at its first size (900 × 560).
   - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the banners, the bell, and the faster polls of 10.4, and greys the other two rows. Finished tasks, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Banner (default on).
   - **Always allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
-  - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "Not loaded yet". A click asks for a new list.
+  - At the bottom left, the usage of today (9.10): "Today (UTC): 12k in · 4.1k out · $1.20", with " · limit $5.00" when the config sets a cap. With no usage today, the line is empty.
+  - At the bottom right, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "Not loaded yet". A click asks for a new list.
 - **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, the limit on parallel runs, and the sandbox. With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
 - **Key binding:** `Bindings.xml` adds "Toggle window" under "Gnomish Relay" in the Key Bindings menu of the game. It calls the global `GnomishRelay_Toggle`.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
-- **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A notification of a terminal session gets its own line with a bell (10.4).
+- **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. The usage line (9.10) never shows there. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A notification of a terminal session gets its own line with a bell (10.4).
 - **Permission requests** use the separate popup of 6.4, never the window. A desktop request has no popup: an Activity row and one whisper line (6.6.3).
 
 ### 13.2 Code
@@ -2296,6 +2332,8 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 | `agent` | `name \t kind \t level`: one line for each agent. The level is the level of the config now, so a raise on the desktop (9.3) shows at the next list. |
 | `timeout_minutes`, `permission_timeout_minutes` | The two timeouts. |
 | `max_parallel_runs` | The limit on parallel runs (8.2). |
+| `usage_today` | The tokens and the cost of today, as the usage line of 9.10 shows them. Only after the first report of the day. |
+| `daily_cost_cap_usd` | The cap, with two decimals. Only when the config sets one. |
 | `story_model` | Only with `[story]`: `none`, `claude`, `claude <model>`, or `local <model>`. The address of a local model stays on the desktop. |
 | `story_budget_window_minutes` | Only with `[story]`. |
 | `rule` | `id \t folder \t pattern \t days`: one "Always allow" rule (6.6.5), with the days since its last use. |
