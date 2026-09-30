@@ -311,7 +311,7 @@ fn each_line_becomes_a_clean_progress_line_and_the_output_is_the_reply() {
         reply.ends_with("reading main.rs\n100%\nediting main.rs\ndone: ok"),
         "{reply}"
     );
-    assert_eq!(run.session.as_deref(), Some(RAN_BEFORE));
+    assert_eq!(run.session, Some(RAN_BEFORE.into()));
 }
 
 #[test]

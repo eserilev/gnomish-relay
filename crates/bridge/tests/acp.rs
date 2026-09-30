@@ -7,7 +7,7 @@ use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
 use bridge::acp::AcpAgent;
-use bridge::agent::{Agent, Control, Event, Events, StopSignal};
+use bridge::agent::{Agent, Control, Event, Events, SessionId, StopSignal};
 use bridge::config::Permission;
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Open, Session, Work};
@@ -58,7 +58,7 @@ fn run(agent: &AcpAgent, permission: Permission, text: &str) -> Result<String, S
         .reply
 }
 
-fn resume(script: &str) -> (Result<String, String>, Option<String>) {
+fn resume(script: &str) -> (Result<String, String>, Option<SessionId>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "again");
     job.resume = Some("old-7".into());
@@ -181,14 +181,14 @@ fn check_shows_the_agent_and_its_modes() {
 fn a_new_session_comes_back_so_the_next_message_can_resume_it() {
     let dir = tempfile::tempdir().unwrap();
     let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &Control::default());
-    assert_eq!(run.session.as_deref(), Some("s1"));
+    assert_eq!(run.session, Some("s1".into()));
 }
 
 #[test]
 fn an_agent_with_session_resume_continues_the_old_session() {
     let (reply, session) = resume("resume");
     assert_eq!(reply.unwrap(), "in old-7, resumed old-7 by session/resume");
-    assert_eq!(session.as_deref(), Some("old-7"));
+    assert_eq!(session, Some("old-7".into()));
 }
 
 #[test]
@@ -203,7 +203,7 @@ fn an_agent_that_cannot_resume_gets_a_new_session_and_the_reply_says_so() {
     let reply = reply.unwrap();
     assert!(reply.starts_with("(New session:"), "{reply}");
     assert!(reply.ends_with("in s1, resumed no"), "{reply}");
-    assert_eq!(session.as_deref(), Some("s1"));
+    assert_eq!(session, Some("s1".into()));
 }
 
 #[test]
@@ -222,7 +222,7 @@ fn stop_cancels_the_turn_and_keeps_the_session() {
     };
     let run = agent("slow").run(&job(&dir, Permission::Ask, "hi"), &control);
     assert_eq!(run.reply.unwrap_err(), "Stopped.");
-    assert_eq!(run.session.as_deref(), Some("s1"));
+    assert_eq!(run.session, Some("s1".into()));
     assert!(start.elapsed() < Duration::from_secs(5));
 }
 
@@ -353,7 +353,7 @@ fn an_acp_read_of_the_strip_key_is_refused_with_no_popup() {
     );
 }
 
-fn attach(script: &str, open: Open) -> (Result<String, String>, Option<String>) {
+fn attach(script: &str, open: Open) -> (Result<String, String>, Option<SessionId>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "");
     job.work = Work::Attach {
@@ -390,25 +390,21 @@ fn an_agent_with_no_list_has_no_sessions() {
 fn an_attach_returns_the_last_exchange_of_the_session() {
     let (reply, session) = attach("sessions", Open::Same);
     assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
-    assert_eq!(session.as_deref(), Some("a1"));
+    assert_eq!(session, Some("a1".into()));
 }
 
 #[test]
 fn an_attach_with_fork_continues_a_copy() {
     let (reply, session) = attach("sessions", Open::Fork);
     assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
-    assert_eq!(session.as_deref(), Some("fork-of-a1"));
+    assert_eq!(session, Some("fork-of-a1".into()));
 }
 
 #[test]
 fn an_attach_to_an_agent_with_no_load_keeps_the_session_and_shows_nothing() {
     let (reply, session) = attach("reply", Open::Fork);
     assert_eq!(reply.unwrap(), "");
-    assert_eq!(
-        session.as_deref(),
-        Some("a1"),
-        "no fork, so the same session"
-    );
+    assert_eq!(session, Some("a1".into()), "no fork, so the same session");
 }
 
 /// A live run against `claude-agent-acp` on `PATH`. `GNOMISH_LIVE_SESSION` names a
@@ -431,7 +427,7 @@ fn live_claude_lists_and_replays_sessions() {
     let mut job = job(&tempfile::tempdir().unwrap(), Permission::Ask, "");
     job.cwd.clone_from(&session.cwd);
     job.work = Work::Attach {
-        session: id,
+        session: id.into(),
         open: Open::Same,
     };
     let run = claude.run(&job, &Control::default());

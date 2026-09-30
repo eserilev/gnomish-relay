@@ -13,8 +13,8 @@ use protocol::live::OptionKind;
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
-    exchange_text,
+    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionId,
+    SessionInfo, exchange_text,
 };
 use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
 use crate::config::{Kind, Permission};
@@ -45,13 +45,16 @@ impl Agent for AcpAgent {
         let mut session = None;
         let reply = match &job.work {
             Work::Attach { session: id, open } => {
-                self.attach(job, control, id, *open, &mut session)
+                self.attach(job, control, id.as_str(), *open, &mut session)
             }
             Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
                 self.run_in_session(job, control, &mut session)
             }
         };
-        Run { reply, session }
+        Run {
+            reply,
+            session: session.map(SessionId::from),
+        }
     }
 
     fn sessions(&self, cwd: &str) -> Result<Vec<SessionInfo>, String> {
@@ -96,7 +99,7 @@ impl AcpAgent {
         let mut agent = Connection::start(self, &job.cwd, control.clone())?;
         agent.agent.clone_from(&job.agent);
         let init = agent.initialize()?;
-        let (session, note) = agent.open_session(&init, &job.cwd, job.resume.as_deref())?;
+        let (session, note) = agent.open_session(&init, &job.cwd, job.resume_id())?;
         *session_id = Some(session.id.clone());
         if let Some(mode) = self.modes.get(&job.permission) {
             agent.set_mode(&session.id, mode, &session.modes)?;

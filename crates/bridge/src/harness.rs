@@ -10,7 +10,7 @@ use std::time::Duration;
 
 use protocol::connect::Mode;
 
-use crate::agent::{Agent, Control, Event, MAX_REPLY, MAX_STEP, Report, Run};
+use crate::agent::{Agent, Control, Event, MAX_REPLY, MAX_STEP, Report, Run, SessionId};
 use crate::agent_wall::{scan_sockets, with_notes};
 use crate::allow_hosts::{Defaults, HostList};
 use crate::command_sandbox::{
@@ -79,7 +79,7 @@ impl Agent for CommandAgent {
                 self.prompt(job, control)
             }
         };
-        let session = reply.is_ok().then(|| RAN_BEFORE.to_owned());
+        let session = reply.is_ok().then(|| SessionId::from(RAN_BEFORE));
         Run {
             reply,
             session: session.or_else(|| job.resume.clone()),

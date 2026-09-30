@@ -15,7 +15,7 @@ use protocol::slot::Status;
 use serde::{Deserialize, Serialize};
 
 use crate::activity::{self, Activity};
-use crate::agent::{Choice, SessionInfo};
+use crate::agent::{Choice, SessionId, SessionInfo};
 use crate::always_rules::RuleLine;
 use crate::config::{Permission, Policy};
 use crate::desktop::Notice;
@@ -53,7 +53,7 @@ pub struct AgentSession {
     pub chat: ChatId,
     pub agent: String,
     pub cwd: String,
-    pub id: String,
+    pub id: SessionId,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
@@ -75,7 +75,7 @@ pub enum Work {
     ListSettings,
     /// A new chat continues this session.
     Attach {
-        session: String,
+        session: SessionId,
         #[serde(rename = "fork")]
         open: Open,
     },
@@ -108,7 +108,7 @@ impl From<Open> for bool {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Listed {
     agent: String,
-    id: String,
+    id: SessionId,
     /// The folder in the form that jobs use.
     cwd: String,
     /// The folder relative to the base, as the game sends it back.
@@ -140,13 +140,19 @@ pub struct Job {
     pub session: Session,
     /// The agent session to resume, set when the job starts.
     #[serde(default)]
-    pub resume: Option<String>,
+    pub resume: Option<SessionId>,
     pub text: String,
     #[serde(default)]
     pub work: Work,
     /// The bridge makes the last part of `cwd` before the run (SPEC.md 9.9).
     #[serde(default)]
     pub new_folder: bool,
+}
+
+impl Job {
+    pub fn resume_id(&self) -> Option<&str> {
+        self.resume.as_ref().map(SessionId::as_str)
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -491,7 +497,12 @@ impl Relay {
     }
 
     fn attach(&mut self, r: &Record, chat: ChatId, session: &str, now: u32) -> Outcome {
-        let Some(listed) = self.listed.iter().find(|l| l.id == session).cloned() else {
+        let Some(listed) = self
+            .listed
+            .iter()
+            .find(|l| l.id.as_str() == session)
+            .cloned()
+        else {
             return self.refuse(r, &chat, NO_SESSION.into(), Outcome::BadSession);
         };
         self.enqueue_job(Job {
@@ -619,7 +630,7 @@ impl Relay {
         std::mem::take(&mut self.interrupts)
     }
 
-    pub fn keep_session(&mut self, job: &Job, id: Option<String>) {
+    pub fn keep_session(&mut self, job: &Job, id: Option<SessionId>) {
         let Some(id) = id else {
             return;
         };
@@ -747,7 +758,7 @@ impl Relay {
         let resolved = in_roots(folders, std::path::Path::new(&info.cwd))?;
         Some(Listed {
             agent,
-            id: info.id,
+            id: SessionId::from(info.id),
             folder: text(&relative_folder(&folders.base, &resolved)),
             cwd: text(&native_folder(resolved, cfg!(windows))),
             title: info.title,
@@ -769,7 +780,7 @@ impl Relay {
                 .unwrap_or("");
             let fields = [
                 l.agent.clone(),
-                l.id.clone(),
+                l.id.to_string(),
                 age.to_string(),
                 if age < ACTIVE_FOR { "1" } else { "0" }.to_owned(),
                 chat.map_or(String::new(), |s| s.chat.to_string()),
@@ -1273,7 +1284,7 @@ mod tests {
         let mut relay = relay();
         first_run(&mut relay);
         relay.on_frame(&[record("c1", 2, "", "b")], NOW);
-        assert_eq!(relay.next_job().unwrap().resume.as_deref(), Some("s9"));
+        assert_eq!(relay.next_job().unwrap().resume_id(), Some("s9"));
     }
 
     #[test]
@@ -1287,7 +1298,7 @@ mod tests {
 
         let mut restarted = restart(&relay);
         restarted.on_frame(&[record("c1", 4, "", "after restart")], NOW);
-        assert_eq!(restarted.next_job().unwrap().resume.as_deref(), Some("s9"));
+        assert_eq!(restarted.next_job().unwrap().resume_id(), Some("s9"));
     }
 
     #[test]
@@ -1469,7 +1480,7 @@ mod tests {
 
         let next = relay.next_job().unwrap();
         assert_eq!(next.id, MessageId(2));
-        assert_eq!(next.resume.as_deref(), Some("s1"));
+        assert_eq!(next.resume_id(), Some("s1"));
     }
 
     #[test]
@@ -1705,7 +1716,7 @@ mod tests {
 
         relay.on_frame(&[record_in("app", "c9", 3, "agent=codex", "go on")], NOW);
         let next = relay.next_job().unwrap();
-        assert_eq!(next.resume.as_deref(), Some("s1"));
+        assert_eq!(next.resume_id(), Some("s1"));
     }
 
     #[test]

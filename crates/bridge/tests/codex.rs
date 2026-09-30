@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
+use bridge::agent::{Agent, Control, Event, Events, Question, SessionId, StopSignal};
 use bridge::codex::CodexAgent;
 use bridge::config::Permission;
 use bridge::gate::Gate;
@@ -57,7 +57,7 @@ fn run(codex: &CodexAgent, permission: Permission) -> Result<String, String> {
         .reply
 }
 
-fn resume(script: &str) -> (Result<String, String>, Option<String>) {
+fn resume(script: &str) -> (Result<String, String>, Option<SessionId>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "again");
     job.resume = Some("old-7".into());
@@ -100,14 +100,14 @@ fn ask_runs_in_the_read_only_sandbox_and_asks_for_every_untrusted_command() {
 fn a_new_thread_comes_back_so_the_next_message_can_resume_it() {
     let dir = tempfile::tempdir().unwrap();
     let run = agent("reply").run(&job(&dir, Permission::Ask, "hi"), &Control::default());
-    assert_eq!(run.session.as_deref(), Some("t1"));
+    assert_eq!(run.session, Some("t1".into()));
 }
 
 #[test]
 fn a_saved_thread_resumes() {
     let (reply, session) = resume("reply");
     assert!(reply.unwrap().contains("[resumed old-7 "));
-    assert_eq!(session.as_deref(), Some("old-7"));
+    assert_eq!(session, Some("old-7".into()));
 }
 
 #[test]
@@ -115,7 +115,7 @@ fn a_thread_that_cannot_resume_starts_again_and_the_reply_says_so() {
     let (reply, session) = resume("noresume");
     let reply = reply.unwrap();
     assert!(reply.starts_with("(New session:"), "{reply}");
-    assert_eq!(session.as_deref(), Some("t1"));
+    assert_eq!(session, Some("t1".into()));
 }
 
 #[test]
@@ -182,7 +182,7 @@ fn stop_interrupts_the_turn_and_keeps_the_thread() {
     let start = Instant::now();
     let run = agent("slow").run(&job(&dir, Permission::Ask, "hi"), &control);
     assert_eq!(run.reply.unwrap_err(), "Stopped.");
-    assert_eq!(run.session.as_deref(), Some("t1"));
+    assert_eq!(run.session, Some("t1".into()));
     assert!(start.elapsed() < Duration::from_secs(5));
 }
 
@@ -363,7 +363,7 @@ fn a_change_outside_the_chat_folder_waits_for_the_desktop() {
     assert_eq!(inside, "change accept");
 }
 
-fn attach(open: Open) -> (Result<String, String>, Option<String>) {
+fn attach(open: Open) -> (Result<String, String>, Option<SessionId>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "");
     job.work = Work::Attach {
@@ -378,14 +378,14 @@ fn attach(open: Open) -> (Result<String, String>, Option<String>) {
 fn an_attach_returns_the_last_exchange_of_the_thread() {
     let (reply, session) = attach(Open::Same);
     assert_eq!(reply.unwrap(), "fix the bugs\nLooking.\n\nAll fixed.");
-    assert_eq!(session.as_deref(), Some("a1"));
+    assert_eq!(session, Some("a1".into()));
 }
 
 #[test]
 fn an_attach_with_fork_continues_a_copy() {
     let (reply, session) = attach(Open::Fork);
     assert_eq!(reply.unwrap(), "fix the bugs\nLooking.\n\nAll fixed.");
-    assert_eq!(session.as_deref(), Some("fork-of-a1"));
+    assert_eq!(session, Some("fork-of-a1".into()));
 }
 
 #[test]
@@ -437,7 +437,7 @@ fn live_codex_answers_lists_forks_and_resumes() {
     let thread = run.session.unwrap();
     let sessions = codex.sessions(&home).unwrap();
     assert!(
-        sessions.iter().any(|s| s.id == thread),
+        sessions.iter().any(|s| s.id == thread.as_str()),
         "the new thread is in the list"
     );
     let mut attach = job(&dir, Permission::Ask, "");

@@ -9,7 +9,7 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
+use bridge::agent::{Agent, Control, Event, Events, Question, SessionId, StopSignal};
 use bridge::claude::ClaudeAgent;
 use bridge::config::Permission;
 use bridge::gate::Gate;
@@ -130,7 +130,7 @@ fn a_new_session_comes_back_so_the_next_message_can_resume_it() {
     let dir = tempfile::tempdir().unwrap();
     let run =
         agent("reply", dir.path()).run(&job(&dir, Permission::Ask, "hi"), &Control::default());
-    assert_eq!(run.session.as_deref(), Some("s1"));
+    assert_eq!(run.session, Some("s1".into()));
 }
 
 #[test]
@@ -141,7 +141,7 @@ fn a_saved_session_resumes_with_its_id() {
     job.resume = Some(OLD.into());
     let run = agent("reply", dir.path()).run(&job, &Control::default());
     assert!(run.reply.unwrap().contains(&format!("resume={OLD}")));
-    assert_eq!(run.session.as_deref(), Some(OLD));
+    assert_eq!(run.session, Some(OLD.into()));
 }
 
 #[test]
@@ -153,7 +153,7 @@ fn a_session_with_no_file_starts_again_and_the_reply_says_so() {
     let reply = run.reply.unwrap();
     assert!(reply.starts_with("(New session:"), "{reply}");
     assert!(reply.contains("resume=none"), "{reply}");
-    assert_eq!(run.session.as_deref(), Some("s1"));
+    assert_eq!(run.session, Some("s1".into()));
 }
 
 #[test]
@@ -264,7 +264,7 @@ fn stop_interrupts_the_turn_and_keeps_the_session() {
     let start = Instant::now();
     let run = agent("slow", dir.path()).run(&job(&dir, Permission::Ask, "hi"), &control);
     assert_eq!(run.reply.unwrap_err(), "Stopped.");
-    assert_eq!(run.session.as_deref(), Some("s1"));
+    assert_eq!(run.session, Some("s1".into()));
     assert!(start.elapsed() < Duration::from_secs(5));
 }
 
@@ -375,7 +375,7 @@ fn an_unanswered_question_is_denied_after_the_permission_timeout() {
     assert!(start.elapsed() < Duration::from_secs(5));
 }
 
-fn attach(projects: &Path, id: &str, open: Open) -> (Result<String, String>, Option<String>) {
+fn attach(projects: &Path, id: &str, open: Open) -> (Result<String, String>, Option<SessionId>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "");
     job.work = Work::Attach {
@@ -392,7 +392,7 @@ fn an_attach_reads_the_last_exchange_with_no_process() {
     saved_session(projects.path(), OLD);
     let (reply, session) = attach(projects.path(), OLD, Open::Same);
     assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
-    assert_eq!(session.as_deref(), Some(OLD));
+    assert_eq!(session, Some(OLD.into()));
 }
 
 #[test]
@@ -401,7 +401,7 @@ fn an_attach_with_fork_continues_a_new_copy_next_to_the_old_file() {
     saved_session(projects.path(), OLD);
     let (reply, session) = attach(projects.path(), OLD, Open::Fork);
     let copy = session.unwrap();
-    assert_ne!(copy, OLD);
+    assert_ne!(copy.as_str(), OLD);
     assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
     let copied =
         fs::read_to_string(projects.path().join("-w-app").join(format!("{copy}.jsonl"))).unwrap();
@@ -464,7 +464,7 @@ fn live_claude_answers_lists_forks_and_resumes() {
     let session = run.session.unwrap();
     let sessions = claude.sessions(&home).unwrap();
     assert!(
-        sessions.iter().any(|s| s.id == session),
+        sessions.iter().any(|s| s.id == session.as_str()),
         "the new session is in the list"
     );
     let mut attach = job(&dir, Permission::Ask, "");

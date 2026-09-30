@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo,
-    exchange_text,
+    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionId,
+    SessionInfo, exchange_text,
 };
 use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
 use crate::config::{Kind, Permission};
@@ -88,12 +88,17 @@ impl Agent for CodexAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         let mut session = None;
         let reply = match &job.work {
-            Work::Attach { session: id, open } => self.attach(job, id, *open, &mut session),
+            Work::Attach { session: id, open } => {
+                self.attach(job, id.as_str(), *open, &mut session)
+            }
             Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
                 self.prompt(job, control, &mut session)
             }
         };
-        Run { reply, session }
+        Run {
+            reply,
+            session: session.map(SessionId::from),
+        }
     }
 
     /// Threads of the terminal, the IDE, `codex exec`, and the bridge itself.
@@ -119,7 +124,7 @@ impl CodexAgent {
         codex.permission = job.permission;
         codex.agent.clone_from(&job.agent);
         codex.initialize()?;
-        let (thread, note) = codex.open_thread(&job.cwd, job.resume.as_deref(), job.permission)?;
+        let (thread, note) = codex.open_thread(&job.cwd, job.resume_id(), job.permission)?;
         *session = Some(thread.clone());
         let reply = codex.turn(&thread, &job.text)?;
         let notes: Vec<&str> = note.into_iter().chain(self.wall.notice()).collect();

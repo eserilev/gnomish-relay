@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Control, Events, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionInfo, StopSignal,
+    Agent, Control, Events, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionId, SessionInfo,
+    StopSignal,
 };
 use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
 use crate::claude_sessions;
@@ -82,7 +83,7 @@ fn default_mode(level: Permission) -> &'static str {
 impl Agent for ClaudeAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         match &job.work {
-            Work::Attach { session, open } => self.attach(session, *open),
+            Work::Attach { session, open } => self.attach(session.as_str(), *open),
             Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
                 self.prompt(job, control)
             }
@@ -111,7 +112,7 @@ impl ClaudeAgent {
         match session {
             Ok(session) => Run {
                 reply: claude_sessions::read_last_exchange(&path),
-                session: Some(session),
+                session: Some(SessionId::from(session)),
             },
             Err(e) => Run {
                 reply: Err(e),
@@ -131,7 +132,7 @@ impl ClaudeAgent {
         &self,
         job: &Job,
         control: &Control,
-        session: &mut Option<String>,
+        session: &mut Option<SessionId>,
     ) -> Result<String, String> {
         let (resume, note) = self.resumable(job);
         let mut walls = self.walls(&job.cwd, &format!("chat {}", job.chat))?;
@@ -149,7 +150,7 @@ impl ClaudeAgent {
         let mut stream = self.stream(process, job, control, walls);
         stream.session = resume.map(str::to_owned);
         let reply = stream.talk(&job.text);
-        *session = stream.session.take();
+        *session = stream.session.take().map(SessionId::from);
         // The agent must end before the check of the files that it made.
         drop(stream);
         let made = wall
@@ -166,7 +167,7 @@ impl ClaudeAgent {
 
     /// A session with no file cannot resume, so the run starts a new one and says so.
     fn resumable<'a>(&self, job: &'a Job) -> (Option<&'a str>, Option<&'static str>) {
-        match job.resume.as_deref() {
+        match job.resume_id() {
             Some(id) if claude_sessions::find(&self.projects, id).is_some() => (Some(id), None),
             Some(_) => (None, Some(NEW_SESSION)),
             None => (None, None),

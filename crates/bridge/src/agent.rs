@@ -8,6 +8,7 @@ use std::sync::mpsc::Sender;
 use std::time::Duration;
 
 use protocol::live::OptionKind;
+use serde::{Deserialize, Serialize};
 
 use crate::acp::AcpAgent;
 use crate::claude::ClaudeAgent;
@@ -152,13 +153,41 @@ pub struct Control {
     pub events: Events,
 }
 
+/// The id of an agent session, as the agent names it.
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub struct SessionId(String);
+
+impl SessionId {
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl From<String> for SessionId {
+    fn from(id: String) -> SessionId {
+        SessionId(id)
+    }
+}
+
+impl From<&str> for SessionId {
+    fn from(id: &str) -> SessionId {
+        SessionId(id.to_owned())
+    }
+}
+
+impl std::fmt::Display for SessionId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// The end of one run.
 pub struct Run {
     /// The final reply, or an error text for the user.
     pub reply: Result<String, String>,
     /// The agent session, so the next message of the chat can resume it. A failed
     /// run can have one too.
-    pub session: Option<String>,
+    pub session: Option<SessionId>,
 }
 
 /// One session of an agent, from `session/list`.

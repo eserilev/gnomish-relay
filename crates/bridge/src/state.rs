@@ -136,7 +136,7 @@ mod tests {
         assert_eq!(state.lane.retired, ["gone"]);
         assert_eq!(state.lane.client_build.as_deref(), Some("70009"));
         assert_eq!(state.restore_for.as_deref(), Some("new"));
-        assert_eq!(state.sessions[0].id, "s1");
+        assert_eq!(state.sessions[0].id.as_str(), "s1");
         save(dir.path(), &state).unwrap();
         let again: serde_json::Value =
             serde_json::from_slice(&fs::read(dir.path().join(FILE)).unwrap()).unwrap();
