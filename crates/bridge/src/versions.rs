@@ -4,17 +4,14 @@
 use protocol::apps::App;
 use protocol::version::VersionFit;
 
+use crate::relay_addon::UPDATE_ADDON;
 use crate::story::{UPDATE_BRIDGE, UPDATE_TIMEWAYS};
-
-/// The bridge writes the relay addon again at each start, so an old relay addon only
-/// means that the game did not reload.
-pub const RELOAD_RELAY: &str = "Type /reload to load the new version of Gnomish Relay.";
 
 pub fn update_text(app: App, fit: VersionFit) -> Option<&'static str> {
     match (app, fit) {
         (_, VersionFit::Supported) => None,
         (_, VersionFit::TooNew) => Some(UPDATE_BRIDGE),
-        (App::Relay, VersionFit::TooOld) => Some(RELOAD_RELAY),
+        (App::Relay, VersionFit::TooOld) => Some(UPDATE_ADDON),
         (App::Timeways, VersionFit::TooOld) => Some(UPDATE_TIMEWAYS),
     }
 }
@@ -42,14 +39,14 @@ mod tests {
     }
 
     #[test]
-    fn an_older_timeways_asks_to_update_timeways_and_an_older_relay_asks_for_a_reload() {
+    fn an_older_addon_of_either_app_asks_for_its_update() {
         assert_eq!(
             update_text(App::Timeways, VersionFit::TooOld),
             Some(UPDATE_TIMEWAYS)
         );
         assert_eq!(
             update_text(App::Relay, VersionFit::TooOld),
-            Some(RELOAD_RELAY)
+            Some("Update Gnomish Relay in the CurseForge app, then restart WoW.")
         );
     }
 }

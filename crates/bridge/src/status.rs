@@ -15,6 +15,7 @@ use crate::gate::{Gate, Places};
 use crate::install;
 use crate::lock::{self, Bridge};
 use crate::program::find_program;
+use crate::relay_addon;
 use crate::story_sandbox::Sandbox;
 
 /// In the data folder. The bridge writes the time of each strip that it takes.
@@ -41,6 +42,8 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let gate = Gate::new(relay, places, Prompt::Off);
     lines.push(sandbox_line(&SandboxFound::of(&gate.sandbox.tool, path)));
     lines.push(agent_line(relay, &gate));
+    let addons = install::addons_dir(&config.wow);
+    lines.push(relay_addon::status_line(relay_addon::find(&addons)));
     lines.extend(default_agent_off_service_path(relay, places));
     lines
 }
