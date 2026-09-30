@@ -13,6 +13,7 @@ use bridge::command_sandbox;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::config_text::RelayPart;
 use bridge::desktop::{self, Approvals, Prompt};
+use bridge::dirs::Dirs;
 #[cfg(unix)]
 use bridge::forward;
 use bridge::fs_safe::write_atomic;
@@ -54,50 +55,8 @@ usage:
   gnomish-relay selftest collect [folder] [--out <repo>]
                                      copy the results of the self-test addon into the repo (developers)";
 
-const APP: &str = "gnomish-relay";
-
-fn var(name: &str) -> Option<PathBuf> {
-    std::env::var_os(name).map(PathBuf::from)
-}
-
-fn home_dir() -> Result<PathBuf> {
-    var("HOME")
-        .or_else(|| var("USERPROFILE"))
-        .context("HOME is not set")
-}
-
-/// The config folder of the OS. It holds `config.toml`, `strip.key`, and `timeways.key`.
-fn config_dir() -> Result<PathBuf> {
-    let dir = if cfg!(windows) {
-        var("APPDATA").context("APPDATA is not set")?
-    } else if cfg!(target_os = "macos") {
-        home_dir()?.join("Library").join("Application Support")
-    } else {
-        match var("XDG_CONFIG_HOME") {
-            Some(dir) => dir,
-            None => home_dir()?.join(".config"),
-        }
-    };
-    Ok(dir.join(APP))
-}
-
-/// The data folder of the OS, for `state.json` (SPEC.md 8.3).
-fn data_dir() -> Result<PathBuf> {
-    let dir = if cfg!(windows) {
-        var("LOCALAPPDATA").context("LOCALAPPDATA is not set")?
-    } else if cfg!(target_os = "macos") {
-        home_dir()?.join("Library").join("Application Support")
-    } else {
-        match var("XDG_DATA_HOME") {
-            Some(dir) => dir,
-            None => home_dir()?.join(".local").join("share"),
-        }
-    };
-    Ok(dir.join(APP))
-}
-
-fn load_config() -> Result<Config> {
-    config::load(&config_dir()?, &home_dir()?)
+fn load_config(dirs: &Dirs) -> Result<Config> {
+    config::load(&dirs.config, &dirs.home)
 }
 
 fn addons_dir(wow: &Path) -> PathBuf {
@@ -105,11 +64,11 @@ fn addons_dir(wow: &Path) -> PathBuf {
 }
 
 /// The game folder: the one given, the one found, or the answer to a question.
-fn pick_game(given: Option<&str>) -> Result<PathBuf> {
+fn pick_game(dirs: &Dirs, given: Option<&str>) -> Result<PathBuf> {
     if let Some(folder) = given {
         return Ok(install::game_folder(folder));
     }
-    let games = install::find_games(&home_dir()?);
+    let games = install::find_games(&dirs.home);
     if let [game] = games.as_slice() {
         return Ok(game.clone());
     }
@@ -141,7 +100,7 @@ fn command(program: &str, args: &[&str]) -> Result<()> {
 }
 
 /// Starts the bridge at each login, and now (SPEC.md 11.3).
-fn autostart() -> Result<()> {
+fn autostart(dirs: &Dirs) -> Result<()> {
     let exe = std::env::current_exe()?;
     if cfg!(windows) {
         // The Run key of the user needs no admin rights, unlike a scheduled task.
@@ -160,12 +119,12 @@ fn autostart() -> Result<()> {
                 "/f",
             ],
         )?;
-        restart_process(&exe)?;
+        restart_process(dirs, &exe)?;
     } else if cfg!(target_os = "macos") {
-        let log = load_launchd_agent(&exe)?;
+        let log = load_launchd_agent(dirs, &exe)?;
         println!("logs: {}", log.display());
     } else {
-        write_systemd_unit(&exe)?;
+        write_systemd_unit(dirs, &exe)?;
         command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
         command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
         println!("logs: journalctl --user -u gnomish-relay");
@@ -175,9 +134,9 @@ fn autostart() -> Result<()> {
 
 /// A service starts with almost no `PATH`, so it gets the one of this shell, and finds
 /// the agents that the shell finds.
-fn write_systemd_unit(exe: &Path) -> Result<()> {
+fn write_systemd_unit(dirs: &Dirs, exe: &Path) -> Result<()> {
     let path_var = std::env::var("PATH").unwrap_or_default();
-    let dir = systemd_dir()?;
+    let dir = systemd_dir(dirs)?;
     std::fs::create_dir_all(&dir)?;
     write_atomic(
         &dir,
@@ -188,12 +147,12 @@ fn write_systemd_unit(exe: &Path) -> Result<()> {
 }
 
 /// Writes the launchd agent with the `PATH` of this shell, and starts it. Returns its log.
-fn load_launchd_agent(exe: &Path) -> Result<PathBuf> {
+fn load_launchd_agent(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
     let path_var = std::env::var("PATH").unwrap_or_default();
-    let dir = launch_agents_dir()?;
+    let dir = launch_agents_dir(dirs);
     std::fs::create_dir_all(&dir)?;
     let name = format!("{}.plist", install::LAUNCHD_LABEL);
-    let log = launchd_log()?;
+    let log = launchd_log(dirs);
     write_atomic(
         &dir,
         &name,
@@ -206,16 +165,17 @@ fn load_launchd_agent(exe: &Path) -> Result<PathBuf> {
     Ok(log)
 }
 
-fn systemd_dir() -> Result<PathBuf> {
-    Ok(config_dir()?
+fn systemd_dir(dirs: &Dirs) -> Result<PathBuf> {
+    Ok(dirs
+        .config
         .parent()
         .context("no config folder")?
         .join("systemd")
         .join("user"))
 }
 
-fn launch_agents_dir() -> Result<PathBuf> {
-    Ok(home_dir()?.join("Library").join("LaunchAgents"))
+fn launch_agents_dir(dirs: &Dirs) -> PathBuf {
+    dirs.home.join("Library").join("LaunchAgents")
 }
 
 fn launchd_domain() -> Result<String> {
@@ -232,42 +192,42 @@ enum BridgeLog {
 /// Restarts the bridge through the login service of setup, or as a process with no
 /// service. `exe` is the program to start: after an update, `current_exe` names the
 /// old file.
-fn restart(exe: &Path) -> Result<()> {
+fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
     // A service restart succeeds even when the new bridge stops at once on a bad config.
-    load_config().context(
+    load_config(dirs).context(
         "the bridge cannot start with this config.toml. Fix it, then run: gnomish-relay restart",
     )?;
-    let log = restart_service(exe)?;
-    confirm_start(&log)
+    let log = restart_service(dirs, exe)?;
+    confirm_start(dirs, &log)
 }
 
-fn restart_service(exe: &Path) -> Result<BridgeLog> {
-    if cfg!(target_os = "linux") && systemd_dir()?.join(SYSTEMD_UNIT).is_file() {
-        write_systemd_unit(exe)?;
+fn restart_service(dirs: &Dirs, exe: &Path) -> Result<BridgeLog> {
+    if cfg!(target_os = "linux") && systemd_dir(dirs)?.join(SYSTEMD_UNIT).is_file() {
+        write_systemd_unit(dirs, exe)?;
         command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
         return Ok(BridgeLog::Journal);
     }
-    let plist = launch_agents_dir()?.join(format!("{}.plist", install::LAUNCHD_LABEL));
+    let plist = launch_agents_dir(dirs).join(format!("{}.plist", install::LAUNCHD_LABEL));
     if cfg!(target_os = "macos") && plist.is_file() {
-        return load_launchd_agent(exe).map(BridgeLog::File);
+        return load_launchd_agent(dirs, exe).map(BridgeLog::File);
     }
-    restart_process(exe).map(BridgeLog::File)
+    restart_process(dirs, exe).map(BridgeLog::File)
 }
 
-fn launchd_log() -> Result<PathBuf> {
-    Ok(home_dir()?
+fn launchd_log(dirs: &Dirs) -> PathBuf {
+    dirs.home
         .join("Library")
         .join("Logs")
-        .join("gnomish-relay.log"))
+        .join("gnomish-relay.log")
 }
 
 /// A bridge that stops at start holds the lock only for a moment, so the check waits a
 /// second after the lock and looks again.
-fn confirm_start(log: &BridgeLog) -> Result<()> {
-    let data = data_dir()?;
-    let runs = lock::wait_until_runs(&data, std::time::Duration::from_secs(10))? && {
+fn confirm_start(dirs: &Dirs, log: &BridgeLog) -> Result<()> {
+    let data = &dirs.data;
+    let runs = lock::wait_until_runs(data, std::time::Duration::from_secs(10))? && {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        lock::status(&data)? != Bridge::Stopped
+        lock::status(data)? != Bridge::Stopped
     };
     if runs {
         println!("the bridge runs");
@@ -308,20 +268,20 @@ fn last_log_line(log: &BridgeLog) -> Option<String> {
 
 /// A bridge that runs with no service gets stopped, and then `exe` starts in the
 /// background. Returns the log file.
-fn restart_process(exe: &Path) -> Result<PathBuf> {
-    let data = data_dir()?;
-    bridge::fs_safe::make_private_dir(&data)?;
-    match lock::status(&data)? {
+fn restart_process(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
+    let data = &dirs.data;
+    bridge::fs_safe::make_private_dir(data)?;
+    match lock::status(data)? {
         Bridge::Stopped => {}
         Bridge::Runs(None) => {
             bail!("a bridge runs, but its process id is unknown. Stop it by hand")
         }
         Bridge::Runs(Some(pid)) => stop_process(pid)?,
     }
-    if !lock::wait_until_stopped(&data, std::time::Duration::from_secs(10))? {
+    if !lock::wait_until_stopped(data, std::time::Duration::from_secs(10))? {
         bail!("the bridge does not stop");
     }
-    let log = start_background(exe)?;
+    let log = start_background(dirs, exe)?;
     println!("logs: {}", log.display());
     Ok(log)
 }
@@ -336,11 +296,11 @@ fn stop_process(pid: u32) -> Result<()> {
     }
 }
 
-fn self_update() -> Result<()> {
+fn self_update(dirs: &Dirs) -> Result<()> {
     let name = update::archive_name().context("there is no release build for this OS and CPU")?;
     let base = std::env::var("GNOMISH_URL").unwrap_or_else(|_| update::RELEASES.to_owned());
     let exe = std::env::current_exe()?;
-    let work = data_dir()?.join("update");
+    let work = dirs.data.join("update");
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work)?;
     let replaced = update::fetch(&base, name, &work).and_then(|new| update::replace(&exe, &new));
@@ -350,7 +310,7 @@ fn self_update() -> Result<()> {
         return Ok(());
     }
     println!("updated {}", exe.display());
-    restart(&exe)?;
+    restart(dirs, &exe)?;
     println!("type /reload in the game");
     Ok(())
 }
@@ -360,10 +320,9 @@ const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const MAX_LOG: u64 = 4 * 1024 * 1024;
 
 /// Starts `run` as a new process with no console window, and its log in a file.
-fn start_background(exe: &Path) -> Result<PathBuf> {
-    let dir = data_dir()?;
-    bridge::fs_safe::make_private_dir(&dir)?;
-    let log_path = dir.join("bridge.log");
+fn start_background(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
+    bridge::fs_safe::make_private_dir(&dirs.data)?;
+    let log_path = dirs.data.join("bridge.log");
     let start = if std::fs::metadata(&log_path).is_ok_and(|m| m.len() > MAX_LOG) {
         LogStart::Fresh
     } else {
@@ -446,7 +405,7 @@ fn option<'a>(args: &[&'a str], name: &str) -> Option<&'a str> {
 }
 
 /// Every step leaves alone what works, so a second run is safe (SPEC.md 11.3).
-fn setup(args: &[&str]) -> Result<()> {
+fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     let keys = if args.contains(&"--new-key") {
         KeyChoice::New
     } else {
@@ -457,7 +416,7 @@ fn setup(args: &[&str]) -> Result<()> {
         .iter()
         .copied()
         .find(|a| !a.starts_with("--") && Some(*a) != roots_given);
-    let wow = pick_game(folder)?;
+    let wow = pick_game(dirs, folder)?;
     if !wow.is_dir() {
         bail!("{} is not a folder", wow.display());
     }
@@ -466,9 +425,8 @@ fn setup(args: &[&str]) -> Result<()> {
     std::fs::create_dir_all(&addons)
         .with_context(|| format!("cannot make {}", addons.display()))?;
     println!("WoW: {}", wow.display());
-    let dir = config_dir()?;
-    let existing = match std::fs::read_to_string(dir.join(config::FILE)) {
-        Ok(text) => Some((text, load_config()?)),
+    let existing = match std::fs::read_to_string(dirs.config.join(config::FILE)) {
+        Ok(text) => Some((text, load_config(dirs)?)),
         Err(_) => None,
     };
     let timeways = install::timeways_dir(&addons).is_some();
@@ -483,15 +441,15 @@ fn setup(args: &[&str]) -> Result<()> {
         setup::RelayChoice::Ask => ask_relay()?,
     };
     let folders = setup::Folders {
-        config: dir.clone(),
+        config: dirs.config.clone(),
         addons,
     };
     // The addon and the slots first: they need nothing else, and a later step can fail.
     let changed = setup::install_files(&folders, relay, keys)?;
-    let config = setup_config(&dir, &wow, existing.as_ref(), relay, timeways, roots_given)?;
-    print_setup(&config, relay, timeways);
+    let config = setup_config(dirs, &wow, existing.as_ref(), relay, timeways, roots_given)?;
+    print_setup(dirs, &config, relay, timeways);
     if args.contains(&"--autostart") {
-        match autostart() {
+        match autostart(dirs) {
             Ok(()) => println!("Bridge: on, starts at login"),
             Err(e) => println!("Bridge: not started at login ({e:#}). Run: gnomish-relay run"),
         }
@@ -516,7 +474,7 @@ fn ask_relay() -> Result<setup::Relay> {
 /// Writes the first config, or adds the part that it lacks: the relay with `--relay`,
 /// and `[story]` when the Timeways addon is there.
 fn setup_config(
-    dir: &Path,
+    dirs: &Dirs,
     wow: &Path,
     existing: Option<&(String, Config)>,
     relay: setup::Relay,
@@ -528,7 +486,7 @@ fn setup_config(
     let lacks_story = existing.is_none_or(|(_, c)| c.story.is_none());
     let agents = install::find_agents(&path_var);
     let roots = if relay == setup::Relay::On && lacks_relay {
-        choose_roots(&home_dir()?, roots_given)?
+        choose_roots(&dirs.home, roots_given)?
     } else {
         Vec::new()
     };
@@ -559,8 +517,8 @@ fn setup_config(
     };
     let text = existing.map(|(text, _)| text.as_str());
     let config = match setup::config_text(text, &parts) {
-        Some(new) => setup::write_config(dir, &new, &home_dir()?)?,
-        None => load_config()?,
+        Some(new) => setup::write_config(&dirs.config, &new, &dirs.home)?,
+        None => load_config(dirs)?,
     };
     let added = config.relay.as_ref().map(|relay| &relay.agents);
     for (name, _, _) in &new_agents {
@@ -588,18 +546,14 @@ fn choose_harnesses(path_var: &std::ffi::OsStr) -> Result<Vec<&'static str>> {
     Ok(chosen)
 }
 
-fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {
+fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay, timeways: bool) {
     match &config.relay {
         Some(relay_config) => {
-            for line in relay_lines(relay_config) {
+            for line in relay_lines(dirs, relay_config) {
                 println!("{line}");
             }
-            if let Ok(dir) = config_dir() {
-                println!(
-                    "{}",
-                    setup::level_line(relay_config, &dir.join(config::FILE))
-                );
-            }
+            let config_file = dirs.config.join(config::FILE);
+            println!("{}", setup::level_line(relay_config, &config_file));
         }
         None if relay == setup::Relay::Off => {
             println!("Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay");
@@ -612,11 +566,8 @@ fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {
 }
 
 /// The agent and the sandbox, which setup checks by starting them.
-fn relay_lines(config: &RelayConfig) -> Vec<String> {
-    let gate = match check_gate(config) {
-        Ok(gate) => gate,
-        Err(e) => return vec![format!("Agent: not checked: {e:#}")],
-    };
+fn relay_lines(dirs: &Dirs, config: &RelayConfig) -> Vec<String> {
+    let gate = check_gate(dirs, config);
     let path = std::env::var_os("PATH").unwrap_or_default();
     let sandbox = SandboxFound::of(&gate.sandbox.tool, &path);
     vec![
@@ -661,7 +612,7 @@ fn body(replies: &[Reply]) -> Vec<u8> {
     slot_body(App::Relay, now(), &prepare_replies(replies))
 }
 
-fn say(chat: &str, id: &str, text: &str) -> Result<()> {
+fn say(dirs: &Dirs, chat: &str, id: &str, text: &str) -> Result<()> {
     let reply = Reply {
         chat: chat.as_bytes().to_vec(),
         id: id.parse().context("the message id is a number")?,
@@ -675,7 +626,7 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
             .context("GNOMISH_NEXT_SLOT is not a slot number")?,
         Err(_) => 1,
     };
-    let config = load_config()?;
+    let config = load_config(dirs)?;
     config.require_relay()?;
     let addons = addons_dir(&config.wow);
     let files = Files {
@@ -692,7 +643,7 @@ fn say(chat: &str, id: &str, text: &str) -> Result<()> {
 
 /// `selftest collect [folder] [--out <repo>]`. It needs no config and no key, so it
 /// finds the game as setup does.
-fn selftest_collect(args: &[&str]) -> Result<()> {
+fn selftest_collect(dirs: &Dirs, args: &[&str]) -> Result<()> {
     let (game, out) = match args {
         [] => (None, None),
         ["--out", out] => (None, Some(*out)),
@@ -707,7 +658,7 @@ fn selftest_collect(args: &[&str]) -> Result<()> {
     if !repo.join("addon").join("GnomishRelaySelfTest").is_dir() {
         bail!("run this in the gnomish-relay repo, or give --out <repo>");
     }
-    let collected = selftest::collect(&pick_game(game)?, &repo)?;
+    let collected = selftest::collect(&pick_game(dirs, game)?, &repo)?;
     println!("wrote {}", collected.fixture.display());
     println!(
         "wrote {} golden vectors to tests/vectors/{}",
@@ -720,8 +671,8 @@ fn selftest_collect(args: &[&str]) -> Result<()> {
     Ok(())
 }
 
-fn install() -> Result<()> {
-    let config = load_config()?;
+fn install(dirs: &Dirs) -> Result<()> {
+    let config = load_config(dirs)?;
     let dir = addons_dir(&config.wow);
     let relay = match config.relay {
         Some(_) => setup::Relay::On,
@@ -737,32 +688,31 @@ fn install() -> Result<()> {
     Ok(())
 }
 
-fn start() -> Result<()> {
-    let config = load_config()?;
-    let state = data_dir()?;
+fn start(dirs: &Dirs) -> Result<()> {
+    let config = load_config(dirs)?;
+    let state = dirs.data.clone();
     bridge::fs_safe::make_private_dir(&state)?;
     let _lock = lock::take(&state)?;
     let paths = Paths {
         state,
-        config: config_dir()?,
+        config: dirs.config.clone(),
         screenshots: config.wow.join("Screenshots"),
         accounts: config.wow.join("WTF").join("Account"),
         addons: addons_dir(&config.wow),
     };
     // Equal keys, or a `timeways.key` that does not load, stop the bridge here.
-    let keys = KeySet::load(&config_dir()?)?;
+    let keys = KeySet::load(&dirs.config)?;
     // Only `Key.lua`, never another file of the Timeways addon (SPEC.md 9.7, decision 15).
-    if setup::repair_timeways_key(&config_dir()?, &paths.addons)?
-        == Some(install::Installed::Updated)
+    if setup::repair_timeways_key(&dirs.config, &paths.addons)? == Some(install::Installed::Updated)
     {
         println!("wrote the Timeways key again: type /reload in the game");
     }
     let relay = match config.relay {
-        Some(relay) => Some(start_relay(relay, config.story.as_ref(), &paths)?),
+        Some(relay) => Some(start_relay(dirs, relay, config.story.as_ref(), &paths)?),
         None => None,
     };
     let story = match &config.story {
-        Some(story) => story_spec(story, &paths)?,
+        Some(story) => story_spec(dirs, story, &paths)?,
         None => None,
     };
     run(paths, relay, keys, story)
@@ -770,18 +720,19 @@ fn start() -> Result<()> {
 
 /// An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
 fn start_relay(
+    dirs: &Dirs,
     relay: RelayConfig,
     story: Option<&StoryConfig>,
     paths: &Paths,
 ) -> Result<(Policy, Agents, Raiser, BridgeSettings)> {
-    let hex = std::fs::read_to_string(config_dir()?.join(RELAY_KEY_FILE))?;
+    let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
         println!("wrote the addon files again: type /reload in the game");
     }
     let places = Places {
-        config_dir: &config_dir()?,
+        config_dir: &dirs.config,
         data_dir: &paths.state,
-        home: &home_dir()?,
+        home: &dirs.home,
     };
     let mut gate = Gate::new(&relay, &places, Prompt::Dialog);
     let private = private_game_paths(&paths.addons, &paths.accounts, &paths.screenshots);
@@ -793,8 +744,8 @@ fn start_relay(
     let agents = agent::from_config(&relay, &gate);
     let raiser = Raiser {
         approvals: gate.approvals.clone(),
-        config_dir: config_dir()?,
-        home: home_dir()?,
+        config_dir: dirs.config.clone(),
+        home: dirs.home.clone(),
         permission_timeout: relay.permission_timeout,
         free_commands: relay
             .agents
@@ -803,13 +754,13 @@ fn start_relay(
             .map(|(name, _)| name.clone())
             .collect(),
     };
-    let mut settings = BridgeSettings::from_config(&relay, story, Some(&home_dir()?), sandbox);
+    let mut settings = BridgeSettings::from_config(&relay, story, Some(&dirs.home), sandbox);
     settings.rules.store = gate.always.clone();
     Ok((relay.policy, agents, raiser, settings))
 }
 
-fn story_spec(story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
-    let spec = StorySpec::from_config(story, &config_dir()?, &paths.state, &home_dir()?)?;
+fn story_spec(dirs: &Dirs, story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
+    let spec = StorySpec::from_config(story, &dirs.config, &paths.state, &dirs.home)?;
     if spec.is_none() {
         eprintln!("timeways: [story] has no program, so the story program does not start");
     }
@@ -817,20 +768,20 @@ fn story_spec(story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
 }
 
 /// A check sends no prompt, so no tool call reaches this gate.
-fn check_gate(config: &RelayConfig) -> Result<Gate> {
+fn check_gate(dirs: &Dirs, config: &RelayConfig) -> Gate {
     let places = Places {
-        config_dir: &config_dir()?,
-        data_dir: &data_dir()?,
-        home: &home_dir()?,
+        config_dir: &dirs.config,
+        data_dir: &dirs.data,
+        home: &dirs.home,
     };
-    Ok(Gate::new(config, &places, Prompt::Off))
+    Gate::new(config, &places, Prompt::Off)
 }
 
-fn print_status() -> Result<()> {
+fn print_status(dirs: &Dirs) -> Result<()> {
     let places = Places {
-        config_dir: &config_dir()?,
-        data_dir: &data_dir()?,
-        home: &home_dir()?,
+        config_dir: &dirs.config,
+        data_dir: &dirs.data,
+        home: &dirs.home,
     };
     std::fs::create_dir_all(places.data_dir)?;
     let path = std::env::var_os("PATH").unwrap_or_default();
@@ -840,13 +791,13 @@ fn print_status() -> Result<()> {
     Ok(())
 }
 
-fn approvals() -> Result<Approvals> {
-    Ok(Approvals::new(&data_dir()?, Prompt::Off))
+fn approvals(dirs: &Dirs) -> Approvals {
+    Approvals::new(&dirs.data, Prompt::Off)
 }
 
 /// Lists the tool calls that wait for the desktop (SPEC.md 6.6.3).
-fn list_approvals() -> Result<()> {
-    let pending = approvals()?.list();
+fn list_approvals(dirs: &Dirs) {
+    let pending = approvals(dirs).list();
     if pending.is_empty() {
         println!("no tool call waits for the desktop");
     }
@@ -860,18 +811,17 @@ fn list_approvals() -> Result<()> {
             println!("    {line}");
         }
     }
-    Ok(())
 }
 
-fn answer_approval(id: &str, verdict: desktop::Verdict) -> Result<()> {
-    approvals()?.answer(id, verdict)?;
+fn answer_approval(dirs: &Dirs, id: &str, verdict: desktop::Verdict) -> Result<()> {
+    approvals(dirs).answer(id, verdict)?;
     println!("answered {id}");
     Ok(())
 }
 
 /// Lists the "Always allow" rules from the game (SPEC.md 6.6.5).
-fn list_rules() -> Result<()> {
-    let rules = AlwaysRules::new(&data_dir()?).list(now());
+fn list_rules(dirs: &Dirs) {
+    let rules = AlwaysRules::new(&dirs.data).list(now());
     if rules.is_empty() {
         println!("no Always allow rules");
     }
@@ -888,11 +838,10 @@ fn list_rules() -> Result<()> {
             r.folder.display()
         );
     }
-    Ok(())
 }
 
-fn remove_rule(id: &str) -> Result<()> {
-    if !AlwaysRules::new(&data_dir()?).remove(id, now())? {
+fn remove_rule(dirs: &Dirs, id: &str) -> Result<()> {
+    if !AlwaysRules::new(&dirs.data).remove(id, now())? {
         bail!("no rule has the id {id}. Run: gnomish-relay rules");
     }
     println!("removed {id}");
@@ -901,15 +850,15 @@ fn remove_rule(id: &str) -> Result<()> {
 
 /// Starts one agent of the config and opens a session in the default folder, with
 /// no prompt. It shows that a new `[agents.<name>]` entry works.
-fn check_agent(name: &str) -> Result<()> {
-    let config = load_config()?;
+fn check_agent(dirs: &Dirs, name: &str) -> Result<()> {
+    let config = load_config(dirs)?;
     let config = config.require_relay()?;
     let spec = config
         .agents
         .get(name)
         .with_context(|| format!("the config has no [agents.{name}]"))?;
     let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    let report = agent::check(name, spec, &cwd, &check_gate(config)?)
+    let report = agent::check(name, spec, &cwd, &check_gate(dirs, config))
         .with_context(|| format!("[agents.{name}] is the echo agent: it starts nothing"))?
         .map_err(anyhow::Error::msg)?;
     println!("{name}: {} {}", report.name, report.version);
@@ -928,7 +877,7 @@ fn check_agent(name: &str) -> Result<()> {
     for line in &report.details {
         println!("{line}");
     }
-    let service = install::service_file(&config_dir()?, &home_dir()?)
+    let service = install::service_file(&dirs.config, &dirs.home)
         .and_then(|file| std::fs::read_to_string(file).ok())
         .and_then(|text| install::service_path_var(&text));
     let missing = spec
@@ -967,25 +916,31 @@ fn main() -> Result<()> {
             println!("{USAGE}");
             Ok(())
         }
-        ["setup", ref rest @ ..] => setup(rest),
-        ["install"] => install(),
-        ["run"] => start(),
+        ["setup", ref rest @ ..] => setup(&Dirs::from_env()?, rest),
+        ["install"] => install(&Dirs::from_env()?),
+        ["run"] => start(&Dirs::from_env()?),
         ["run", "--background"] => {
-            let log = start_background(&std::env::current_exe()?)?;
+            let log = start_background(&Dirs::from_env()?, &std::env::current_exe()?)?;
             println!("the bridge runs, and logs to {}", log.display());
             Ok(())
         }
-        ["restart"] => restart(&std::env::current_exe()?),
-        ["status"] => print_status(),
-        ["update"] => self_update(),
-        ["check-agent", name] => check_agent(name),
-        ["approve"] => list_approvals(),
-        ["approve", id] => answer_approval(id, desktop::Verdict::Approve),
-        ["deny", id] => answer_approval(id, desktop::Verdict::Deny),
-        ["rules"] => list_rules(),
-        ["rules", "remove", id] => remove_rule(id),
-        ["say", chat, id, text] => say(chat, id, text),
-        ["selftest", "collect", ref rest @ ..] => selftest_collect(rest),
+        ["restart"] => restart(&Dirs::from_env()?, &std::env::current_exe()?),
+        ["status"] => print_status(&Dirs::from_env()?),
+        ["update"] => self_update(&Dirs::from_env()?),
+        ["check-agent", name] => check_agent(&Dirs::from_env()?, name),
+        ["approve"] => {
+            list_approvals(&Dirs::from_env()?);
+            Ok(())
+        }
+        ["approve", id] => answer_approval(&Dirs::from_env()?, id, desktop::Verdict::Approve),
+        ["deny", id] => answer_approval(&Dirs::from_env()?, id, desktop::Verdict::Deny),
+        ["rules"] => {
+            list_rules(&Dirs::from_env()?);
+            Ok(())
+        }
+        ["rules", "remove", id] => remove_rule(&Dirs::from_env()?, id),
+        ["say", chat, id, text] => say(&Dirs::from_env()?, chat, id, text),
+        ["selftest", "collect", ref rest @ ..] => selftest_collect(&Dirs::from_env()?, rest),
         [command_sandbox::RUN_FLAG, command] => {
             std::process::exit(command_sandbox::run_wrapped(command))
         }
