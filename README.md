@@ -221,7 +221,7 @@ Once, before the first upload:
 1. The CurseForge project exists: its Project ID is 1719624.
 2. The ID is in the `## X-Curse-Project-ID` line of `addon/GnomishRelay/GnomishRelay.toc`.
    A repository variable `CURSEFORGE_PROJECT_ID` on GitHub overrides it.
-3. At <https://authors.curseforge.com/account/api-tokens>, make an API token. Add it on
+3. At <https://authors.curseforge.com/#/settings/api-tokens>, make an API token. Add it on
    GitHub as the repository secret `CF_API_KEY`.
 4. Put the link of the project in step 1 of Install.
 
