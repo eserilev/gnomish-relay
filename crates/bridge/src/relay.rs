@@ -710,13 +710,20 @@ impl Relay {
         self.history.remove(&chat);
         self.own_branch.remove(&chat);
         self.changes.retain(|c| c.chat != chat);
-        let (gone, kept) = std::mem::take(&mut self.worktrees)
-            .into_iter()
-            .partition(|w| w.chat == chat);
-        self.worktrees = kept;
-        self.cleanups.extend(gone);
+        // A run in progress still works in the worktree, so its end hands it over.
+        if !self.running.contains(&chat) {
+            self.clean_up_worktree_of(&chat);
+        }
         self.deleted.push(chat);
         keep_last(&mut self.deleted, MAX_SESSIONS);
+    }
+
+    fn clean_up_worktree_of(&mut self, chat: &ChatId) {
+        let (gone, kept) = std::mem::take(&mut self.worktrees)
+            .into_iter()
+            .partition(|w| &w.chat == chat);
+        self.worktrees = kept;
+        self.cleanups.extend(gone);
     }
 
     fn is_deleted(&self, chat: &ChatId) -> bool {
@@ -793,6 +800,9 @@ impl Relay {
     fn end_run(&mut self, chat: &ChatId) {
         self.running.remove(chat);
         self.agent_runs.remove(chat);
+        if self.is_deleted(chat) {
+            self.clean_up_worktree_of(chat);
+        }
     }
 
     pub fn take_rule_removals(&mut self) -> Vec<String> {
@@ -2653,6 +2663,21 @@ mod tests {
 
         assert_eq!(relay.take_cleanups(), [worktree("c1")]);
         assert_eq!(relay.branch_plan(&ChatId::new("c1")), BranchPlan::Plain);
+    }
+
+    #[test]
+    fn a_deleted_chat_keeps_its_worktree_until_its_run_ends() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "branch=1", "a")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.set_worktree(&job.chat, Some(worktree("c1")));
+
+        relay.on_frame(&[record("c1", 0, "d", "")], NOW);
+        let during = relay.take_cleanups();
+        relay.finish(&job, Err("Stopped.".into()));
+
+        assert!(during.is_empty());
+        assert_eq!(relay.take_cleanups(), [worktree("c1")]);
     }
 
     #[test]
