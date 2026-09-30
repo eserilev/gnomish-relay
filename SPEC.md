@@ -348,6 +348,7 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 - A file that a command makes during the run and that matches a pattern is not hidden. It holds only what the agent wrote.
 - The logins of the agents are `desktop` paths too (`.claude.json`, `.claude/.credentials.json`, `.codex/auth.json`), so no command reads them.
 - In the sandbox `.git/config` reads as empty, so `git` works with no remote and no settings of the repository, and `git config` fails. The hooks of git are gone.
+- macOS: Seatbelt cannot show an empty file in place of a file, and git stops at a config that it cannot read ("fatal: unable to access '.git/config': Operation not permitted", found on the macOS runner of CI on 2026-09-30). So there the `config` and `config.worktree` of each git folder stay readable, and a `literal` rule denies a write to each one. A command on macOS reads the remotes and the settings of the repository, and `git config` fails. The hooks stay hidden: git takes a hook that it cannot read as no hook.
 
 **The `.git` entries** (fixed on 2026-09-27; the tests came first). Git outside the sandbox trusts what a `.git` names: its hooks, its config (for example `core.fsmonitor` and `core.hooksPath`), and the folder that a `.git` file points to. A command must not change any of it:
 
