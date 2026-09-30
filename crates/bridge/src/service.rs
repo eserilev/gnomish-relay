@@ -124,8 +124,9 @@ pub fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
     config::load(&dirs.config, &dirs.home).context(
         "the bridge cannot start with this config.toml. Fix it, then run: gnomish-relay restart",
     )?;
+    let before = lock::status(&dirs.data)?;
     let log = restart_service(dirs, exe)?;
-    confirm_start(dirs, &log)
+    confirm_start(dirs, &log, &before)
 }
 
 fn restart_service(dirs: &Dirs, exe: &Path) -> Result<BridgeLog> {
@@ -149,14 +150,24 @@ fn launchd_log(dirs: &Dirs) -> PathBuf {
 }
 
 /// A bridge that stops at start holds the lock only for a moment, so the check waits a
-/// second after the lock and looks again.
-fn confirm_start(dirs: &Dirs, log: &BridgeLog) -> Result<()> {
+/// second after the lock and looks again. `before` is the bridge from before the
+/// restart: a bridge started by hand keeps the lock, and the new one never starts.
+fn confirm_start(dirs: &Dirs, log: &BridgeLog, before: &Bridge) -> Result<()> {
     let data = &dirs.data;
-    let runs = lock::wait_until_runs(data, std::time::Duration::from_secs(10))? && {
+    let bridge = if lock::wait_until_runs(data, std::time::Duration::from_secs(10))? {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        lock::status(data)? != Bridge::Stopped
+        lock::status(data)?
+    } else {
+        Bridge::Stopped
     };
-    if runs {
+    if let Bridge::Runs(Some(pid)) = bridge
+        && *before == bridge
+    {
+        bail!(
+            "another bridge (pid {pid}) holds the lock. Stop it, then run: gnomish-relay restart"
+        );
+    }
+    if bridge != Bridge::Stopped {
         println!("the bridge runs");
         return Ok(());
     }
@@ -300,6 +311,26 @@ mod tests {
 
         assert_eq!(log, dirs.data.join("bridge.log"));
         assert!(std::fs::metadata(&log).unwrap().len() < MAX_LOG);
+    }
+
+    #[test]
+    fn a_confirm_fails_when_the_old_bridge_still_holds_the_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = dirs(root.path());
+        make_private_dir(&dirs.data).unwrap();
+        let _old = lock::take(&dirs.data).unwrap();
+        let before = lock::status(&dirs.data).unwrap();
+        let log = BridgeLog::File(root.path().join("none.log"));
+
+        let error = confirm_start(&dirs, &log, &before).unwrap_err();
+
+        let pid = std::process::id();
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("another bridge (pid {pid}) holds the lock")),
+            "{error}"
+        );
     }
 
     #[cfg(unix)]
