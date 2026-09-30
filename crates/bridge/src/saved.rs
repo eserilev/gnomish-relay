@@ -1,5 +1,6 @@
-//! Hex fields in a saved variables file: the signed frames of the reload fallback
-//! (SPEC.md 7.5), and the results of the self-test (SPEC.md 14.3).
+//! What the bridge reads in a saved variables file: the signed frames of the reload
+//! fallback (SPEC.md 7.5), the token of the addon (SPEC.md 7.6), and the results of the
+//! self-test (SPEC.md 14.3).
 
 use std::collections::HashMap;
 use std::fs;
@@ -61,6 +62,21 @@ pub fn newest(accounts: &Path, file: &str) -> Option<(PathBuf, String)> {
     Some((path, text))
 }
 
+/// The token of the addon: the `token` field at the top of the table, one tab deep, as
+/// WoW writes it (SPEC.md 7.6). Only an id that the addon can make counts.
+pub fn saved_token(text: &str) -> Option<String> {
+    let key = "\n\t[\"token\"] = \"";
+    let at = text.find(key)? + key.len();
+    let rest = &text[at..];
+    let token = &rest[..rest.find('"')?];
+    is_token(token).then(|| token.to_owned())
+}
+
+fn is_token(token: &str) -> bool {
+    let allowed = |b: u8| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'_' || b == b'-';
+    (1..=32).contains(&token.len()) && token.bytes().all(allowed)
+}
+
 pub fn from_hex(hex: &str) -> Option<Vec<u8>> {
     if !hex.len().is_multiple_of(2) || !hex.is_ascii() {
         return None;
@@ -69,6 +85,12 @@ pub fn from_hex(hex: &str) -> Option<Vec<u8>> {
         .step_by(2)
         .map(|i| u8::from_str_radix(&hex[i..i + 2], 16).ok())
         .collect()
+}
+
+/// One changed saved variables file, with the name of its account folder.
+pub struct SavedFile {
+    pub account: String,
+    pub text: String,
 }
 
 /// Watches the saved variables file of one app in every account.
@@ -87,9 +109,9 @@ impl Watcher {
         }
     }
 
-    /// The text of each file that is new or changed since the last call. The first
-    /// call reads every file; old frames in them fail the time check.
-    pub fn changed(&mut self) -> Vec<String> {
+    /// Each file that is new or changed since the last call. The first call reads every
+    /// file; old frames in them fail the time check.
+    pub fn changed(&mut self) -> Vec<SavedFile> {
         let Ok(accounts) = fs::read_dir(&self.accounts) else {
             return Vec::new();
         };
@@ -108,7 +130,10 @@ impl Watcher {
             }
             self.seen.insert(path.clone(), modified);
             if let Ok(Some(bytes)) = read_at_most(&path, MAX_FILE) {
-                texts.push(String::from_utf8_lossy(&bytes).into_owned());
+                texts.push(SavedFile {
+                    account: account.file_name().to_string_lossy().into_owned(),
+                    text: String::from_utf8_lossy(&bytes).into_owned(),
+                });
             }
         }
         texts
@@ -175,7 +200,7 @@ mod tests {
         let file = account_file(root.path());
         fs::write(&file, "one").unwrap();
         let mut watcher = Watcher::new(root.path(), App::Relay);
-        assert_eq!(watcher.changed(), ["one"]);
+        assert_eq!(texts(watcher.changed()), ["one"]);
         assert!(watcher.changed().is_empty());
         let later = SystemTime::now() + std::time::Duration::from_secs(5);
         fs::write(&file, "two").unwrap();
@@ -185,7 +210,37 @@ mod tests {
             .unwrap()
             .set_modified(later)
             .unwrap();
-        assert_eq!(watcher.changed(), ["two"]);
+        assert_eq!(texts(watcher.changed()), ["two"]);
+    }
+
+    fn texts(files: Vec<SavedFile>) -> Vec<String> {
+        files.into_iter().map(|f| f.text).collect()
+    }
+
+    #[test]
+    fn a_changed_file_names_its_account_folder() {
+        let root = tempfile::tempdir().unwrap();
+        fs::write(account_file(root.path()), "one").unwrap();
+
+        let files = Watcher::new(root.path(), App::Relay).changed();
+
+        assert_eq!(files[0].account, "ACCOUNT1");
+    }
+
+    #[test]
+    fn the_token_is_the_one_at_the_top_of_the_table() {
+        let text = "GnomishRelayDB = {\n\t[\"chats\"] = {\n\t\t{\n\t\t\t[\"token\"] = \"inner\",\n\t\t},\n\t},\n\t[\"token\"] = \"k3y_-9\",\n}\n";
+
+        assert_eq!(saved_token(text).as_deref(), Some("k3y_-9"));
+    }
+
+    #[test]
+    fn a_file_with_no_token_or_a_bad_one_has_none() {
+        assert_eq!(saved_token("GnomishRelayDB = {\n}\n"), None);
+        assert_eq!(saved_token("\n\t[\"token\"] = \"Bad Token\",\n"), None);
+        assert_eq!(saved_token("\n\t[\"token\"] = \"\",\n"), None);
+        let long = format!("\n\t[\"token\"] = \"{}\",\n", "a".repeat(33));
+        assert_eq!(saved_token(&long), None);
     }
 
     /// A Lua string can hold any byte, so WoW can write one that is not UTF-8.
@@ -195,7 +250,7 @@ mod tests {
         let file = account_file(root.path());
         fs::write(&file, b"[\"name\"] = \"\xff\", [\"frame\"] = \"6e52\"").unwrap();
 
-        let texts = Watcher::new(root.path(), App::Relay).changed();
+        let texts = texts(Watcher::new(root.path(), App::Relay).changed());
 
         assert_eq!(texts.len(), 1);
         assert_eq!(frames(&texts[0]), [vec![0x6e, 0x52]]);
@@ -207,9 +262,12 @@ mod tests {
         let relay = account_file(root.path());
         fs::write(&relay, "relay").unwrap();
         fs::write(relay.with_file_name("Timeways.lua"), "story").unwrap();
-        assert_eq!(Watcher::new(root.path(), App::Relay).changed(), ["relay"]);
         assert_eq!(
-            Watcher::new(root.path(), App::Timeways).changed(),
+            texts(Watcher::new(root.path(), App::Relay).changed()),
+            ["relay"]
+        );
+        assert_eq!(
+            texts(Watcher::new(root.path(), App::Timeways).changed()),
             ["story"]
         );
     }

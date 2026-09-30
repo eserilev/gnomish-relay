@@ -15,6 +15,7 @@ use protocol::slot::Status;
 
 use serde::{Deserialize, Serialize};
 
+use crate::accounts::Accounts;
 use crate::activity::{self, Activity};
 use crate::agent::{Choice, SessionId, SessionInfo};
 use crate::always_rules::RuleLine;
@@ -190,6 +191,7 @@ pub struct Relay {
     history: History,
     /// The new token after a saved-data wipe, until it reports `restored`.
     restore_for: Option<String>,
+    accounts: Accounts,
     sessions: Vec<AgentSession>,
     /// Chats whose run in progress got a Stop. The bridge signals each run.
     cancels: Vec<ChatId>,
@@ -288,6 +290,7 @@ impl Relay {
             arrivals: 0,
             history: History::default(),
             restore_for: None,
+            accounts: Accounts::default(),
             sessions: Vec::new(),
             cancels: Vec::new(),
             rule_removals: Vec::new(),
@@ -315,8 +318,21 @@ impl Relay {
         self.lane.next_slot()
     }
 
-    pub fn reset_window(&mut self) {
-        self.lane.reset_window();
+    pub fn next_slots(&self) -> Vec<usize> {
+        self.lane.next_slots()
+    }
+
+    /// `token` is the token in the saved variables file that changed.
+    pub fn reset_window(&mut self, token: Option<&str>) {
+        self.lane.reset_window(token);
+    }
+
+    /// The saved variables file of `account` holds `token`. A new token in a folder that
+    /// held another one is a wipe, so the older token retires (SPEC.md 7.6). Returns it.
+    pub fn saw_saved_token(&mut self, account: &str, token: &str) -> Option<String> {
+        let old = self.accounts.replaced_token(account, token)?;
+        self.lane.retire(&old);
+        Some(old)
     }
 
     pub fn unread(&self) -> usize {
@@ -366,12 +382,12 @@ impl Relay {
         self.take_restore_report(token, flags);
     }
 
-    /// A hello from a new token after a saved-data wipe starts a restore. The
-    /// `restored` flag of that token ends it, and the older tokens retire (SPEC.md 7.6).
+    /// A hello from a new token starts a restore, and its `restored` flag ends it. A
+    /// second account sends the same hello, so only the saved variables retire a token
+    /// (SPEC.md 7.6).
     fn take_restore_report(&mut self, token: &str, flags: &TransportFlags) {
         if flags.restored && self.restore_for.as_deref() == Some(token) {
             self.restore_for = None;
-            self.lane.retire_all_but(token);
             return;
         }
         if !flags.hello || self.lane.knows_token(token) {
@@ -922,6 +938,7 @@ impl Relay {
             restore_for: self.restore_for.clone(),
             sessions: self.sessions.clone(),
             frames: self.frames.clone(),
+            accounts: self.accounts.clone(),
         }
     }
 
@@ -942,6 +959,7 @@ impl Relay {
         relay.lane = Lane::from_state(App::Relay, state.lane);
         relay.history = state.history;
         relay.restore_for = state.restore_for;
+        relay.accounts = state.accounts;
         relay.sessions = state.sessions;
         relay.frames = state.frames;
         for job in state.waiting {
@@ -1337,7 +1355,7 @@ mod tests {
     fn a_reload_starts_the_slot_window_at_one() {
         let mut relay = relay();
         relay.on_frame(&[record("relay", 0, "h;next=57", "")], NOW);
-        relay.reset_window();
+        relay.reset_window(Some("tok"));
         assert_eq!(relay.next_slot(), 1);
     }
 
@@ -1417,20 +1435,88 @@ mod tests {
     }
 
     #[test]
-    fn the_restored_flag_ends_the_restore_and_retires_the_old_token() {
+    fn the_restored_flag_ends_the_restore_and_retires_no_token() {
         let mut relay = wiped();
-        relay.on_frame(&[record("c1", 2, "", "still running")], NOW);
-        let job = relay.next_job().unwrap();
 
         relay.on_frame(
             &[from_token("new", record("relay", 0, "h;restored", ""))],
             NOW,
         );
-        relay.finish(&job, Ok("late".into()));
 
         assert!(restore_text(&relay).contains("token = \"\""));
+        assert!(body(&relay).contains("echo: before the wipe"));
+    }
+
+    #[test]
+    fn a_new_token_in_the_file_of_the_same_account_retires_the_old_token() {
+        let mut relay = wiped();
+        relay.saw_saved_token("ACCOUNT1", "tok");
+        relay.on_frame(&[record("c1", 2, "", "still running")], NOW);
+        let job = relay.next_job().unwrap();
+
+        let retired = relay.saw_saved_token("ACCOUNT1", "new");
+        relay.finish(&job, Ok("late".into()));
+
+        assert_eq!(retired.as_deref(), Some("tok"));
         assert!(!body(&relay).contains("echo: before the wipe"));
         assert!(!body(&relay).contains("late"));
+    }
+
+    #[test]
+    fn a_token_in_the_file_of_another_account_retires_nothing() {
+        let mut relay = wiped();
+        relay.saw_saved_token("ACCOUNT1", "tok");
+
+        let retired = relay.saw_saved_token("ACCOUNT2", "new");
+
+        assert_eq!(retired, None);
+        assert!(body(&relay).contains("echo: before the wipe"));
+    }
+
+    #[test]
+    fn the_same_token_in_a_file_again_retires_nothing() {
+        let mut relay = wiped();
+        relay.saw_saved_token("ACCOUNT1", "tok");
+
+        let retired = relay.saw_saved_token("ACCOUNT1", "tok");
+
+        assert_eq!(retired, None);
+        assert!(body(&relay).contains("echo: before the wipe"));
+    }
+
+    #[test]
+    fn two_accounts_that_play_at_once_both_keep_their_replies() {
+        let mut relay = relay();
+        relay.on_frame(&[record("relay", 0, "h;next=40", "")], NOW);
+        relay.on_frame(
+            &[from_token("two", record("relay", 0, "h;next=5", ""))],
+            NOW,
+        );
+        relay.saw_saved_token("ACCOUNT1", "tok");
+        relay.saw_saved_token("ACCOUNT2", "two");
+        relay.on_frame(
+            &[from_token("two", record("relay", 0, "h;restored", ""))],
+            NOW,
+        );
+
+        relay.on_frame(&[record("c1", 1, "", "from one")], NOW);
+        relay.on_frame(&[from_token("two", record("c2", 2, "", "from two"))], NOW);
+        run_all(&mut relay);
+
+        assert!(body(&relay).contains("echo: from one"));
+        assert!(body(&relay).contains("echo: from two"));
+        assert_eq!(relay.next_slots(), [5, 40]);
+    }
+
+    #[test]
+    fn the_account_of_each_token_survives_a_restart() {
+        let mut relay = wiped();
+        relay.saw_saved_token("ACCOUNT1", "tok");
+
+        let mut restarted = restart(&relay);
+        let retired = restarted.saw_saved_token("ACCOUNT1", "new");
+
+        assert_eq!(retired.as_deref(), Some("tok"));
     }
 
     #[test]

@@ -8,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::accounts::Accounts;
 use crate::fs_safe::write_private;
 use crate::history::History;
 use crate::lane::LaneState;
@@ -34,6 +35,9 @@ pub struct State {
     /// restart does not apply a stored strip again.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub frames: Vec<(u32, FrameTag)>,
+    /// The token of each account folder (SPEC.md 7.6).
+    #[serde(skip_serializing_if = "Accounts::is_empty")]
+    pub accounts: Accounts,
 }
 
 /// `None` when there is no state yet. A damaged file is an error, not a fresh start:

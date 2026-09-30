@@ -456,12 +456,25 @@ impl RelayLane {
 
     /// A changed file means a `/reload`: the outbox frames get the same checks as a strip.
     fn take_saved_variables(&mut self, keys: &KeySet) {
-        for text in self.files.saved.changed() {
-            self.relay.reset_window();
+        for file in self.files.saved.changed() {
+            let token = saved::saved_token(&file.text);
+            self.relay.reset_window(token.as_deref());
             self.files.changed = true;
-            for (tag, records) in outbox_records(App::Relay, &text, keys) {
+            if let Some(token) = &token {
+                self.take_saved_token(&file.account, token);
+            }
+            for (tag, records) in outbox_records(App::Relay, &file.text, keys) {
                 self.take_records(tag, &records, "outbox");
             }
+        }
+    }
+
+    /// A new token in the file of an account is a wipe of that account (SPEC.md 7.6).
+    fn take_saved_token(&mut self, account: &str, token: &str) {
+        if let Some(old) = self.relay.saw_saved_token(account, token) {
+            log(&format!(
+                "{account}: new saved data, so the chats of the old one are gone ({old} is now {token})"
+            ));
         }
     }
 
@@ -724,7 +737,8 @@ impl RelayLane {
             restore: self.relay.restore_file(),
             live: self.relay.live_file(&self.terminal.notices()),
         };
-        if let Err(e) = slots::publish(addons, App::Relay, &files, self.relay.next_slot()) {
+        if let Err(e) = slots::publish_windows(addons, App::Relay, &files, &self.relay.next_slots())
+        {
             log(&format!("publish failed: {e:#}"));
         }
         self.files.changed = false;
@@ -807,10 +821,11 @@ impl TimewaysLane {
     }
 
     fn take_saved_variables(&mut self, keys: &KeySet) {
-        for text in self.files.saved.changed() {
-            self.timeways.reset_window();
+        for file in self.files.saved.changed() {
+            let token = saved::saved_token(&file.text);
+            self.timeways.reset_window(token.as_deref());
             self.files.changed = true;
-            for (_, records) in outbox_records(App::Timeways, &text, keys) {
+            for (_, records) in outbox_records(App::Timeways, &file.text, keys) {
                 self.take_records(&records, "outbox");
             }
         }
@@ -880,7 +895,8 @@ impl TimewaysLane {
             body: with_line(self.timeways.body(now()), App::Timeways, line),
             ..Files::empty(App::Timeways, now())
         };
-        if let Err(e) = slots::publish(addons, App::Timeways, &files, self.timeways.next_slot()) {
+        let windows = self.timeways.next_slots();
+        if let Err(e) = slots::publish_windows(addons, App::Timeways, &files, &windows) {
             log(&format!("Timeways publish failed: {e:#}"));
         }
     }

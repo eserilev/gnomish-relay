@@ -3,6 +3,7 @@
 // The library exists for the binary and its tests, not for other crates.
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
+pub mod accounts;
 pub mod acp;
 pub mod action_input;
 pub mod activity;
