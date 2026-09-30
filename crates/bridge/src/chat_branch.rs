@@ -269,9 +269,29 @@ fn delete_branch(git: &GitHost, worktree: &ChatWorktree) -> Result<(), String> {
     .map_err(|e| e.to_string())
 }
 
+/// A commit on top of `parent` with every change of the copy, so that the line of the
+/// reply brings back work that nobody committed. The index of the copy stays as it is.
+fn save_changes(git: &GitHost, worktree: &ChatWorktree, parent: &str) -> Result<String, String> {
+    let folder = Path::new(&worktree.worktree);
+    let saved = crate::run_changes::snapshot(git, folder).map_err(|e| e.to_string())?;
+    let message = "Changes that Discard removed";
+    git.text(
+        folder,
+        &["commit-tree", &saved.tree, "-p", parent, "-m", message],
+    )
+    .map_err(|e| e.to_string())
+}
+
 /// Discard in the game: the copy and the branch go. Returns the reply.
 pub fn discard(git: &GitHost, worktree: &ChatWorktree) -> Result<String, String> {
-    let commit = tip(git, Path::new(&worktree.repo), &worktree.branch).unwrap_or_default();
+    let mut commit = tip(git, Path::new(&worktree.repo), &worktree.branch).unwrap_or_default();
+    if !is_clean(git, Path::new(&worktree.worktree))
+        .map_err(|e| format!("Couldn't discard: {e}"))?
+    {
+        commit = save_changes(git, worktree, &commit).map_err(|e| {
+            format!("Couldn't discard: the changes in its folder can't be saved: {e}")
+        })?;
+    }
     remove_worktree(git, worktree).map_err(|e| format!("Couldn't discard: {e}"))?;
     delete_branch(git, worktree).map_err(|e| format!("Couldn't discard: {e}"))?;
     crate::run::log(&format!(
@@ -495,6 +515,26 @@ mod tests {
         assert!(!Path::new(&made.worktree).exists());
         assert!(!branch_exists(&repo.git, &repo.top, &made.branch));
         assert!(!repo.root.join(WORKTREES).exists());
+    }
+
+    #[test]
+    fn discard_of_a_copy_with_changes_names_a_commit_that_holds_them() {
+        let repo = repo();
+        let made = make_for(&repo, "dirty");
+        fs::write(Path::new(&made.worktree).join("new.txt"), "work\n").unwrap();
+        fs::write(Path::new(&made.worktree).join("src/a.txt"), "edited\n").unwrap();
+
+        let reply = discard(&repo.git, &made).unwrap();
+
+        let short = reply.rsplit(' ').next().unwrap();
+        run(&repo.git, &repo.top, &["branch", "back", short]);
+        let new = repo.git.text(&repo.top, &["show", "back:new.txt"]).unwrap();
+        let edited = repo
+            .git
+            .text(&repo.top, &["show", "back:src/a.txt"])
+            .unwrap();
+        assert_eq!((new.as_str(), edited.as_str()), ("work", "edited"));
+        assert!(!Path::new(&made.worktree).exists());
     }
 
     #[test]
