@@ -50,11 +50,26 @@ struct Release {
 
 impl Release {
     fn new(story: &str, app_version: u32) -> Release {
+        Release::with_extra(story, app_version, None)
+    }
+
+    /// `extra` is one more program that the archive and the manifest list.
+    fn with_extra(story: &str, app_version: u32, extra: Option<&str>) -> Release {
         let dir = tempfile::tempdir().unwrap();
         let build = tempfile::tempdir().unwrap();
         write_program(&build.path().join("timeways-story"), story);
         write_program(&build.path().join("timeways-pack"), PACK_SCRIPT);
         fs::write(build.path().join("LICENSE"), "MIT").unwrap();
+        let mut files = vec!["timeways-story", "timeways-pack", "LICENSE"];
+        let mut programs = vec![
+            "\"timeways-story\"".to_owned(),
+            "\"timeways-pack\"".to_owned(),
+        ];
+        if let Some(extra) = extra {
+            write_program(&build.path().join(extra), "#!/bin/sh\n");
+            files.push(extra);
+            programs.push(format!("\"{extra}\""));
+        }
         let target = bridge::update::target().unwrap();
         let asset = format!("timeways-{target}.tar.gz");
         let archive = dir.path().join(&asset);
@@ -63,16 +78,17 @@ impl Release {
             .arg(&archive)
             .arg("-C")
             .arg(build.path())
-            .args(["timeways-story", "timeways-pack", "LICENSE"])
+            .args(&files)
             .status()
             .unwrap();
         assert!(made.success());
         let sha = sum(&archive);
         fs::write(dir.path().join(SUMS), format!("{sha}  {asset}\n")).unwrap();
+        let programs = programs.join(", ");
         let manifest = format!(
             r#"{{"version": "0.1.0", "tag": "v0.1.0", "app_version": {app_version},
             "targets": {{"{target}": {{"asset": "{asset}", "sha256": "{sha}",
-            "programs": ["timeways-story", "timeways-pack"]}}}},
+            "programs": [{programs}]}}}},
             "addon": {{"asset": "timeways-addon.zip", "sha256": "{sha}"}}}}"#
         );
         fs::write(dir.path().join(MANIFEST), manifest).unwrap();
@@ -175,6 +191,19 @@ fn setup_installs_both_programs_builds_the_pack_and_sets_the_config() {
         .story
         .unwrap();
     assert_eq!(story.program.unwrap().program, story_program(&computer));
+}
+
+#[test]
+fn setup_installs_only_the_two_timeways_programs_of_a_release() {
+    let computer = Computer::new();
+    let release = Release::with_extra("#!/bin/sh\n", 1, Some("gnomish-relay"));
+
+    let report = computer
+        .install(&release, &computer.dump("wowpedia"))
+        .unwrap();
+
+    assert_eq!(report.changed, ["timeways-story", "timeways-pack"]);
+    assert!(!computer.places().bin.join("gnomish-relay").exists());
 }
 
 #[test]
