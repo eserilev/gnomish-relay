@@ -3,9 +3,11 @@
 //! variable, never into a script, so it cannot run as code.
 
 use std::io::Read;
+use std::path::Path;
 use std::process::{Child, Command, Stdio};
 
 use crate::program::find_program;
+use crate::wsl;
 
 /// A dialog gives up by itself after this, in case the bridge stops first.
 const BACKSTOP_SECONDS: u64 = 60 * 60;
@@ -20,6 +22,8 @@ pub enum Tool {
     Osascript,
     /// A message box of PowerShell.
     MessageBox,
+    /// The same message box, from WSL through interop (SPEC.md 11.5).
+    MessageBoxFromWsl,
 }
 
 /// A program, its arguments, and its extra environment variables.
@@ -96,24 +100,60 @@ pub fn dialog(tool: Tool, text: &str) -> Dialog {
         Tool::MessageBox => (
             "powershell",
             words(&["-NoProfile", "-NonInteractive", "-Command", WINDOWS_BOX]),
-            vec![(
-                "GNOMISH_NOTICE".to_owned(),
-                format!("Yes = Approve, No = Deny.\n\n{text}"),
-            )],
+            vec![(NOTICE_VAR.to_owned(), box_text(text))],
+        ),
+        Tool::MessageBoxFromWsl => (
+            WSL_POWERSHELL,
+            words(&["-NoProfile", "-NonInteractive", "-Command", WINDOWS_BOX]),
+            from_wsl(box_text(text)),
         ),
     };
     match tool {
         Tool::NotifySend => args.push(escape_markup(text)),
         Tool::Zenity => args.push(text.to_owned()),
         Tool::Osascript => args.extend([text.to_owned(), backstop]),
-        Tool::MessageBox => {}
+        Tool::MessageBox | Tool::MessageBoxFromWsl => {}
     }
+    let program = match tool {
+        Tool::MessageBoxFromWsl => wsl_powershell().unwrap_or_else(|| program.to_owned()),
+        _ => program.to_owned(),
+    };
     Dialog {
         tool,
-        program: program.to_owned(),
+        program,
         args,
         env,
     }
+}
+
+const NOTICE_VAR: &str = "GNOMISH_NOTICE";
+/// The name on the `PATH` of WSL. The bridge looks for the full path first, because
+/// its own `PATH` holds no Windows folder.
+const WSL_POWERSHELL: &str = "powershell.exe";
+
+fn box_text(text: &str) -> String {
+    format!("Yes = Approve, No = Deny.\n\n{text}")
+}
+
+/// WSL passes a variable to a Windows program only when `WSLENV` names it.
+pub fn wslenv_with_notice(existing: Option<&str>) -> String {
+    match existing.filter(|e| !e.is_empty()) {
+        Some(existing) => format!("{NOTICE_VAR}:{existing}"),
+        None => NOTICE_VAR.to_owned(),
+    }
+}
+
+fn from_wsl(notice: String) -> Vec<(String, String)> {
+    let existing = std::env::var("WSLENV").ok();
+    vec![
+        (NOTICE_VAR.to_owned(), notice),
+        ("WSLENV".to_owned(), wslenv_with_notice(existing.as_deref())),
+    ]
+}
+
+fn wsl_powershell() -> Option<String> {
+    let path = wsl::windows_program(Path::new(wsl::MOUNT_ROOT), WSL_POWERSHELL)?;
+    Some(path.to_string_lossy().into_owned())
 }
 
 const MAC_DIALOG: &str = "display dialog (item 1 of argv) with title \"Gnomish Relay\" \
@@ -134,7 +174,7 @@ pub fn approved(tool: Tool, success: bool, stdout: &str) -> bool {
                 && stdout.contains("button returned:Approve")
                 && !stdout.contains("gave up:true")
         }
-        Tool::MessageBox => stdout.trim() == "Yes",
+        Tool::MessageBox | Tool::MessageBoxFromWsl => stdout.trim() == "Yes",
     }
 }
 
@@ -182,8 +222,17 @@ fn has_display() -> bool {
         .any(|name| std::env::var_os(name).is_some_and(|v| !v.is_empty()))
 }
 
+/// Under WSL, the box of Windows comes first, because `WSLg` is often missing. With no
+/// interop, the tools of Linux apply.
+pub fn wsl_tool(interop: bool, powershell: bool) -> Option<Tool> {
+    (interop && powershell).then_some(Tool::MessageBoxFromWsl)
+}
+
 /// The dialog tool of this computer, if it has one.
 pub fn find_tool() -> Option<Tool> {
+    if let Some(tool) = wsl_tool(wsl::interop(), wsl_powershell().is_some()) {
+        return Some(tool);
+    }
     match std::env::consts::OS {
         "macos" => has_program("osascript").then_some(Tool::Osascript),
         "windows" => has_program("powershell").then_some(Tool::MessageBox),
@@ -284,13 +333,22 @@ pub fn notice_command(os: &str, text: &str) -> Option<NoticeCommand> {
         )),
         "windows" => Some((
             "powershell".into(),
-            ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_TOAST]
-                .map(str::to_owned)
-                .into(),
-            vec![("GNOMISH_NOTICE".into(), text.into())],
+            toast_args(),
+            vec![(NOTICE_VAR.into(), text.into())],
+        )),
+        "wsl" => Some((
+            wsl_powershell().unwrap_or_else(|| WSL_POWERSHELL.into()),
+            toast_args(),
+            from_wsl(text.into()),
         )),
         _ => None,
     }
+}
+
+fn toast_args() -> Vec<String> {
+    ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_TOAST]
+        .map(str::to_owned)
+        .into()
 }
 
 /// A toast through the app id of PowerShell, which every Windows 10 and 11 has.
@@ -305,10 +363,15 @@ $app = '{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\\WindowsPowerShell\\v1.0\\powersh
 
 /// Best effort: with no tool for notices, the log line is the notice.
 pub fn show_notice(text: &str) {
-    let Some((program, args, env)) = notice_command(std::env::consts::OS, text) else {
+    let os = if wsl::interop() {
+        "wsl"
+    } else {
+        std::env::consts::OS
+    };
+    let Some((program, args, env)) = notice_command(os, text) else {
         return;
     };
-    if !has_program(&program) {
+    if !Path::new(&program).is_file() && !has_program(&program) {
         return;
     }
     let mut notice = command(&program, &args, &env);
@@ -408,6 +471,41 @@ mod tests {
     }
 
     #[test]
+    fn under_wsl_the_windows_box_gets_its_text_through_wslenv() {
+        let shown = dialog(Tool::MessageBoxFromWsl, HOSTILE);
+
+        assert!(!shown.args.iter().any(|a| a.contains("rm -rf")));
+        assert!(
+            shown.program.ends_with("powershell.exe"),
+            "{}",
+            shown.program
+        );
+        assert_eq!(shown.env[0].0, "GNOMISH_NOTICE");
+        assert!(shown.env[0].1.ends_with(HOSTILE));
+        assert_eq!(shown.env[1].0, "WSLENV");
+        assert!(shown.env[1].1.starts_with("GNOMISH_NOTICE"));
+        assert!(approved(Tool::MessageBoxFromWsl, true, "Yes\r\n"));
+        assert!(!approved(Tool::MessageBoxFromWsl, true, "No\r\n"));
+    }
+
+    #[test]
+    fn wslenv_keeps_the_names_that_it_had() {
+        assert_eq!(wslenv_with_notice(None), "GNOMISH_NOTICE");
+        assert_eq!(wslenv_with_notice(Some("")), "GNOMISH_NOTICE");
+        assert_eq!(
+            wslenv_with_notice(Some("USERPROFILE/p")),
+            "GNOMISH_NOTICE:USERPROFILE/p"
+        );
+    }
+
+    #[test]
+    fn under_wsl_the_windows_box_needs_interop_and_powershell() {
+        assert_eq!(wsl_tool(true, true), Some(Tool::MessageBoxFromWsl));
+        assert_eq!(wsl_tool(true, false), None);
+        assert_eq!(wsl_tool(false, true), None);
+    }
+
+    #[test]
     fn the_text_of_a_notice_stays_an_argument() {
         let text = "\"; rm -rf ~; \"";
         let (program, args, _) = notice_command("linux", text).unwrap();
@@ -418,6 +516,10 @@ mod tests {
         let (_, args, env) = notice_command("windows", text).unwrap();
         assert!(!args.iter().any(|a| a.contains("rm -rf")));
         assert_eq!(env, [("GNOMISH_NOTICE".to_owned(), text.to_owned())]);
+        let (_, args, env) = notice_command("wsl", text).unwrap();
+        assert!(!args.iter().any(|a| a.contains("rm -rf")));
+        assert_eq!(env[0], ("GNOMISH_NOTICE".to_owned(), text.to_owned()));
+        assert_eq!(env[1].0, "WSLENV");
         assert!(notice_command("haiku", text).is_none());
     }
 }
