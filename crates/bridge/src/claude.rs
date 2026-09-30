@@ -935,7 +935,7 @@ impl Stream {
             level: gated.permission,
             coverage: Coverage::Every,
             sandboxing: gated.sandboxing(),
-            always: gate::Always::Offer,
+            wall: gate::SandboxWall::Holds,
         };
         let result = gated.gate.check(&call, &job, &mut self.turn);
         if let Err(Refusal::ByRule(_)) = &result {

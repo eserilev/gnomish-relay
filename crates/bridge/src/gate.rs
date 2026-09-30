@@ -51,12 +51,15 @@ pub enum Coverage {
     Asked,
 }
 
-/// Whether the popup of this backend can offer "Always allow" (SPEC.md 6.6.5). Only
-/// where the command sandbox is the wall for what a rule allows.
+/// Whether the command sandbox of the bridge is the wall for every command of this
+/// backend. Only then can the popup offer "Always allow" (SPEC.md 6.6.5).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Always {
-    Offer,
-    Never,
+pub enum SandboxWall {
+    /// Claude: each command runs in the sandbox of the run.
+    Holds,
+    /// Codex retries a command outside its own sandbox, and an ACP agent runs its
+    /// commands itself.
+    Leaks,
 }
 
 /// What happens to a tool call.
@@ -144,13 +147,13 @@ pub struct Job<'a> {
     pub level: Permission,
     pub coverage: Coverage,
     pub sandboxing: Sandboxing,
-    pub always: Always,
+    pub wall: SandboxWall,
 }
 
 impl Job<'_> {
     /// At `full-auto` a command runs anyway, and at `ask` every command asks.
     fn offers_always(&self) -> bool {
-        self.always == Always::Offer
+        self.wall == SandboxWall::Holds
             && self.level == Permission::AutoEdit
             && self.coverage == Coverage::Every
             && self.sandboxing == Sandboxing::On
@@ -587,7 +590,7 @@ mod tests {
             level,
             coverage: Coverage::Every,
             sandboxing: Sandboxing::On,
-            always: Always::Offer,
+            wall: SandboxWall::Holds,
         };
         let mut turn = Turn::new(wait, wait, crate::agent::Control::default());
         s.gate.check(call, &job, &mut turn)
@@ -722,7 +725,7 @@ mod tests {
             level: Permission::AutoEdit,
             coverage: Coverage::Every,
             sandboxing: Sandboxing::On,
-            always: Always::Offer,
+            wall: SandboxWall::Holds,
         };
         let mut turn = Turn::new(SHORT, SHORT, control);
         let call = read(s.home.join(".ssh").join("id_rsa"));
@@ -761,7 +764,7 @@ mod tests {
             level: Permission::AutoEdit,
             coverage: Coverage::Every,
             sandboxing: Sandboxing::On,
-            always: Always::Offer,
+            wall: SandboxWall::Holds,
         };
         let long = std::time::Duration::from_secs(30);
         let mut turn = Turn::new(long, long, control);
@@ -785,14 +788,14 @@ mod tests {
         withdrawn: bool,
     }
 
-    fn job_for(cwd: &str, level: Permission, always: Always, sandboxing: Sandboxing) -> Job<'_> {
+    fn job_for(cwd: &str, level: Permission, wall: SandboxWall, sandboxing: Sandboxing) -> Job<'_> {
         Job {
             agent: "claude",
             cwd,
             level,
             coverage: Coverage::Every,
             sandboxing,
-            always,
+            wall,
         }
     }
 
@@ -860,7 +863,12 @@ mod tests {
     fn a_command_at_auto_edit_offers_always_with_the_rule_line() {
         let s = setup();
         let cwd = s.chat.to_string_lossy().into_owned();
-        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let job = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
         let asked = ask_with_game(&s, &command(&s, "make test"), &job, Some(0));
         assert_eq!(asked.result, Ok(()));
         assert_eq!(
@@ -881,7 +889,12 @@ mod tests {
     fn always_adds_the_rule_and_the_next_same_command_runs_with_no_question() {
         let s = setup();
         let cwd = s.chat.to_string_lossy().into_owned();
-        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let job = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
         let first = ask_with_game(&s, &command(&s, "cargo test -p x"), &job, Some(ALWAYS));
         assert_eq!(first.result, Ok(()));
         let rules = s.gate.always.list(crate::run::now());
@@ -905,7 +918,12 @@ mod tests {
     fn with_no_always_choice_the_second_button_is_deny() {
         let s = setup();
         let cwd = s.chat.to_string_lossy().into_owned();
-        let job = job_for(&cwd, Permission::AutoEdit, Always::Never, Sandboxing::On);
+        let job = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Leaks,
+            Sandboxing::On,
+        );
         let asked = ask_with_game(&s, &command(&s, "make"), &job, Some(1));
         assert_eq!(asked.result, Err(Refusal::ByUser));
         assert_eq!(
@@ -920,9 +938,19 @@ mod tests {
         let s = setup();
         let cwd = s.chat.to_string_lossy().into_owned();
         let cases = [
-            job_for(&cwd, Permission::Ask, Always::Offer, Sandboxing::On),
-            job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::Off),
-            job_for(&cwd, Permission::AutoEdit, Always::Never, Sandboxing::On),
+            job_for(&cwd, Permission::Ask, SandboxWall::Holds, Sandboxing::On),
+            job_for(
+                &cwd,
+                Permission::AutoEdit,
+                SandboxWall::Holds,
+                Sandboxing::Off,
+            ),
+            job_for(
+                &cwd,
+                Permission::AutoEdit,
+                SandboxWall::Leaks,
+                Sandboxing::On,
+            ),
         ];
         for (i, job) in cases.iter().enumerate() {
             let asked = ask_with_game(&s, &command(&s, "make"), job, Some(0));
@@ -938,9 +966,14 @@ mod tests {
     fn a_rule_does_not_apply_at_the_level_ask() {
         let s = setup();
         let cwd = s.chat.to_string_lossy().into_owned();
-        let auto = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let auto = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
         ask_with_game(&s, &command(&s, "make"), &auto, Some(ALWAYS));
-        let ask = job_for(&cwd, Permission::Ask, Always::Offer, Sandboxing::On);
+        let ask = job_for(&cwd, Permission::Ask, SandboxWall::Holds, Sandboxing::On);
         let asked = ask_with_game(&s, &command(&s, "make"), &ask, Some(0));
         assert_eq!(asked.questions.len(), 1, "every command asks at ask");
     }
@@ -949,7 +982,12 @@ mod tests {
     fn a_push_or_a_recursive_rm_gets_no_always() {
         let s = setup();
         let cwd = s.chat.to_string_lossy().into_owned();
-        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let job = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
         for raw in ["git push", "rm -rf target", "npx x"] {
             let asked = ask_with_game(&s, &command(&s, raw), &job, Some(0));
             assert_eq!(
@@ -964,7 +1002,12 @@ mod tests {
     fn an_open_question_ends_when_another_popup_adds_a_rule_that_covers_it() {
         let s = setup();
         let cwd = s.chat.to_string_lossy().into_owned();
-        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let job = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
         let always = s.gate.always.clone();
         let chat = s.chat.clone();
         let granting = std::thread::spawn(move || {
@@ -1001,7 +1044,12 @@ mod tests {
         };
         crate::always_rules::save(&s.home.join("data"), std::slice::from_ref(&rule)).unwrap();
         let cwd = s.chat.to_string_lossy().into_owned();
-        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let job = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
 
         let asked = ask_with_game(&s, &command(&s, "make all"), &job, None);
 
@@ -1015,13 +1063,23 @@ mod tests {
         let s = setup();
         let root = s.chat.parent().unwrap().to_owned();
         let cwd = root.to_string_lossy().into_owned();
-        let job = job_for(&cwd, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let job = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
         let call = Call::command("make", &root, b"make".to_vec(), "Bash".into());
         ask_with_game(&s, &call, &job, Some(ALWAYS));
         let rules = s.gate.always.list(crate::run::now());
         assert_eq!(rules[0].scope, crate::always_rules::Scope::Exact);
         let app = s.chat.to_string_lossy().into_owned();
-        let job = job_for(&app, Permission::AutoEdit, Always::Offer, Sandboxing::On);
+        let job = job_for(
+            &app,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
         let asked = ask_with_game(&s, &command(&s, "make"), &job, Some(0));
         assert_eq!(
             asked.questions.len(),

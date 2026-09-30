@@ -702,7 +702,7 @@ impl Connection {
             level: self.permission,
             coverage: Coverage::Every,
             sandboxing: Sandboxing::On,
-            always: gate::Always::Never,
+            wall: gate::SandboxWall::Leaks,
         };
         match self.gate.check(&call, &job, &mut self.turn) {
             Ok(()) => "accept",
