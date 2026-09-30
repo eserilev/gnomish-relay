@@ -1646,7 +1646,7 @@ The user plays WoW while Claude Code or Codex works in a terminal. When a termin
 **Decisions, and why:**
 
 1. **A spool folder, not a socket.** One code path on Linux, macOS, and Windows with only `std`, so no `interprocess` crate and no ACL code for a named pipe. A file write never blocks the terminal session. The data folder is already hidden from game runs (6.6.3, 6.6.4).
-2. **One notification for each session, and a later event takes it away.** The user often answers at the terminal before the game polls. A "Waiting for you" that shows 3 minutes after the answer teaches the user to ignore notifications. This rule replaces the old merge "within 30 s".
+2. **One notification for each session, and a later event takes it away.** The user often answers at the terminal before the game polls. A "Waiting for you" that shows 3 minutes after the answer teaches the user to ignore notifications. This rule replaces the old merge "within 30 s". Known limit: no installed hook fires when the user answers a permission question at the terminal. So a `waiting` notice lasts until the next event of its session, usually the end of the turn, and a stale "Waiting for you" can still show. A fix needs a hook after each tool call, for example `PostToolUse` of Claude, and a new event in S41 that removes only a `waiting` notice. It waits for real use to ask for it.
 3. **Finished work shows only after long work** (default over 1 minute, a setting). A session that waits for the user always shows. Why: a line after each short turn floods the game chat.
 4. **Faster polls only while a terminal session is open.** Signals do not work (7.4), so a notification waits for the next slot poll, and the idle poll is 10 minutes. Faster polls cost slots, so they happen only when a notification can come.
 5. **No `notify` change for Codex.** Codex gets its `hooks.json`. Why: `notify` takes one program, and a chain to the program of the user can break it.
@@ -1713,6 +1713,7 @@ The bridge keeps a table of the terminal sessions. Each session has a state and 
 | `failed` | open, no turn runs | a new notice `failed`, with `took` |
 | `session-end` | removed | removed |
 
+- A `waiting` notice lasts until the next event of its session, usually the end of the turn. An answer at the terminal fires no hook (10, decision 2).
 - `took` is the length of the turn in seconds, at least 1. It is 0 when the bridge saw no `turn-start`, for example after a restart of the bridge. The addon counts 0 as long work.
 - A `waiting`, `finished`, or `failed` event in the 60 seconds after the `session-end` of its session is dropped. Claude runs its hooks async, so the file of `Stop` can come just after the file of `SessionEnd`, and it then opens a session that ended, with a `took` of 0. A `session-start` or `turn-start` of the same id opens the session again as usual. The bridge keeps at most 32 ended ids, only in memory.
 - A running turn ends after 30 minutes with no event of its session. An open session ends after 12 hours with no event. So a crash of the agent never keeps the faster polls on.
