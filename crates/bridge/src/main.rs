@@ -169,6 +169,7 @@ fn main() -> Result<()> {
         ["restart"] => service::restart(&Dirs::from_env()?, &std::env::current_exe()?),
         ["status"] => print_status(&Dirs::from_env()?),
         ["update"] => update::self_update(&Dirs::from_env()?),
+        ["update", "--timeways-only"] => update::timeways_only(&Dirs::from_env()?),
         ["check-agent", name] => {
             check_agent::check_agent(&Dirs::from_env()?, name, &mut std::io::stdout())
         }

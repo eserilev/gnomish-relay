@@ -73,6 +73,19 @@ fn approve_and_rules_with_nothing_open_say_so() {
     assert_eq!(stdout(&rules), "No Always allow rules yet.\n");
 }
 
+/// `update` runs this step in the new program, so the new version range checks the
+/// new Timeways release (SPEC.md 11.4).
+#[cfg(unix)]
+#[test]
+fn the_timeways_step_of_update_with_no_timeways_does_nothing() {
+    let home = tempfile::tempdir().unwrap();
+
+    let out = in_home(home.path(), &["update", "--timeways-only"]);
+
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "");
+}
+
 #[cfg(unix)]
 #[test]
 fn an_answer_or_a_removal_of_something_unknown_is_an_error() {

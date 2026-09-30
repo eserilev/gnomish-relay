@@ -193,6 +193,35 @@ fn update_failed_line(error: &anyhow::Error) -> String {
     )
 }
 
+/// Returns whether a Timeways program changed.
+fn print_timeways_update(dirs: &Dirs) -> bool {
+    let changed = update_timeways(dirs);
+    if changed.is_empty() {
+        return false;
+    }
+    println!("Updated Timeways: {}", changed.join(", "));
+    true
+}
+
+/// `update --timeways-only`, which `update` runs in the program that it just installed.
+pub fn timeways_only(dirs: &Dirs) -> Result<()> {
+    print_timeways_update(dirs);
+    Ok(())
+}
+
+/// The old program checks a release against the old version range, so it refuses a
+/// Timeways that needs the new desktop app.
+fn timeways_in_new_program(exe: &Path) {
+    let status = Command::new(exe)
+        .args(["update", "--timeways-only"])
+        .status();
+    if !status.is_ok_and(|s| s.success()) {
+        println!(
+            "Timeways: couldn't update the story program. To try again, run gnomish-relay update"
+        );
+    }
+}
+
 /// Installs the latest release in place of `current_exe`, and restarts the bridge.
 pub fn self_update(dirs: &Dirs) -> Result<()> {
     let name = archive_name().context("there is no release build for this OS and CPU")?;
@@ -203,17 +232,17 @@ pub fn self_update(dirs: &Dirs) -> Result<()> {
     std::fs::create_dir_all(&work)?;
     let replaced = fetch(&base, &name, &work).and_then(|new| replace(&exe, &new));
     let _ = std::fs::remove_dir_all(&work);
-    let replaced = replaced?;
-    let timeways = update_timeways(dirs);
-    if replaced == Replaced::Same && timeways.is_empty() {
-        println!("You already have the latest version.");
-        return Ok(());
-    }
-    if replaced == Replaced::New {
-        println!("Updated {}", exe.display());
-    }
-    if !timeways.is_empty() {
-        println!("Updated Timeways: {}", timeways.join(", "));
+    match replaced? {
+        Replaced::New => {
+            println!("Updated {}", exe.display());
+            timeways_in_new_program(&exe);
+        }
+        Replaced::Same => {
+            if !print_timeways_update(dirs) {
+                println!("You already have the latest version.");
+                return Ok(());
+            }
+        }
     }
     // Before the restart: the new bridge writes the key addon at its start.
     let finish = finish_line(relay_addons(dirs).as_deref());
