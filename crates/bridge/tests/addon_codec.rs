@@ -5,6 +5,7 @@
 
 mod common;
 
+use bridge::line;
 use common::{Bits, bytes, load, lua};
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table};
@@ -158,4 +159,35 @@ fn the_largest_frame_fits_in_the_strip_after_two_calibration_rows() {
     assert!(rows.len() <= codec.get::<usize>("MAX_ROWS").unwrap());
     assert_eq!(rows[0][..9], [0, 1, 2, 3, 4, 5, 6, 7, 0]);
     assert_eq!(rows[1][..9], [7, 6, 5, 4, 3, 2, 1, 0, 7]);
+}
+
+#[test]
+fn lua_line_rows_match_the_rust_line_in_every_mode() {
+    let (lua, ns) = codec(Bits::Unsigned);
+    let rows_fn: Function = ns.get::<Table>("Codec").unwrap().get("LineRows").unwrap();
+    for mode in line::MODES {
+        for len in [0, 1, 2, 3, 500, 3221] {
+            let data = bytes(len as u64 + 90, len);
+            let rows: Vec<Vec<[u8; 3]>> = rows_fn
+                .call((lua.create_string(&data).unwrap(), mode.id()))
+                .unwrap();
+            assert_eq!(
+                rows,
+                line::rows(&data, mode),
+                "{}, length {len}",
+                mode.name()
+            );
+        }
+    }
+}
+
+#[test]
+fn lua_line_modes_match_the_rust_modes() {
+    let (_lua, ns) = codec(Bits::Unsigned);
+    let modes: Vec<Table> = ns.get::<Table>("Codec").unwrap().get("LINE_MODES").unwrap();
+    assert_eq!(modes.len(), line::MODES.len());
+    for (lua_mode, mode) in modes.iter().zip(line::MODES) {
+        assert_eq!(lua_mode.get::<usize>("size").unwrap(), mode.pixels());
+        assert_eq!(lua_mode.get::<u32>("bits").unwrap(), mode.bits());
+    }
 }

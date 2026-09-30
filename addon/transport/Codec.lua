@@ -119,3 +119,73 @@ function Codec.StripRows(frame)
 	end
 	return rows
 end
+
+-- The line: cells of 1 or 2 physical pixels at the corner (SPEC.md 7.1.3). Mode 1 is
+-- the smallest. `crates/bridge/src/line.rs` reads it.
+Codec.LINE_CELLS_PER_ROW = 200
+Codec.LINE_MODES = {
+	{ size = 1, bits = 24 },
+	{ size = 1, bits = 12 },
+	{ size = 1, bits = 6 },
+	{ size = 2, bits = 24 },
+	{ size = 2, bits = 12 },
+	{ size = 2, bits = 6 },
+}
+
+local LINE_MARKER = { 7, 0, 4, 2, 1, 6, 5, 3 }
+-- Every level of every channel, in each of the three bit counts.
+local LINE_CHECK = "\1\35\69\103\137\171\205\239\254\220\186\152"
+
+local function FullColor(cell)
+	return { floor(cell / 4) % 2 * 255, floor(cell / 2) % 2 * 255, cell % 2 * 255 }
+end
+
+-- The first third of the bits of a cell is red, then green, then blue.
+local function CellColor(cell, bits)
+	local levels = 2 ^ (bits / 3)
+	local step = 255 / (levels - 1)
+	return {
+		floor(cell / levels ^ 2) % levels * step,
+		floor(cell / levels) % levels * step,
+		cell % levels * step,
+	}
+end
+
+-- Zero bytes pad the last group of three.
+local function AddDataColors(colors, bytes, bits)
+	for i = 1, #bytes, 3 do
+		local a, b, c = byte(bytes, i, i + 2)
+		local group = (a * 256 + (b or 0)) * 256 + (c or 0)
+		for shift = 24 - bits, 0, -bits do
+			colors[#colors + 1] = CellColor(floor(group / 2 ^ shift) % 2 ^ bits, bits)
+		end
+	end
+end
+
+local function LineColors(frame, modeId)
+	local bits = Codec.LINE_MODES[modeId].bits
+	local colors = {}
+	for i, cell in ipairs(LINE_MARKER) do
+		colors[i] = FullColor(cell)
+	end
+	colors[#colors + 1] = FullColor(modeId)
+	colors[#colors + 1] = FullColor(7 - modeId)
+	AddDataColors(colors, LINE_CHECK, bits)
+	AddDataColors(colors, frame, bits)
+	return colors
+end
+
+-- Rows of 200 colors, each {r, g, b} from 0 to 255. Black fills the last row, so the
+-- width never changes.
+function Codec.LineRows(frame, modeId)
+	local colors = LineColors(frame, modeId)
+	local width = Codec.LINE_CELLS_PER_ROW
+	local rows = {}
+	for r = 1, math.ceil(#colors / width) do
+		rows[r] = {}
+		for c = 1, width do
+			rows[r][c] = colors[(r - 1) * width + c] or { 0, 0, 0 }
+		end
+	end
+	return rows
+end
