@@ -27,6 +27,7 @@ use bridge::selftest;
 use bridge::settings_list::BridgeSettings;
 use bridge::setup::{self, KeyChoice};
 use bridge::slots::{self, Files};
+use bridge::status::{self, SandboxFound};
 use bridge::story::StorySpec;
 use bridge::update::{self, Replaced};
 use protocol::apps::App;
@@ -578,7 +579,9 @@ fn choose_harnesses(path_var: &std::ffi::OsStr) -> Result<Vec<&'static str>> {
 fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {
     match &config.relay {
         Some(relay_config) => {
-            println!("{}", agent_line(relay_config));
+            for line in relay_lines(relay_config) {
+                println!("{line}");
+            }
             if let Ok(dir) = config_dir() {
                 println!(
                     "{}",
@@ -594,6 +597,20 @@ fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {
     if timeways {
         println!("{}", story_line(config));
     }
+}
+
+/// The agent and the sandbox, which setup checks by starting them.
+fn relay_lines(config: &RelayConfig) -> Vec<String> {
+    let gate = match check_gate(config) {
+        Ok(gate) => gate,
+        Err(e) => return vec![format!("Agent: not checked: {e:#}")],
+    };
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let sandbox = SandboxFound::of(&gate.sandbox.tool, &path);
+    vec![
+        status::agent_line(config, &gate),
+        status::sandbox_line(&sandbox),
+    ]
 }
 
 fn story_line(config: &Config) -> String {
@@ -783,31 +800,6 @@ fn story_spec(story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
         eprintln!("timeways: [story] has no program, so the story program does not start");
     }
     Ok(spec)
-}
-
-/// The default agent, started once with no prompt, so a missing login shows here and
-/// not as the first reply in the game.
-fn agent_line(config: &RelayConfig) -> String {
-    let name = &config.policy.default_agent;
-    let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    let Ok(gate) = check_gate(config) else {
-        return "Agent: none. The data folder is missing.".into();
-    };
-    let checked = config
-        .agents
-        .get(name)
-        .and_then(|spec| agent::check(name, spec, &cwd, &gate));
-    let Some(checked) = checked else {
-        return "Agent: none. Replies repeat your message.".into();
-    };
-    match checked {
-        Ok(_) => format!("Agent: {name}"),
-        Err(e) if install::needs_login(&e) => match install::login_command(name) {
-            Some(login) => format!("Agent: {name} needs a login. Run: {login}"),
-            None => format!("Agent: {name} needs a login."),
-        },
-        Err(e) => format!("Agent: {name} does not start: {e}"),
-    }
 }
 
 /// A check sends no prompt, so no tool call reaches this gate.

@@ -1814,6 +1814,15 @@ The development machine runs Wayland with XWayland. The home file system is ext4
 - WoW can run on D3D12 through vkd3d-proton, or on D3D11 through DXVK.
 - The bridge finds `Interface/AddOns` and `WTF/Account/<ACCOUNT>` without regard to case. It never makes a second folder that differs only in case, for example `Addons` next to `AddOns`.
 - The game makes `Interface/` and `WTF/` only after its first start. The setup step makes `Interface/AddOns` if it is missing.
+- Ubuntu 24.04 blocks the user namespaces of normal users with AppArmor, so `bwrap` fails its probe and the bridge has no sandbox. Setup and `status` say so. An AppArmor profile gives `bwrap` its namespaces back, in `/etc/apparmor.d/bwrap`, then `sudo systemctl reload apparmor`:
+
+  ```
+  abi <abi/4.0>,
+  include <tunables/global>
+  profile bwrap /usr/bin/bwrap flags=(unconfined) {
+    userns,
+  }
+  ```
 
 ### 11.2 Other platform notes
 
@@ -1843,7 +1852,7 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
 
 The order is key, addon, slots, config, then autostart: the addon and the slots need nothing else. A failed autostart prints one line, and setup goes on.
 With no code folder found, the folder question has no default: the home folder holds `~/.ssh` and the browser profiles.
-The last lines say what setup found and the next action, for example "Agent: claude", "Level: auto-edit. It edits files in the chat folder with no question, and asks in the game before each command. To change it, edit permission in <config file>", "Story model: claude (haiku)", and "Restart WoW, then type /relay". The level line shows the level of the default agent in the config, also for a config that setup did not write. With the relay off, setup says "Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay" and "Restart WoW, then log in". `gnomish-relay install` makes the slots of each app that is on.
+The last lines say what setup found and the next action, for example "Agent: claude (Claude Code 2.1.3)", the sandbox ("Sandbox: bwrap", or "Sandbox: none. Install bubblewrap so that allowed commands run with no question", or a line about AppArmor when `bwrap` is there and fails its probe, 11.1), "Level: auto-edit. It edits files in the chat folder with no question, and asks in the game before each command. To change it, edit permission in <config file>", "Story model: claude (haiku)", and "Restart WoW, then type /relay". The level line shows the level of the default agent in the config, also for a config that setup did not write. With the relay off, setup says "Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay" and "Restart WoW, then log in". `gnomish-relay install` makes the slots of each app that is on.
 
 **Keeping it working.**
 
