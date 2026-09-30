@@ -29,8 +29,8 @@ and CI results under each reply, and what each run cost.
 
 ## Install
 
-1. Get the addon on CurseForge: <https://www.curseforge.com/projects/1719624>.
-   (You can skip this step: the desktop app installs the addon too.)
+1. **Get the addon on CurseForge:** <https://www.curseforge.com/projects/1719624>.
+   Install it with the CurseForge app, so it stays up to date.
 2. Close WoW. The game only finds new addons when it starts.
 3. Install the desktop app with one command:
    - **Linux and macOS:** `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh`
@@ -44,7 +44,7 @@ and CI results under each reply, and what each run cost.
 5. Start WoW and type `/relay`.
 
 The installer checks the download's SHA-256 sum, then runs `gnomish-relay setup --autostart`.
-Setup finds the game, installs the addon, makes a key that only your computer has, writes
+Setup finds the game, makes a key that only your computer has, writes
 `config.toml`, and starts the desktop app every time you log in. Running it again is safe:
 it leaves alone whatever already works.
 
