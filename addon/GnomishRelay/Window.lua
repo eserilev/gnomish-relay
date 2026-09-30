@@ -226,20 +226,26 @@ local function RefreshStatus(chat)
 		ui.agent:SetText("")
 	end
 	ui.folderButton:SetShown(chat ~= nil)
-	local problem = ns.Transport.Problem()
-	if problem == "missing" then
-		ui.bridge:SetText("|cffff2020Slots missing|r")
-	elseif problem == "blocked" then
-		ui.bridge:SetText("|cffff2020Screenshots blocked|r")
-	elseif problem == "mismatch" then
-		ui.bridge:SetText("|cffff2020Update the bridge|r")
-	elseif ns.Transport.Online() then
-		ui.bridge:SetText("|cff1eff00Bridge online|r")
-	else
-		ui.bridge:SetText("|cff9d9d9dBridge offline|r")
-	end
 	ui.banner:SetShown(ns.Transport.NeedsReload())
 	ui.bannerText:SetText(BannerText(#ns.Store.db.outbox))
+end
+
+-- The color of the text, the color of the dot, and the text of each state of the bridge.
+local LIGHTS = {
+	checking = { "9d9d9d", { 0.6, 0.6, 0.6 }, "Checking the bridge" },
+	online = { "1eff00", { 0.1, 1, 0 }, "Bridge online" },
+	slow = { "ffb000", { 1, 0.7, 0 }, "Bridge slow" },
+	offline = { "ff2020", { 1, 0.1, 0.1 }, "Bridge offline" },
+	missing = { "ff2020", { 1, 0.1, 0.1 }, "Slots missing" },
+	blocked = { "ff2020", { 1, 0.1, 0.1 }, "Screenshots blocked" },
+	mismatch = { "ff2020", { 1, 0.1, 0.1 }, "Update the bridge" },
+}
+
+-- The light is in the title bar, so every tab shows it.
+local function RefreshBridge()
+	local light = LIGHTS[ns.Transport.Problem() or ns.Transport.Bridge()]
+	ui.bridge:SetText(string.format("|cff%s%s|r", light[1], light[3]))
+	ui.bridgeDot:SetColorTexture(light[2][1], light[2][2], light[2][3], 1)
 end
 
 local function Age(seconds)
@@ -351,6 +357,7 @@ function Window.Refresh()
 		return
 	end
 	local chat = Selected()
+	RefreshBridge()
 	RefreshTiles(chat)
 	RefreshTabs()
 	RefreshPages()
@@ -547,7 +554,6 @@ local function BuildCenter()
 
 	ui.agent = Label(frame, "GameFontNormal", "TOPLEFT", left, -64)
 	BuildFolderButton(left + 170)
-	ui.bridge = Label(frame, "GameFontNormalSmall", "TOPRIGHT", -SIDE - 14, -66)
 
 	local log = Inset(frame, left, -84, width, 72)
 	ui.log = log
@@ -764,6 +770,14 @@ local function BuildPages()
 	ui.diag:Hide()
 end
 
+local function BuildBridgeLight()
+	ui.bridge = frame:CreateFontString("GnomishRelayBridgeText", "OVERLAY", "GameFontNormalSmall")
+	ui.bridge:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -30, -6)
+	ui.bridgeDot = frame:CreateTexture("GnomishRelayBridgeDot", "OVERLAY")
+	ui.bridgeDot:SetSize(8, 8)
+	ui.bridgeDot:SetPoint("RIGHT", ui.bridge, "LEFT", -4, 0)
+end
+
 local function Build()
 	frame = CreateFrame("Frame", "GnomishRelayFrame", UIParent, "PortraitFrameTemplate")
 	frame:SetSize(WIDTH, HEIGHT)
@@ -787,6 +801,7 @@ local function Build()
 		portrait:SetTexture(EMBLEM)
 	end
 
+	BuildBridgeLight()
 	ui.chats = Inset(frame, 6, -60, SIDE, 30, "GnomishRelayChats")
 	ui.chats:EnableMouseWheel(true)
 	ui.chats:SetScript("OnMouseWheel", function(_, delta)
@@ -798,7 +813,7 @@ local function Build()
 	BuildConfirm()
 	BuildTabs()
 	BuildPages()
-	ui.chatParts = { ui.agent, ui.folderButton, ui.bridge, ui.activity[1], ui.activity[2] }
+	ui.chatParts = { ui.agent, ui.folderButton, ui.activity[1], ui.activity[2] }
 	frame:Hide()
 end
 

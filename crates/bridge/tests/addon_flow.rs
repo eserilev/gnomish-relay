@@ -667,6 +667,44 @@ fn the_side_tabs_count_as_part_of_the_window_when_it_is_kept_on_screen() {
     assert_eq!(insets, [0.0, tab_width, 0.0, 0.0]);
 }
 
+/// The label and the color of the dot of the bridge light in the title bar.
+fn bridge_light(game: &Game) -> (String, Vec<f64>) {
+    let text = game
+        .run("return GnomishRelayBridgeText:GetText()")
+        .as_string_lossy()
+        .unwrap();
+    let dot: Table = game.lua.globals().get("GnomishRelayBridgeDot").unwrap();
+    (text, dot.get("color").unwrap())
+}
+
+#[test]
+fn the_title_bar_shows_the_bridge_light_on_every_tab() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open() ns.Window.ShowTab('diag')");
+    assert_eq!(bridge_light(&game).0, "|cff9d9d9dChecking the bridge|r");
+
+    game.publish(&[]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(
+        bridge_light(&game),
+        ("|cff1eff00Bridge online|r".into(), vec![0.1, 1.0, 0.0])
+    );
+
+    game.advance(100.0);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(
+        bridge_light(&game),
+        ("|cffffb000Bridge slow|r".into(), vec![1.0, 0.7, 0.0])
+    );
+
+    game.advance(60.0);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(
+        bridge_light(&game),
+        ("|cffff2020Bridge offline|r".into(), vec![1.0, 0.1, 0.1])
+    );
+}
+
 #[test]
 fn a_click_on_the_whisper_link_opens_that_chat() {
     let game = Game::start();

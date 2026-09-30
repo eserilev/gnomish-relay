@@ -16,6 +16,8 @@ local IDLE_POLL = 600
 local ONLINE_FOR = 720
 -- The bridge writes a body every 60 s. A body this old at its poll means it stopped.
 local STALE = 150
+-- A body this old at its poll means the bridge missed a heartbeat.
+local LATE = 90
 local SCHEDULE = { 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, 300 }
 local PROTO = 1
 -- Room for the flags of Report(): `next`, `read` with up to 30 ids, `restored`, and
@@ -50,6 +52,7 @@ local state = {
 	bodyAge = nil,
 	-- Strips that the bridge refused for their tag since its last good strip.
 	badTags = 0,
+	polled = false,
 	missing = false,
 	mismatch = false,
 }
@@ -92,11 +95,21 @@ function Messages.SlotsLeft()
 	return ns.Slots.COUNT - state.nextSlot + 1
 end
 
-function Messages.Online()
-	if state.lastNow == nil or state.bodyAge >= STALE then
-		return false
+-- "checking" until the first poll, then "online", "slow", or "offline".
+function Messages.Bridge()
+	if state.lastNow == nil then
+		return state.polled and "offline" or "checking"
+	elseif state.bodyAge >= STALE or time() - state.lastNow >= ONLINE_FOR then
+		return "offline"
+	elseif state.bodyAge >= LATE then
+		return "slow"
 	end
-	return time() - state.lastNow < ONLINE_FOR
+	return "online"
+end
+
+function Messages.Online()
+	local bridge = Messages.Bridge()
+	return bridge == "online" or bridge == "slow"
 end
 
 function Messages.NextPollIn()
@@ -465,6 +478,7 @@ function Messages.Poll()
 		return
 	end
 	local loaded, data, restore, live = ns.Slots.Load(state.nextSlot)
+	state.polled = true
 	state.missing = not loaded
 	ns.Health.Slot(loaded)
 	if loaded then

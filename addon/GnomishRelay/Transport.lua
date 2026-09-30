@@ -58,6 +58,7 @@ Transport.Tick = Messages.Tick
 Transport.Poll = Messages.Poll
 Transport.SlotsLeft = Messages.SlotsLeft
 Transport.Online = Messages.Online
+Transport.Bridge = Messages.Bridge
 Transport.NeedsReload = Messages.NeedsReload
 Transport.Problem = Messages.Problem
 Transport.Stats = Messages.Stats
