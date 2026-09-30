@@ -26,8 +26,8 @@ fn is_safe(text: &[u8]) -> bool {
 
 fuzz_target!(|data: &[u8]| {
     // No file on this path, so the table starts empty and nothing touches the disk.
-    let (mut sessions, _) = TerminalSessions::load(Path::new("/nonexistent/gnomish-relay"));
     let mut now = 1_790_000_000u32;
+    let (mut sessions, _) = TerminalSessions::load(Path::new("/nonexistent/gnomish-relay"), now);
     for bytes in data.split(|b| *b == 0) {
         now += 7;
         let Ok(file) = SpoolFile::parse(bytes) else {

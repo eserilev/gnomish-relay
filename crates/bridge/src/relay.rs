@@ -297,8 +297,9 @@ impl Relay {
         self.lane.unread()
     }
 
-    /// Takes one signed frame. A frame that came before applies no control record and no
-    /// report again, so a replayed strip cannot stop or delete a later run. Its messages
+    /// Takes one signed frame. A frame that came before, also before a restart, applies no
+    /// control record and no report again, so a replayed strip cannot stop or delete a
+    /// later run. Its messages
     /// go through the replay store as always: a refused message gets its next chance.
     pub fn on_tagged_frame(&mut self, tag: FrameTag, records: &[Record], now: u32) -> Vec<Outcome> {
         if self.first_sight(tag, now) {
@@ -842,6 +843,7 @@ impl Relay {
             history: self.history.clone(),
             restore_for: self.restore_for.clone(),
             sessions: self.sessions.clone(),
+            frames: self.frames.clone(),
         }
     }
 
@@ -863,6 +865,7 @@ impl Relay {
         relay.history = state.history;
         relay.restore_for = state.restore_for;
         relay.sessions = state.sessions;
+        relay.frames = state.frames;
         for job in state.waiting {
             let queue = relay
                 .queues
@@ -1546,6 +1549,24 @@ mod tests {
 
     fn restart(relay: &Relay) -> Relay {
         Relay::from_state(policy(), relay.to_state())
+    }
+
+    #[test]
+    fn a_frame_seen_before_a_restart_does_not_stop_a_later_run() {
+        let mut relay = relay();
+        let stop = [record("c1", 0, "stop", "")];
+        relay.on_frame(&[record("c1", 1, "", "first")], NOW);
+        relay.next_job().unwrap();
+        relay.on_tagged_frame([7; 8], &stop, NOW);
+        let saved = serde_json::to_string(&relay.to_state()).unwrap();
+        let mut relay = Relay::from_state(policy(), serde_json::from_str(&saved).unwrap());
+        relay.on_frame(&[record("c1", 2, "", "second")], NOW + 5);
+        relay.next_job().unwrap();
+
+        let replayed = relay.on_tagged_frame([7; 8], &stop, NOW + 10);
+
+        assert_eq!(replayed, [Outcome::Duplicate]);
+        assert!(relay.take_cancels().is_empty());
     }
 
     #[test]

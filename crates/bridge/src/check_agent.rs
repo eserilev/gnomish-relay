@@ -60,7 +60,7 @@ fn report_lines(name: &str, report: &Report) -> Vec<String> {
 
 /// The login service has its own `PATH`, which can miss the program of the agent.
 fn service_path_line(dirs: &Dirs, spec: &AgentSpec) -> Option<String> {
-    let service = install::service_file(&dirs.config, &dirs.home)
+    let service = install::service_file(&dirs.home)
         .and_then(|file| std::fs::read_to_string(file).ok())
         .and_then(|text| install::service_path_var(&text));
     let program = spec.command.first()?;

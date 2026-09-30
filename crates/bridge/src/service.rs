@@ -63,12 +63,16 @@ pub fn autostart(dirs: &Dirs) -> Result<()> {
 /// the agents that the shell finds.
 fn write_systemd_unit(dirs: &Dirs, exe: &Path) -> Result<()> {
     let path_var = std::env::var("PATH").unwrap_or_default();
-    let dir = systemd_dir(dirs)?;
+    let xdg: Vec<(&str, String)> = install::XDG_VARS
+        .iter()
+        .filter_map(|name| Some((*name, std::env::var(name).ok()?)))
+        .collect();
+    let dir = systemd_dir(dirs);
     std::fs::create_dir_all(&dir)?;
     write_atomic(
         &dir,
         SYSTEMD_UNIT,
-        install::systemd_unit(exe, &path_var).as_bytes(),
+        install::systemd_unit(exe, &path_var, &xdg).as_bytes(),
     )?;
     command("systemctl", &["--user", "daemon-reload"])
 }
@@ -92,13 +96,8 @@ fn load_launchd_agent(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
     Ok(log)
 }
 
-fn systemd_dir(dirs: &Dirs) -> Result<PathBuf> {
-    Ok(dirs
-        .config
-        .parent()
-        .context("no config folder")?
-        .join("systemd")
-        .join("user"))
+fn systemd_dir(dirs: &Dirs) -> PathBuf {
+    install::systemd_dir(&dirs.home)
 }
 
 fn launch_agents_dir(dirs: &Dirs) -> PathBuf {
@@ -124,12 +123,13 @@ pub fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
     config::load(&dirs.config, &dirs.home).context(
         "the bridge cannot start with this config.toml. Fix it, then run: gnomish-relay restart",
     )?;
+    let before = lock::status(&dirs.data)?;
     let log = restart_service(dirs, exe)?;
-    confirm_start(dirs, &log)
+    confirm_start(dirs, &log, &before)
 }
 
 fn restart_service(dirs: &Dirs, exe: &Path) -> Result<BridgeLog> {
-    if cfg!(target_os = "linux") && systemd_dir(dirs)?.join(SYSTEMD_UNIT).is_file() {
+    if cfg!(target_os = "linux") && systemd_dir(dirs).join(SYSTEMD_UNIT).is_file() {
         write_systemd_unit(dirs, exe)?;
         command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
         return Ok(BridgeLog::Journal);
@@ -149,14 +149,24 @@ fn launchd_log(dirs: &Dirs) -> PathBuf {
 }
 
 /// A bridge that stops at start holds the lock only for a moment, so the check waits a
-/// second after the lock and looks again.
-fn confirm_start(dirs: &Dirs, log: &BridgeLog) -> Result<()> {
+/// second after the lock and looks again. `before` is the bridge from before the
+/// restart: a bridge started by hand keeps the lock, and the new one never starts.
+fn confirm_start(dirs: &Dirs, log: &BridgeLog, before: &Bridge) -> Result<()> {
     let data = &dirs.data;
-    let runs = lock::wait_until_runs(data, std::time::Duration::from_secs(10))? && {
+    let bridge = if lock::wait_until_runs(data, std::time::Duration::from_secs(10))? {
         std::thread::sleep(std::time::Duration::from_secs(1));
-        lock::status(data)? != Bridge::Stopped
+        lock::status(data)?
+    } else {
+        Bridge::Stopped
     };
-    if runs {
+    if let Bridge::Runs(Some(pid)) = bridge
+        && *before == bridge
+    {
+        bail!(
+            "another bridge (pid {pid}) holds the lock. Stop it, then run: gnomish-relay restart"
+        );
+    }
+    if bridge != Bridge::Stopped {
         println!("the bridge runs");
         return Ok(());
     }
@@ -280,10 +290,17 @@ mod tests {
     }
 
     #[test]
-    fn the_systemd_unit_of_the_user_lies_next_to_the_config_folder() {
+    fn the_systemd_unit_lies_where_the_user_manager_reads_it_also_with_xdg_config_home() {
         let root = tempfile::tempdir().unwrap();
-        let dir = systemd_dir(&dirs(root.path())).unwrap();
-        assert_eq!(dir, root.path().join("config").join("systemd").join("user"));
+        let dirs = dirs(root.path());
+
+        let dir = systemd_dir(&dirs);
+
+        assert_eq!(dir, root.path().join("home/.config/systemd/user"));
+        let unit = dir.join(SYSTEMD_UNIT);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&unit, "").unwrap();
+        assert_eq!(install::service_file(&dirs.home), Some(unit));
     }
 
     /// `sh run` fails at once, which is enough: only the log matters here.
@@ -300,6 +317,26 @@ mod tests {
 
         assert_eq!(log, dirs.data.join("bridge.log"));
         assert!(std::fs::metadata(&log).unwrap().len() < MAX_LOG);
+    }
+
+    #[test]
+    fn a_confirm_fails_when_the_old_bridge_still_holds_the_lock() {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = dirs(root.path());
+        make_private_dir(&dirs.data).unwrap();
+        let _old = lock::take(&dirs.data).unwrap();
+        let before = lock::status(&dirs.data).unwrap();
+        let log = BridgeLog::File(root.path().join("none.log"));
+
+        let error = confirm_start(&dirs, &log, &before).unwrap_err();
+
+        let pid = std::process::id();
+        assert!(
+            error
+                .to_string()
+                .contains(&format!("another bridge (pid {pid}) holds the lock")),
+            "{error}"
+        );
     }
 
     #[cfg(unix)]

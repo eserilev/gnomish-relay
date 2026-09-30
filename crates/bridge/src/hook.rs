@@ -83,14 +83,16 @@ pub enum Outcome {
     Failed,
 }
 
-pub fn run_hook(source: Source, in_job: bool, data: &Path, input: &[u8]) -> Outcome {
+/// `name` comes from the start of the hook. Claude runs its hooks async, so a later
+/// time can sort the file of `Stop` after the file of `SessionEnd`.
+pub fn run_hook(source: Source, in_job: bool, data: &Path, input: &[u8], name: &str) -> Outcome {
     if in_job {
         return Outcome::InJob;
     }
     let Some(file) = hook_file(source, input) else {
         return Outcome::NoNotice;
     };
-    match write_file(&spool_dir(data), &new_name(), &file.to_bytes()) {
+    match write_file(&spool_dir(data), name, &file.to_bytes()) {
         Ok(written) => Outcome::Spool(written),
         Err(_) => Outcome::Failed,
     }
@@ -109,10 +111,11 @@ pub fn main(agent: &str) -> ! {
         std::thread::sleep(TIME_LIMIT);
         std::process::exit(0);
     });
+    let name = new_name();
     let in_job = std::env::var_os(JOB_VAR).is_some();
     if let (Some(source), Ok(dirs)) = (source_of(agent), Dirs::from_env()) {
         let input = if in_job { Vec::new() } else { read_input() };
-        run_hook(source, in_job, &dirs.data, &input);
+        run_hook(source, in_job, &dirs.data, &input, &name);
     }
     std::process::exit(0)
 }
@@ -131,10 +134,26 @@ mod tests {
     }
 
     #[test]
+    fn the_spool_file_takes_the_name_from_the_start_of_the_hook() {
+        let data = data_with_spool();
+        let name = unique_name(1, 2, 3);
+
+        run_hook(Source::Claude, false, data.path(), STOP.as_bytes(), &name);
+
+        assert!(spool_dir(data.path()).join(format!("{name}.json")).exists());
+    }
+
+    #[test]
     fn a_hook_writes_one_spool_file_with_the_repo_name_only() {
         let data = data_with_spool();
 
-        let outcome = run_hook(Source::Claude, false, data.path(), STOP.as_bytes());
+        let outcome = run_hook(
+            Source::Claude,
+            false,
+            data.path(),
+            STOP.as_bytes(),
+            &new_name(),
+        );
 
         assert_eq!(outcome, Outcome::Spool(Written::Yes));
         let taken = take_files(&spool_dir(data.path()), SystemTime::now());
@@ -155,7 +174,13 @@ mod tests {
     fn a_hook_in_a_bridge_job_writes_nothing() {
         let data = data_with_spool();
         assert_eq!(
-            run_hook(Source::Claude, true, data.path(), STOP.as_bytes()),
+            run_hook(
+                Source::Claude,
+                true,
+                data.path(),
+                STOP.as_bytes(),
+                &new_name()
+            ),
             Outcome::InJob
         );
         assert_eq!(
@@ -168,7 +193,13 @@ mod tests {
     fn a_hook_with_no_bridge_writes_nothing() {
         let data = tempfile::tempdir().unwrap();
         assert_eq!(
-            run_hook(Source::Codex, false, data.path(), STOP.as_bytes()),
+            run_hook(
+                Source::Codex,
+                false,
+                data.path(),
+                STOP.as_bytes(),
+                &new_name()
+            ),
             Outcome::Spool(Written::NoFolder)
         );
     }
@@ -178,7 +209,13 @@ mod tests {
         let data = data_with_spool();
         let input = STOP.replace("\"Stop\"", "\"PreToolUse\"");
         assert_eq!(
-            run_hook(Source::Claude, false, data.path(), input.as_bytes()),
+            run_hook(
+                Source::Claude,
+                false,
+                data.path(),
+                input.as_bytes(),
+                &new_name()
+            ),
             Outcome::NoNotice
         );
     }
@@ -214,7 +251,7 @@ mod tests {
         let data = data_with_spool();
         let huge = vec![b'['; 1 << 20];
         assert_eq!(
-            run_hook(Source::Claude, false, data.path(), &huge),
+            run_hook(Source::Claude, false, data.path(), &huge, &new_name()),
             Outcome::NoNotice
         );
     }

@@ -16,11 +16,12 @@ use std::time::Duration;
 
 use bridge::acp::AcpAgent;
 use bridge::agent::{Agent, Control};
-use bridge::agent_wall::{AgentWall, NO_WALL};
+use bridge::agent_wall::{AgentDirs, AgentWall, NO_WALL};
 use bridge::allow_hosts::HostList;
 use bridge::claude::ClaudeAgent;
 use bridge::codex::CodexAgent;
 use bridge::config::{Kind, Permission};
+use bridge::dirs::EnvVar;
 use bridge::gate::Gate;
 use bridge::process::AgentProcess;
 use bridge::proxy::{Limits, Net, ProxySettings};
@@ -157,10 +158,15 @@ fn settings(local_ports: &[u16]) -> ProxySettings {
 }
 
 fn wall(m: &Machine, tool: Sandbox, settings: ProxySettings) -> AgentWall {
+    wall_with(m, tool, settings, &|_| None)
+}
+
+fn wall_with(m: &Machine, tool: Sandbox, settings: ProxySettings, var: EnvVar) -> AgentWall {
     AgentWall::new(
         tool,
         PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
         Some(m.home.clone()),
+        AgentDirs::of(&m.home, var),
         m.data.clone(),
         settings,
     )
@@ -377,6 +383,40 @@ fn a_startup_file_cannot_change_and_a_new_one_gets_a_notice() {
         "{reply}"
     );
     assert_eq!(fs::read_to_string(bashrc).unwrap(), "old rc");
+}
+
+#[test]
+fn the_codex_hooks_and_rules_and_a_moved_claude_config_cannot_change() {
+    let Some(tool) = bwrap() else { return };
+    let m = machine();
+    let moved = m.home.join("claude-config");
+    fs::create_dir_all(m.home.join(".codex/rules")).unwrap();
+    fs::create_dir_all(&moved).unwrap();
+    let hooks = m.home.join(".codex/hooks.json");
+    fs::write(&hooks, "{}").unwrap();
+    let rule = m.home.join(".codex/rules/default.rules");
+    let settings_file = moved.join("settings.json");
+    fs::write(&settings_file, "{}").unwrap();
+    let var = |name: &str| (name == "CLAUDE_CONFIG_DIR").then(|| moved.clone());
+    let agent = claude(&m, wall_with(&m, tool, settings(&[]), &var));
+
+    let reply = probe(
+        &m,
+        &*agent,
+        &format!(
+            "write={} write={} write={}",
+            hooks.display(),
+            rule.display(),
+            settings_file.display()
+        ),
+    );
+
+    assert!(
+        reply.starts_with("write=fail write=fail write=fail"),
+        "{reply}"
+    );
+    assert_eq!(fs::read_to_string(hooks).unwrap(), "{}");
+    assert!(!rule.exists());
 }
 
 #[test]

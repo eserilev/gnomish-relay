@@ -363,6 +363,52 @@ fn a_change_outside_the_chat_folder_waits_for_the_desktop() {
     assert_eq!(inside, "change accept");
 }
 
+#[test]
+fn a_move_into_the_git_hooks_waits_for_the_desktop() {
+    let reply = gated(
+        "move",
+        "ROOT/app/.git/hooks/pre-commit",
+        "",
+        Permission::FullAuto,
+    )
+    .unwrap();
+    assert!(reply.starts_with("change decline"), "{reply}");
+    let plain = gated("move", "ROOT/app/docs/README.md", "", Permission::AutoEdit).unwrap();
+    assert_eq!(plain, "change accept");
+}
+
+#[test]
+fn a_move_into_the_config_folder_is_declined_at_every_level() {
+    for level in [Permission::Ask, Permission::AutoEdit, Permission::FullAuto] {
+        let reply = gated("move", "ROOT/config/strip.key", "", level).unwrap();
+        assert!(reply.starts_with("change decline"), "{reply}");
+    }
+}
+
+#[test]
+fn a_move_shows_both_paths_in_the_step_and_in_the_popup() {
+    let item = serde_json::json!({ "item": { "type": "fileChange", "id": "f1", "changes": [
+        { "path": "README.md", "kind": { "type": "update", "move_path": ".envrc" }, "diff": "" }
+    ] } });
+
+    let bridge::codex::Event::Started { step, paths, .. } =
+        bridge::codex::read_event("item/started", &item)
+    else {
+        panic!("a change starts");
+    };
+    let request = bridge::codex::read_request(
+        "item/fileChange/requestApproval",
+        &serde_json::json!({}),
+        &paths,
+    );
+
+    assert_eq!(step, "edit README.md -> .envrc");
+    assert_eq!(
+        request.text,
+        b"README.md -> .envrc\nthe agent says: change files".to_vec()
+    );
+}
+
 fn attach(open: Open) -> (Result<String, String>, Option<SessionId>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "");
@@ -476,7 +522,10 @@ fn codex_gets_a_private_temp_folder_that_goes_away_with_the_run() {
 fn a_change_with_a_root_is_checked_at_the_root_and_at_each_path_of_the_patch() {
     let chat = std::path::Path::new("/home/x/Code/app");
     let params = serde_json::json!({ "grantRoot": "src" });
-    let paths = ["src/a.rs".to_owned(), "/home/x/.bashrc".to_owned()];
+    let paths = [
+        bridge::codex::Change::at("src/a.rs"),
+        bridge::codex::Change::at("/home/x/.bashrc"),
+    ];
 
     let call =
         bridge::codex::approval_call("item/fileChange/requestApproval", &params, &paths, chat);

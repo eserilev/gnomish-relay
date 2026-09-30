@@ -1,6 +1,6 @@
 //! The folders of the bridge on each OS (SPEC.md 8.3).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 
@@ -35,6 +35,16 @@ pub struct Dirs {
 
 /// An environment variable as a path, or `None` when it is not set.
 pub type EnvVar<'a> = &'a dyn Fn(&str) -> Option<PathBuf>;
+
+/// `CLAUDE_CONFIG_DIR` moves the config of Claude Code, as Claude Code reads it.
+pub fn claude_dir(home: &Path, var: EnvVar) -> PathBuf {
+    var("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude"))
+}
+
+/// `CODEX_HOME` moves the config of Codex, as Codex reads it.
+pub fn codex_dir(home: &Path, var: EnvVar) -> PathBuf {
+    var("CODEX_HOME").unwrap_or_else(|| home.join(".codex"))
+}
 
 impl Dirs {
     pub fn from_env() -> Result<Dirs> {

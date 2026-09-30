@@ -12,7 +12,9 @@ use serde::Deserialize;
 
 use crate::allow_hosts::{Defaults, HostList};
 use crate::config::Kind;
+use crate::dirs::{EnvVar, claude_dir, codex_dir};
 use crate::forward::{FORWARD_FLAG, INNER_PORT, ports_arg};
+use crate::hooks_install::saved_folders;
 use crate::ids::random_hex;
 use crate::proxy::{Proxy, ProxySettings};
 use crate::story_sandbox::{self, Sandbox};
@@ -29,6 +31,15 @@ const PRIVATE_FOLDERS: [&str; 4] = ["/run", "/tmp", "/var/tmp", "/dev/shm"];
 const SOCKET_DEPTH: usize = 3;
 /// A home folder with more entries in its top levels gets no more of the scan.
 const MAX_SCAN: usize = 200_000;
+/// Container tools keep a socket deeper, for example `~/.lima/default/sock/docker.sock`.
+const SOCKET_HOMES: [&str; 5] = [
+    ".lima",
+    ".colima",
+    ".docker",
+    ".rd",
+    ".local/share/containers",
+];
+const SOCKET_HOME_DEPTH: usize = 4;
 
 /// The model hosts of Claude (measured on Claude Code 2.1.283 on 2026-09-27). The second
 /// one refreshes a login.
@@ -37,7 +48,7 @@ const CLAUDE_HOSTS: [&str; 2] = ["api.anthropic.com", "platform.claude.com"];
 const CODEX_HOSTS: [&str; 3] = ["api.openai.com", "chatgpt.com", "auth.openai.com"];
 
 /// Code that runs later, outside the wall, with the full network (SPEC.md 6.6.4).
-pub const STARTUP_FILES: [&str; 43] = [
+pub const STARTUP_FILES: [&str; 36] = [
     ".bashrc",
     ".bash_profile",
     ".bash_login",
@@ -74,17 +85,21 @@ pub const STARTUP_FILES: [&str; 43] = [
     ".config/direnv",
     ".gnupg",
     ".config/Code/User",
-    ".claude/settings.json",
-    ".claude/settings.local.json",
-    ".claude/CLAUDE.md",
-    ".claude/hooks",
-    ".claude/commands",
-    ".claude/agents",
-    ".claude/skills",
 ];
 
-/// Two more folders of the config of Claude and Codex: they start programs too.
-const AGENT_CONFIG: [&str; 2] = [".claude/plugins", ".codex/config.toml"];
+/// The config of Claude Code that starts programs in a terminal session later.
+const CLAUDE_CONFIG: [&str; 8] = [
+    "settings.json",
+    "settings.local.json",
+    "CLAUDE.md",
+    "hooks",
+    "commands",
+    "agents",
+    "skills",
+    "plugins",
+];
+/// The config of Codex. A rule in `rules` runs a command outside the sandbox of Codex.
+const CODEX_CONFIG: [&str; 3] = ["config.toml", "hooks.json", "rules"];
 
 /// Which hosts the agent reaches through its proxy (`[sandbox] agent_network`).
 #[derive(Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -105,13 +120,62 @@ pub fn model_hosts(kind: Kind) -> &'static [&'static str] {
     }
 }
 
-/// Every startup file and agent config, under `home`.
-pub fn startup_paths(home: &Path) -> Vec<PathBuf> {
-    STARTUP_FILES
-        .iter()
-        .chain(AGENT_CONFIG.iter())
-        .map(|name| home.join(name))
-        .collect()
+/// The config folders of Claude Code and Codex.
+#[derive(Clone, Debug, Default)]
+pub struct AgentDirs {
+    pub claude: Vec<PathBuf>,
+    pub codex: Vec<PathBuf>,
+}
+
+impl AgentDirs {
+    /// The folders under `home`, and also the ones that `CLAUDE_CONFIG_DIR` and
+    /// `CODEX_HOME` name, because a terminal session of the user reads those.
+    pub fn of(home: &Path, var: EnvVar) -> AgentDirs {
+        AgentDirs {
+            claude: default_and_moved(home.join(".claude"), claude_dir(home, var)),
+            codex: default_and_moved(home.join(".codex"), codex_dir(home, var)),
+        }
+    }
+
+    /// The folders that the last `hooks` command used. A service of the bridge lacks the
+    /// variables of a shell rc file, so only this file names a moved folder there.
+    pub fn add_saved(&mut self, data: &Path) {
+        let Some((claude, codex)) = saved_folders(data) else {
+            return;
+        };
+        add_absolute(&mut self.claude, claude);
+        add_absolute(&mut self.codex, codex);
+    }
+}
+
+fn add_absolute(folders: &mut Vec<PathBuf>, folder: PathBuf) {
+    if folder.is_absolute() && !folders.contains(&folder) {
+        folders.push(folder);
+    }
+}
+
+/// A relative folder has no fixed place, so the wall cannot bind it.
+fn default_and_moved(default: PathBuf, moved: PathBuf) -> Vec<PathBuf> {
+    if moved == default || moved.is_relative() {
+        return vec![default];
+    }
+    vec![default, moved]
+}
+
+/// Every startup file under `home`, and the config in each folder of `agents`.
+pub fn startup_paths(home: &Path, agents: &AgentDirs) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = STARTUP_FILES.iter().map(|name| home.join(name)).collect();
+    paths.extend(in_each(&agents.claude, &CLAUDE_CONFIG));
+    paths.extend(in_each(&agents.codex, &CODEX_CONFIG));
+    paths
+}
+
+fn in_each(folders: &[PathBuf], names: &[&str]) -> Vec<PathBuf> {
+    let mut paths = Vec::new();
+    for folder in folders {
+        paths.extend(names.iter().map(|name| folder.join(name)));
+    }
+    paths
 }
 
 /// The wall of this computer, for the agent processes of the bridge.
@@ -122,6 +186,7 @@ pub struct AgentWall {
     /// This program: the forwarder inside the wall.
     pub wrapper: PathBuf,
     pub home: Option<PathBuf>,
+    pub agent_dirs: AgentDirs,
     /// The socket of the proxy lies here, so S31 hides it from every command.
     pub data_dir: PathBuf,
     pub proxy: ProxySettings,
@@ -134,6 +199,7 @@ impl AgentWall {
         tool: Sandbox,
         wrapper: PathBuf,
         home: Option<PathBuf>,
+        agent_dirs: AgentDirs,
         data_dir: PathBuf,
         proxy: ProxySettings,
     ) -> AgentWall {
@@ -141,6 +207,7 @@ impl AgentWall {
             tool,
             wrapper,
             home,
+            agent_dirs,
             data_dir,
             proxy,
             told: Arc::new(AtomicBool::new(false)),
@@ -156,10 +223,18 @@ impl AgentWall {
             AgentNetwork::Open => ProxySettings::public(),
             AgentNetwork::Strict => ProxySettings::new(HostList::default()),
         };
+        let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
+        let home = var("HOME");
+        let mut agent_dirs = home
+            .as_deref()
+            .map(|home| AgentDirs::of(home, &var))
+            .unwrap_or_default();
+        agent_dirs.add_saved(data_dir);
         AgentWall::new(
             tool,
             std::env::current_exe().unwrap_or_default(),
-            std::env::var_os("HOME").map(PathBuf::from),
+            home,
+            agent_dirs,
             data_dir.to_owned(),
             proxy.with_local_ports(local_ports),
         )
@@ -171,6 +246,7 @@ impl AgentWall {
             Sandbox::None,
             PathBuf::new(),
             None,
+            AgentDirs::default(),
             PathBuf::new(),
             ProxySettings::public(),
         );
@@ -229,7 +305,11 @@ impl AgentWall {
         std::fs::create_dir_all(&place)
             .map_err(|e| format!("No folder for the proxy of the agent: {e}"))?;
         let (listening, socket) = start_proxy(&place, self.proxy.clone(), tag)?;
-        let startup = self.home.as_deref().map(startup_paths).unwrap_or_default();
+        let startup = self
+            .home
+            .as_deref()
+            .map(|home| startup_paths(home, &self.agent_dirs))
+            .unwrap_or_default();
         let (read_only, missing) = startup.into_iter().partition(|p| p.exists());
         let mut all_binds: Vec<PathBuf> = binds.iter().map(|b| b.to_path_buf()).collect();
         all_binds.push(self.data_dir.clone());
@@ -296,32 +376,63 @@ fn listen(
     Err(std::io::ErrorKind::Unsupported.into())
 }
 
-/// Each socket file in the top levels of the home folder. The walk does not follow links.
+/// Each socket file in the top levels of the home folder, and deeper in the folders of
+/// container tools. The walk does not follow links.
 pub fn scan_sockets(home: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut seen = 0;
-    let mut folders = vec![(home.to_path_buf(), 0)];
-    while let Some((folder, depth)) = folders.pop() {
-        let Ok(entries) = std::fs::read_dir(&folder) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            seen += 1;
-            if seen > MAX_SCAN {
-                return found;
-            }
-            let Ok(kind) = entry.file_type() else {
+    let scan = scan_with_limit(home, MAX_SCAN);
+    if scan.cut {
+        crate::run::log(&format!(
+            "the scan for sockets stopped after {MAX_SCAN} entries of {}: a socket after them stays reachable",
+            home.display()
+        ));
+    }
+    scan.found
+}
+
+#[derive(Default)]
+struct SocketScan {
+    found: Vec<PathBuf>,
+    seen: usize,
+    /// The scan stopped at its limit.
+    cut: bool,
+}
+
+/// The container tools come first, so a big folder elsewhere cannot use up the limit.
+fn scan_with_limit(home: &Path, limit: usize) -> SocketScan {
+    let mut scan = SocketScan::default();
+    for name in SOCKET_HOMES {
+        scan.walk(&home.join(name), SOCKET_HOME_DEPTH, limit);
+    }
+    scan.walk(home, SOCKET_DEPTH, limit);
+    scan.found.sort();
+    scan.found.dedup();
+    scan
+}
+
+impl SocketScan {
+    fn walk(&mut self, top: &Path, max_depth: usize, limit: usize) {
+        let mut folders = vec![(top.to_path_buf(), 0)];
+        while let Some((folder, depth)) = folders.pop() {
+            let Ok(entries) = std::fs::read_dir(&folder) else {
                 continue;
             };
-            if is_socket(kind) {
-                found.push(entry.path());
-            } else if kind.is_dir() && depth + 1 < SOCKET_DEPTH {
-                folders.push((entry.path(), depth + 1));
+            for entry in entries.flatten() {
+                self.seen += 1;
+                if self.seen > limit {
+                    self.cut = true;
+                    return;
+                }
+                let Ok(kind) = entry.file_type() else {
+                    continue;
+                };
+                if is_socket(kind) {
+                    self.found.push(entry.path());
+                } else if kind.is_dir() && depth + 1 < max_depth {
+                    folders.push((entry.path(), depth + 1));
+                }
             }
         }
     }
-    found.sort();
-    found
 }
 
 #[cfg(unix)]
@@ -700,6 +811,7 @@ mod tests {
             Sandbox::None,
             PathBuf::new(),
             None,
+            AgentDirs::default(),
             PathBuf::new(),
             ProxySettings::public(),
         );
@@ -717,6 +829,7 @@ mod tests {
             Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")),
             PathBuf::new(),
             None,
+            AgentDirs::default(),
             PathBuf::new(),
             ProxySettings::public().with_local_ports(&[5432]),
         );
@@ -765,19 +878,90 @@ mod tests {
         assert_eq!(found, vec![near.join("docker.sock")]);
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn the_scan_looks_deeper_into_the_folders_of_container_tools() {
+        let home = tempfile::tempdir().unwrap();
+        let lima = home.path().join(".lima/default/sock");
+        std::fs::create_dir_all(&lima).unwrap();
+        let _a = std::os::unix::net::UnixListener::bind(lima.join("docker.sock")).unwrap();
+
+        let found = scan_sockets(home.path());
+
+        assert_eq!(found, vec![lima.join("docker.sock")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_scan_that_hits_its_limit_says_so() {
+        let home = tempfile::tempdir().unwrap();
+        for n in 0..5 {
+            std::fs::write(home.path().join(format!("f{n}")), "x").unwrap();
+        }
+
+        let scan = scan_with_limit(home.path(), 3);
+
+        assert!(scan.cut);
+    }
+
     #[test]
     fn the_startup_paths_hold_the_shells_the_desktop_and_the_agent_config() {
-        let paths = startup_paths(Path::new("/home/x"));
+        let home = Path::new("/home/x");
+        let paths = startup_paths(home, &AgentDirs::of(home, &|_| None));
 
         for name in [
             ".bashrc",
             ".config/systemd/user",
             ".ssh",
+            ".claude/settings.json",
+            ".claude/plugins",
             ".codex/config.toml",
+            ".codex/hooks.json",
+            ".codex/rules",
         ] {
             assert!(paths.contains(&Path::new("/home/x").join(name)), "{name}");
         }
         assert!(!paths.contains(&PathBuf::from("/home/x/.claude.json")));
         assert!(!paths.contains(&PathBuf::from("/home/x/.claude/projects")));
+    }
+
+    #[test]
+    fn a_folder_that_the_hooks_command_saved_is_read_only_too() {
+        let data = tempfile::tempdir().unwrap();
+        let home = Path::new("/home/x");
+        let moved = |name: &str| (name == "CODEX_HOME").then(|| PathBuf::from("/cfg/codex"));
+        let used = crate::hooks_install::HookFiles::both(home, &moved);
+        crate::hooks_install::save_folders(data.path(), &used).unwrap();
+        let mut dirs = AgentDirs::of(home, &|_| None);
+
+        dirs.add_saved(data.path());
+
+        assert_eq!(dirs.claude, [home.join(".claude")]);
+        assert_eq!(
+            dirs.codex,
+            [home.join(".codex"), PathBuf::from("/cfg/codex")]
+        );
+    }
+
+    #[test]
+    fn a_moved_agent_config_is_read_only_next_to_the_default_one() {
+        let home = Path::new("/home/x");
+        let var = |name: &str| match name {
+            "CLAUDE_CONFIG_DIR" => Some(PathBuf::from("/cfg/claude")),
+            "CODEX_HOME" => Some(PathBuf::from("relative/codex")),
+            _ => None,
+        };
+
+        let paths = startup_paths(home, &AgentDirs::of(home, &var));
+
+        for path in [
+            "/cfg/claude/settings.json",
+            "/cfg/claude/hooks",
+            "/home/x/.claude/settings.json",
+            "/home/x/.codex/rules",
+        ] {
+            assert!(paths.contains(&PathBuf::from(path)), "{path}");
+        }
+        assert!(!paths.iter().any(|p| p.starts_with("relative")));
     }
 }

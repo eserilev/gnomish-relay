@@ -485,15 +485,25 @@ pub fn find_agents(path: &OsStr) -> Vec<Found<'static>> {
         .collect()
 }
 
+/// The folders of the bridge move with these. A shell rc file sets them for setup, but
+/// not for the service, so the unit carries them.
+pub const XDG_VARS: [&str; 2] = ["XDG_CONFIG_HOME", "XDG_DATA_HOME"];
+
 /// A systemd user service. It gets the `PATH` of setup, because a service starts with
-/// almost none, and then finds no agent.
-pub fn systemd_unit(exe: &Path, path_var: &str) -> String {
+/// almost none, and then finds no agent. `xdg` holds the set ones of `XDG_VARS`.
+pub fn systemd_unit(exe: &Path, path_var: &str, xdg: &[(&str, String)]) -> String {
     let quote = |text: &str| format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""));
+    let mut vars = vec![format!("PATH={path_var}")];
+    vars.extend(xdg.iter().map(|(name, value)| format!("{name}={value}")));
+    let lines: Vec<String> = vars
+        .iter()
+        .map(|var| format!("Environment={}\n", quote(var)))
+        .collect();
+    let env = lines.concat();
     format!(
         "[Unit]\nDescription=Gnomish Relay bridge\n\n[Service]\nExecStart={} run\n\
-         Environment={}\nRestart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n",
+         {env}Restart=on-failure\nRestartSec=5\n\n[Install]\nWantedBy=default.target\n",
         quote(&exe.to_string_lossy()),
-        quote(&format!("PATH={path_var}")),
     )
 }
 
@@ -526,10 +536,16 @@ pub fn launchd_plist(exe: &Path, path_var: &str, log: &Path) -> String {
 
 pub const SYSTEMD_UNIT: &str = "gnomish-relay.service";
 
+/// The user manager of systemd starts with no `XDG_CONFIG_HOME` of a shell rc file, so
+/// it reads units here, not under the `XDG_CONFIG_HOME` of the shell.
+pub fn systemd_dir(home: &Path) -> PathBuf {
+    home.join(".config").join("systemd").join("user")
+}
+
 /// The login service file of setup on this OS, if there is one.
-pub fn service_file(config_dir: &Path, home: &Path) -> Option<PathBuf> {
+pub fn service_file(home: &Path) -> Option<PathBuf> {
     let file = if cfg!(target_os = "linux") {
-        config_dir.parent()?.join("systemd/user").join(SYSTEMD_UNIT)
+        systemd_dir(home).join(SYSTEMD_UNIT)
     } else if cfg!(target_os = "macos") {
         home.join("Library/LaunchAgents")
             .join(format!("{LAUNCHD_LABEL}.plist"))
@@ -853,6 +869,7 @@ mod tests {
         let unit = systemd_unit(
             Path::new("/opt/my relay/gnomish-relay"),
             "/usr/bin:/home/x/.npm/bin",
+            &[],
         );
         assert!(unit.contains("ExecStart=\"/opt/my relay/gnomish-relay\" run\n"));
         assert!(unit.contains("Environment=\"PATH=/usr/bin:/home/x/.npm/bin\"\n"));
@@ -860,11 +877,27 @@ mod tests {
     }
 
     #[test]
+    fn the_systemd_unit_gets_the_xdg_folders_of_setup_when_they_are_set() {
+        let exe = Path::new("/opt/gnomish-relay");
+        let xdg = [
+            ("XDG_CONFIG_HOME", "/home/x/cfg".to_owned()),
+            ("XDG_DATA_HOME", "/home/x/my data".to_owned()),
+        ];
+
+        let unit = systemd_unit(exe, "/usr/bin", &xdg);
+
+        assert!(unit.contains("Environment=\"XDG_CONFIG_HOME=/home/x/cfg\"\n"));
+        assert!(unit.contains("Environment=\"XDG_DATA_HOME=/home/x/my data\"\n"));
+        assert_eq!(service_path_var(&unit).as_deref(), Some("/usr/bin"));
+        assert!(!systemd_unit(exe, "/usr/bin", &[]).contains("XDG"));
+    }
+
+    #[test]
     fn the_path_of_the_service_comes_back_from_the_unit_and_the_plist() {
         let path = "/usr/bin:/home/x/my \"odd\" \\dir:/a&b<c>";
         let exe = Path::new("/opt/gnomish-relay");
 
-        let from_unit = service_path_var(&systemd_unit(exe, path));
+        let from_unit = service_path_var(&systemd_unit(exe, path, &[]));
         let from_plist = service_path_var(&launchd_plist(exe, path, Path::new("/l.log")));
 
         assert_eq!(from_unit.as_deref(), Some(path));

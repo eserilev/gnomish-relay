@@ -8,9 +8,12 @@ use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
-use crate::dirs::{Dirs, EnvVar};
+use crate::config;
+use crate::dirs::{Dirs, EnvVar, claude_dir, codex_dir};
+use crate::fs_safe::{make_private_dir, write_private};
 use crate::hooks_merge::{self, our_programs};
 use crate::program::find_program;
 use crate::spool::Source;
@@ -28,9 +31,11 @@ pub struct HookFiles {
 }
 
 impl HookFiles {
-    /// `CLAUDE_CONFIG_DIR` moves the settings of Claude Code, as Claude Code reads it.
     pub fn claude(home: &Path, var: EnvVar) -> HookFiles {
-        let dir = var("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude"));
+        HookFiles::claude_in(&claude_dir(home, var))
+    }
+
+    fn claude_in(dir: &Path) -> HookFiles {
         HookFiles {
             source: Source::Claude,
             hooks: dir.join("settings.json"),
@@ -38,9 +43,11 @@ impl HookFiles {
         }
     }
 
-    /// `CODEX_HOME` moves the settings of Codex, as Codex reads it.
     pub fn codex(home: &Path, var: EnvVar) -> HookFiles {
-        let dir = var("CODEX_HOME").unwrap_or_else(|| home.join(".codex"));
+        HookFiles::codex_in(&codex_dir(home, var))
+    }
+
+    fn codex_in(dir: &Path) -> HookFiles {
         HookFiles {
             source: Source::Codex,
             hooks: dir.join("hooks.json"),
@@ -51,6 +58,49 @@ impl HookFiles {
     pub fn both(home: &Path, var: EnvVar) -> Vec<HookFiles> {
         vec![HookFiles::claude(home, var), HookFiles::codex(home, var)]
     }
+}
+
+/// The service of the bridge lacks the variables of a shell rc file, such as
+/// `CLAUDE_CONFIG_DIR`. So each `hooks` command saves its folders for the bridge.
+const SAVED_FOLDERS: &str = "hook-folders.json";
+
+#[derive(Serialize, Deserialize)]
+struct SavedFolders {
+    claude: PathBuf,
+    codex: PathBuf,
+}
+
+fn folder_of(files: &HookFiles) -> PathBuf {
+    files
+        .hooks
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
+}
+
+pub(crate) fn save_folders(data: &Path, all: &[HookFiles]) -> Result<()> {
+    let folder = |source| all.iter().find(|f| f.source == source).map(folder_of);
+    let (Some(claude), Some(codex)) = (folder(Source::Claude), folder(Source::Codex)) else {
+        return Ok(());
+    };
+    make_private_dir(data)?;
+    let text = serde_json::to_string(&SavedFolders { claude, codex })?;
+    write_private(data, SAVED_FOLDERS, &text)
+}
+
+/// The folders of Claude Code and Codex that the last `hooks` command used.
+pub fn saved_folders(data: &Path) -> Option<(PathBuf, PathBuf)> {
+    let bytes = fs::read(data.join(SAVED_FOLDERS)).ok()?;
+    let saved: SavedFolders = serde_json::from_slice(&bytes).ok()?;
+    Some((saved.claude, saved.codex))
+}
+
+/// The files that the last `hooks` command used, else the ones of `var`.
+pub fn files_for_bridge(home: &Path, data: &Path, var: EnvVar) -> Vec<HookFiles> {
+    let Some((claude, codex)) = saved_folders(data) else {
+        return HookFiles::both(home, var);
+    };
+    vec![HookFiles::claude_in(&claude), HookFiles::codex_in(&codex)]
 }
 
 pub fn agent_name(source: Source) -> &'static str {
@@ -126,14 +176,23 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Mode 0600 from the first byte: the settings of Claude Code can hold an API key.
+/// `create_new` fails at any name that exists, a link too, so it never follows a link.
+fn create_private(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
 /// The file from before the first install. A later install never writes over it.
 fn backup(real: &Path) -> Result<()> {
     let backup = real.with_file_name(format!("{}.{BACKUP}", file_name(real)));
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&backup)
-    {
+    match create_private(&backup) {
         Ok(mut file) => Ok(file.write_all(&fs::read(real)?)?),
         Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(e).with_context(|| format!("cannot write {}", backup.display())),
@@ -151,7 +210,11 @@ fn write_settings(settings: &Settings, value: &Value) -> Result<()> {
     let tmp = dir.join(format!(".{}.gnomish-relay.tmp", file_name(real)));
     let mut text = serde_json::to_string_pretty(value)?;
     text.push('\n');
-    fs::write(&tmp, text)?;
+    // A crash can leave the temp file. Removing a link removes only the link.
+    let _ = fs::remove_file(&tmp);
+    create_private(&tmp)
+        .with_context(|| format!("cannot write {}", tmp.display()))?
+        .write_all(text.as_bytes())?;
     if settings.existed {
         fs::set_permissions(&tmp, fs::metadata(real)?.permissions())?;
     }
@@ -356,15 +419,33 @@ pub fn status_command(all: &[HookFiles], out: &mut dyn Write) -> Result<()> {
 pub fn command(dirs: &Dirs, action: &str, flags: &[&str], out: &mut dyn Write) -> Result<()> {
     let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
     let all = HookFiles::both(&dirs.home, &var);
+    save_folders(&dirs.data, &all)?;
     let path = std::env::var_os("PATH").unwrap_or_default();
     match action {
-        "install" => install_command(flags, all, &std::env::current_exe()?, &path, out),
-        "remove" => remove_command(flags, all, out),
-        "status" if flags.is_empty() => status_command(&all, out),
+        "install" => install_command(flags, all, &std::env::current_exe()?, &path, out)?,
+        "remove" => return remove_command(flags, all, out),
+        "status" if flags.is_empty() => status_command(&all, out)?,
         _ => {
             bail!("usage: gnomish-relay hooks install|remove [--claude] [--codex], or hooks status")
         }
     }
+    if let Some(line) = relay_off_line(dirs) {
+        writeln!(out, "{line}")?;
+    }
+    Ok(())
+}
+
+const RELAY_OFF: &str =
+    "The relay is off, so no notification comes. Run: gnomish-relay setup --relay";
+
+/// Only the relay lane makes the spool folder, so with no relay a hook writes nothing.
+/// A config that does not load is the job of `gnomish-relay status`.
+fn relay_off_line(dirs: &Dirs) -> Option<&'static str> {
+    let off = match config::load(&dirs.config, &dirs.home) {
+        Ok(config) => config.relay.is_none(),
+        Err(_) => !dirs.config.join(config::FILE).exists(),
+    };
+    off.then_some(RELAY_OFF)
 }
 
 /// The last line of `setup`, which changes no agent settings itself.
@@ -551,6 +632,39 @@ mod tests {
         );
     }
 
+    #[cfg(unix)]
+    #[test]
+    fn the_backup_and_a_new_settings_file_have_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = home();
+        let settings = home.write(".claude/settings.json", USER_SETTINGS);
+        fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+
+        install(&home.claude(), &home.program).unwrap();
+        install(&home.codex(), &home.program).unwrap();
+
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let backup = settings.with_file_name("settings.json.gnomish-relay.bak");
+        assert_eq!(mode(&backup), 0o600);
+        assert_eq!(mode(&home.dir.path().join(".codex/hooks.json")), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_at_the_temp_name_is_not_followed() {
+        let home = home();
+        let settings = home.write(".claude/settings.json", USER_SETTINGS);
+        let victim = home.write("victim.txt", "keep me");
+        let tmp = settings.with_file_name(".settings.json.gnomish-relay.tmp");
+        std::os::unix::fs::symlink(&victim, &tmp).unwrap();
+
+        install(&home.claude(), &home.program).unwrap();
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep me");
+        assert!(fs::symlink_metadata(&settings).unwrap().is_file());
+        assert_eq!(our_programs(&json_of(&settings), Source::Claude).len(), 6);
+    }
+
     #[test]
     fn codex_install_refuses_when_its_config_turns_hooks_off() {
         let home = home();
@@ -590,6 +704,66 @@ mod tests {
 
         home.write(".codex/config.toml", "[features]\nhooks = false\n");
         assert_eq!(state(&home.codex()), HookState::Disabled);
+    }
+
+    fn dirs_with_config(home: &Home, config: Option<&str>) -> Dirs {
+        let dirs = Dirs {
+            home: home.dir.path().to_owned(),
+            config: home.dir.path().join("config"),
+            data: home.dir.path().join("data"),
+        };
+        if let Some(text) = config {
+            crate::setup::write_config(&dirs.config, text, &dirs.home).unwrap();
+        }
+        dirs
+    }
+
+    #[test]
+    fn with_no_relay_the_hooks_command_says_that_no_notification_comes() {
+        let home = home();
+        fs::create_dir_all(home.dir.path().join("Code")).unwrap();
+        let timeways = "[wow]\npath = \"~/wow\"\n\n[story]\nmodel = \"claude\"\n";
+        let relay = "allowed_roots = [\"~/Code\"]\ndefault_agent = \"echo\"\n\
+            [wow]\npath = \"~/wow\"\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n";
+
+        let no_config = relay_off_line(&dirs_with_config(&home, None));
+        let only_timeways = relay_off_line(&dirs_with_config(&home, Some(timeways)));
+        let with_relay = relay_off_line(&dirs_with_config(&home, Some(relay)));
+
+        assert_eq!(no_config, Some(RELAY_OFF));
+        assert_eq!(only_timeways, Some(RELAY_OFF));
+        assert_eq!(with_relay, None);
+    }
+
+    #[test]
+    fn the_bridge_reads_the_folders_that_the_last_hooks_command_used() {
+        let home = home();
+        let data = home.dir.path().join("data");
+        let moved =
+            |name: &str| (name == "CLAUDE_CONFIG_DIR").then(|| PathBuf::from("/cfg/claude"));
+        save_folders(&data, &HookFiles::both(home.dir.path(), &moved)).unwrap();
+
+        let files = files_for_bridge(home.dir.path(), &data, &no_env);
+
+        assert_eq!(files[0].hooks, PathBuf::from("/cfg/claude/settings.json"));
+        assert_eq!(files[1].hooks, home.dir.path().join(".codex/hooks.json"));
+        assert_eq!(
+            files[1].codex_config,
+            Some(home.dir.path().join(".codex/config.toml"))
+        );
+    }
+
+    #[test]
+    fn with_no_saved_folders_the_bridge_takes_its_own_env() {
+        let home = home();
+        let data = home.dir.path().join("data");
+
+        let files = files_for_bridge(home.dir.path(), &data, &no_env);
+
+        assert_eq!(
+            files[0].hooks,
+            home.dir.path().join(".claude/settings.json")
+        );
     }
 
     #[test]

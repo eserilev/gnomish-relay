@@ -16,7 +16,7 @@ use std::sync::{Arc, OnceLock};
 use std::time::{Duration, Instant};
 
 use bridge::agent::{Agent, Control, Event, EventSender, Events, StopSignal};
-use bridge::agent_wall::AgentWall;
+use bridge::agent_wall::{AgentDirs, AgentWall};
 use bridge::allow_hosts::HostList;
 use bridge::command_sandbox::{CommandSandbox, detect_overlay};
 use bridge::config::{AgentSpec, Kind, Permission};
@@ -175,7 +175,14 @@ fn gate(m: &Machine, tool: Sandbox, network: ProxySettings) -> Gate {
     sandbox.overlay = detect_overlay(&tool);
     Gate {
         sandbox,
-        wall: AgentWall::new(tool, wrapper, Some(m.home.clone()), m.data.clone(), network),
+        wall: AgentWall::new(
+            tool,
+            wrapper,
+            Some(m.home.clone()),
+            AgentDirs::of(&m.home, &|_| None),
+            m.data.clone(),
+            network,
+        ),
         home: m.home.clone(),
         ..Gate::bare(vec![m.home.join("Code")], m.config.clone(), m.data.clone())
     }
@@ -631,6 +638,7 @@ fn each_installed_preset_answers_inside_the_sandbox() {
                 tool.clone(),
                 PathBuf::new(),
                 None,
+                AgentDirs::default(),
                 data.clone(),
                 ProxySettings::public(),
             ),

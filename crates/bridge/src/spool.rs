@@ -119,9 +119,18 @@ pub fn write_file(dir: &Path, name: &str, bytes: &[u8]) -> std::io::Result<Writt
 pub fn open_spool(dir: &Path) -> anyhow::Result<()> {
     make_private_dir(dir)?;
     for entry in fs::read_dir(dir)?.flatten() {
-        let _ = fs::remove_file(entry.path());
+        let _ = remove_entry(&entry.path());
     }
     Ok(())
+}
+
+/// Any local process can make a folder here, and `remove_file` leaves a folder. The
+/// removal of a folder does not follow a link inside it.
+fn remove_entry(path: &Path) -> std::io::Result<()> {
+    if fs::symlink_metadata(path)?.is_dir() {
+        return fs::remove_dir_all(path);
+    }
+    fs::remove_file(path)
 }
 
 /// One read of the folder: the files that passed the checks, oldest first, and a log line
@@ -192,7 +201,7 @@ fn display_name(path: &Path) -> String {
 
 fn take_one(path: &Path) -> Result<SpoolFile, String> {
     let bytes = read_real_file(path);
-    fs::remove_file(path).map_err(|e| format!("cannot delete it: {e}"))?;
+    remove_entry(path).map_err(|e| format!("cannot delete it: {e}"))?;
     SpoolFile::parse(&bytes?)
 }
 
@@ -399,9 +408,23 @@ mod tests {
     }
 
     #[test]
+    fn a_folder_named_json_is_deleted_and_named_once() {
+        let (_data, dir) = spool();
+        fs::create_dir_all(dir.join("0.json/inner")).unwrap();
+
+        let first = take_files(&dir, SystemTime::now());
+        let second = take_files(&dir, SystemTime::now());
+
+        assert!(first.refused[0].contains("not a plain file"));
+        assert!(!dir.join("0.json").exists());
+        assert!(second.refused.is_empty());
+    }
+
+    #[test]
     fn a_start_empties_the_folder() {
         let (_data, dir) = spool();
         fs::write(dir.join("old.json"), b"{}").unwrap();
+        fs::create_dir_all(dir.join("0.json/inner")).unwrap();
         open_spool(&dir).unwrap();
         assert_eq!(fs::read_dir(&dir).unwrap().count(), 0);
     }

@@ -371,6 +371,23 @@ mod tests {
         }
     }
 
+    /// Remove cannot tell an empty list that the user wrote from one that it emptied.
+    #[test]
+    fn install_then_remove_drops_only_an_empty_list_of_our_events_and_an_empty_hooks() {
+        let cases = [
+            (json!({"hooks": {}}), json!({})),
+            (json!({"hooks": {"Stop": []}}), json!({})),
+            (
+                json!({"hooks": {"Stop": [], "PreToolUse": []}}),
+                json!({"hooks": {"PreToolUse": []}}),
+            ),
+        ];
+        for (before, after) in cases {
+            let installed = install(before, program(), Source::Claude).unwrap();
+            assert_eq!(remove(installed, Source::Claude).unwrap(), after);
+        }
+    }
+
     #[test]
     fn remove_takes_out_only_our_groups() {
         let both = install(user_settings(), program(), Source::Claude).unwrap();
