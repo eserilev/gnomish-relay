@@ -38,6 +38,7 @@ const TOC: &str = "GnomishRelay.toc";
 
 /// The files of the addon that its TOC does not list: WoW reads `Bindings.xml` by itself,
 /// the transcript loads the font, and the font license goes with the font.
+#[cfg(unix)]
 const UNLISTED_FILES: [&str; 3] = [
     "Bindings.xml",
     "JetBrainsMono-Regular.ttf",
