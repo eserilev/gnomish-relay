@@ -655,11 +655,16 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         .iter()
         .map(|root| real_folder(root, home, "allowed root"))
         .collect::<Result<Vec<_>>>()?;
-    let base = match &file.default_cwd {
-        Some(cwd) => real_folder(cwd, home, "default_cwd")?,
-        None => roots.first().context("allowed_roots is empty")?.clone(),
+    // With no roots, every folder needs a click on the desktop first (SPEC.md 9.12).
+    let real_home = home.canonicalize().ok().map(|h| path_bytes(&h));
+    let base = match (&file.default_cwd, roots.first()) {
+        (Some(cwd), _) => real_folder(cwd, home, "default_cwd")?,
+        (None, Some(first)) => first.clone(),
+        (None, None) => real_home
+            .clone()
+            .context("the home folder does not exist")?,
     };
-    if resolve_folder(&roots, &base, b"").is_none() {
+    if Some(&base) != real_home.as_ref() && resolve_folder(&roots, &base, b"").is_none() {
         bail!("default_cwd is outside allowed_roots");
     }
     let file_agents = file.agents.unwrap_or_default();
@@ -1529,6 +1534,35 @@ mod tests {
     fn a_relative_root_is_an_error() {
         let home = Home::new();
         assert!(home.parse(&GOOD.replace("~/Code", "Code")).is_err());
+    }
+
+    #[test]
+    fn an_empty_list_of_roots_keeps_the_relay_on_with_the_home_folder_as_the_base() {
+        let home = Home::new();
+        let text = GOOD.replace("[\"~/Code\"]", "[]");
+
+        let config = home.parse(&text).unwrap();
+
+        let folders = &config.require_relay().unwrap().policy.folders;
+        assert!(folders.roots.is_empty());
+        assert_eq!(
+            folders.base,
+            path_bytes(&home.path().canonicalize().unwrap())
+        );
+    }
+
+    #[test]
+    fn the_home_folder_can_be_the_default_folder() {
+        let home = Home::new();
+        let text = GOOD.replace("default_agent", "default_cwd = \"~\"\ndefault_agent");
+
+        let config = home.parse(&text).unwrap();
+
+        let folders = &config.require_relay().unwrap().policy.folders;
+        assert_eq!(
+            folders.base,
+            path_bytes(&home.path().canonicalize().unwrap())
+        );
     }
 
     #[test]
