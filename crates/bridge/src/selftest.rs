@@ -9,9 +9,11 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
+use crate::dirs::Dirs;
 use crate::fixture::{self, PLACEHOLDER};
 use crate::ids::hex;
 use crate::saved;
+use crate::setup_command;
 use crate::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
 
 pub const SAVED_FILE: &str = "GnomishRelaySelfTest.lua";
@@ -218,9 +220,58 @@ pub fn collect(game: &Path, repo: &Path) -> Result<Collected> {
     })
 }
 
+/// `selftest collect [folder] [--out <repo>]`. It needs no config and no key, so it
+/// finds the game as setup does.
+pub fn collect_command(dirs: &Dirs, args: &[&str]) -> Result<()> {
+    let Some((game, out)) = collect_args(args) else {
+        bail!("usage: gnomish-relay selftest collect [folder] [--out <repo>]");
+    };
+    let repo = match out {
+        Some(out) => PathBuf::from(out),
+        None => std::env::current_dir()?,
+    };
+    if !repo.join("addon").join("GnomishRelaySelfTest").is_dir() {
+        bail!("run this in the gnomish-relay repo, or give --out <repo>");
+    }
+    let collected = collect(&setup_command::pick_game(dirs, game)?, &repo)?;
+    println!("wrote {}", collected.fixture.display());
+    println!(
+        "wrote {} golden vectors to tests/vectors/{}",
+        collected.vectors, collected.build
+    );
+    for name in &collected.missing {
+        println!("no screenshot of {name}");
+    }
+    println!("capture: {:?}", collected.capture);
+    Ok(())
+}
+
+/// The game folder and the repo, each one optional.
+fn collect_args<'a>(args: &[&'a str]) -> Option<(Option<&'a str>, Option<&'a str>)> {
+    match args {
+        [] => Some((None, None)),
+        ["--out", out] => Some((None, Some(*out))),
+        [game] => Some((Some(*game), None)),
+        [game, "--out", out] => Some((Some(*game), Some(*out))),
+        _ => None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn collect_takes_a_game_folder_and_a_repo_in_that_order() {
+        assert_eq!(collect_args(&[]), Some((None, None)));
+        assert_eq!(collect_args(&["/wow"]), Some((Some("/wow"), None)));
+        assert_eq!(collect_args(&["--out", "/r"]), Some((None, Some("/r"))));
+        assert_eq!(
+            collect_args(&["/wow", "--out", "/r"]),
+            Some((Some("/wow"), Some("/r")))
+        );
+        assert_eq!(collect_args(&["/wow", "/r"]), None);
+    }
 
     fn shot(frame_id: u16, name: &str) -> Shot {
         Shot {

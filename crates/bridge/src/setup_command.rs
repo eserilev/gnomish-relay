@@ -347,6 +347,24 @@ fn last_line(changed: &setup::Changed, relay: setup::Relay, keys: KeyChoice) -> 
     "Ready"
 }
 
+/// `gnomish-relay install`: the slots of each app of the config.
+pub fn install_slots(dirs: &Dirs) -> Result<()> {
+    let config = config::load(&dirs.config, &dirs.home)?;
+    let dir = install::addons_dir(&config.wow);
+    let relay = match config.relay {
+        Some(_) => setup::Relay::On,
+        None => setup::Relay::Off,
+    };
+    for app in setup::install_all_slots(&dir, relay)? {
+        println!(
+            "made {} slots of {app:?} in {}",
+            protocol::slot::SLOTS,
+            dir.display()
+        );
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

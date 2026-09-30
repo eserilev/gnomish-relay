@@ -16,12 +16,7 @@ use crate::status;
 
 /// A check sends no prompt, so no tool call reaches this gate.
 pub fn check_gate(dirs: &Dirs, config: &RelayConfig) -> Gate {
-    let places = Places {
-        config_dir: &dirs.config,
-        data_dir: &dirs.data,
-        home: &dirs.home,
-    };
-    Gate::new(config, &places, Prompt::Off)
+    Gate::new(config, &Places::of(dirs), Prompt::Off)
 }
 
 /// The lines of the report come before an error, so the user sees what the agent offers.

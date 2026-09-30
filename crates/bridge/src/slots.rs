@@ -8,7 +8,7 @@ use anyhow::{Context, Result};
 use protocol::apps::{App, push_slot_global};
 use protocol::live::{live_body, no_notices};
 use protocol::restore::restore_body;
-use protocol::slot::{SLOT_WINDOW, SLOTS, slot_body};
+use protocol::slot::{Reply, SLOT_WINDOW, SLOTS, prepare_replies, slot_body};
 
 use crate::app_files::addon_name;
 use crate::fs_safe::{check_real_dir, write_atomic_if_changed, write_atomic_unsynced};
@@ -99,6 +99,15 @@ pub fn install(addons: &Path, app: App, files: &Files) -> Result<()> {
 /// Writes the files into the window of slots that starts at `next`, the next slot
 /// that the addon reported (SPEC.md 7.3). Slots past the last one are skipped, and so
 /// is a file that did not change.
+/// `gnomish-relay say`: one done reply of the relay, from slot `next` on.
+pub fn publish_reply(addons: &Path, reply: Reply, next: usize, now: u32) -> Result<()> {
+    let files = Files {
+        body: slot_body(App::Relay, now, &prepare_replies(&[reply])),
+        ..Files::empty(App::Relay, now)
+    };
+    publish(addons, App::Relay, &files, next)
+}
+
 pub fn publish(addons: &Path, app: App, files: &Files, next: usize) -> Result<()> {
     let first = next.clamp(1, SLOTS);
     let last = (first + SLOT_WINDOW - 1).min(SLOTS);
@@ -129,7 +138,7 @@ mod tests {
         assert_eq!(with_bad_tags(body.clone(), App::Relay, 0), body);
     }
     use mlua::{Lua, Table};
-    use protocol::slot::{Reply, Status, prepare_replies};
+    use protocol::slot::Status;
 
     fn files(text: &[u8]) -> Files {
         Files {
@@ -160,6 +169,28 @@ mod tests {
             assert!(toc.ends_with("Inbox.lua\nRestore.lua\nLive.lua\n"));
         }
         assert_eq!(fs::read_dir(addons.path()).unwrap().count(), SLOTS);
+    }
+
+    #[test]
+    fn a_said_reply_goes_into_the_slots_of_the_window_from_the_next_slot() {
+        let addons = tempfile::tempdir().unwrap();
+        install(addons.path(), App::Relay, &files(b"")).unwrap();
+        let reply = Reply {
+            chat: b"c1".to_vec(),
+            id: 7,
+            status: Status::Done,
+            text: b"said by hand".to_vec(),
+        };
+
+        publish_reply(addons.path(), reply, 5, 1_790_211_079).unwrap();
+
+        let inbox = |n| {
+            let dir = addons.path().join(slot_name(App::Relay, n));
+            fs::read_to_string(dir.join(BODY_FILE)).unwrap()
+        };
+        assert!(!inbox(4).contains("said by hand"));
+        assert!(inbox(5).contains("said by hand"));
+        assert!(inbox(5 + SLOT_WINDOW - 1).contains("said by hand"));
     }
 
     #[test]

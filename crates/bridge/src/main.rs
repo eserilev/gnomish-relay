@@ -1,6 +1,6 @@
 //! The `gnomish-relay` command.
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 #[cfg(unix)]
@@ -8,7 +8,7 @@ use bridge::agent_wall;
 use bridge::always_rules::AlwaysRules;
 use bridge::check_agent;
 use bridge::command_sandbox;
-use bridge::config::{self, Config};
+use bridge::config;
 use bridge::desktop::{self, Approvals, Prompt};
 use bridge::dirs::Dirs;
 #[cfg(unix)]
@@ -18,14 +18,12 @@ use bridge::install;
 use bridge::run::now;
 use bridge::selftest;
 use bridge::service;
-use bridge::setup;
 use bridge::setup_command;
-use bridge::slots::{self, Files};
+use bridge::slots;
 use bridge::start;
 use bridge::status;
 use bridge::update;
-use protocol::apps::App;
-use protocol::slot::{Reply, Status, prepare_replies, slot_body};
+use protocol::slot::{Reply, Status};
 
 const USAGE: &str = "\
 usage:
@@ -46,18 +44,6 @@ usage:
   gnomish-relay selftest collect [folder] [--out <repo>]
                                      copy the results of the self-test addon into the repo (developers)";
 
-fn load_config(dirs: &Dirs) -> Result<Config> {
-    config::load(&dirs.config, &dirs.home)
-}
-
-fn addons_dir(wow: &Path) -> PathBuf {
-    install::addons_dir(wow)
-}
-
-fn body(replies: &[Reply]) -> Vec<u8> {
-    slot_body(App::Relay, now(), &prepare_replies(replies))
-}
-
 fn say(dirs: &Dirs, chat: &str, id: &str, text: &str) -> Result<()> {
     let reply = Reply {
         chat: chat.as_bytes().to_vec(),
@@ -72,14 +58,9 @@ fn say(dirs: &Dirs, chat: &str, id: &str, text: &str) -> Result<()> {
             .context("GNOMISH_NEXT_SLOT is not a slot number")?,
         Err(_) => 1,
     };
-    let config = load_config(dirs)?;
+    let config = config::load(&dirs.config, &dirs.home)?;
     config.require_relay()?;
-    let addons = addons_dir(&config.wow);
-    let files = Files {
-        body: body(&[reply]),
-        ..Files::empty(App::Relay, now())
-    };
-    slots::publish(&addons, App::Relay, &files, next)?;
+    slots::publish_reply(&install::addons_dir(&config.wow), reply, next, now())?;
     println!(
         "published to {} slots from slot {next}",
         protocol::slot::SLOT_WINDOW
@@ -87,59 +68,8 @@ fn say(dirs: &Dirs, chat: &str, id: &str, text: &str) -> Result<()> {
     Ok(())
 }
 
-/// `selftest collect [folder] [--out <repo>]`. It needs no config and no key, so it
-/// finds the game as setup does.
-fn selftest_collect(dirs: &Dirs, args: &[&str]) -> Result<()> {
-    let (game, out) = match args {
-        [] => (None, None),
-        ["--out", out] => (None, Some(*out)),
-        [game] => (Some(*game), None),
-        [game, "--out", out] => (Some(*game), Some(*out)),
-        _ => bail!("{USAGE}"),
-    };
-    let repo = match out {
-        Some(out) => PathBuf::from(out),
-        None => std::env::current_dir()?,
-    };
-    if !repo.join("addon").join("GnomishRelaySelfTest").is_dir() {
-        bail!("run this in the gnomish-relay repo, or give --out <repo>");
-    }
-    let collected = selftest::collect(&setup_command::pick_game(dirs, game)?, &repo)?;
-    println!("wrote {}", collected.fixture.display());
-    println!(
-        "wrote {} golden vectors to tests/vectors/{}",
-        collected.vectors, collected.build
-    );
-    for name in &collected.missing {
-        println!("no screenshot of {name}");
-    }
-    println!("capture: {:?}", collected.capture);
-    Ok(())
-}
-
-fn install(dirs: &Dirs) -> Result<()> {
-    let config = load_config(dirs)?;
-    let dir = addons_dir(&config.wow);
-    let relay = match config.relay {
-        Some(_) => setup::Relay::On,
-        None => setup::Relay::Off,
-    };
-    for app in setup::install_all_slots(&dir, relay)? {
-        println!(
-            "made {} slots of {app:?} in {}",
-            protocol::slot::SLOTS,
-            dir.display()
-        );
-    }
-    Ok(())
-}
-
 fn print_status(dirs: &Dirs) -> Result<()> {
-    let places = Places {
-        config_dir: &dirs.config,
-        data_dir: &dirs.data,
-        home: &dirs.home,
-    };
+    let places = Places::of(dirs);
     std::fs::create_dir_all(places.data_dir)?;
     let path = std::env::var_os("PATH").unwrap_or_default();
     for line in status::status_lines(&places, &path, now()) {
@@ -209,7 +139,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         ["setup", ref rest @ ..] => setup_command::setup(&Dirs::from_env()?, rest),
-        ["install"] => install(&Dirs::from_env()?),
+        ["install"] => setup_command::install_slots(&Dirs::from_env()?),
         ["run"] => start::start(&Dirs::from_env()?),
         ["run", "--background"] => {
             let log = service::start_background(&Dirs::from_env()?, &std::env::current_exe()?)?;
@@ -234,7 +164,9 @@ fn main() -> Result<()> {
         }
         ["rules", "remove", id] => remove_rule(&Dirs::from_env()?, id),
         ["say", chat, id, text] => say(&Dirs::from_env()?, chat, id, text),
-        ["selftest", "collect", ref rest @ ..] => selftest_collect(&Dirs::from_env()?, rest),
+        ["selftest", "collect", ref rest @ ..] => {
+            selftest::collect_command(&Dirs::from_env()?, rest)
+        }
         [command_sandbox::RUN_FLAG, command] => {
             std::process::exit(command_sandbox::run_wrapped(command))
         }

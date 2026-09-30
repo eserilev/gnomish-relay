@@ -17,6 +17,7 @@ use crate::always_rules::{AlwaysRules, Rule, words_for};
 use crate::command_sandbox::CommandSandbox;
 use crate::config::{Permission, RelayConfig};
 use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Waiting};
+use crate::dirs::Dirs;
 use crate::turn::{Answer, Turn};
 
 pub const NOT_FROM_THE_GAME: &str = "Not allowed from the game.";
@@ -205,6 +206,16 @@ pub struct Places<'a> {
     /// Holds the desktop requests and `rules.json`.
     pub data_dir: &'a Path,
     pub home: &'a Path,
+}
+
+impl<'a> Places<'a> {
+    pub fn of(dirs: &'a Dirs) -> Places<'a> {
+        Places {
+            config_dir: &dirs.config,
+            data_dir: &dirs.data,
+            home: &dirs.home,
+        }
+    }
 }
 
 impl Gate {
