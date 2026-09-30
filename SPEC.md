@@ -124,6 +124,7 @@ So the popup never shows the label of the agent as the main text. Rules:
 - When the popup offers "Always allow" (6.6.5), one more line names the exact rule and its folder. The bridge makes the line, and the popup never cuts it.
 - A misclick must not allow. A new popup plays the ready-check sound, and its buttons take no click for 1 second: the player can be in the middle of a click in the game. **Reject** and **Always reject** sit at the left, and the allow buttons at the right, with a wide gap between.
 - When more requests wait, the popup says "1 of 3" at the top right. It shows the oldest request first.
+- The popup has the dark dialog border of the game. Its height follows the text, up to 600 pixels, so a long command never runs over the buttons. The text shows in the shipped mono font (13.2).
 
 Theorem S15 covers these rules.
 

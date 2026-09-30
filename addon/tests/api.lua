@@ -1575,6 +1575,22 @@ return {
 		},
 	},
 	templates = {
+		DialogBorderDarkTemplate = {
+			base = "Frame",
+			names = {
+				"Bg",
+				"GetBorderColor",
+				"GetCenterColor",
+				"GetFrameLayoutTextureKit",
+				"GetFrameLayoutType",
+				"OnLoad",
+				"SetBlendMode",
+				"SetBorderBlendMode",
+				"SetBorderColor",
+				"SetCenterColor",
+				"SetVertexColor",
+			},
+		},
 		InputBoxTemplate = {
 			base = "EditBox",
 			names = {

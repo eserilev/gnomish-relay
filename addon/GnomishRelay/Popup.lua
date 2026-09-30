@@ -7,6 +7,10 @@ local Popup = {}
 ns.Popup = Popup
 
 local WIDTH = 460
+-- Room above the text for the chat name, and below it for the buttons.
+local TEXT_TOP = 32
+local BUTTONS_ROOM = 56
+local MAX_HEIGHT = 600
 local BUTTON_WIDTH = 104
 -- A popup that comes up under the mouse takes no click at first: the click was aimed
 -- at the game.
@@ -65,23 +69,35 @@ local function Build()
 	frame:SetSize(WIDTH, 160)
 	frame:SetPoint("TOP", UIParent, "TOP", 0, -120)
 	frame:EnableMouse(true)
-	local background = frame:CreateTexture(nil, "BACKGROUND")
-	background:SetAllPoints()
-	background:SetColorTexture(0, 0, 0, 0.9)
+	local border = CreateFrame("Frame", nil, frame, "DialogBorderDarkTemplate")
+	border:SetAllPoints()
 	ui.chat = frame:CreateFontString(nil, "OVERLAY", "GameFontNormal")
 	ui.chat:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -10)
 	ui.count = frame:CreateFontString("GnomishRelayPopupCount", "OVERLAY", "GameFontDisableSmall")
 	ui.count:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -12, -12)
-	ui.text = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-	ui.text:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -32)
+	ui.text = frame:CreateFontString("GnomishRelayPopupText", "OVERLAY", "GameFontHighlight")
+	ui.text:SetPoint("TOPLEFT", frame, "TOPLEFT", 12, -TEXT_TOP)
 	ui.text:SetWidth(WIDTH - 24)
 	ui.text:SetJustifyH("LEFT")
 	ui.text:SetWordWrap(true)
+	-- A command reads best in the mono font. WoW finds a new font file only at launch.
+	if not ui.text:SetFont(ns.Transcript.MONO, 12, "") then
+		ui.text:SetFont(ns.Transcript.MONO_FALLBACK, 13, "")
+	end
 	ui.rule = frame:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-	ui.rule:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12, 42)
+	ui.rule:SetPoint("TOPLEFT", ui.text, "BOTTOMLEFT", 0, -8)
 	ui.rule:SetWidth(WIDTH - 24)
 	ui.rule:SetJustifyH("LEFT")
 	frame:Hide()
+end
+
+-- The popup grows with its text, so a long command never runs over the buttons.
+local function Height(withRule)
+	local height = TEXT_TOP + ui.text:GetStringHeight() + BUTTONS_ROOM
+	if withRule then
+		height = height + 8 + ui.rule:GetStringHeight()
+	end
+	return math.min(height, MAX_HEIGHT)
 end
 
 -- Reject stays at the left and the allow buttons at the right, with a wide gap
@@ -91,18 +107,15 @@ local function PlaceButtons(request)
 	for i = #request.options, 1, -1 do
 		local button = Button(i)
 		button:ClearAllPoints()
-		if REJECTS[request.options[i].kind] then
-			left = left + 1
-		else
+		if not REJECTS[request.options[i].kind] then
 			button:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -12 - right * (BUTTON_WIDTH + 6), 12)
 			right = right + 1
 		end
 	end
-	local slot = 0
 	for i, option in ipairs(request.options) do
 		if REJECTS[option.kind] then
-			Button(i):SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12 + slot * (BUTTON_WIDTH + 6), 12)
-			slot = slot + 1
+			Button(i):SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 12 + left * (BUTTON_WIDTH + 6), 12)
+			left = left + 1
 		end
 	end
 end
@@ -143,6 +156,7 @@ local function Show(request)
 		button:Show()
 	end
 	PlaceButtons(request)
+	frame:SetHeight(Height(always ~= nil))
 	frame:Show()
 end
 

@@ -8,6 +8,7 @@ ns.Transcript = Transcript
 
 local MONO = "Interface\\AddOns\\GnomishRelay\\JetBrainsMono-Regular.ttf"
 local MONO_FALLBACK = "Fonts\\ARIALN.TTF"
+Transcript.MONO, Transcript.MONO_FALLBACK = MONO, MONO_FALLBACK
 local BODY_FONT = "Fonts\\ARIALN.TTF"
 local HEADING_FONT = "Fonts\\FRIZQT__.TTF"
 -- Each heading is this much bigger than the body text. The font size is a setting.

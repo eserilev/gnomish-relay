@@ -1554,6 +1554,63 @@ fn a_popup_says_how_many_requests_wait() {
     assert_eq!(shown_text(&game, "GnomishRelayPopupCount"), None);
 }
 
+fn popup_height(game: &Game) -> f64 {
+    let popup: Table = game.lua.globals().get("GnomishRelayPopup").unwrap();
+    popup.get("height").unwrap()
+}
+
+#[test]
+fn the_popup_grows_with_its_text_and_shows_the_command_in_the_mono_font() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+    let short = popup_height(&game);
+
+    let long: Vec<String> = (0..20).map(|n| format!("step {n}")).collect();
+    let file = live(
+        &[],
+        &[LiveRequest {
+            request: b"p9z8y".to_vec(),
+            ..request(&game, &long.join("\n"))
+        }],
+    );
+    game.wow
+        .set("live", game.lua.create_string(file).unwrap())
+        .unwrap();
+    click_popup(&game, 1);
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert!(
+        popup_height(&game) >= short + 19.0 * 14.0,
+        "{short} {}",
+        popup_height(&game)
+    );
+    let text: Table = game.lua.globals().get("GnomishRelayPopupText").unwrap();
+    assert_eq!(
+        text.get::<String>("font").unwrap(),
+        "Interface\\AddOns\\GnomishRelay\\JetBrainsMono-Regular.ttf"
+    );
+}
+
+#[test]
+fn the_popup_has_the_dialog_border_of_the_game() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+
+    let popup: Table = game.lua.globals().get("GnomishRelayPopup").unwrap();
+    let frames: Table = game.wow.get("frames").unwrap();
+    let border = frames
+        .sequence_values::<Table>()
+        .map(Result::unwrap)
+        .any(|f| {
+            f.get::<Option<String>>("template").unwrap().as_deref()
+                == Some("DialogBorderDarkTemplate")
+                && f.get::<Table>("parent").is_ok_and(|p| p == popup)
+        });
+    assert!(border);
+}
+
 #[test]
 fn a_permission_request_shows_the_honest_text_and_buttons_by_kind() {
     let game = Game::start();
