@@ -436,6 +436,27 @@ fn a_running_turn_polls_every_60_seconds_and_an_open_session_every_3_minutes() {
 }
 
 #[test]
+fn few_slots_left_print_one_line_and_the_last_slot_hides_the_bell() {
+    let game = Game::start();
+    let loaded: Table = game.wow.get("loaded").unwrap();
+    for n in 1..=980 {
+        loaded.set(format!("GnomishRelay_S{n:04}"), true).unwrap();
+    }
+    game.run("local ns = ... ns.Transport.Init()");
+
+    game.publish_and_poll(1, 1, &[waiting(1)]);
+    game.poll();
+
+    assert_eq!(game.lines_with("slots run low").len(), 1, "one line only");
+    assert!(game.shown("GnomishRelayBell"));
+    for _ in 0..18 {
+        game.poll();
+    }
+    assert_eq!(game.list_len(), 0);
+    assert!(!game.shown("GnomishRelayBell"), "no stale notice stays");
+}
+
+#[test]
 fn with_notifications_off_nothing_shows_and_the_polls_stay_slow() {
     let game = Game::start();
     game.set("ns.Store.db.notifyOn = false");

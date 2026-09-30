@@ -132,8 +132,12 @@ function Messages.Delivery(message)
 	return "sending", shown and shown.count or 0, SHOWS
 end
 
+function Messages.SlotsLow()
+	return Messages.SlotsLeft() < LOW_SLOTS
+end
+
 function Messages.NeedsReload()
-	return #Messages.Db().outbox > 0 or Messages.SlotsLeft() < LOW_SLOTS
+	return #Messages.Db().outbox > 0 or Messages.SlotsLow()
 end
 
 function Messages.Problem()

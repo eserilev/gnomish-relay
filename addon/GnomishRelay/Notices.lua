@@ -309,6 +309,14 @@ function Notices.Refilter()
 	Notices.OnChange()
 end
 
+function Notices.Drop()
+	state.all = {}
+	state.list = {}
+	state.busy = 0
+	state.open = 0
+	Notices.OnChange()
+end
+
 -- A cleared notice never comes back: ids only grow (SPEC.md 10.3).
 function Notices.Clear()
 	local db = ns.Store.db
