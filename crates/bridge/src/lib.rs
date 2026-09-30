@@ -69,6 +69,7 @@ pub mod selftest;
 pub mod service;
 pub mod settings_list;
 pub mod setup;
+pub mod setup_command;
 pub mod slots;
 pub mod state;
 pub mod status;

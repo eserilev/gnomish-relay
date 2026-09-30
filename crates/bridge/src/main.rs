@@ -12,7 +12,6 @@ use bridge::app_files::private_game_paths;
 use bridge::check_agent;
 use bridge::command_sandbox;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
-use bridge::config_text::RelayPart;
 use bridge::desktop::{self, Approvals, Prompt};
 use bridge::dirs::Dirs;
 #[cfg(unix)]
@@ -20,17 +19,16 @@ use bridge::forward;
 use bridge::gate::{Gate, Places};
 use bridge::install;
 use bridge::lock;
-use bridge::model::ModelChoice;
-use bridge::model_setup;
 use bridge::raise::Raiser;
 use bridge::receive::{KeySet, RELAY_KEY_FILE};
 use bridge::run::{Paths, now, run};
 use bridge::selftest;
 use bridge::service;
 use bridge::settings_list::BridgeSettings;
-use bridge::setup::{self, KeyChoice};
+use bridge::setup;
+use bridge::setup_command;
 use bridge::slots::{self, Files};
-use bridge::status::{self, SandboxFound};
+use bridge::status;
 use bridge::story::StorySpec;
 use bridge::update;
 use protocol::apps::App;
@@ -61,294 +59,6 @@ fn load_config(dirs: &Dirs) -> Result<Config> {
 
 fn addons_dir(wow: &Path) -> PathBuf {
     install::addons_dir(wow)
-}
-
-/// The game folder: the one given, the one found, or the answer to a question.
-fn pick_game(dirs: &Dirs, given: Option<&str>) -> Result<PathBuf> {
-    if let Some(folder) = given {
-        return Ok(install::game_folder(folder));
-    }
-    let games = install::find_games(&dirs.home);
-    if let [game] = games.as_slice() {
-        return Ok(game.clone());
-    }
-    for (n, game) in games.iter().enumerate() {
-        println!("{}. {}", n + 1, game.display());
-    }
-    let answer = ask("WoW folder", if games.is_empty() { "" } else { "1" })?;
-    if answer.is_empty() {
-        bail!("give the WoW folder: gnomish-relay setup <folder>");
-    }
-    let chosen = answer
-        .parse::<usize>()
-        .ok()
-        .and_then(|n| games.get(n.checked_sub(1)?));
-    Ok(chosen
-        .cloned()
-        .unwrap_or_else(|| install::game_folder(&answer)))
-}
-
-/// Reads one answer in a terminal. With no terminal, or an empty answer, the default.
-fn ask(question: &str, default: &str) -> Result<String> {
-    use std::io::{BufRead, IsTerminal, Write};
-    if !std::io::stdin().is_terminal() {
-        return Ok(default.to_owned());
-    }
-    print!("{question} [{default}]: ");
-    std::io::stdout().flush()?;
-    let mut answer = String::new();
-    std::io::stdin().lock().read_line(&mut answer)?;
-    let answer = answer.trim();
-    Ok(if answer.is_empty() { default } else { answer }.to_owned())
-}
-
-/// `~/code` reads better in the config than the full path.
-fn with_tilde(path: &Path, home: &Path) -> String {
-    match path.strip_prefix(home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => path.display().to_string(),
-    }
-}
-
-/// The folders of code projects that setup finds, or the home folder.
-fn choose_roots(home: &Path, given: Option<&str>) -> Result<Vec<String>> {
-    let found: Vec<String> = install::suggest_roots(home)
-        .iter()
-        .map(|p| with_tilde(p, home))
-        .collect();
-    let answer = match given {
-        Some(list) => list.to_owned(),
-        // No default of the home folder: it holds ~/.ssh and the browser profiles.
-        None => ask(
-            "Folders the agents can work in, divided by commas",
-            &found.join(", "),
-        )?,
-    };
-    let roots: Vec<String> = answer
-        .split(',')
-        .map(str::trim)
-        .filter(|r| !r.is_empty())
-        .map(str::to_owned)
-        .collect();
-    if roots.is_empty() {
-        bail!("give the folders that the agents can work in: gnomish-relay setup --roots ~/code");
-    }
-    for root in &roots {
-        if !config::expand(root, home)?.is_dir() {
-            bail!("{root} is not a folder");
-        }
-    }
-    Ok(roots)
-}
-
-fn option<'a>(args: &[&'a str], name: &str) -> Option<&'a str> {
-    let at = args.iter().position(|a| *a == name)?;
-    args.get(at + 1).copied()
-}
-
-/// Every step leaves alone what works, so a second run is safe (SPEC.md 11.3).
-fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
-    let keys = if args.contains(&"--new-key") {
-        KeyChoice::New
-    } else {
-        KeyChoice::Keep
-    };
-    let roots_given = option(args, "--roots");
-    let folder = args
-        .iter()
-        .copied()
-        .find(|a| !a.starts_with("--") && Some(*a) != roots_given);
-    let wow = pick_game(dirs, folder)?;
-    if !wow.is_dir() {
-        bail!("{} is not a folder", wow.display());
-    }
-    // WoW makes Interface/AddOns at its first start. Setup makes it earlier.
-    let addons = addons_dir(&wow);
-    std::fs::create_dir_all(&addons)
-        .with_context(|| format!("cannot make {}", addons.display()))?;
-    println!("WoW: {}", wow.display());
-    let existing = match std::fs::read_to_string(dirs.config.join(config::FILE)) {
-        Ok(text) => Some((text, load_config(dirs)?)),
-        Err(_) => None,
-    };
-    let timeways = install::timeways_dir(&addons).is_some();
-    let found = setup::Found {
-        relay_asked: args.contains(&"--relay") || roots_given.is_some(),
-        config_has_relay: existing.as_ref().map(|(_, c)| c.relay.is_some()),
-        relay_folder: addons.join(install::ADDON).exists(),
-        timeways_folder: timeways,
-    };
-    let relay = match setup::relay_choice(&found) {
-        setup::RelayChoice::Decided(relay) => relay,
-        setup::RelayChoice::Ask => ask_relay()?,
-    };
-    let folders = setup::Folders {
-        config: dirs.config.clone(),
-        addons,
-    };
-    // The addon and the slots first: they need nothing else, and a later step can fail.
-    let changed = setup::install_files(&folders, relay, keys)?;
-    let config = setup_config(dirs, &wow, existing.as_ref(), relay, timeways, roots_given)?;
-    print_setup(dirs, &config, relay, timeways);
-    if args.contains(&"--autostart") {
-        match service::autostart(dirs) {
-            Ok(()) => println!("Bridge: on, starts at login"),
-            Err(e) => println!("Bridge: not started at login ({e:#}). Run: gnomish-relay run"),
-        }
-    }
-    println!("{}", last_line(&changed, relay, keys));
-    Ok(())
-}
-
-/// A player who came for Timeways says no, so no is the answer with no terminal.
-fn ask_relay() -> Result<setup::Relay> {
-    let answer = ask(
-        "Also set up Gnomish Relay, coding agents in the game? (y/N)",
-        "n",
-    )?;
-    Ok(if answer.eq_ignore_ascii_case("y") {
-        setup::Relay::On
-    } else {
-        setup::Relay::Off
-    })
-}
-
-/// Writes the first config, or adds the part that it lacks: the relay with `--relay`,
-/// and `[story]` when the Timeways addon is there.
-fn setup_config(
-    dirs: &Dirs,
-    wow: &Path,
-    existing: Option<&(String, Config)>,
-    relay: setup::Relay,
-    timeways: bool,
-    roots_given: Option<&str>,
-) -> Result<Config> {
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
-    let lacks_relay = existing.is_none_or(|(_, c)| c.relay.is_none());
-    let lacks_story = existing.is_none_or(|(_, c)| c.story.is_none());
-    let agents = install::find_agents(&path_var);
-    let roots = if relay == setup::Relay::On && lacks_relay {
-        choose_roots(&dirs.home, roots_given)?
-    } else {
-        Vec::new()
-    };
-    let harnesses = if roots.is_empty() {
-        Vec::new()
-    } else {
-        choose_harnesses(&path_var)?
-    };
-    let wants_story = timeways && lacks_story;
-    // A local model is also for the agents: the relay part opens its port.
-    let models = if wants_story || !roots.is_empty() {
-        model_setup::find_models(&path_var)
-    } else {
-        Vec::new()
-    };
-    let local_ports = model_setup::local_ports(&models);
-    let new_agents = setup::new_agents(&agents, existing.map(|(_, config)| config));
-    let parts = setup::ConfigParts {
-        wow,
-        relay: (!roots.is_empty()).then_some(RelayPart {
-            agents: &agents,
-            harnesses: &harnesses,
-            roots: &roots,
-            local_ports: &local_ports,
-        }),
-        new_agents: &new_agents,
-        story: wants_story.then_some(models.as_slice()),
-    };
-    let text = existing.map(|(text, _)| text.as_str());
-    let config = match setup::config_text(text, &parts) {
-        Some(new) => setup::write_config(&dirs.config, &new, &dirs.home)?,
-        None => load_config(dirs)?,
-    };
-    let added = config.relay.as_ref().map(|relay| &relay.agents);
-    for (name, _, _) in &new_agents {
-        if added.is_some_and(|agents| agents.contains_key(*name)) {
-            println!("Added agent: {name}. Pick it for a new chat in the game, in Settings");
-        }
-    }
-    Ok(config)
-}
-
-/// A harness with no ACP mode runs its own commands, so setup adds it only on a yes.
-fn choose_harnesses(path_var: &std::ffi::OsStr) -> Result<Vec<&'static str>> {
-    let mut chosen = Vec::new();
-    for name in install::find_harnesses(path_var) {
-        let answer = ask(
-            &format!(
-                "Found {name}. Add it as an agent? It runs its own commands with no question, inside the sandbox. (y/N)"
-            ),
-            "n",
-        )?;
-        if answer.eq_ignore_ascii_case("y") {
-            chosen.push(name);
-        }
-    }
-    Ok(chosen)
-}
-
-fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay, timeways: bool) {
-    match &config.relay {
-        Some(relay_config) => {
-            for line in relay_lines(dirs, relay_config) {
-                println!("{line}");
-            }
-            let config_file = dirs.config.join(config::FILE);
-            println!("{}", setup::level_line(relay_config, &config_file));
-        }
-        None if relay == setup::Relay::Off => {
-            println!("Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay");
-        }
-        None => {}
-    }
-    if timeways {
-        println!("{}", story_line(config));
-    }
-}
-
-/// The agent and the sandbox, which setup checks by starting them.
-fn relay_lines(dirs: &Dirs, config: &RelayConfig) -> Vec<String> {
-    let gate = check_agent::check_gate(dirs, config);
-    let path = std::env::var_os("PATH").unwrap_or_default();
-    let sandbox = SandboxFound::of(&gate.sandbox.tool, &path);
-    vec![
-        status::agent_line(config, &gate),
-        status::sandbox_line(&sandbox),
-    ]
-}
-
-fn story_line(config: &Config) -> String {
-    let model = config.story.as_ref().map(|story| &story.model.choice);
-    match model {
-        Some(ModelChoice::Claude { model, .. }) => format!(
-            "Story model: claude ({})",
-            model.as_deref().unwrap_or("default")
-        ),
-        Some(ModelChoice::Local(local)) => format!("Story model: local {}", local.model),
-        _ => {
-            "Story model: none. Set model in [story] of the config, then run: gnomish-relay restart"
-                .into()
-        }
-    }
-}
-
-/// WoW finds a new addon folder only at launch, and a new key only after a `/reload`.
-fn last_line(changed: &setup::Changed, relay: setup::Relay, keys: KeyChoice) -> &'static str {
-    let new_relay = changed.relay_addon == Some(install::Installed::New);
-    if changed.new_slots || new_relay {
-        return match relay {
-            setup::Relay::On => "Restart WoW, then type /relay",
-            setup::Relay::Off => "Restart WoW, then log in",
-        };
-    }
-    let updated = [changed.relay_addon.as_ref(), changed.timeways_key.as_ref()]
-        .contains(&Some(&install::Installed::Updated));
-    if updated || keys == KeyChoice::New {
-        return "Type /reload in WoW";
-    }
-    "Ready"
 }
 
 fn body(replies: &[Reply]) -> Vec<u8> {
@@ -401,7 +111,7 @@ fn selftest_collect(dirs: &Dirs, args: &[&str]) -> Result<()> {
     if !repo.join("addon").join("GnomishRelaySelfTest").is_dir() {
         bail!("run this in the gnomish-relay repo, or give --out <repo>");
     }
-    let collected = selftest::collect(&pick_game(dirs, game)?, &repo)?;
+    let collected = selftest::collect(&setup_command::pick_game(dirs, game)?, &repo)?;
     println!("wrote {}", collected.fixture.display());
     println!(
         "wrote {} golden vectors to tests/vectors/{}",
@@ -584,7 +294,7 @@ fn main() -> Result<()> {
             println!("{USAGE}");
             Ok(())
         }
-        ["setup", ref rest @ ..] => setup(&Dirs::from_env()?, rest),
+        ["setup", ref rest @ ..] => setup_command::setup(&Dirs::from_env()?, rest),
         ["install"] => install(&Dirs::from_env()?),
         ["run"] => start(&Dirs::from_env()?),
         ["run", "--background"] => {
