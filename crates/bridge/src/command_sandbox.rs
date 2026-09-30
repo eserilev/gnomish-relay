@@ -13,6 +13,7 @@ use protocol::sbpl::sbpl_string;
 use serde::{Deserialize, Serialize};
 
 use crate::action_input::{DESKTOP_PATHS, DESKTOP_WRITES, resolve, resolved_bytes};
+use crate::agent_wall::scan_sockets;
 use crate::allow_hosts::HostList;
 use crate::forward::INNER_PORT;
 use crate::holder::{Holder, launch_socket, start_holder};
@@ -28,9 +29,13 @@ pub const WALLS_VAR: &str = "GNOMISH_RELAY_SANDBOX";
 const MARKER: &str = ".gnomish-relay-sandbox";
 /// A walk that takes longer gets a log line, so a slow start has a cause in the log.
 const SLOW_WALK: std::time::Duration = std::time::Duration::from_secs(5);
-/// Git outside the sandbox runs what these name, so a git folder in the chat folder hides
+/// Git outside the sandbox runs what these name, so a git folder in the chat folder guards
 /// them. `commondir` points a linked worktree at its repository.
-const GIT_FOLDER_GUARDED: [&str; 4] = ["config", "hooks", "commondir", "config.worktree"];
+const GIT_FOLDER_GUARDED: [&str; 4] = ["config", "hooks", COMMONDIR, "config.worktree"];
+/// Git in the sandbox needs to read it, so it is read-only, not hidden.
+const COMMONDIR: &str = "commondir";
+/// Git reads a `commondir` of `.` as no `commondir`: the folder is its own repository.
+const COMMONDIR_STAND_IN: &str = ".\n";
 pub const NO_SANDBOX: &str = "(No sandbox on this computer: every command asks in the game.)";
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// The Unix socket of the proxy, in the temp folder of the run.
@@ -87,6 +92,9 @@ pub struct CommandSandbox {
     pub proxy: Option<ProxySettings>,
     /// With no overlay, a download of cargo or rustup fails on the read-only home folder.
     pub overlay: Overlay,
+    /// The private files of the game. Each run denies them as it denies the folders of
+    /// the bridge.
+    pub game: Vec<PathBuf>,
     /// The notice of no sandbox shows once for each start of the bridge.
     told: Arc<AtomicBool>,
 }
@@ -99,8 +107,15 @@ impl CommandSandbox {
             home,
             proxy: None,
             overlay: Overlay::Missing,
+            game: Vec::new(),
             told: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    #[must_use]
+    pub fn with_game(mut self, paths: Vec<PathBuf>) -> CommandSandbox {
+        self.game = paths;
+        self
     }
 
     #[must_use]
@@ -165,7 +180,8 @@ pub struct Walls {
     /// Each one exists, and none of them holds a writable path.
     pub hidden: Vec<PathBuf>,
     /// Each `.git` in the chat folder. A command cannot move, remove, or replace one, so
-    /// git outside the sandbox never finds a new one there. A `.git` file is read-only.
+    /// git outside the sandbox never finds a new one there. A `.git` file is read-only, and
+    /// so is the `commondir` of each git folder.
     pub pinned: Vec<PathBuf>,
     /// An empty file that shows in place of a hidden file.
     pub empty: PathBuf,
@@ -210,6 +226,8 @@ pub struct RunWalls {
     /// The one sandbox of the run with `bwrap`. First, so it stops first.
     holder: Option<Holder>,
     pub walls: Walls,
+    /// What the run starts with, for the check at its end.
+    pub git: GitCheck,
     file: PathBuf,
     /// Before the temp folder, so the proxy stops before its socket goes away.
     _proxy: Option<Proxy>,
@@ -247,11 +265,13 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn commands() -> Shape {
+    /// A socket at a path works across namespaces, for example the one of Docker, which
+    /// runs any program outside the sandbox.
+    pub fn commands(home: Option<&Path>) -> Shape {
         Shape {
             chat: ChatAccess::Write,
             home: HomeWrites::Refused,
-            more_hidden: Vec::new(),
+            more_hidden: home.map(scan_sockets).unwrap_or_default(),
         }
     }
 }
@@ -304,7 +324,8 @@ pub fn prepare(
     chat: &Path,
     tag: &str,
 ) -> Result<RunWalls, String> {
-    prepare_shaped(sandbox, guarded, chat, tag, &Shape::commands())
+    let shape = Shape::commands(sandbox.home.as_deref());
+    prepare_shaped(sandbox, guarded, chat, tag, &shape)
 }
 
 /// As `prepare`, with the walls of `shape`.
@@ -317,8 +338,10 @@ pub fn prepare_shaped(
 ) -> Result<RunWalls, String> {
     let chat = resolve(chat).ok_or("The chat folder is missing.")?;
     let (temp, temp_path) = make_temp()?;
-    let deny: Vec<PathBuf> = [guarded.config_dir, guarded.data_dir]
-        .iter()
+    let bridge = [guarded.config_dir, guarded.data_dir];
+    let deny: Vec<PathBuf> = bridge
+        .into_iter()
+        .chain(sandbox.game.iter().map(PathBuf::as_path))
         .map(|d| resolve(d).unwrap_or_else(|| d.to_path_buf()))
         .collect();
     let policy = policy_of(&chat, &temp_path, &deny);
@@ -329,10 +352,17 @@ pub fn prepare_shaped(
     };
     check_wrapper(&sandbox.wrapper, &[chat.clone(), temp_path.clone()])?;
     let started = std::time::Instant::now();
-    let scan = scan_chat(&policy, &chat)?;
+    let mut scan = scan_chat(&policy, &chat)?;
+    if shape.chat == ChatAccess::Write {
+        make_stand_ins(&mut scan)?;
+    }
     if let Some(note) = slow_walk_note(started.elapsed(), scan.entries) {
         crate::run::log(&note);
     }
+    let git = GitCheck {
+        chat: chat.clone(),
+        before: scan.git,
+    };
     let mut in_chat = scan.hidden;
     in_chat.extend(shape.more_hidden.iter().cloned());
     let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), in_chat);
@@ -371,6 +401,7 @@ pub fn prepare_shaped(
     Ok(RunWalls {
         holder: None,
         walls,
+        git,
         file,
         _proxy: proxy,
         _temp: temp,
@@ -621,7 +652,69 @@ fn could_match(name: &str, lasts: &[String]) -> bool {
 struct ChatScan {
     hidden: Vec<PathBuf>,
     pinned: Vec<PathBuf>,
+    /// The guarded names of the git folders that do not exist.
+    missing: Vec<PathBuf>,
+    /// Each `.git` entry and each guarded name that exists.
+    git: Vec<PathBuf>,
     entries: usize,
+}
+
+impl ChatScan {
+    fn guard(&mut self, path: PathBuf) {
+        if path.file_name().is_some_and(|n| n == COMMONDIR) {
+            self.pinned.push(path.clone());
+        } else {
+            self.hidden.push(path.clone());
+        }
+        self.git.push(path);
+    }
+}
+
+/// A mount needs a path that exists, and a command could make a missing guarded name. So
+/// each one gets a stand-in that git reads as no file, and the walls then cover it. The
+/// stand-ins stay: a run at the same time in the same folder covers them too.
+fn make_stand_ins(scan: &mut ChatScan) -> Result<(), String> {
+    for path in std::mem::take(&mut scan.missing) {
+        make_stand_in(&path).map_err(|e| format!("No stand-in {}: {e}", path.display()))?;
+        scan.guard(path);
+    }
+    Ok(())
+}
+
+/// `create_new` and `create_dir` never follow a link.
+fn make_stand_in(path: &Path) -> std::io::Result<()> {
+    if path.file_name().is_some_and(|n| n == "hooks") {
+        return std::fs::create_dir(path);
+    }
+    let text = if path.file_name().is_some_and(|n| n == COMMONDIR) {
+        COMMONDIR_STAND_IN
+    } else {
+        ""
+    };
+    let mut file = std::fs::OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(path)?;
+    std::io::Write::write_all(&mut file, text.as_bytes())
+}
+
+/// A mount covers the target of a link, and a command can replace the link itself.
+fn guard_git_folder(folder: &Path, scan: &mut ChatScan) -> Result<(), String> {
+    for name in GIT_FOLDER_GUARDED {
+        let path = folder.join(name);
+        match std::fs::symlink_metadata(&path) {
+            Ok(meta) if meta.file_type().is_symlink() => {
+                return Err(format!(
+                    "{} is a link, and the sandbox cannot guard a link that git runs.",
+                    path.display()
+                ));
+            }
+            Ok(_) => scan.guard(path),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => scan.missing.push(path),
+            Err(e) => return Err(unreadable(folder, &e)),
+        }
+    }
+    Ok(())
 }
 
 /// macOS sees `.GIT` as `.git`.
@@ -630,11 +723,63 @@ fn is_git_name(name: &std::ffi::OsStr) -> bool {
 }
 
 /// A `.git` folder, or a folder of a submodule or a worktree inside one.
-fn is_git_folder(chat: &Path, folder: &Path) -> bool {
+fn is_git_folder(chat: &Path, folder: &Path) -> Result<bool, String> {
     let inside_git = folder
         .strip_prefix(chat)
         .is_ok_and(|rest| rest.iter().any(is_git_name));
-    inside_git && folder.join("HEAD").is_file()
+    if !inside_git {
+        return Ok(false);
+    }
+    match std::fs::metadata(folder.join("HEAD")) {
+        Ok(meta) => Ok(meta.is_file()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(unreadable(folder, &e)),
+    }
+}
+
+/// The chat folder belongs to the user, so a folder there that the walk cannot read is
+/// the work of a command of an earlier run, which then hides a `.env` from the walk.
+fn unreadable(folder: &Path, e: &std::io::Error) -> String {
+    format!(
+        "The sandbox cannot look inside {} ({e}), so it cannot hide the credential files there. Give the folder back its permissions, for example with chmod u+rwx.",
+        folder.display()
+    )
+}
+
+/// The `.git` entries and the guarded git files of a chat folder at the start of a run. A
+/// new git folder, such as a submodule, has no walls in that run.
+#[derive(Clone, Debug)]
+pub struct GitCheck {
+    chat: PathBuf,
+    before: Vec<PathBuf>,
+}
+
+impl GitCheck {
+    /// The ones that the run made. Only after the run: then no command changes more.
+    pub fn made(&self) -> Result<Vec<PathBuf>, String> {
+        let now = scan_chat(&walk_policy(&self.chat), &self.chat)?.git;
+        Ok(now
+            .into_iter()
+            .filter(|p| !self.before.contains(p))
+            .collect())
+    }
+
+    /// The notice for the end of the reply, when the run made one.
+    pub fn notice(&self) -> Option<String> {
+        match self.made() {
+            Ok(made) if made.is_empty() => None,
+            Ok(made) => {
+                let shown: Vec<String> = made.iter().map(|p| p.display().to_string()).collect();
+                Some(format!(
+                    "The run made {} in the chat folder. Git on this computer runs what they name. Check them before you run git there.",
+                    shown.join(", ")
+                ))
+            }
+            Err(e) => Some(format!(
+                "The bridge could not check the git files of the chat folder after the run: {e}"
+            )),
+        }
+    }
 }
 
 /// The hidden paths and the `.git` entries in the chat folder. The walk does not follow
@@ -645,12 +790,12 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
     let mut scan = ChatScan::default();
     let mut folders = vec![chat.to_path_buf()];
     while let Some(folder) = folders.pop() {
-        if is_git_folder(chat, &folder) {
-            for name in GIT_FOLDER_GUARDED {
-                push_real(&mut scan.hidden, &folder.join(name));
-            }
+        if is_git_folder(chat, &folder)? {
+            guard_git_folder(&folder, &mut scan)?;
         }
-        for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+        let entries = std::fs::read_dir(&folder).map_err(|e| unreadable(&folder, &e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| unreadable(&folder, &e))?;
             scan.entries += 1;
             let path = entry.path();
             let name = entry.file_name();
@@ -665,6 +810,7 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
                     ));
                 }
                 scan.pinned.push(path.clone());
+                scan.git.push(path.clone());
             }
             if could_match(&name.to_string_lossy(), &lasts) && hides(policy, &path) {
                 push_real(&mut scan.hidden, &path);
@@ -674,6 +820,24 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
         }
     }
     Ok(scan)
+}
+
+/// The credential files and the other hidden paths in `folder`, for a tool that reads a
+/// whole folder, such as Grep. The walk does not follow links, as `rg` does not.
+pub fn hidden_in(folder: &Path) -> Result<Vec<PathBuf>, String> {
+    Ok(scan_chat(&walk_policy(folder), folder)?.hidden)
+}
+
+/// The policy of a walk with no run: only the patterns count.
+fn walk_policy(folder: &Path) -> SandboxPolicy {
+    let bytes = resolved_bytes(folder);
+    sandbox_policy(
+        &bytes,
+        &bytes,
+        &[],
+        &patterns(DESKTOP_PATHS),
+        &patterns(DESKTOP_WRITES),
+    )
 }
 
 fn slow_walk_note(took: std::time::Duration, entries: usize) -> Option<String> {
@@ -1202,6 +1366,104 @@ mod tests {
         assert!(!run.walls.hidden.iter().any(|p| p.ends_with(".aws")));
     }
 
+    #[test]
+    fn the_walls_hide_the_files_that_a_hook_tool_or_an_agent_runs_later() {
+        let h = folders();
+        std::fs::create_dir_all(h.chat.join(".husky")).unwrap();
+        std::fs::create_dir_all(h.home.join(".codex")).unwrap();
+        std::fs::write(h.chat.join(".mcp.json"), "{}").unwrap();
+        std::fs::write(h.chat.join("lefthook.yml"), "").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        for path in [
+            h.chat.join(".husky"),
+            h.chat.join(".mcp.json"),
+            h.chat.join("lefthook.yml"),
+            h.home.join(".codex"),
+        ] {
+            assert!(run.walls.hidden.contains(&path), "{}", path.display());
+        }
+    }
+
+    /// A command of an earlier run can take the read permission of a folder, so that the
+    /// walk of the next run does not see the `.env` in it.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_the_walk_cannot_read_stops_the_run_with_its_name() {
+        use std::os::unix::fs::PermissionsExt;
+        let h = folders();
+        let locked = h.chat.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join(".env"), "TOKEN=3").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read_dir(&locked).is_ok() {
+            // Root reads every folder, so there is nothing to test.
+            return;
+        }
+
+        let result = run_walls(&h, &h.chat);
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let error = result.err().unwrap();
+        assert!(error.contains(&locked.display().to_string()), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_git_folder_whose_head_the_walk_cannot_check_stops_the_run() {
+        use std::os::unix::fs::PermissionsExt;
+        let h = folders();
+        let git = h.chat.join(".git");
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // Read but no search: the walk lists the names, but cannot look at `HEAD`.
+        std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o400)).unwrap();
+        if std::fs::metadata(git.join("HEAD")).is_ok() {
+            return;
+        }
+
+        let result = run_walls(&h, &h.chat);
+
+        std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let error = result.err().unwrap();
+        assert!(error.contains(&git.display().to_string()), "{error}");
+    }
+
+    #[test]
+    fn the_walls_hide_the_private_files_of_the_game() {
+        let h = folders();
+        let game = h.home.join("Games/wow");
+        let key = game.join("Interface/AddOns/GnomishRelay/Key.lua");
+        let accounts = game.join("WTF/Account");
+        std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(&accounts).unwrap();
+        std::fs::write(&key, "key").unwrap();
+        let sandbox = sandbox(&h, Sandbox::Seatbelt).with_game(vec![key.clone(), accounts.clone()]);
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+
+        let run = prepare(&sandbox, &guarded, &h.chat, "t").unwrap();
+
+        assert!(run.walls.hidden.contains(&key));
+        assert!(run.walls.hidden.contains(&accounts));
+    }
+
+    /// A socket at a path works across namespaces, for example the one of Docker.
+    #[cfg(unix)]
+    #[test]
+    fn the_walls_of_a_command_hide_the_sockets_of_the_home_folder() {
+        let h = folders();
+        let docker = h.home.join(".docker/desktop");
+        std::fs::create_dir_all(&docker).unwrap();
+        let _socket = std::os::unix::net::UnixListener::bind(docker.join("docker.sock")).unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        assert!(run.walls.hidden.contains(&docker.join("docker.sock")));
+    }
+
     #[cfg(unix)]
     #[test]
     fn a_link_with_a_hidden_name_hides_its_target() {
@@ -1340,10 +1602,124 @@ mod tests {
 
         let mut pinned = run.walls.pinned.clone();
         pinned.sort();
-        assert_eq!(pinned, [h.chat.join(".git"), h.chat.join("lib/.git")]);
+        assert_eq!(
+            pinned,
+            [
+                h.chat.join(".git"),
+                module.join("commondir"),
+                h.chat.join("lib/.git")
+            ]
+        );
         assert!(run.walls.hidden.contains(&module.join("config")));
         assert!(run.walls.hidden.contains(&module.join("hooks")));
+        assert!(run.walls.hidden.contains(&module.join("config.worktree")));
         assert!(!run.walls.hidden.contains(&module.join("commondir")));
+    }
+
+    /// Git outside the sandbox trusts a guarded name that a command makes, and a mount
+    /// needs a path that exists.
+    #[test]
+    fn each_missing_guarded_name_of_a_git_folder_gets_a_stand_in_that_git_reads_as_none() {
+        let h = folders();
+        let git = h.chat.join(".git");
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        assert_eq!(
+            std::fs::read_to_string(git.join("commondir")).unwrap(),
+            ".\n"
+        );
+        assert_eq!(std::fs::read(git.join("config")).unwrap(), b"");
+        assert_eq!(std::fs::read(git.join("config.worktree")).unwrap(), b"");
+        assert!(run.walls.pinned.contains(&git.join("commondir")));
+        assert!(run.walls.hidden.contains(&git.join("config.worktree")));
+    }
+
+    #[test]
+    fn a_stand_in_keeps_the_walls_of_the_next_run() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let first = run_walls(&h, &h.chat).unwrap();
+
+        let second = run_walls(&h, &h.chat).unwrap();
+
+        assert_eq!(first.walls.pinned, second.walls.pinned);
+        assert_eq!(first.walls.hidden, second.walls.hidden);
+    }
+
+    #[test]
+    fn a_run_that_only_reads_makes_no_stand_in() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+        let shape = Shape {
+            chat: ChatAccess::Read,
+            home: HomeWrites::Refused,
+            more_hidden: Vec::new(),
+        };
+
+        prepare_shaped(
+            &sandbox(&h, Sandbox::Seatbelt),
+            &guarded,
+            &h.chat,
+            "t",
+            &shape,
+        )
+        .unwrap();
+
+        assert!(!h.chat.join(".git/commondir").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_at_a_guarded_name_of_a_git_folder_stops_the_run() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::os::unix::fs::symlink("../config.real", h.chat.join(".git/config")).unwrap();
+
+        let error = run_walls(&h, &h.chat).err().unwrap();
+
+        assert!(
+            error.contains("cannot guard a link that git runs"),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_run_that_made_a_git_folder_gets_a_notice_that_names_its_files() {
+        let h = folders();
+        let run = run_walls(&h, &h.chat).unwrap();
+        let module = h.chat.join(".git/modules/lib");
+        std::fs::create_dir_all(&module).unwrap();
+        std::fs::write(module.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        std::fs::write(module.join("config"), "[core]\n").unwrap();
+
+        let made = run.git.made().unwrap();
+        let notice = run.git.notice().unwrap();
+
+        assert_eq!(made, [module.join("config")]);
+        assert!(
+            notice.contains(&module.join("config").display().to_string()),
+            "{notice}"
+        );
+        assert!(
+            notice.contains("Check them before you run git there."),
+            "{notice}"
+        );
+    }
+
+    #[test]
+    fn a_run_that_made_no_git_file_gets_no_notice() {
+        let h = folders();
+        std::fs::write(h.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+        let run = run_walls(&h, &h.chat).unwrap();
+        std::fs::write(h.chat.join("new.rs"), "").unwrap();
+
+        assert_eq!(run.git.notice(), None);
     }
 
     #[test]

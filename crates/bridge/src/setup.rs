@@ -10,7 +10,7 @@ use protocol::apps::App;
 
 use crate::config::{self, Config};
 use crate::config_text::{self, RelayPart};
-use crate::fs_safe::write_private;
+use crate::fs_safe::{make_private_dir, write_private};
 use crate::install::{self, Installed};
 use crate::model_setup::FoundModel;
 use crate::receive::{KeySet, RELAY_KEY_FILE, TIMEWAYS_KEY_FILE};
@@ -99,7 +99,7 @@ pub struct Changed {
 /// need nothing else, so they come before the config (SPEC.md 11.3).
 pub fn install_files(folders: &Folders, relay: Relay, keys: KeyChoice) -> Result<Changed> {
     let dir = &folders.config;
-    fs::create_dir_all(dir).with_context(|| format!("cannot make {}", dir.display()))?;
+    make_private_dir(dir)?;
     // `KeySet` needs the relay key, so every player gets it. With no addon, it does nothing.
     let relay_key = key(dir, RELAY_KEY_FILE, keys, None)?;
     let mut new_slots = false;
@@ -223,7 +223,7 @@ pub fn config_text(existing: Option<&str>, parts: &ConfigParts) -> Option<String
 /// the bridge refuses.
 pub fn write_config(dir: &Path, text: &str, home: &Path) -> Result<Config> {
     let config = config::parse(text, home).context("setup made a config that does not load")?;
-    fs::create_dir_all(dir).with_context(|| format!("cannot make {}", dir.display()))?;
+    make_private_dir(dir)?;
     write_private(dir, config::FILE, text)?;
     Ok(config)
 }

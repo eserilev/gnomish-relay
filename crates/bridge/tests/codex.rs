@@ -480,3 +480,26 @@ fn codex_gets_a_private_temp_folder_that_goes_away_with_the_run() {
     assert!(name.starts_with("gnomish-relay-run-"), "{reply}");
     assert!(!temp.exists(), "the temp folder outlived the run");
 }
+
+/// Codex applies every path of the patch, also one outside the root that it asks for.
+#[test]
+fn a_change_with_a_root_is_checked_at_the_root_and_at_each_path_of_the_patch() {
+    let chat = std::path::Path::new("/home/x/Code/app");
+    let params = serde_json::json!({ "grantRoot": "src" });
+    let paths = ["src/a.rs".to_owned(), "/home/x/.bashrc".to_owned()];
+
+    let call =
+        bridge::codex::approval_call("item/fileChange/requestApproval", &params, &paths, chat);
+
+    let protocol::action::ToolCall::Files { writes, .. } = call.tool else {
+        panic!("a change is a file call");
+    };
+    assert_eq!(
+        writes,
+        [
+            b"/home/x/Code/app/src".to_vec(),
+            b"/home/x/Code/app/src/a.rs".to_vec(),
+            b"/home/x/.bashrc".to_vec(),
+        ]
+    );
+}

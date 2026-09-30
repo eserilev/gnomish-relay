@@ -368,6 +368,35 @@ fn a_command_from_the_game_writes_its_chat_folder_and_nothing_outside() {
     assert!(!home.chat.join("../escape.txt").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_command_that_makes_a_git_folder_gets_a_notice_after_the_reply() {
+    let mut home = home("");
+    let Some(sandbox) = real_sandbox() else {
+        return;
+    };
+    home.gate.sandbox = sandbox;
+    let command =
+        "mkdir -p .git/modules/lib && touch .git/modules/lib/HEAD .git/modules/lib/config";
+
+    let reply = call(
+        &home,
+        "Bash",
+        &json!({ "command": command }),
+        Permission::FullAuto,
+    );
+
+    assert!(
+        reply.starts_with("allow: Allowed by Gnomish Relay.\n\n"),
+        "{reply}"
+    );
+    assert!(reply.contains(".git/modules/lib/config"), "{reply}");
+    assert!(
+        reply.contains("Check them before you run git there."),
+        "{reply}"
+    );
+}
+
 #[test]
 fn rm_r_asks_in_the_game_at_auto_edit_and_runs_at_full_auto() {
     let home = home("commands = [\"rm *\"]");
@@ -497,6 +526,95 @@ fn a_glob_that_leaves_its_folder_asks_on_the_desktop() {
         outside.starts_with("deny: No answer on the desktop."),
         "{outside}"
     );
+}
+
+/// Claude Code expands `~` and trims the path before it reads, so the gate does too.
+#[test]
+fn a_search_path_with_a_tilde_or_spaces_is_the_path_that_claude_code_reads() {
+    let mut home = home("");
+    home.gate.home = home.path.clone();
+    for path in ["~/notes", "  ~/notes", "~", " /etc ", "~other/x"] {
+        let reply = call(
+            &home,
+            "Grep",
+            &json!({ "pattern": "x", "path": path }),
+            Permission::FullAuto,
+        );
+        assert!(
+            reply.starts_with("deny: No answer on the desktop."),
+            "{path}: {reply}"
+        );
+    }
+    let inside = call(
+        &home,
+        "Grep",
+        &json!({ "pattern": "x", "path": " src " }),
+        Permission::Ask,
+    );
+    assert_eq!(inside, "allow: Allowed by Gnomish Relay.");
+}
+
+#[test]
+fn a_read_of_a_path_with_a_tilde_resolves_in_the_home_folder() {
+    let mut home = home("");
+    home.gate.home = home.path.clone();
+
+    let reply = call(
+        &home,
+        "Read",
+        &json!({ "file_path": "~/notes.txt" }),
+        Permission::FullAuto,
+    );
+
+    assert!(
+        reply.starts_with("deny: No answer on the desktop."),
+        "{reply}"
+    );
+}
+
+#[test]
+fn a_grep_of_a_folder_that_holds_a_credential_file_asks_on_the_desktop() {
+    let home = home("");
+    let nested = home.chat.join("config");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join(".env"), "TOKEN=1").unwrap();
+
+    let whole = call(
+        &home,
+        "Grep",
+        &json!({ "pattern": "TOKEN" }),
+        Permission::FullAuto,
+    );
+    let globbed = call(
+        &home,
+        "Grep",
+        &json!({ "pattern": "TOKEN", "path": "config", "glob": ".env" }),
+        Permission::FullAuto,
+    );
+
+    assert!(
+        whole.starts_with("deny: No answer on the desktop."),
+        "{whole}"
+    );
+    assert!(
+        globbed.starts_with("deny: No answer on the desktop."),
+        "{globbed}"
+    );
+}
+
+#[test]
+fn a_grep_of_a_folder_with_no_credential_file_runs() {
+    let home = home("");
+    std::fs::write(home.chat.join("main.rs"), "fn main() {}").unwrap();
+
+    let reply = call(
+        &home,
+        "Grep",
+        &json!({ "pattern": "main" }),
+        Permission::Ask,
+    );
+
+    assert_eq!(reply, "allow: Allowed by Gnomish Relay.");
 }
 
 #[test]

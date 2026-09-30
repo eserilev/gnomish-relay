@@ -6,6 +6,7 @@ use std::collections::{BTreeMap, BTreeSet};
 
 use protocol::apps::App;
 use protocol::folder::resolve_folder;
+use protocol::frame::{MAX_AGE, MAX_AHEAD};
 use protocol::rate::{ChatQueue, MAX_QUEUE, enqueue};
 use protocol::record::Record;
 use protocol::restore::{prepare_restore, restore_body};
@@ -163,6 +164,25 @@ pub struct Relay {
     deleted: Vec<ChatId>,
     listed: Vec<Listed>,
     activity: Activity,
+    /// The tags of the frames that came, with the time of their first sight.
+    frames: Vec<(u32, FrameTag)>,
+}
+
+/// The tag of a signed frame (SPEC.md 6.3). Two frames with the same tag are one frame.
+pub type FrameTag = [u8; 8];
+
+/// A frame passes the freshness check (S11) for at most this long after its first sight:
+/// its time is at most `MAX_AHEAD` in the future then, and it is stale `MAX_AGE` later.
+const FRAME_MEMORY: u32 = MAX_AGE + MAX_AHEAD;
+
+/// Stop, delete, a permission answer, a rule removal, and a hello.
+fn is_control(r: &Record) -> bool {
+    let coding = flags::coding(&r.flags);
+    flags::transport(&r.flags).hello
+        || coding.stop
+        || coding.delete
+        || coding.perm.is_some()
+        || coding.remove_rule.is_some()
 }
 
 fn text(bytes: &[u8]) -> String {
@@ -222,6 +242,7 @@ impl Relay {
             deleted: Vec::new(),
             listed: Vec::new(),
             activity: Activity::default(),
+            frames: Vec::new(),
         }
     }
 
@@ -243,6 +264,35 @@ impl Relay {
 
     pub fn unread(&self) -> usize {
         self.lane.unread()
+    }
+
+    /// Takes one signed frame. A frame that came before applies no control record and no
+    /// report again, so a replayed strip cannot stop or delete a later run. Its messages
+    /// go through the replay store as always: a refused message gets its next chance.
+    pub fn on_tagged_frame(&mut self, tag: FrameTag, records: &[Record], now: u32) -> Vec<Outcome> {
+        if self.first_sight(tag, now) {
+            return self.on_frame(records, now);
+        }
+        records
+            .iter()
+            .map(|r| {
+                if is_control(r) {
+                    Outcome::Duplicate
+                } else {
+                    self.on_record(r, now)
+                }
+            })
+            .collect()
+    }
+
+    fn first_sight(&mut self, tag: FrameTag, now: u32) -> bool {
+        self.frames
+            .retain(|(seen, _)| now.saturating_sub(*seen) <= FRAME_MEMORY);
+        if self.frames.iter().any(|(_, known)| *known == tag) {
+            return false;
+        }
+        self.frames.push((now, tag));
+        true
     }
 
     /// Takes one frame. The flags of its first record carry the report of the addon.
@@ -1227,6 +1277,77 @@ mod tests {
         relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
         assert_eq!(relay.take_cancels(), [ChatId("c1".into())]);
         assert!(relay.take_cancels().is_empty());
+    }
+
+    /// A control record has id 0, so the replay store of messages cannot tell two stops
+    /// apart. The tag of the frame can.
+    #[test]
+    fn a_replayed_frame_does_not_stop_a_later_run() {
+        let mut relay = relay();
+        let stop = [record("c1", 0, "stop", "")];
+        relay.on_frame(&[record("c1", 1, "", "first")], NOW);
+        let first = relay.next_job().unwrap();
+        relay.on_tagged_frame([7; 8], &stop, NOW);
+        relay.take_cancels();
+        relay.finish(&first, Ok("done".into()));
+        relay.on_frame(&[record("c1", 2, "", "second")], NOW + 5);
+        relay.next_job().unwrap();
+
+        let replayed = relay.on_tagged_frame([7; 8], &stop, NOW + 10);
+
+        assert_eq!(replayed, [Outcome::Duplicate]);
+        assert!(relay.take_cancels().is_empty());
+    }
+
+    #[test]
+    fn a_replayed_frame_does_not_delete_a_chat_again_or_answer_again() {
+        let mut relay = relay();
+        let frame = [
+            record("c1", 0, "delete", ""),
+            record("c2", 0, "perm=p1:o1:0123456789abcdef", ""),
+            record("s", 0, "rule=remove:r1", ""),
+        ];
+        relay.on_tagged_frame([7; 8], &frame, NOW);
+        relay.take_rule_removals();
+
+        let replayed = relay.on_tagged_frame([7; 8], &frame, NOW + 1);
+
+        assert_eq!(
+            replayed,
+            [Outcome::Duplicate, Outcome::Duplicate, Outcome::Duplicate]
+        );
+        assert!(relay.take_rule_removals().is_empty());
+    }
+
+    #[test]
+    fn a_replayed_frame_gives_a_refused_message_its_next_chance() {
+        let mut relay = relay();
+        for id in 1..=10 {
+            relay.on_frame(&[record("c1", id, "", "x")], NOW);
+        }
+        let frame = [record("c1", 11, "", "late")];
+        assert_eq!(
+            relay.on_tagged_frame([7; 8], &frame, NOW),
+            [Outcome::Refused]
+        );
+
+        let replayed = relay.on_tagged_frame([7; 8], &frame, NOW + 61);
+
+        assert_eq!(replayed, [Outcome::Accepted]);
+    }
+
+    #[test]
+    fn a_frame_tag_is_forgotten_when_the_frame_is_too_old_to_pass() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "long task")], NOW);
+        relay.next_job().unwrap();
+        let stop = [record("c1", 0, "stop", "")];
+        relay.on_tagged_frame([7; 8], &stop, NOW);
+        relay.take_cancels();
+
+        relay.on_tagged_frame([7; 8], &stop, NOW + 361);
+
+        assert_eq!(relay.take_cancels(), [ChatId("c1".into())]);
     }
 
     fn open_notice() -> Notice {

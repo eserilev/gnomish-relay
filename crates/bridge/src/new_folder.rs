@@ -1,4 +1,5 @@
-//! The new folder of a chat, made before its first run (SPEC.md 9.9).
+//! The folder of a chat at the start of a run: a new one is made (SPEC.md 9.9), and each
+//! one is checked again with its links resolved (6.2, rule 10).
 
 use std::fs;
 use std::io::ErrorKind;
@@ -9,6 +10,9 @@ use crate::folder_walk::{Walk, is_shown};
 
 /// The longest file name on the file systems that the bridge runs on.
 const MAX_NAME: usize = 255;
+const MISSING: &str = "The folder of this chat is missing.";
+const OUTSIDE_ROOTS: &str =
+    "Folder not allowed: with its links resolved, it is outside the allowed roots.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum NewFolderError {
@@ -41,6 +45,28 @@ pub fn is_folder_name(name: &str) -> bool {
         && name != ".."
         && !name.contains(['/', '\\'])
         && !name.chars().any(char::is_control)
+}
+
+/// The real path of the folder of a chat, inside a root. The relay checks only the text
+/// of the folder, and a link in it can leave every root.
+pub fn real_chat_folder(walk: &Walk, folder: &Path) -> Result<String, String> {
+    let real = folder.canonicalize().map_err(|_| MISSING.to_owned())?;
+    let bytes = path_bytes(&real);
+    let inside = |root: &PathBuf| is_inside_folder(&bytes, &path_bytes(root));
+    if !walk.roots.iter().any(inside) {
+        return Err(OUTSIDE_ROOTS.into());
+    }
+    let text = real.to_str().ok_or_else(|| MISSING.to_owned())?;
+    Ok(without_verbatim(text).to_owned())
+}
+
+/// `canonicalize` on Windows starts a path with `\\?\`, which many programs refuse.
+/// A network path keeps it, because it has no other form with the same meaning.
+fn without_verbatim(path: &str) -> &str {
+    match path.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest,
+        _ => path,
+    }
 }
 
 /// Makes the last part of `folder` with `create_dir`, never a parent. A folder that
@@ -102,6 +128,60 @@ mod tests {
             deny: vec![h.root.join("bridge-config")],
             home: None,
         }
+    }
+
+    #[test]
+    fn the_real_folder_of_a_chat_inside_a_root_is_its_canonical_path() {
+        let h = home();
+        fs::create_dir_all(h.root.join("app/src")).unwrap();
+
+        let real = real_chat_folder(&walk(&h), &h.root.join("app/src/.."));
+
+        assert_eq!(real, Ok(h.root.join("app").to_string_lossy().into_owned()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_chat_folder_that_is_a_link_out_of_every_root_is_refused() {
+        let h = home();
+        let outside = h.root.parent().unwrap().join("outside");
+        fs::create_dir(&outside).unwrap();
+        std::os::unix::fs::symlink(&outside, h.root.join("app")).unwrap();
+
+        let real = real_chat_folder(&walk(&h), &h.root.join("app"));
+
+        assert_eq!(real, Err(OUTSIDE_ROOTS.into()));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_chat_folder_that_is_a_link_to_another_folder_in_a_root_runs_there() {
+        let h = home();
+        fs::create_dir(h.root.join("real")).unwrap();
+        std::os::unix::fs::symlink(h.root.join("real"), h.root.join("app")).unwrap();
+
+        let real = real_chat_folder(&walk(&h), &h.root.join("app"));
+
+        assert_eq!(real, Ok(h.root.join("real").to_string_lossy().into_owned()));
+    }
+
+    #[test]
+    fn a_missing_chat_folder_is_refused() {
+        let h = home();
+
+        let real = real_chat_folder(&walk(&h), &h.root.join("gone"));
+
+        assert_eq!(real, Err(MISSING.into()));
+    }
+
+    #[test]
+    fn a_verbatim_prefix_goes_only_before_a_drive() {
+        assert_eq!(without_verbatim(r"\\?\C:\Code\app"), r"C:\Code\app");
+        assert_eq!(
+            without_verbatim(r"\\?\UNC\server\share"),
+            r"\\?\UNC\server\share"
+        );
+        assert_eq!(without_verbatim("/home/x/Code"), "/home/x/Code");
     }
 
     #[test]

@@ -128,11 +128,12 @@ impl CommandAgent {
             }
         };
         let finished = harness_process::run(&start, &limits, &control.stop, &progress)?;
+        let git = walls.git.clone();
         drop(walls);
         let reply = reply_of(&finished)?;
         let notes = self.notes(access);
         let notes: Vec<&str> = notes.iter().map(String::as_str).collect();
-        Ok(with_notes(reply, &notes, None))
+        Ok(with_notes(reply, &notes, git.notice()))
     }
 
     fn notes(&self, access: ChatAccess) -> Vec<String> {

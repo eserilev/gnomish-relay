@@ -67,6 +67,15 @@ pub const DESKTOP_WRITES: &[&str] = &[
     ".envrc",
     ".vscode",
     ".github/workflows",
+    // The config, the rules, and the MCP servers of Codex and Claude.
+    ".codex",
+    ".mcp.json",
+    // Hook tools. Git runs them on the host at the next commit or push.
+    ".husky",
+    ".githooks",
+    ".pre-commit-config.yaml",
+    "lefthook.yml",
+    ".lefthook.yml",
 ];
 
 /// The resolver of S5 starts a path with `/`. On Windows the drive is the first part.
@@ -82,23 +91,49 @@ pub fn resolved_bytes(path: &Path) -> Vec<u8> {
     with_leading_slash(path_bytes(path))
 }
 
+/// More than the OS follows (40 on Linux, 32 on macOS, 63 on Windows). So a chain that
+/// gives `None` here is one that the OS refuses to open.
+const MAX_LINKS: usize = 64;
+
 /// `canonicalize` resolves every link. A new file resolves through its nearest folder
-/// that exists, so a write to a link inside the chat folder shows its real target. The
-/// missing parts cannot be links, because they do not exist. A `..` among them gives `None`.
+/// that exists, so a write to a link inside the chat folder shows its real target. A link
+/// to a missing file does not canonicalize, but a write creates its target, so the path
+/// resolves through the target. A `..` among the missing parts gives `None`.
 pub fn resolve(path: &Path) -> Option<PathBuf> {
-    let mut missing = Vec::new();
-    let mut existing = path;
-    loop {
-        if let Ok(real) = existing.canonicalize() {
-            return Some(missing.iter().rev().fold(real, |p, part| p.join(part)));
-        }
-        missing.push(existing.file_name()?);
-        existing = existing.parent()?;
-    }
+    resolve_within(path, MAX_LINKS)
 }
+
+fn resolve_within(path: &Path, links_left: usize) -> Option<PathBuf> {
+    let mut missing = Vec::new();
+    let mut existing = path.to_path_buf();
+    let real = loop {
+        if let Ok(real) = existing.canonicalize() {
+            break real;
+        }
+        if let Ok(target) = std::fs::read_link(&existing) {
+            // An absolute target takes the place of the folder in `join`.
+            let target = existing.parent()?.join(target);
+            break resolve_within(&target, links_left.checked_sub(1)?)?;
+        }
+        missing.push(existing.file_name()?.to_owned());
+        existing = existing.parent()?.to_path_buf();
+    };
+    Some(missing.iter().rev().fold(real, |p, part| p.join(part)))
+}
+
+/// Git on the host trusts every file in a `.git`: `commondir`, `config.worktree`, and
+/// the config of a submodule each run code. A file tool never needs to write there. The
+/// sandbox cannot hide all of `.git`, because `git commit` writes it.
+const GIT_ENTRY: &str = ".git";
 
 fn patterns(list: &[&str]) -> Vec<Vec<u8>> {
     list.iter().map(|p| p.as_bytes().to_vec()).collect()
+}
+
+fn write_patterns() -> Vec<Vec<u8>> {
+    let mut list = patterns(DESKTOP_WRITES);
+    list.push(GIT_ENTRY.as_bytes().to_vec());
+    list
 }
 
 /// `roots`, `chat`, and `deny` are resolved. `deny` holds the config folder and the data
@@ -110,7 +145,7 @@ pub fn policy(roots: &[PathBuf], chat: &Path, deny: &[PathBuf], allow: &[Vec<Str
         chat: resolved_bytes(chat),
         deny_folders: deny.iter().map(|d| resolved_bytes(d)).collect(),
         desktop_paths: patterns(DESKTOP_PATHS),
-        desktop_writes: patterns(DESKTOP_WRITES),
+        desktop_writes: write_patterns(),
         allow: allow
             .iter()
             .map(|rule| rule.iter().map(|w| w.as_bytes().to_vec()).collect())
@@ -314,6 +349,49 @@ mod tests {
     }
 
     #[test]
+    fn a_write_to_any_git_control_file_is_desktop() {
+        let f = folders();
+        std::fs::create_dir_all(f.chat.join(".git").join("modules").join("lib")).unwrap();
+        std::fs::create_dir_all(f.chat.join("sub")).unwrap();
+        for file in [
+            ".git/commondir",
+            ".git/config.worktree",
+            ".git/modules/lib/config",
+            ".git/modules/lib/hooks/post-checkout",
+            ".GIT/info/attributes",
+            "sub/.git",
+        ] {
+            let v = classify_files(&f, &[], &[f.chat.join(file)]);
+            assert_eq!(v, "desktop", "{file}");
+        }
+    }
+
+    #[test]
+    fn a_write_to_a_file_that_a_hook_tool_or_an_agent_runs_later_is_desktop() {
+        let f = folders();
+        for file in [
+            ".codex/config.toml",
+            ".husky/pre-commit",
+            ".githooks/pre-push",
+            ".pre-commit-config.yaml",
+            "lefthook.yml",
+            ".lefthook.yml",
+            ".mcp.json",
+        ] {
+            let v = classify_files(&f, &[], &[f.chat.join(file)]);
+            assert_eq!(v, "desktop", "{file}");
+        }
+    }
+
+    #[test]
+    fn a_read_of_a_git_control_file_is_allowed() {
+        let f = folders();
+        std::fs::create_dir_all(f.chat.join(".git")).unwrap();
+        let v = classify_files(&f, &[f.chat.join(".git").join("commondir")], &[]);
+        assert_eq!(v, "allow");
+    }
+
+    #[test]
     fn an_env_file_is_desktop_for_reads() {
         let f = folders();
         let v = classify_files(&f, &[f.chat.join(".env.local")], &[]);
@@ -355,6 +433,52 @@ mod tests {
         std::os::unix::fs::symlink(&outside, f.chat.join("link")).unwrap();
         let v = classify_files(&f, &[], &[f.chat.join("link").join("x")]);
         assert_eq!(v, "desktop");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_through_a_link_to_a_missing_file_outside_is_desktop() {
+        let f = folders();
+        let outside = f.root.join("..").join(".bash_aliases");
+        std::os::unix::fs::symlink(&outside, f.chat.join("aliases")).unwrap();
+
+        let v = classify_files(&f, &[], &[f.chat.join("aliases")]);
+
+        assert_eq!(v, "desktop");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_write_through_a_relative_link_to_a_missing_file_in_the_config_folder_is_denied() {
+        let f = folders();
+        std::os::unix::fs::symlink("../../config/gnomish-relay/new.key", f.chat.join("key"))
+            .unwrap();
+
+        let v = classify_files(&f, &[], &[f.chat.join("key")]);
+
+        assert_eq!(v, "deny");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_to_a_missing_folder_resolves_the_rest_of_the_path_there() {
+        let f = folders();
+        let outside = f.root.join("gone");
+        std::os::unix::fs::symlink(&outside, f.chat.join("dir")).unwrap();
+
+        let real = resolve(&f.chat.join("dir").join("x"));
+
+        assert_eq!(real, Some(outside.join("x")));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_loop_of_links_does_not_resolve() {
+        let f = folders();
+        std::os::unix::fs::symlink(f.chat.join("b"), f.chat.join("a")).unwrap();
+        std::os::unix::fs::symlink(f.chat.join("a"), f.chat.join("b")).unwrap();
+
+        assert_eq!(resolve(&f.chat.join("a")), None);
     }
 
     #[test]

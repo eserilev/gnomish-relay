@@ -9,7 +9,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 
 use crate::config::{Found, Kind};
-use crate::fs_safe::write_atomic_unsynced;
+use crate::fs_safe::{write_atomic_unsynced, write_private};
 
 pub const ADDON: &str = "GnomishRelay";
 pub const TIMEWAYS: &str = "Timeways";
@@ -302,6 +302,22 @@ fn same(path: &Path, content: &[u8]) -> bool {
     fs::read(path).is_ok_and(|bytes| bytes == content)
 }
 
+/// A key that others can read gets written again with mode 0600, so a command of a game
+/// run cannot read it (SPEC.md 6.6.4).
+fn is_private_copy(path: &Path, key: &str) -> bool {
+    let Ok(meta) = fs::symlink_metadata(path) else {
+        return false;
+    };
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if meta.permissions().mode() & 0o077 != 0 {
+            return false;
+        }
+    }
+    meta.is_file() && same(path, key.as_bytes())
+}
+
 /// What `install_addon` changed.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Installed {
@@ -324,15 +340,15 @@ pub fn install_addon(addons: &Path, key_hex: &str) -> Result<Installed> {
     let new = meta.is_err();
     fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
     let mut changed = false;
-    for (name, content) in ADDON_FILES
-        .iter()
-        .copied()
-        .chain([(KEY_FILE, key.as_bytes())])
-    {
+    for (name, content) in ADDON_FILES.iter().copied() {
         if !same(&dir.join(name), content) {
             write_atomic_unsynced(&dir, name, content)?;
             changed = true;
         }
+    }
+    if !is_private_copy(&dir.join(KEY_FILE), &key) {
+        write_private(&dir, KEY_FILE, &key)?;
+        changed = true;
     }
     Ok(match (new, changed) {
         (true, _) => Installed::New,
@@ -348,10 +364,10 @@ pub fn write_key_file(dir: &Path, key_hex: &str) -> Result<Installed> {
         .canonicalize()
         .with_context(|| format!("{} is missing or a broken link", dir.display()))?;
     let key = key_lua(key_hex);
-    if same(&real.join(KEY_FILE), key.as_bytes()) {
+    if is_private_copy(&real.join(KEY_FILE), &key) {
         return Ok(Installed::Unchanged);
     }
-    write_atomic_unsynced(&real, KEY_FILE, key.as_bytes())?;
+    write_private(&real, KEY_FILE, &key)?;
     Ok(Installed::Updated)
 }
 
@@ -681,6 +697,22 @@ mod tests {
         );
         let written = fs::read_to_string(addons.path().join(ADDON).join(KEY_FILE)).unwrap();
         assert_eq!(written, key_lua(&key));
+    }
+
+    /// A command of a game run must not read the strip key (SPEC.md 6.6.4).
+    #[cfg(unix)]
+    #[test]
+    fn the_key_file_has_mode_0600_also_after_an_older_install() {
+        use std::os::unix::fs::PermissionsExt;
+        let addons = tempfile::tempdir().unwrap();
+        let key = addons.path().join(ADDON).join(KEY_FILE);
+        install_addon(addons.path(), &"ab".repeat(32)).unwrap();
+        fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
+
+        install_addon(addons.path(), &"ab".repeat(32)).unwrap();
+
+        let mode = fs::metadata(&key).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode, 0o600);
     }
 
     #[test]
