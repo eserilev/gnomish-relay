@@ -120,93 +120,37 @@ impl ClaudeAgent {
         }
     }
 
-    /// A session with no file cannot resume, so the run starts a new one and says so.
+    /// A run that fails before the agent starts keeps the session of the chat.
     fn prompt(&self, job: &Job, control: &Control) -> Run {
-        let (resume, note) = match job.resume.as_deref() {
-            Some(id) if claude_sessions::find(&self.projects, id).is_some() => (Some(id), None),
-            Some(_) => (None, Some(NEW_SESSION)),
-            None => (None, None),
-        };
-        let mut walls = match self.walls(&job.cwd, &format!("chat {}", job.chat.0)) {
-            Ok(walls) => walls,
-            Err(e) => {
-                return Run {
-                    reply: Err(e),
-                    session: job.resume.clone(),
-                };
-            }
-        };
+        let mut session = job.resume.clone();
+        let reply = self.talk(job, control, &mut session);
+        Run { reply, session }
+    }
+
+    fn talk(
+        &self,
+        job: &Job,
+        control: &Control,
+        session: &mut Option<String>,
+    ) -> Result<String, String> {
+        let (resume, note) = self.resumable(job);
+        let mut walls = self.walls(&job.cwd, &format!("chat {}", job.chat.0))?;
         let note = note.or_else(|| {
             walls
                 .is_none()
                 .then(|| self.gate.sandbox.notice())
                 .flatten()
         });
-        let temp = walls.as_ref().map(|w| w.walls.temp.clone());
-        let mut binds = vec![Path::new(&job.cwd)];
-        binds.extend(temp.as_deref());
-        let wall = match self
-            .wall
-            .prepare(&binds, &format!("agent of chat {}", job.chat.0))
-        {
-            Ok(wall) => wall,
-            Err(e) => {
-                return Run {
-                    reply: Err(e),
-                    session: job.resume.clone(),
-                };
-            }
-        };
-        if let Err(e) = walls.as_mut().map_or(Ok(()), RunWalls::hold) {
-            return Run {
-                reply: Err(e),
-                session: job.resume.clone(),
-            };
-        }
+        let wall = self.agent_wall(job, walls.as_ref())?;
+        walls.as_mut().map_or(Ok(()), RunWalls::hold)?;
         let notes: Vec<&str> = note.into_iter().chain(self.wall.notice()).collect();
-        let mut args = self.args(job.permission, resume);
-        args.extend(game_run_flags(
-            walls
-                .is_some()
-                .then_some(self.gate.sandbox.wrapper.as_path()),
-        ));
-        let mut vars = walls
-            .as_ref()
-            .map(|w| w.claude_vars(&self.gate.sandbox.wrapper))
-            .unwrap_or_default();
-        vars.extend(agent_env(Kind::Claude, Walled::of(wall.as_ref())));
         let git = walls.as_ref().map(|w| w.git.clone());
-        let started = AgentProcess::start_in(
-            &self.command,
-            &args,
-            &self.env,
-            &vars,
-            &job.cwd,
-            wall.as_ref(),
-        );
-        let mut stream = match started {
-            Ok(process) => {
-                let rules = Rules::Gate(Box::new(Gated {
-                    gate: self.gate.clone(),
-                    permission: job.permission,
-                    agent: job.agent.clone(),
-                    cwd: job.cwd.clone(),
-                    walls,
-                }));
-                let turn = Turn::new(self.timeout, self.permission_timeout, control.clone());
-                let mut stream = Stream::new(process, turn, rules, self.permission_timeout);
-                stream.session = resume.map(str::to_owned);
-                stream
-            }
-            Err(e) => {
-                return Run {
-                    reply: Err(e),
-                    session: job.resume.clone(),
-                };
-            }
-        };
+        let process = self.start(job, resume, walls.as_ref(), wall.as_ref())?;
+        let mut stream = self.stream(process, job, control, walls);
+        stream.session = resume.map(str::to_owned);
         let reply = stream.talk(&job.text);
-        let session = stream.session.take();
+        *session = stream.session.take();
+        // The agent must end before the check of the files that it made.
         drop(stream);
         let made = wall
             .as_ref()
@@ -216,12 +160,61 @@ impl ClaudeAgent {
             made_notice(&made, self.wall.home.as_deref()),
             git.and_then(|g| g.notice()),
         );
-        Run {
-            reply: reply
-                .map(|reply| with_notes(reply, &notes, after))
-                .map_err(with_login_step),
-            session,
+        let reply = reply.map_err(with_login_step)?;
+        Ok(with_notes(reply, &notes, after))
+    }
+
+    /// A session with no file cannot resume, so the run starts a new one and says so.
+    fn resumable<'a>(&self, job: &'a Job) -> (Option<&'a str>, Option<&'static str>) {
+        match job.resume.as_deref() {
+            Some(id) if claude_sessions::find(&self.projects, id).is_some() => (Some(id), None),
+            Some(_) => (None, Some(NEW_SESSION)),
+            None => (None, None),
         }
+    }
+
+    /// The agent wall binds the chat folder and the temp folder of the command sandbox.
+    fn agent_wall(&self, job: &Job, walls: Option<&RunWalls>) -> Result<Option<RunWall>, String> {
+        let mut binds = vec![Path::new(&job.cwd)];
+        binds.extend(walls.map(|w| w.walls.temp.as_path()));
+        self.wall
+            .prepare(&binds, &format!("agent of chat {}", job.chat.0))
+    }
+
+    fn start(
+        &self,
+        job: &Job,
+        resume: Option<&str>,
+        walls: Option<&RunWalls>,
+        wall: Option<&RunWall>,
+    ) -> Result<AgentProcess, String> {
+        let mut args = self.args(job.permission, resume);
+        args.extend(game_run_flags(
+            walls.map(|_| self.gate.sandbox.wrapper.as_path()),
+        ));
+        let mut vars = walls
+            .map(|w| w.claude_vars(&self.gate.sandbox.wrapper))
+            .unwrap_or_default();
+        vars.extend(agent_env(Kind::Claude, Walled::of(wall)));
+        AgentProcess::start_in(&self.command, &args, &self.env, &vars, &job.cwd, wall)
+    }
+
+    fn stream(
+        &self,
+        process: AgentProcess,
+        job: &Job,
+        control: &Control,
+        walls: Option<RunWalls>,
+    ) -> Stream {
+        let rules = Rules::Gate(Box::new(Gated {
+            gate: self.gate.clone(),
+            permission: job.permission,
+            agent: job.agent.clone(),
+            cwd: job.cwd.clone(),
+            walls,
+        }));
+        let turn = Turn::new(self.timeout, self.permission_timeout, control.clone());
+        Stream::new(process, turn, rules, self.permission_timeout)
     }
 
     /// The walls of a run, or `None` on a computer with no sandbox.
