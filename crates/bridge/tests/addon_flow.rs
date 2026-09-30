@@ -807,6 +807,37 @@ fn a_saved_size_larger_than_the_screen_opens_at_the_screen_size_and_reset_forget
     );
 }
 
+fn width_of(game: &Game, name: &str) -> i64 {
+    let frame: Table = game.lua.globals().get(name).unwrap();
+    frame.get("width").unwrap()
+}
+
+#[test]
+fn a_larger_window_widens_the_folder_browser_and_shows_more_diag_lines() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+
+    game.run(
+        "GnomishRelayFrame:SetSize(1400, 900) \
+         GnomishRelayResizeGrip:GetScript('OnMouseUp')(GnomishRelayResizeGrip)",
+    );
+
+    let center = 1400 - 2 * 200 - 28;
+    assert_eq!(width_of(&game, "GnomishRelayBrowser"), center);
+    assert_eq!(width_of(&game, "GnomishRelayBrowserFilter"), center - 60);
+    assert_eq!(width_of(&game, "GnomishRelayBrowseRow1"), center - 16);
+    game.run("local ns = ... ns.Window.ShowTab('diag')");
+    let page = 1400 - 200 - 20;
+    assert_eq!(width_of(&game, "GnomishRelayDiagLine1"), page - 24);
+    let lines = (900 - 76 - 40) / 17;
+    assert!(
+        game.lua
+            .globals()
+            .contains_key(format!("GnomishRelayDiagLine{lines}"))
+            .unwrap()
+    );
+}
+
 #[test]
 fn a_new_chat_opens_the_folder_browser_first() {
     let game = Game::start();

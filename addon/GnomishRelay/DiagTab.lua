@@ -6,8 +6,9 @@ local _, ns = ...
 local DiagTab = {}
 ns.DiagTab = DiagTab
 
-local LINES = 26
 local LINE_HEIGHT = 17
+-- The room above and below the lines of the page.
+local MARGIN = 40
 local LABEL_WIDTH = 150
 local GOLD = "ffd100"
 local GREY = "8d8778"
@@ -163,32 +164,46 @@ function DiagTab.Refresh()
 		return
 	end
 	local rows = Rows()
-	ui.offset = math.max(0, math.min(ui.offset, #rows - LINES))
+	ui.offset = math.max(0, math.min(ui.offset, #rows - ui.visible))
 	local offline = not ns.Transport.Online()
 	for i, line in ipairs(ui.lines) do
-		ShowRow(line, rows[ui.offset + i], offline)
+		ShowRow(line, i <= ui.visible and rows[ui.offset + i] or nil, offline)
 	end
+end
+
+local function Line(i)
+	local line = CreateFrame("Frame", "GnomishRelayDiagLine" .. i, ui.page)
+	line:SetHeight(LINE_HEIGHT)
+	line:SetPoint("TOPLEFT", ui.page, "TOPLEFT", 16, -10 - (i - 1) * LINE_HEIGHT)
+	line.label = line:CreateFontString(nil, "OVERLAY", "GameFontNormal")
+	line.label:SetPoint("LEFT", line, "LEFT", 0, 0)
+	line.label:SetJustifyH("LEFT")
+	line.value = line:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
+	line.value:SetPoint("LEFT", line, "LEFT", LABEL_WIDTH, 0)
+	line.value:SetJustifyH("LEFT")
+	line.value:SetWordWrap(false)
+	line:Hide()
+	return line
+end
+
+-- The window calls this at each new size, so a larger page shows more and wider lines.
+function DiagTab.Resize(width, height)
+	ui.visible = math.floor((height - MARGIN) / LINE_HEIGHT)
+	for i = 1, ui.visible do
+		ui.lines[i] = ui.lines[i] or Line(i)
+	end
+	for _, line in ipairs(ui.lines) do
+		line:SetWidth(width - 24)
+		line.value:SetWidth(width - LABEL_WIDTH - 30)
+	end
+	DiagTab.Refresh()
 end
 
 function DiagTab.Build(page)
 	ui.page = page
 	ui.offset = 0
 	ui.lines = {}
-	for i = 1, LINES do
-		local line = CreateFrame("Frame", "GnomishRelayDiagLine" .. i, page)
-		line:SetSize(page:GetWidth() - 24, LINE_HEIGHT)
-		line:SetPoint("TOPLEFT", page, "TOPLEFT", 16, -10 - (i - 1) * LINE_HEIGHT)
-		line.label = line:CreateFontString(nil, "OVERLAY", "GameFontNormal")
-		line.label:SetPoint("LEFT", line, "LEFT", 0, 0)
-		line.label:SetJustifyH("LEFT")
-		line.value = line:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
-		line.value:SetPoint("LEFT", line, "LEFT", LABEL_WIDTH, 0)
-		line.value:SetWidth(page:GetWidth() - LABEL_WIDTH - 30)
-		line.value:SetJustifyH("LEFT")
-		line.value:SetWordWrap(false)
-		line:Hide()
-		ui.lines[i] = line
-	end
+	ui.visible = 0
 	page:EnableMouseWheel(true)
 	page:SetScript("OnMouseWheel", function(_, delta)
 		ui.offset = ui.offset - delta * 3

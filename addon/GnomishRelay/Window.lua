@@ -563,9 +563,18 @@ local function BuildInputHelp()
 	ui.input:SetScript("OnEditFocusLost", RefreshInputHelp)
 end
 
+local function CenterWidth()
+	return frame:GetWidth() - 2 * SIDE - 28
+end
+
 -- The transcript is the center inset less 8 at each side and 6 at the top and bottom.
 local function TranscriptSize()
-	return frame:GetWidth() - 2 * SIDE - 28 - 16, frame:GetHeight() - 84 - 72 - 12
+	return CenterWidth() - 16, frame:GetHeight() - 84 - 72 - 12
+end
+
+-- The Settings and Diag pages cover the window right of the chat column.
+local function PageSize()
+	return frame:GetWidth() - SIDE - 20, frame:GetHeight() - 60 - 16
 end
 
 local function BuildCenter()
@@ -592,7 +601,7 @@ local function BuildCenter()
 	end)
 	ui.picker:Hide()
 
-	ns.Browser.Build(frame, left, width, 72)
+	ns.Browser.Build(frame, left, CenterWidth(), 72)
 
 	ui.banner = CreateFrame("Frame", "GnomishRelayBanner", frame)
 	ui.banner:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left, 44)
@@ -776,6 +785,7 @@ local function BuildPages()
 	Stretch(ui.diag, 6, -60)
 	ns.SettingsTab.Build(ui.settings)
 	ns.DiagTab.Build(ui.diag)
+	ns.DiagTab.Resize(PageSize())
 	ui.settings:Hide()
 	ui.diag:Hide()
 end
@@ -808,6 +818,8 @@ end
 -- The transcript lays out its entries for one width, so a new size draws it again.
 local function Resized()
 	ns.Transcript.Resize(TranscriptSize())
+	ns.Browser.Resize(CenterWidth())
+	ns.DiagTab.Resize(PageSize())
 	Window.Refresh()
 end
 
