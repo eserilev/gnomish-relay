@@ -101,9 +101,19 @@ fn tool_name(title: &str) -> &str {
 mod tests {
     use super::*;
     use crate::action_input::{command_call, file_call};
+    use crate::folder_path::real_path;
     use std::path::PathBuf;
 
     const CHAT: &str = "/home/x/Code/app";
+
+    /// A file call resolves its paths on the disk, and macOS puts `/home` under
+    /// `/System/Volumes/Data`. So the chat folder is a real folder.
+    fn real_chat() -> (tempfile::TempDir, PathBuf) {
+        let tmp = tempfile::tempdir().unwrap();
+        let chat = real_path(tmp.path()).unwrap().join("app");
+        std::fs::create_dir(&chat).unwrap();
+        (tmp, chat)
+    }
 
     fn command(raw: &str) -> String {
         summary(&command_call(raw, Path::new(CHAT)), "Bash", Path::new(CHAT))
@@ -131,17 +141,22 @@ mod tests {
 
     #[test]
     fn a_file_call_logs_its_paths_from_the_chat_folder() {
-        let chat = PathBuf::from(CHAT);
-        let read = file_call(&[chat.join("src/main.rs")], &[]);
-        let write = file_call(&[], &[PathBuf::from("/etc/hosts")]);
+        let (_tmp, chat) = real_chat();
+        let outside = chat.parent().unwrap().join("hosts");
+        let read = file_call(&[chat.join("src").join("main.rs")], &[]);
+        let write = file_call(&[], std::slice::from_ref(&outside));
 
+        let outside_text = String::from_utf8(resolved_bytes(&outside)).unwrap();
         assert_eq!(summary(&read, "Read", &chat), "read src/main.rs");
-        assert_eq!(summary(&write, "Write", &chat), "write /etc/hosts");
+        assert_eq!(
+            summary(&write, "Write", &chat),
+            format!("write {outside_text}")
+        );
     }
 
     #[test]
     fn a_file_call_logs_at_most_three_paths() {
-        let chat = PathBuf::from(CHAT);
+        let (_tmp, chat) = real_chat();
         let paths: Vec<PathBuf> = ["a", "b", "c", "d", "e"]
             .iter()
             .map(|name| chat.join(name))
