@@ -28,7 +28,7 @@ function Relay.Plain(text)
 	return (tostring(text or ""):gsub("|", "||"))
 end
 
-local function Snippet(text)
+function Relay.Snippet(text)
 	if ns.Blocks.IsRendered(text) then
 		text = ns.Blocks.Plain(text)
 	end
@@ -82,7 +82,7 @@ local function Whisper(chat, reply)
 		chat.unread = true
 	end
 	if ns.Store.db.whisperOn then
-		WhisperLine(chat, Snippet(reply.text))
+		WhisperLine(chat, Relay.Snippet(reply.text))
 	end
 end
 

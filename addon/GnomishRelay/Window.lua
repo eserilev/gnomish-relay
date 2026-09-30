@@ -29,6 +29,8 @@ local NEW = "9fe39f"
 local STATUS_BAR = "Interface\\TargetingFrame\\UI-StatusBar"
 local BODY_FONT = "Fonts\\ARIALN.TTF"
 local FONT_MIN, FONT_MAX = 12, 20
+-- The room at the right end of the header of a chat, for Pinned and Search.
+local HEADER_RIGHT = 140
 -- Pings has no content yet, so it has no tab (SPEC.md 13.1).
 local TABS =
 	{ { id = "chats", name = "Chats" }, { id = "settings", name = "Settings" }, { id = "diag", name = "Diag" } }
@@ -36,6 +38,10 @@ local TABS =
 local frame
 local tiles = {}
 local ui = { tab = "chats" }
+
+local function CenterWidth()
+	return frame:GetWidth() - 2 * SIDE - 28
+end
 
 -- The selected chat, or the first chat when none is selected.
 local function Selected()
@@ -239,7 +245,10 @@ local function RefreshStatus(chat)
 			folder = folder .. " |cff" .. NEW .. "new|r"
 		end
 		ui.folder:SetText(folder)
-		ui.folderButton:SetWidth(ui.folder:GetUnboundedStringWidth() + 40)
+		-- A long folder cuts its name, so the header keeps room for Pinned and Search.
+		local room = CenterWidth() - 170 - HEADER_RIGHT - 40
+		ui.folder:SetWidth(math.min(ui.folder:GetUnboundedStringWidth(), room))
+		ui.folderButton:SetWidth(ui.folder:GetWidth() + 40)
 	else
 		ui.agent:SetText("")
 	end
@@ -382,6 +391,8 @@ local function RefreshChats(chat)
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
 	RefreshQuickBar()
+	ui.pinned:SetShown(not ui.picking)
+	ns.Pins.Refresh()
 end
 
 function Window.Refresh()
@@ -545,6 +556,7 @@ local function BuildFolderButton(x)
 	icon:SetPoint("LEFT", button, "LEFT", 0, 0)
 	icon:SetTexture(FOLDER_ICON)
 	ui.folder = Label(button, "GameFontDisableSmall", "LEFT", 18, 0)
+	ui.folder:SetWordWrap(false)
 	local arrow = button:CreateTexture(nil, "ARTWORK")
 	arrow:SetSize(16, 16)
 	arrow:SetPoint("LEFT", ui.folder, "RIGHT", 2, 0)
@@ -586,10 +598,6 @@ local function BuildInputHelp()
 	ui.input:SetScript("OnEditFocusLost", RefreshInputHelp)
 end
 
-local function CenterWidth()
-	return frame:GetWidth() - 2 * SIDE - 28
-end
-
 -- The transcript is the center inset less 8 at each side and 6 at the top and bottom.
 local function TranscriptSize()
 	return CenterWidth() - 16, frame:GetHeight() - 84 - 72 - 12
@@ -606,6 +614,7 @@ local function BuildCenter()
 
 	ui.agent = Label(frame, "GameFontNormal", "TOPLEFT", left, -64)
 	BuildFolderButton(left + 170)
+	ui.pinned = ns.Pins.Build(frame, left, -61)
 
 	local log = Inset(frame, left, -84, width, 72)
 	Stretch(log, left, -84)
@@ -922,7 +931,7 @@ local function Build()
 	BuildActivity()
 	BuildTabs()
 	BuildPages()
-	ui.chatParts = { ui.agent, ui.folderButton, ui.activity[1], ui.activity[2] }
+	ui.chatParts = { ui.agent, ui.folderButton, ui.pinned, ui.activity[1], ui.activity[2] }
 	frame:Hide()
 end
 

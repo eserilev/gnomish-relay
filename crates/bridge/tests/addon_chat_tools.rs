@@ -31,6 +31,7 @@ const FILES: &[&str] = &[
     "Transport.lua",
     "Notices.lua",
     "Blocks.lua",
+    "Pins.lua",
     "QuickActions.lua",
     "QuickBar.lua",
     "QuickEditor.lua",
@@ -602,4 +603,131 @@ fn moving_past_either_end_changes_nothing() {
 
     assert_eq!(quick_names(&game)[0], "Run tests");
     assert_eq!(quick_names(&game)[4], "Open PR");
+}
+
+// Pinned replies
+
+fn pinned_rows(game: &Game) -> Vec<String> {
+    (1..=12)
+        .filter(|i| game.shown(&format!("GnomishRelayPinnedRow{i}")))
+        .map(|i| game.text(&format!("return GnomishRelayPinnedRow{i}.text:GetText()")))
+        .collect()
+}
+
+fn scroll(game: &Game) -> i64 {
+    game.run("return GnomishRelayScroll:GetVerticalScroll()")
+        .as_integer()
+        .unwrap()
+}
+
+#[test]
+fn pin_marks_a_reply_and_the_pinned_list_of_the_chat_shows_it() {
+    let game = Game::start();
+    game.exchange("fix it", LONG);
+    assert_eq!(
+        game.text("return GnomishRelayPinnedButton.label:GetText()"),
+        "Pinned 0"
+    );
+
+    game.click_link("Pin");
+
+    assert!(game.shows("Unpin"));
+    assert_eq!(
+        game.text("return GnomishRelayPinnedButton.label:GetText()"),
+        "Pinned 1"
+    );
+    game.click("GnomishRelayPinnedButton");
+    assert_eq!(pinned_rows(&game), ["Fixed the flaky test."]);
+}
+
+#[test]
+fn only_agent_replies_have_a_pin() {
+    let game = Game::start();
+    game.send("hello");
+    game.answer(Status::Error, b"Not sent.".to_vec());
+
+    assert!(!game.shows("Pin"));
+}
+
+#[test]
+fn unpin_takes_the_reply_off_the_list() {
+    let game = Game::start();
+    game.exchange("fix it", "Done.");
+    game.click_link("Pin");
+
+    game.click_link("Unpin");
+
+    assert!(!game.shows("Unpin"));
+    game.click("GnomishRelayPinnedButton");
+    assert!(pinned_rows(&game).is_empty());
+    assert_eq!(
+        game.text("return GnomishRelayPinnedEmpty:GetText()"),
+        "No pinned replies yet. Click Pin on a reply to keep it here."
+    );
+}
+
+#[test]
+fn a_click_on_a_pinned_reply_jumps_to_it_opens_it_and_marks_it() {
+    let game = Game::start();
+    game.exchange("fix it", LONG);
+    game.click_link("Pin");
+    for _ in 0..40 {
+        game.send("more");
+    }
+    let bottom = scroll(&game);
+    game.click("GnomishRelayPinnedButton");
+
+    game.click("GnomishRelayPinnedRow1");
+
+    assert!(scroll(&game) < bottom);
+    assert!(game.shows("The last line."));
+    assert!(game.shown("GnomishRelayMark"));
+    assert!(!game.shown("GnomishRelayPinnedList"));
+}
+
+#[test]
+fn a_click_outside_closes_the_pinned_list() {
+    let game = Game::start();
+    game.click("GnomishRelayPinnedButton");
+    assert!(game.shown("GnomishRelayPinnedList"));
+
+    game.run(
+        "GnomishRelayPinnedList:GetScript('OnEvent')(GnomishRelayPinnedList, 'GLOBAL_MOUSE_DOWN')",
+    );
+
+    assert!(!game.shown("GnomishRelayPinnedList"));
+}
+
+#[test]
+fn pins_stay_after_a_reload_and_each_chat_has_its_own() {
+    let game = Game::start();
+    game.exchange("fix it", "Fixed.");
+    game.click_link("Pin");
+
+    let game = game.reload();
+    game.click("GnomishRelayPinnedButton");
+    assert_eq!(pinned_rows(&game), ["Fixed."]);
+
+    game.run("local ns = ... ns.Window.NewChat() ns.Window.CloseBrowser()");
+    assert_eq!(
+        game.text("return GnomishRelayPinnedButton.label:GetText()"),
+        "Pinned 0"
+    );
+}
+
+#[test]
+fn a_long_folder_name_leaves_room_at_the_right_of_the_header() {
+    let game = Game::start();
+    game.send("hi");
+
+    game.run(&format!(
+        "local ns = ... ns.Window.SelectedChat().cwd = '/home/{}' ns.Window.Refresh()",
+        "very-long-folder-name/".repeat(10)
+    ));
+
+    let width = game
+        .run("return GnomishRelayFolderButton:GetWidth()")
+        .as_integer()
+        .unwrap();
+    assert!(width <= 900 - 400 - 28 - 170 - 140, "{width}");
 }

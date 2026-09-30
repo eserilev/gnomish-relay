@@ -24,6 +24,9 @@ local MAX_COLUMNS = 8
 local WHEEL_STEP = 40
 -- Room at the right of a sent message for its delivery state.
 local STATUS_WIDTH = 80
+-- Room at the right of the name line of a reply for its Pin link.
+local PIN_WIDTH = 44
+local GOLD = "ffd100"
 -- Four no-break spaces: SimpleHTML drops normal spaces at the start of a line.
 local INDENT = ("\194\160"):rep(4)
 -- A reply over either limit shows its summary first (SPEC.md 13.1).
@@ -39,6 +42,8 @@ local contentHeight = 0
 local drawn = { count = 0, tops = {}, marks = {} }
 -- The long replies that the player opened. An entry that the history drops goes too.
 local opened = setmetatable({}, { __mode = "k" })
+-- The entry that the last jump marked with a band, or nil.
+local marked
 -- The drawn messages with no final reply, each with the line of its delivery state.
 local open = {}
 
@@ -407,7 +412,7 @@ local function Summary(blocks)
 end
 
 local function DrawRendered(entry, prefix, y)
-	y = TextLine(prefix, 0, y, width)
+	y = TextLine(prefix, 0, y, width - PIN_WIDTH)
 	local blocks = ns.Blocks.Parse(entry.text)
 	if not IsLong(blocks) then
 		return DrawBlocks(blocks, PAD, y + 2)
@@ -420,8 +425,24 @@ local function DrawRendered(entry, prefix, y)
 	return y + 18
 end
 
+local function SetPinText(button, entry)
+	local text = entry.pinned and "Unpin" or "Pin"
+	button.label:SetText(string.format("|cff%s%s|r", entry.pinned and GOLD or LINK, text))
+	button:SetSize(button.label:GetUnboundedStringWidth() + 4, 16)
+end
+
+local function DrawPin(entry, y)
+	local button = DrawLink("Pin", nil, width - PIN_WIDTH + 8, y)
+	button.action = function()
+		ns.Pins.Toggle(entry)
+		SetPinText(button, entry)
+	end
+	SetPinText(button, entry)
+end
+
 -- If anything fails while it draws, the reply shows as plain text.
 local function DrawReply(entry, prefix, y)
+	DrawPin(entry, y)
 	local text = entry.text
 	if ns.Blocks.IsRendered(text) then
 		local mark = Mark()
@@ -432,7 +453,7 @@ local function DrawReply(entry, prefix, y)
 		ReleaseSince(mark)
 		text = ns.Blocks.Plain(text)
 	end
-	return TextLine(prefix .. PlainText(text), 0, y, width)
+	return TextLine(prefix .. PlainText(text), 0, y, width - PIN_WIDTH)
 end
 
 local function DeliveryText(entry)
@@ -547,6 +568,26 @@ local function ForgetFrom(from)
 	contentHeight = drawn.tops[from]
 end
 
+local function IndexOf(history, entry)
+	for i = 1, drawn.count do
+		if history[i] == entry then
+			return i
+		end
+	end
+end
+
+local function PlaceMark()
+	local history = drawn.chat and drawn.chat.history or {}
+	local i = marked and IndexOf(history, marked)
+	ui.mark:SetShown(i ~= nil)
+	if not i then
+		return
+	end
+	local bottom = i < drawn.count and drawn.tops[i + 1] or contentHeight
+	ui.mark:SetSize(width, bottom - GAP - drawn.tops[i] + 4)
+	Place(ui.mark, 0, drawn.tops[i] - 2)
+end
+
 -- Draws the entries after the drawn ones, and returns the new bottom.
 local function DrawNew(chat, history)
 	local y = contentHeight
@@ -559,6 +600,7 @@ local function DrawNew(chat, history)
 	UpdateDelivery()
 	contentHeight = y
 	ui.child:SetHeight(math.max(y, 1))
+	PlaceMark()
 	return y
 end
 
@@ -574,14 +616,6 @@ function Transcript.Show(chat)
 		return
 	end
 	ScrollTo(DrawNew(chat, history))
-end
-
-local function IndexOf(history, entry)
-	for i = 1, drawn.count do
-		if history[i] == entry then
-			return i
-		end
-	end
 end
 
 -- Draws again from `entry` down, and keeps the scroll where it is.
@@ -602,6 +636,33 @@ end
 function Transcript.Toggle(entry)
 	opened[entry] = not opened[entry] or nil
 	RedrawFrom(entry)
+end
+
+local function IsClosedLong(entry)
+	if entry.role ~= "agent" or opened[entry] or not ns.Blocks.IsRendered(entry.text) then
+		return false
+	end
+	return IsLong(ns.Blocks.Parse(entry.text))
+end
+
+-- Scrolls `entry` to the top and marks it with a band. A closed long reply opens first.
+function Transcript.JumpTo(entry)
+	marked = entry
+	if IsClosedLong(entry) then
+		opened[entry] = true
+		RedrawFrom(entry)
+	else
+		PlaceMark()
+	end
+	local i = drawn.chat and IndexOf(drawn.chat.history, entry)
+	if i then
+		ScrollTo(drawn.tops[i] - 2)
+	end
+end
+
+function Transcript.Unmark()
+	marked = nil
+	ui.mark:Hide()
 end
 
 local function NewTexture(layer, r, g, b, a)
@@ -664,6 +725,9 @@ function Transcript.Build(parent, w, h)
 	ui.child:SetHeight(1)
 	Transcript.Resize(w, h)
 	ui.scroll:SetScrollChild(ui.child)
+	ui.mark = ui.child:CreateTexture("GnomishRelayMark", "BACKGROUND")
+	ui.mark:SetColorTexture(1, 0.82, 0, 0.12)
+	ui.mark:Hide()
 	ui.scroll:EnableMouseWheel(true)
 	ui.scroll:SetScript("OnMouseWheel", function(self, delta)
 		ScrollTo(self:GetVerticalScroll() - delta * WHEEL_STEP)

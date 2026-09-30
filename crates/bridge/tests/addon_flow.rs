@@ -47,6 +47,7 @@ const FILES: &[&str] = &[
     "Transport.lua",
     "Notices.lua",
     "Blocks.lua",
+    "Pins.lua",
     "QuickActions.lua",
     "QuickBar.lua",
     "QuickEditor.lua",
@@ -620,6 +621,7 @@ fn the_window_shows_the_transcript_with_code_and_safe_pipes() {
         [
             "|cff69ccf0[You]|r: show ||cffff0000 red",
             "|cffff7d0a[Claude]|r: Here:\n    |cffb8c8b8let x = 1;|r\nDone.",
+            "|cff69ccf0Pin|r",
         ]
     );
 }
@@ -643,7 +645,11 @@ fn a_new_entry_draws_below_the_old_ones_and_leaves_them_as_they_are() {
     let drawn = transcript(&game);
     assert_eq!(
         texts(&drawn),
-        ["|cff69ccf0[You]|r: first", "|cffff7d0a[Claude]|r: ok"]
+        [
+            "|cff69ccf0[You]|r: first",
+            "|cffff7d0a[Claude]|r: ok",
+            "|cff69ccf0Pin|r"
+        ]
     );
     assert_eq!(drawn[0].object, first);
     assert_eq!(
@@ -2618,10 +2624,11 @@ fn the_attach_reply_shows_the_last_exchange_and_later_messages_resume() {
     game.advance(5.0);
 
     let lines = texts(&transcript(&game));
-    assert_eq!(lines.len(), 3, "{lines:?}");
+    assert_eq!(lines.len(), 4, "{lines:?}");
     assert!(lines[0].contains("Resumed \"Fix bugs\""));
     assert!(lines[1].contains("[You]") && lines[1].contains("fix the bugs"));
     assert!(lines[2].contains("All fixed."));
+    assert_eq!(lines[3], "|cff69ccf0Pin|r");
     assert!(
         game.printed().iter().all(|p| !p.contains("All fixed")),
         "no whisper for an attach"
@@ -3282,8 +3289,12 @@ fn a_reply_that_fails_to_draw_shows_as_plain_text() {
     let drawn = transcript(&game);
     assert!(of_kind(&drawn, "SimpleHTML").is_empty());
     assert_eq!(
-        texts(&drawn).last().unwrap(),
-        "|cffff7d0a[Claude]|r: Title\nA <b> and code."
+        texts(&drawn),
+        [
+            "|cff69ccf0[You]|r: go",
+            "|cffff7d0a[Claude]|r: Title\nA <b> and code.",
+            "|cff69ccf0Pin|r"
+        ]
     );
 }
 

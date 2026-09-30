@@ -48,6 +48,7 @@ const RELAY_FILES: &[&str] = &[
     "Transport.lua",
     "Notices.lua",
     "Blocks.lua",
+    "Pins.lua",
     "QuickActions.lua",
     "QuickBar.lua",
     "QuickEditor.lua",
