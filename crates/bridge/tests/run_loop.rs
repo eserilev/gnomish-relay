@@ -16,6 +16,7 @@ use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy, path_bytes};
 use bridge::desktop::{Approvals, Prompt, Verdict};
 use bridge::gate::Gate;
+use bridge::ids::hex;
 use bridge::raise::Raiser;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
@@ -23,7 +24,7 @@ use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{BODY_FILE, LIVE_FILE, slot_name};
 use bridge::vectors::TEST_KEY;
-use common::{hex, install_window, screenshot_png, signed_frame, strip_rows};
+use common::{install_window, screenshot_png, signed_frame, strip_rows};
 use protocol::apps::App;
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 

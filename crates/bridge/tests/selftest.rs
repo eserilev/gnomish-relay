@@ -357,12 +357,12 @@ fn results_signed_with_another_key_are_refused() {
     let saved = String::from_utf8_lossy(&saved).into_owned();
     let results = bridge::saved::hex_fields(&saved, "results").remove(0);
     let results = String::from_utf8(results).unwrap();
-    let public = vectors::to_hex(vectors::TEST_KEY);
-    let secret = vectors::to_hex(b"a secret key, not the public one!");
+    let public = bridge::ids::hex(vectors::TEST_KEY);
+    let secret = bridge::ids::hex(b"a secret key, not the public one!");
     let signed_by_secret = results.replace(&public, &secret);
     let saved = saved.replace(
-        &vectors::to_hex(results.as_bytes()),
-        &vectors::to_hex(signed_by_secret.as_bytes()),
+        &bridge::ids::hex(results.as_bytes()),
+        &bridge::ids::hex(signed_by_secret.as_bytes()),
     );
 
     let error = Parts::read(&saved).err().unwrap();

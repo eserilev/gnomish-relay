@@ -6,7 +6,6 @@ use protocol::live::{
     MAX_LINES, OptionKind, PermOption, Progress, Request, live_body, no_notices, prepare_progress,
     prepare_requests,
 };
-use std::fmt::Write;
 
 use sha2::{Digest, Sha256};
 
@@ -14,6 +13,7 @@ use crate::agent::Choice;
 use crate::config::Permission;
 use crate::desktop::{NOTICE, Notice, Waiting};
 use crate::flags::PermAnswer;
+use crate::ids::hex;
 use crate::relay::{ChatId, MessageId};
 
 struct Steps {
@@ -69,12 +69,7 @@ pub struct Activity {
 /// The first 8 bytes of SHA-256, in hex. The addon hashes the text that it showed,
 /// so an answer counts only for the exact popup (SPEC.md 6.6.1).
 pub fn text_hash(text: &[u8]) -> String {
-    Sha256::digest(text)[..8]
-        .iter()
-        .fold(String::new(), |mut hex, b| {
-            let _ = write!(hex, "{b:02x}");
-            hex
-        })
+    hex(&Sha256::digest(text)[..8])
 }
 
 impl Activity {

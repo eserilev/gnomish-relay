@@ -8,6 +8,7 @@
 
 mod common;
 
+use bridge::ids::hex;
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::run::{Bridge, now};
 use bridge::slots::{self, BODY_FILE, LIVE_FILE, RESTORE_FILE};
@@ -15,9 +16,7 @@ use bridge::story::{STORY_DIR, StorySpec};
 use bridge::story_sandbox::{Sandbox, Walls};
 use bridge::strip::{Image, read_with};
 use bridge::timeways::NO_STORY;
-use common::{
-    fake_game, game_lua, hex, install_window, load_addon, log_in, measured, screenshot_png,
-};
+use common::{fake_game, game_lua, install_window, load_addon, log_in, measured, screenshot_png};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::live::{Progress, live_body, no_notices, prepare_progress};

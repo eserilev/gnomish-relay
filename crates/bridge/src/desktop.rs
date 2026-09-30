@@ -3,7 +3,6 @@
 //! OS, `gnomish-relay approve`, or `gnomish-relay deny` answers it, and the first
 //! answer wins. No addon can write these files or click the dialog.
 
-use std::fmt::Write as _;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -15,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::config::Permission;
 use crate::dialog::{self, Dialog, Shown, Tool, show_notice};
 use crate::fs_safe::check_real_dir;
+use crate::ids::random_hex;
 use crate::run::log;
 
 const FOLDER: &str = "approvals";
@@ -169,12 +169,7 @@ fn is_id(id: &str) -> bool {
 }
 
 fn new_id() -> Result<String> {
-    let mut bytes = [0u8; 6];
-    getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("no random bytes from the OS: {e}"))?;
-    Ok(bytes.iter().fold(String::new(), |mut hex, b| {
-        let _ = write!(hex, "{b:02x}");
-        hex
-    }))
+    random_hex(6)
 }
 
 /// Mode 0600, and never through a link: `create_new` fails on any existing name.

@@ -2,7 +2,6 @@
 //! the addon, and find the agents. The caller writes the config and the slots.
 
 use std::ffi::OsStr;
-use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -10,6 +9,7 @@ use anyhow::{Context, Result};
 
 use crate::config::{Found, Kind};
 use crate::fs_safe::{write_atomic_unsynced, write_private};
+use crate::ids::random_hex;
 
 pub const ADDON: &str = "GnomishRelay";
 pub const TIMEWAYS: &str = "Timeways";
@@ -286,12 +286,7 @@ pub fn find_games(home: &Path) -> Vec<PathBuf> {
 }
 
 pub fn new_key() -> Result<String> {
-    let mut key = [0u8; 32];
-    getrandom::fill(&mut key).map_err(|e| anyhow::anyhow!("no random bytes from the OS: {e}"))?;
-    Ok(key.iter().fold(String::new(), |mut hex, b| {
-        let _ = write!(hex, "{b:02x}");
-        hex
-    }))
+    random_hex(32)
 }
 
 /// The key in the private table of the addon. An addon that loads first can still

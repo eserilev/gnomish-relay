@@ -10,8 +10,9 @@ use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
 use crate::fixture::{self, PLACEHOLDER};
+use crate::ids::hex;
 use crate::saved;
-use crate::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector, to_hex};
+use crate::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
 
 pub const SAVED_FILE: &str = "GnomishRelaySelfTest.lua";
 /// A screenshot file gets its time a moment after the `Screenshot()` call.
@@ -40,7 +41,7 @@ impl Parts {
             "the self-test has no results yet. Wait for \"done\" in the game, then type /reload",
         )?;
         let load = json_field(text, "load")?.context("the self-test has no load order")?;
-        if results.get("key").and_then(Value::as_str) != Some(to_hex(TEST_KEY).as_str()) {
+        if results.get("key").and_then(Value::as_str) != Some(hex(TEST_KEY).as_str()) {
             bail!("the results name another key than the public test key");
         }
         Ok(Parts {
@@ -158,7 +159,7 @@ fn write_vectors(dir: &Path, build: &str, found: &[Found], saved_file: &Path) ->
     }
     let manifest = Manifest {
         build: build.to_owned(),
-        key: to_hex(TEST_KEY),
+        key: hex(TEST_KEY),
         vectors,
     };
     fs::write(
@@ -256,7 +257,7 @@ mod tests {
 
     #[test]
     fn a_results_field_that_is_not_json_is_an_error() {
-        let text = format!("[\"results\"] = \"{}\"", to_hex(b"not json"));
+        let text = format!("[\"results\"] = \"{}\"", hex(b"not json"));
         assert!(Parts::read(&text).is_err());
     }
 }

@@ -4,7 +4,6 @@
 //! Each call reads the file again, so `gnomish-relay rules remove` works while the
 //! bridge runs.
 
-use std::fmt::Write as _;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::sync::{Arc, Mutex};
@@ -14,6 +13,7 @@ use protocol::always::is_plain_word;
 use serde::{Deserialize, Serialize};
 
 use crate::fs_safe::{make_private_dir, write_private};
+use crate::ids::random_hex;
 use crate::run::log;
 
 pub const FILE: &str = "rules.json";
@@ -193,12 +193,7 @@ pub fn count_in(rules: &[Rule], folder: &Path) -> usize {
 
 fn new_id(rules: &[Rule]) -> Result<String> {
     loop {
-        let mut bytes = [0u8; 2];
-        getrandom::fill(&mut bytes).map_err(|e| anyhow::anyhow!("no random bytes: {e}"))?;
-        let id = bytes.iter().fold(String::new(), |mut hex, b| {
-            let _ = write!(hex, "{b:02x}");
-            hex
-        });
+        let id = random_hex(2)?;
         if !rules.iter().any(|r| r.id == id) {
             return Ok(id);
         }

@@ -5,8 +5,6 @@
 
 mod common;
 
-use std::fmt::Write;
-
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo, NO_AGENT};
 use bridge::config::{Permission, Policy};
@@ -398,7 +396,7 @@ fn an_unacknowledged_message_goes_to_the_outbox_as_a_signed_frame() {
     );
     let frames = bridge::saved::frames(&game.saved_variables());
     assert!(!frames.is_empty());
-    let keys = KeySet::new(StripKey::from_hex(&common::hex(KEY)).unwrap(), None).unwrap();
+    let keys = KeySet::new(StripKey::from_hex(&bridge::ids::hex(KEY)).unwrap(), None).unwrap();
     for frame in frames {
         let (_, records) = receive(&frame, &keys, 1_790_211_209).unwrap();
         assert_eq!(records[0].text, b"anyone there?");
@@ -769,11 +767,8 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
     let now = 1_790_211_080;
 
     let png = screenshot_png(&game.shot_rows(game.shots()));
-    let hex = KEY.iter().fold(String::new(), |mut hex, b| {
-        let _ = write!(hex, "{b:02x}");
-        hex
-    });
-    let keys = KeySet::new(StripKey::from_hex(&hex).unwrap(), None).unwrap();
+    let key = StripKey::from_hex(&bridge::ids::hex(KEY)).unwrap();
+    let keys = KeySet::new(key, None).unwrap();
     let tag_checks = |bytes: &[u8]| receive(bytes, &keys, now).is_ok();
     let bytes = strip::read_with(&Image::from_png(&png).unwrap(), tag_checks)
         .expect("the bridge finds the strip");
@@ -1452,7 +1447,7 @@ fn a_working_run_polls_every_fifteen_seconds_and_activity_shows_the_next_check()
 /// The records of the last strip, read by the bridge from its screenshot.
 fn records_of_last_shot(game: &Game, now: u32) -> Vec<Record> {
     let png = screenshot_png(&game.shot_rows(game.shots()));
-    let keys = KeySet::new(StripKey::from_hex(&common::hex(KEY)).unwrap(), None).unwrap();
+    let keys = KeySet::new(StripKey::from_hex(&bridge::ids::hex(KEY)).unwrap(), None).unwrap();
     let tag_checks = |bytes: &[u8]| receive(bytes, &keys, now).is_ok();
     let bytes = strip::read_with(&Image::from_png(&png).unwrap(), tag_checks)
         .expect("the bridge finds the strip");

@@ -120,7 +120,6 @@ pub fn replace(exe: &Path, new: &Path) -> Result<Replaced> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::fmt::Write;
 
     const SUM_OF_ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 
@@ -152,13 +151,9 @@ mod tests {
         )
         .unwrap();
         let sum: [u8; 32] = Sha256::digest(fs::read(&archive).unwrap()).into();
-        let mut hex = String::new();
-        for b in sum {
-            let _ = write!(hex, "{b:02x}");
-        }
         fs::write(
             release.path().join(format!("{name}.sha256")),
-            format!("{hex}  {name}\n"),
+            format!("{}  {name}\n", crate::ids::hex(&sum)),
         )
         .unwrap();
         (release, name.to_owned())

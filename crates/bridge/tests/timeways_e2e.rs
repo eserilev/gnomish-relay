@@ -14,13 +14,14 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use bridge::config::Policy;
+use bridge::ids::hex;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
 use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{self, BODY_FILE, Files, LIVE_FILE, RESTORE_FILE};
 use bridge::story::{STORY_DIR, StorySpec};
 use bridge::story_sandbox::Sandbox;
-use common::{fake_game, game_lua, hex, load_addon, screenshot_png};
+use common::{fake_game, game_lua, load_addon, screenshot_png};
 use mlua::{Function, Lua, Table};
 use protocol::apps::App;
 use serde_json::Value as Json;

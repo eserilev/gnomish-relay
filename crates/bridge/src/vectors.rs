@@ -1,7 +1,6 @@
 //! Golden vectors: screenshots of known strips from the real game, signed with a public
 //! test key (SPEC.md 14.3). The self-test addon draws them, and `selftest collect` keeps them.
 
-use std::fmt::Write;
 use std::fs;
 use std::path::Path;
 
@@ -9,6 +8,7 @@ use anyhow::{Context, Result, bail};
 use protocol::frame::{Frame, decode_frame, signed_len};
 use serde::{Deserialize, Serialize};
 
+use crate::ids::hex;
 use crate::receive::StripKey;
 use crate::saved::from_hex;
 use crate::strip::{Image, read_with};
@@ -52,15 +52,8 @@ pub struct Manifest {
     pub vectors: Vec<Vector>,
 }
 
-pub fn to_hex(bytes: &[u8]) -> String {
-    bytes.iter().fold(String::new(), |mut hex, b| {
-        let _ = write!(hex, "{b:02x}");
-        hex
-    })
-}
-
 fn test_key() -> Result<StripKey> {
-    StripKey::from_hex(&to_hex(TEST_KEY))
+    StripKey::from_hex(&hex(TEST_KEY))
 }
 
 fn tag_checks(key: &StripKey, bytes: &[u8]) -> bool {
@@ -126,7 +119,7 @@ pub fn read_manifest(dir: &Path) -> Result<Manifest> {
     let text = fs::read_to_string(dir.join(MANIFEST))
         .with_context(|| format!("cannot read {}", dir.join(MANIFEST).display()))?;
     let manifest: Manifest = serde_json::from_str(&text)?;
-    if manifest.key != to_hex(TEST_KEY) {
+    if manifest.key != hex(TEST_KEY) {
         bail!("the manifest in {} names another key", dir.display());
     }
     Ok(manifest)
@@ -153,7 +146,7 @@ mod tests {
             name: "n".into(),
             frame_id,
             time,
-            payload: to_hex(payload),
+            payload: hex(payload),
             unix: None,
             ui_parent_scale: None,
             strip_effective_scale: None,

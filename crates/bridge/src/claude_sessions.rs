@@ -5,7 +5,6 @@
 //! The files are untrusted input: every read has a size limit, and a bad line is skipped.
 
 use std::collections::{HashMap, HashSet};
-use std::fmt::Write as _;
 use std::fs::{self, File};
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -14,6 +13,7 @@ use std::time::UNIX_EPOCH;
 use serde_json::{Value, json};
 
 use crate::agent::{MAX_PROMPT, MAX_REPLY, SessionInfo, exchange_text};
+use crate::ids::{hex, random_bytes};
 use crate::process::cut;
 
 /// The SDK reads this much from each end of a file for the list.
@@ -798,21 +798,17 @@ fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
 
 /// A random UUID of version 4.
 pub fn new_uuid() -> Result<String, String> {
-    let mut bytes = [0u8; 16];
-    getrandom::fill(&mut bytes).map_err(|e| format!("No random bytes from the OS: {e}"))?;
+    let mut bytes = random_bytes(16).map_err(|e| e.to_string())?;
     bytes[6] = (bytes[6] & 0x0f) | 0x40;
     bytes[8] = (bytes[8] & 0x3f) | 0x80;
-    let hex = bytes.iter().fold(String::new(), |mut hex, b| {
-        let _ = write!(hex, "{b:02x}");
-        hex
-    });
+    let digits = hex(&bytes);
     Ok(format!(
         "{}-{}-{}-{}-{}",
-        &hex[..8],
-        &hex[8..12],
-        &hex[12..16],
-        &hex[16..20],
-        &hex[20..]
+        &digits[..8],
+        &digits[8..12],
+        &digits[12..16],
+        &digits[16..20],
+        &digits[20..]
     ))
 }
 

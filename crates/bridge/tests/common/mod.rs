@@ -167,14 +167,6 @@ pub fn signed_frame(time: u32, payload: &[u8], key: &[u8]) -> Vec<u8> {
     wire
 }
 
-pub fn hex(bytes: &[u8]) -> String {
-    use std::fmt::Write;
-    bytes.iter().fold(String::new(), |mut out, b| {
-        let _ = write!(out, "{b:02x}");
-        out
-    })
-}
-
 pub fn repo_path(path: &str) -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("../..")

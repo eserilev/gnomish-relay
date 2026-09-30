@@ -4,7 +4,6 @@
 //! its other file writes, so it still keeps its sessions and its login.
 
 use std::ffi::OsString;
-use std::fmt::Write as _;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -14,6 +13,7 @@ use serde::Deserialize;
 use crate::allow_hosts::{Defaults, HostList};
 use crate::config::Kind;
 use crate::forward::{FORWARD_FLAG, INNER_PORT, ports_arg};
+use crate::ids::random_hex;
 use crate::proxy::{Proxy, ProxySettings};
 use crate::story_sandbox::{self, Sandbox};
 
@@ -262,12 +262,8 @@ fn start_proxy(
     settings: ProxySettings,
     tag: &str,
 ) -> Result<(Listening, PathBuf), String> {
-    let mut bytes = [0u8; 8];
-    getrandom::fill(&mut bytes).map_err(|e| format!("No random bytes from the OS: {e}"))?;
-    let name = bytes.iter().fold(String::from("agent-"), |mut name, b| {
-        let _ = write!(name, "{b:02x}");
-        name
-    }) + ".sock";
+    let random = random_hex(8).map_err(|e| e.to_string())?;
+    let name = format!("agent-{random}.sock");
     let listening = listen(place, &name, settings, tag)
         .map_err(|e| format!("The proxy of the agent did not start: {e}"))?;
     Ok((listening, place.join(name)))

@@ -9,7 +9,8 @@ mod common;
 use std::fs;
 
 use bridge::fixture::{self, PLACEHOLDER};
-use bridge::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector, to_hex};
+use bridge::ids::hex;
+use bridge::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
 use common::{Bits, bytes, fixture, load, lua, repo_path, screenshot_png, strip_rows};
 use mlua::{Function, Table};
 
@@ -92,7 +93,7 @@ fn lua_vector(dir: &std::path::Path, frame_id: u16, payload: &[u8]) -> Vector {
             name: "test".into(),
             frame_id,
             time: 1_790_211_079,
-            payload: to_hex(payload),
+            payload: hex(payload),
             unix: Some(1_790_300_000),
             ui_parent_scale: Some(1.0),
             strip_effective_scale: Some(1.0),
@@ -105,7 +106,7 @@ fn lua_vector(dir: &std::path::Path, frame_id: u16, payload: &[u8]) -> Vector {
 fn write_manifest(dir: &std::path::Path, vectors: Vec<Vector>) {
     let manifest = Manifest {
         build: "1.60.1.70009".into(),
-        key: to_hex(TEST_KEY),
+        key: hex(TEST_KEY),
         vectors,
     };
     let text = serde_json::to_string_pretty(&manifest).unwrap();
@@ -126,7 +127,7 @@ fn a_vector_that_the_lua_codec_signs_passes_the_golden_check() {
 fn a_vector_whose_manifest_names_another_payload_fails_the_golden_check() {
     let dir = tempfile::tempdir().unwrap();
     let mut vector = lua_vector(dir.path(), 1, b"the real payload");
-    vector.shot.payload = to_hex(b"another payload");
+    vector.shot.payload = hex(b"another payload");
     write_manifest(dir.path(), vec![vector]);
 
     let error = vectors::check_all(dir.path()).unwrap_err();
@@ -140,7 +141,7 @@ fn a_manifest_with_another_key_is_refused() {
     let vector = lua_vector(dir.path(), 1, b"payload");
     let manifest = Manifest {
         build: "1.60.1.70009".into(),
-        key: to_hex(b"0123456789abcdef0123456789abcdef"),
+        key: hex(b"0123456789abcdef0123456789abcdef"),
         vectors: vec![vector],
     };
     fs::write(
