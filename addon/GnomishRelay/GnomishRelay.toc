@@ -17,6 +17,9 @@ Messages.lua
 Transport.lua
 Notices.lua
 Blocks.lua
+QuickActions.lua
+QuickBar.lua
+QuickEditor.lua
 Transcript.lua
 Folders.lua
 Browser.lua

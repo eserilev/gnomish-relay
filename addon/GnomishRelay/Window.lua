@@ -349,10 +349,23 @@ local function RefreshPages()
 	for _, part in ipairs(ui.chatParts) do
 		part:SetShown(chats)
 	end
-	ui.settings:SetShown(ui.tab == "settings")
+	-- The editor of the quick actions closes with the Settings page.
+	if ui.tab ~= "settings" then
+		ns.QuickEditor.Close()
+	end
+	local editing = ns.QuickEditor.IsOpen()
+	ui.settings:SetShown(ui.tab == "settings" and not editing)
+	ui.quickEdit:SetShown(editing)
+	ns.QuickEditor.Refresh()
 	ui.diag:SetShown(ui.tab == "diag")
 	ns.SettingsTab.Refresh()
 	ns.DiagTab.Refresh()
+end
+
+-- The quick actions use the room of the banner, and give way to it and to the counter.
+local function RefreshQuickBar()
+	local room = ui.tab == "chats" and not ui.picking and not ui.banner:IsShown() and not ui.count:IsShown()
+	ns.QuickBar.Refresh(room)
 end
 
 local function RefreshChats(chat)
@@ -368,6 +381,7 @@ local function RefreshChats(chat)
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
+	RefreshQuickBar()
 end
 
 function Window.Refresh()
@@ -386,6 +400,7 @@ function Window.Refresh()
 			part:Hide()
 		end
 		ns.Browser.Show(false)
+		RefreshQuickBar()
 	end
 end
 
@@ -556,6 +571,7 @@ local function RefreshInputHelp()
 	elseif left then
 		ui.count:SetText(string.format("%d left", left))
 	end
+	RefreshQuickBar()
 end
 
 local function BuildInputHelp()
@@ -627,6 +643,7 @@ local function BuildCenter()
 		ReloadUI()
 	end)
 	ui.banner:Hide()
+	ns.QuickBar.Build(frame, left + 6, 46, CenterWidth() - 12)
 
 	ui.input = CreateFrame("EditBox", "GnomishRelayInput", frame, "InputBoxTemplate")
 	ui.input:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left + 6, 16)
@@ -790,13 +807,17 @@ local function BuildPages()
 	local width = WIDTH - SIDE - 20
 	ui.settings = Inset(frame, left, -60, width, 16)
 	ui.diag = Inset(frame, left, -60, width, 16)
+	ui.quickEdit = Inset(frame, left, -60, width, 16, "GnomishRelayQuickEdit")
 	Stretch(ui.settings, 6, -60)
 	Stretch(ui.diag, 6, -60)
+	Stretch(ui.quickEdit, 6, -60)
 	ns.SettingsTab.Build(ui.settings)
 	ns.DiagTab.Build(ui.diag)
+	ns.QuickEditor.Build(ui.quickEdit)
 	ns.DiagTab.Resize(PageSize())
 	ui.settings:Hide()
 	ui.diag:Hide()
+	ui.quickEdit:Hide()
 end
 
 local function BuildBridgeLight()
@@ -828,6 +849,7 @@ end
 local function Resized()
 	ns.Transcript.Resize(TranscriptSize())
 	ns.Browser.Resize(CenterWidth())
+	ns.QuickBar.Resize(CenterWidth() - 12)
 	ns.DiagTab.Resize(PageSize())
 	Window.Refresh()
 end

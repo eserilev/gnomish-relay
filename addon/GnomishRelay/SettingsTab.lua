@@ -322,6 +322,14 @@ local function BuildAppearance()
 	reset:SetPoint("TOPLEFT", ui.page, "TOPLEFT", 20 + LABEL_WIDTH, y)
 	reset:SetText("Reset")
 	reset:SetScript("OnClick", ns.Window.ResetPosition)
+	-- The page has no free row, so the quick actions share the row of the window position.
+	local x = 20 + LABEL_WIDTH + 130
+	Label(ui.page, "GameFontHighlight", x, y - 6):SetText("Quick actions")
+	local edit = CreateFrame("Button", "GnomishRelaySettingsQuick", ui.page, "UIPanelButtonTemplate")
+	edit:SetSize(90, 22)
+	edit:SetPoint("TOPLEFT", ui.page, "TOPLEFT", x + 110, y)
+	edit:SetText("Edit")
+	edit:SetScript("OnClick", ns.QuickEditor.Open)
 end
 
 local function Alert(name, key, text, x, y)

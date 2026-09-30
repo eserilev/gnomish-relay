@@ -2140,11 +2140,25 @@ The mockup is the reference for the layout.
   - Each long reply comes in closed. A reply that the player opens stays open until a `/reload`.
 - **Errors:** an error comes from the relay, not from the agent. So it shows as a grey line `[Relay]: Not sent.`, never under the name of the agent. Below it, a blue "Resend" link sends the message again. Before a `/reload`, the addon still holds the text in its private table, so Resend signs it and sends it at once. After a `/reload`, only the saved variables hold the text, and the addon never signs that text (6.6.1). So Resend then puts the text in the input with the focus, and Enter sends it.
 - **Input:** one line, with no label. While it is empty and has no focus, it shows a grey hint: "Type a message, then press Enter." Enter sends, empties the line, and clears the focus, so the keys of the game work again. The limit is the room of one strip: a payload of 3200 bytes (7.1), less the other fields of the record and 440 bytes for the report. That leaves about 2600 bytes of text. With fewer than 400 bytes left, a small counter above the right end says "100 left", and past the limit it says "5 over the limit" in red.
+- **Quick actions** (asked for by the user on 2026-09-29). A row of small buttons between the transcript and the input sends a task that the player sends often, in one click, for example between two pulls. A click sends the message of the button to the chat, exactly as if the player typed it: the same record, signature, limits, and trust rules (6.6.1). A tooltip shows the name and the message. The defaults, in this order:
+
+  | Button | Message |
+  |---|---|
+  | Run tests | Run the tests. Tell me what passes and what fails. Change no code. |
+  | Fix tests | Run the tests and fix each failure at its cause. Then run the tests again. |
+  | Git status | Show the git status: the branch and the changed files. Change nothing. |
+  | Summarize changes | Summarize the changes that are not committed yet: what changed and why. Change nothing. |
+  | Open PR | Commit the changes on a new branch, push it, and open a pull request with a short title and description. Tell me the link. |
+
+  - **One list for all chats.** The tasks do not depend on the chat, because the agent runs each one in the folder of the chat. So one list is one place to edit, and a new chat has the buttons at once. A list per chat asks the player to set up each chat again.
+  - At most 6 buttons. When the names do not fit in the row, all buttons take the same width and cut their names. A button with no message does not show.
+  - The row uses the room of the "Reload soon" banner, so the transcript keeps its height. The banner is more urgent: while it shows, the row does not. The row also hides while the byte counter of the input shows, and with the input (the Resume picker). With no button, there is no row.
 - **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for your approval" in orange: the run makes no progress then. At the bottom, a grey line gives the time to the next poll: "Checking again in 12s". The cast bar and this line change at most 5 times a second.
 - **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. The window stays on screen with its tabs: the clamp of the window counts the tabs as part of it. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
   - **New chats:** Agent, a dropdown of the agents in the settings list (13.4), and Permissions, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Up to <level> (set on your desktop)", the level of the chosen agent in the config.
-  - **Appearance:** Font size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply whisper: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center, at its first size (900 × 560).
+  - **Appearance:** Font size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply whisper: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center, at its first size (900 × 560). In the same row, Quick actions: **Edit** opens the editor of the quick actions in place of the page.
+  - **The editor of the quick actions:** one row for each button: its name, its message, **Move up**, **Move down**, and **Remove**. Enter or a click elsewhere saves a changed field, and Escape puts the old text back. An empty name or message keeps the old one. Below the rows: **Add** (a new row "New action", up to 6), **Reset** (the defaults), and **Done** (back to the page). The editor closes with the page.
   - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the banners, the bell, and the faster polls of 10.4, and greys the other two rows. Finished tasks, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Banner (default on).
   - **Always allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
   - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "Not loaded yet". A click asks for a new list.
@@ -2175,6 +2189,9 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, the folder tree request, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
 | `Notices.lua` | The notifications of terminal sessions (10.4): the list, the filter, the chat line, the sound, Clear, and the faster polls. |
 | `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
+| `QuickActions.lua` | The list of quick actions (13.1) in the saved variables: the defaults and the edits. |
+| `QuickBar.lua` | The row of quick action buttons above the input. |
+| `QuickEditor.lua` | The editor of the quick actions in the Settings tab. |
 | `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks, and the summary of a long reply. |
 | `Folders.lua` | The folder tree of 9.9: the parser, the relative folders, the filter, the recent folders, and the name rules. |
 | `Browser.lua` | The folder browser of 9.9 in the center of the window. |
@@ -2210,7 +2227,7 @@ They also check the SHA code against both kinds of `bit` results: unsigned as in
 
 The folder also holds `Bindings.xml`, the key binding of 13.1. The game reads it from the folder by itself, so the TOC does not list it.
 
-**Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place and the size of the window, and the agent and level of new chats. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
+**Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place and the size of the window, the agent and level of new chats, and the quick actions. A saved list that is not a list of names and messages gives the defaults. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
 
 Still to come: the agent dropdown in the header, and the emblem texture.
 

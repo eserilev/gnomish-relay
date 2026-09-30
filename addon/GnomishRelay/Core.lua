@@ -176,6 +176,7 @@ events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event, name)
 	if event == "ADDON_LOADED" and name == addonName then
 		ns.Store.Load()
+		ns.QuickActions.Load()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		ns.Notices.CombatEnded()
 	elseif event == "PLAYER_LOGIN" then
