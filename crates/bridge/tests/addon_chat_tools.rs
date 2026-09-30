@@ -690,6 +690,17 @@ fn unpin_takes_the_reply_off_the_list() {
 }
 
 #[test]
+fn a_pinned_reply_shows_its_codes_as_text() {
+    let game = Game::start();
+    game.exchange("fix it", "Done |cff00ff00ok|r");
+    game.click_link("Pin");
+
+    game.click("GnomishRelayPinnedButton");
+
+    assert_eq!(pinned_rows(&game), ["Done ||cff00ff00ok||r"]);
+}
+
+#[test]
 fn a_click_on_a_pinned_reply_jumps_to_it_opens_it_and_marks_it() {
     let game = Game::start();
     game.exchange("fix it", LONG);

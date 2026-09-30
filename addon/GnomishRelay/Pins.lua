@@ -30,7 +30,7 @@ local function RefreshList()
 	for i, row in ipairs(ui.rows) do
 		local entry = pinned[ui.offset + i]
 		row.entry = entry
-		row.text:SetText(entry and ns.Relay.Snippet(entry.text) or "")
+		row.text:SetText(entry and ns.Relay.Plain(ns.Relay.Snippet(entry.text)) or "")
 		row:SetShown(entry ~= nil)
 	end
 	ui.empty:SetShown(#pinned == 0)
