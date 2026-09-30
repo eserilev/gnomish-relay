@@ -18,6 +18,7 @@ local PICK_ROWS = 20
 local PICK_ROW_HEIGHT = 19
 local GREEN = "1eff00"
 local ORANGE = "ff9f40"
+local GREY = "9d9d9d"
 -- The text of a message is only part of a strip, so Room() is the real limit.
 local MAX_INPUT = 3200
 -- The input counts the bytes left only near the limit.
@@ -192,8 +193,14 @@ local function UpdateCast(chat)
 	if not working then
 		return
 	end
-	-- A run that waits for the player makes no progress, so the bar stands still.
-	if ns.Transport.WaitsForAnswer(chat.id) then
+	-- A run that waits for the player or for other chats makes no progress, so the bar
+	-- stands still.
+	local queued = ns.Transport.Queued(chat.id)
+	if queued then
+		ui.cast:SetStatusBarColor(0.3, 0.3, 0.3)
+		ui.cast:SetValue(1)
+		ui.cast.text:SetText("|cff" .. GREY .. ns.Relay.Plain(queued) .. "|r")
+	elseif ns.Transport.WaitsForAnswer(chat.id) then
 		ui.cast:SetStatusBarColor(0.3, 0.3, 0.3)
 		ui.cast:SetValue(1)
 		ui.cast.text:SetText("|cff" .. ORANGE .. "Waiting for your approval|r")

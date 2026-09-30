@@ -1372,6 +1372,44 @@ fn show_progress(game: &Game, lines: &[&[u8]]) {
 }
 
 #[test]
+fn a_message_that_waits_for_other_chats_shows_it_on_a_still_grey_cast_bar() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("build it");
+    game.advance(1.0);
+
+    show_progress(&game, &[b"Waiting: 3 other chats are running"]);
+
+    assert_eq!(
+        text_of(&game, "GnomishRelayCast.text:GetText()"),
+        "|cff9d9d9dWaiting: 3 other chats are running|r"
+    );
+    let rows = texts_of(&game, "FontString");
+    assert!(
+        !rows.contains(&"Waiting: 3 other chats are running".to_owned()),
+        "{rows:?}"
+    );
+}
+
+#[test]
+fn an_agent_line_like_a_waiting_line_after_the_first_line_stays_a_step() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("build it");
+    game.advance(1.0);
+
+    show_progress(&game, &[b"Level: ask", b"Waiting: 1 other chat is running"]);
+
+    let cast = text_of(&game, "GnomishRelayCast.text:GetText()");
+    assert!(cast.starts_with("Tinkering"), "{cast}");
+    let rows = texts_of(&game, "FontString");
+    assert!(
+        rows.contains(&"Waiting: 1 other chat is running".to_owned()),
+        "{rows:?}"
+    );
+}
+
+#[test]
 fn the_header_shows_the_level_that_the_bridge_used_not_the_one_the_chat_asked_for() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");

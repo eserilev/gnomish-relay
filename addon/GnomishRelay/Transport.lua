@@ -30,6 +30,9 @@ local DESKTOP_STATES = {
 	none = "No answer on your desktop",
 }
 local DESKTOP_HOW = { dialog = true, command = true }
+-- The bridge writes this line as the only line of a message that waits for other chats,
+-- and no agent line can start with "Waiting:" (SPEC.md 8.2).
+local WAITING = "Waiting: "
 local RAISE_LEVELS = { ["auto-edit"] = true, ["full-auto"] = true }
 local DESKTOP_POLL = 5
 local DESKTOP_POLLS = 24
@@ -328,6 +331,14 @@ local function Whispered(id)
 	return false
 end
 
+local function QueuedLine(lines)
+	local first = lines[1]
+	if type(first) == "string" and first:sub(1, #WAITING) == WAITING then
+		return first
+	end
+	return nil
+end
+
 -- The desktop line has a fixed place: right after the level line. The row shows its
 -- meaning, not the raw line.
 local function ApplyDesktop(chat, working, lines)
@@ -376,7 +387,8 @@ local function ApplyLive(live)
 		local working = type(p) == "table" and state.working[p.chat]
 		local chat = working and ns.Store.Chat(p.chat)
 		if chat and working.id == p.id and type(p.lines) == "table" then
-			working.progress = p.lines
+			working.queued = QueuedLine(p.lines)
+			working.progress = working.queued and {} or p.lines
 			if LEVELS[p.lines[1]] then
 				chat.level = LEVELS[p.lines[1]]
 			end
@@ -433,6 +445,12 @@ function Transport.RequestCount()
 		end
 	end
 	return count
+end
+
+-- The line of the bridge while the message waits for other chats to finish, or nil.
+function Transport.Queued(chatId)
+	local working = state.working[chatId]
+	return working and working.queued
 end
 
 -- True while a popup of the chat waits for the player.
