@@ -14,8 +14,8 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use app_protocol::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
 use app_protocol::story_lines::{
-    self, Answer, BadLine, CallId, FromStory, NO_SANDBOX, NarratorCheck, RequestId, batch_end_line,
-    hello_line, model_answered_line, model_failed_line, reply_text,
+    self, Answer, Asked, BadLine, CallId, FromStory, LineCheck, NO_SANDBOX, RequestId,
+    batch_end_line, hello_line, model_answered_line, model_failed_line, reply_text,
 };
 
 use crate::agent_wall::AgentWall;
@@ -152,10 +152,15 @@ struct Waiting {
 }
 
 impl Waiting {
-    /// A batch with a `lore_asked` or a `journal_asked` line. Any other batch holds only
-    /// game events, and waits for `events_seen`.
+    /// A batch with a line that asks. Any other batch holds only game events, and waits
+    /// for `events_seen`.
     fn wants_reply(&self) -> bool {
-        self.lines.iter().any(AddonLine::wants_reply)
+        self.asked().is_some()
+    }
+
+    /// Only the last line of a batch asks.
+    fn asked(&self) -> Option<Asked> {
+        self.lines.iter().find_map(AddonLine::asked)
     }
 }
 
@@ -371,7 +376,12 @@ impl Story {
                     id,
                     answer,
                     narrator,
-                }) => self.take_answer(id, answer.as_ref(), narrator),
+                    notice,
+                }) => {
+                    log_dropped(id, "narrator line", narrator);
+                    log_dropped(id, "notice", notice);
+                    self.take_answer(id, answer.as_ref());
+                }
                 Ok(FromStory::ModelCall { call, prompt }) => {
                     self.start_model_call(&process, call, prompt);
                 }
@@ -398,10 +408,7 @@ impl Story {
     /// `None` is an answer line over its limit: an error, never a cut line. An answer for
     /// an id that already ended is late, and goes. An id that the bridge never gave is a
     /// bad line.
-    fn take_answer(&mut self, id: RequestId, answer: Option<&Answer>, narrator: NarratorCheck) {
-        if narrator == NarratorCheck::Dropped {
-            log(&format!("timeways: dropped the narrator line of #{}", id.0));
-        }
+    fn take_answer(&mut self, id: RequestId, answer: Option<&Answer>) {
         let Some(waiting) = self.sent.remove(&id) else {
             if id.0 < self.next_id {
                 log(&format!("timeways: dropped a late answer for #{}", id.0));
@@ -415,7 +422,7 @@ impl Story {
             self.end_unanswered(waiting, TOO_LONG);
             return;
         };
-        if answer.is_events_seen() == waiting.wants_reply() {
+        if answer.body.asked() != waiting.asked() {
             self.bad_line(&format!("an answer of the wrong type for #{}", id.0));
             self.sent.insert(id, waiting);
             return;
@@ -554,6 +561,12 @@ impl Story {
         let due = self.warning == Warning::Due;
         self.warning = Warning::Given;
         due
+    }
+}
+
+fn log_dropped(id: RequestId, what: &str, check: LineCheck) {
+    if check == LineCheck::Dropped {
+        log(&format!("timeways: dropped the {what} of #{}", id.0));
     }
 }
 

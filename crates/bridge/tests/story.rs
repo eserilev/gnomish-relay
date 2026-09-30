@@ -320,6 +320,57 @@ fn a_narrator_line_that_is_too_long_is_dropped_and_the_rest_stays() {
     assert_eq!(reply(&answers[1])["narrator"], Value::Null);
 }
 
+const TALK: &str =
+    "{\"type\":\"talk_asked\",\"at\":3,\"npc\":\"Marshal Dughan\",\"text\":\"Any work?\"}";
+
+#[test]
+fn a_notice_reaches_the_reply_of_events_lore_and_talk_with_every_pipe_doubled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("notice", dir.path());
+    story.send(message(7, EVENTS));
+    story.send(message(8, &question("x")));
+    story.send(message(9, TALK));
+
+    let answers = answers(&mut story, 3);
+
+    let notice = "You already have 3 tasks. Finish ||cffff0000one first.";
+    for (answer, kind) in answers
+        .iter()
+        .zip(["events_seen", "lore_answer", "talk_answer"])
+    {
+        assert_eq!(reply(answer)["type"], kind);
+        assert_eq!(reply(answer)["notice"], notice, "{kind}");
+    }
+}
+
+#[test]
+fn a_notice_that_is_too_long_is_dropped_and_the_rest_stays() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("long-notice", dir.path());
+    story.send(message(7, EVENTS));
+    story.send(message(8, TALK));
+
+    let answers = answers(&mut story, 2);
+
+    assert_events_seen(&answers[0]);
+    assert!(reply(&answers[0]).get("notice").is_none());
+    assert_eq!(reply(&answers[1])["text"], "Marshal Dughan: Any work?");
+    assert!(reply(&answers[1]).get("notice").is_none());
+}
+
+#[test]
+fn a_story_program_that_sends_no_notice_gets_replies_with_no_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("echo", dir.path());
+    story.send(message(7, EVENTS));
+    story.send(message(8, TALK));
+
+    let answers = answers(&mut story, 2);
+
+    assert!(reply(&answers[0]).get("notice").is_none());
+    assert!(reply(&answers[1]).get("notice").is_none());
+}
+
 #[test]
 fn a_batch_of_events_with_no_events_seen_ends_done_and_empty_at_its_deadline() {
     let dir = tempfile::tempdir().unwrap();
@@ -579,6 +630,82 @@ fn an_answer_for_another_id_is_dropped() {
     assert_eq!(answers.len(), 1);
     assert_eq!(answers[0].0.id, MessageId(7));
     assert_eq!(reply(&answers[0])["text"], "story: x");
+}
+
+#[test]
+fn an_answer_of_another_type_than_its_request_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("wrong-type", dir.path());
+    story.send(message(7, &question("x")));
+
+    // The program writes a talk answer for the question first.
+    let answers = answers(&mut story, 1);
+
+    assert_eq!(answers.len(), 1);
+    assert_eq!(reply(&answers[0])["type"], "lore_answer");
+    assert_eq!(reply(&answers[0])["text"], "story: x");
+}
+
+fn draft(idea: &str) -> String {
+    serde_json::json!({ "type": "draft_asked", "at": 4, "idea": idea }).to_string()
+}
+
+#[test]
+fn a_draft_request_gets_the_draft_with_every_pipe_doubled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("echo", dir.path());
+    story.send(message(
+        7,
+        &format!("{CHARACTER}\n{EVENTS}\n{}", draft("wolf |pelts")),
+    ));
+
+    let answers = answers(&mut story, 1);
+
+    let reply = reply(&answers[0]);
+    assert_eq!(reply["type"], "draft_answer");
+    assert_eq!(reply["draft"]["title"], "Draft: wolf ||pelts");
+    assert_eq!(reply["draft"]["text"], "A quest ||of your own.");
+    assert_eq!(reply["draft"]["steps"][0]["goal"], "Collect 5 pelts");
+    assert_eq!(reply["draft"]["steps"][0]["target"], "Gray ||Wolf");
+    assert_eq!(seen(dir.path())[3]["idea"], "wolf |pelts");
+}
+
+#[test]
+fn a_draft_answer_with_no_draft_reaches_the_addon_as_null() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("no-draft", dir.path());
+    story.send(message(7, &draft("x")));
+
+    let answers = answers(&mut story, 1);
+
+    assert_eq!(reply(&answers[0])["type"], "draft_answer");
+    assert_eq!(reply(&answers[0])["draft"], Value::Null);
+}
+
+#[test]
+fn an_answer_of_another_type_than_a_draft_request_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("wrong-type", dir.path());
+    story.send(message(7, &draft("x")));
+
+    // The program writes a lore answer for the draft request first.
+    let answers = answers(&mut story, 1);
+
+    assert_eq!(answers.len(), 1);
+    assert_eq!(reply(&answers[0])["draft"]["title"], "Draft: x");
+}
+
+#[test]
+fn a_draft_answer_for_an_id_that_was_never_asked_is_dropped() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("wrong-id", dir.path());
+    story.send(message(7, &draft("x")));
+
+    let answers = answers(&mut story, 1);
+
+    assert_eq!(answers.len(), 1);
+    assert_eq!(answers[0].0.id, MessageId(7));
+    assert_eq!(reply(&answers[0])["draft"]["title"], "Draft: x");
 }
 
 #[test]
