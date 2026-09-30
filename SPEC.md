@@ -867,6 +867,7 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 
 - The addon reports `next` in every strip. When it nears the end of the window without a strip to send, it sends a hello with `next`.
 - At a hello, or when the saved variables file changes (a `/reload`), the bridge starts the window at the reported slot, or at slot 1.
+- Each token has its own window, because two WoW accounts on one computer can play at once (7.6), and each game loads slots from its own place. The bridge keeps the windows of the 3 tokens with the newest reports, and each publish writes all of them. A strip moves only the window of its token. A changed saved variables file moves only the window of the token in that file. A file with no token moves every window to slot 1.
 - A slot outside the window holds an older body. The addon never loads a slot past the window of its last strip. In a long fight, the polls stop there, and they go on after the hello at the end of the fight.
 - A slot of an earlier UI session can still hold an older body. The addon skips a body whose `now` is older than the `now` of the last body that it applied, with its live file and its restore bundle. An older body would bring back old `working` records, an old live file, and an old clock.
 - A skipped body loses no reply: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
@@ -993,9 +994,17 @@ The saved variables also carry the `read` and `restored` state, so the bridge re
 The beta client sometimes wipes addon saved data. The addon then makes a new token.
 When a hello comes from an unknown token, and the bridge already knows another token, the bridge writes a restore bundle for the new token.
 The bundle goes into `Restore.lua` in each slot of the window, next to the body. So the body keeps its own 1 MiB bound (S12).
-The bundle stays in each publish until a strip from that token has the `restored` flag.
+The bundle stays in each publish until a strip from that token has the `restored` flag. The flag ends the restore, and retires no token.
 The addon applies a bundle only one time. It merges the chats by chat id, so a second copy of the bundle changes nothing.
-After the `restored` flag, the bridge retires the older tokens and takes their records out of the slot body. A run of a retired token that ends later goes only into the history.
+
+**Two accounts, or a wipe.** Two WoW accounts on one computer have two tokens too, and they can play at once. A hello from the second account looks the same as a hello after a wipe: a strip carries only the token. The account shows only in the saved variables. WoW keeps them for each account in `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua`, and the file holds the token (`["token"]`, one tab deep). So the bridge decides with the account folder:
+
+- The bridge keeps the account folder of each token that it read in a saved variables file, in `state.json`.
+- **The rule:** a new token in the file of a folder that held another token is a wipe. The older token of that folder retires: its records leave the slot body, and its window goes (7.3). A run of a retired token that ends later goes only into the history.
+- A token in another folder is another account. Tokens of two folders never retire each other.
+- WoW writes the file only at a `/reload`, a logout, or an exit. So after a wipe, the old token retires at the next `/reload` or logout of that account, not at once. Until then, its records stay in the body. They are the records that nobody read before the wipe, so they are few.
+- A token that the bridge never saw in a file never retires. A second account before its first `/reload` or logout is such a token.
+- The restore does not wait for the file: a player after a wipe wants the chats back now. So the first hello of a second account also gets a restore, and that account shows the chats of the first one as a copy. It is the same person on the same computer. Both accounts can then send to such a chat, and each account sees only its own messages and their replies.
 
 The bundle holds the 16 chats with the latest activity, and the last 10 messages of each (S18).
 Each message is cut to 500 bytes, at a character boundary. The file is at most 512 KiB (S19).
@@ -1125,7 +1134,7 @@ Each chat has a FIFO queue. A second message to a busy chat waits. It never repl
 
 The bridge keeps its state in JSON files in the data folder of the OS:
 
-- `state.json`: the replay store, the unread records, the waiting messages, the slot window, the tokens, and the restore history (7.6).
+- `state.json`: the replay store, the unread records, the waiting messages, the slot window of each token, the tokens, the account folder of each token, and the restore history (7.6).
 - `timeways/state.json`: the lane of Timeways (9.7), only with a Timeways key. Later also agent session IDs per chat, the folder of each session, and signal counters.
 - `timeways/story/`: the folder of the story program (9.8). Only the story program writes there, and the bridge never reads it.
 - Planned, not built: `transcripts.json`, with every prompt and reply of each chat: 200 messages per chat, 4000 characters each. Today `state.json` keeps only the short history of the restore bundle (7.6).
@@ -2414,6 +2423,7 @@ The model checker checks these properties:
 - A publish never loses a reply that the addon has not read.
 - After a saved-data wipe, the restore never duplicates or drops a chat.
 - Each sent message ends with a reply or an error, also across `/reload`.
+- The token of the addon never retires. An old token retires only when the saved variables file shows the new token (7.6).
 
 Write the model before the bridge state machine. The Rust state machine follows the model.
 
@@ -2610,7 +2620,6 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 - What does `permissions.<profile>.filesystem.deny_read` of Codex take, so that Codex can hide the `deny` and `desktop` paths (6.6.4)?
 - Not planned now (voice, 13.3): does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
 - Not planned now (voice, 13.3): can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?
-- Two WoW accounts on one computer have two tokens. A hello from the second account starts a restore, and its `restored` flag retires the first token. How does the bridge tell two accounts from a saved-data wipe?
 - Not planned now: can font files replace the `.wav` signals? The slot polls of 7.3 work without signals.
 - How fast is HMAC-SHA256 in WoW Lua for a 3200-byte strip?
 - Does Gemini CLI have hooks for notifications?
