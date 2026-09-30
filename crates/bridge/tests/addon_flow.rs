@@ -455,6 +455,59 @@ fn after_twenty_polls_a_hello_reports_the_slot_position() {
     );
 }
 
+fn stat(game: &Game, name: &str) -> i64 {
+    game.run(&format!(
+        "local ns = ... return ns.Transport.Stats().{name}"
+    ))
+    .as_integer()
+    .unwrap()
+}
+
+#[test]
+fn a_long_fight_during_a_working_run_stops_the_polls_at_the_end_of_the_window() {
+    let game = Game::start();
+    game.send("a long job");
+    game.advance(1.0);
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    game.advance(20.0);
+    let reported = stat(&game, "reported");
+    game.wow.set("combat", true).unwrap();
+
+    game.advance(1200.0);
+
+    assert_eq!(
+        stat(&game, "nextSlot"),
+        reported + 30,
+        "no slot past the window"
+    );
+    game.wow.set("combat", false).unwrap();
+    game.advance(20.0);
+    assert!(
+        stat(&game, "reported") >= reported + 30,
+        "a hello moves the window"
+    );
+    assert!(stat(&game, "nextSlot") > reported + 30, "the polls go on");
+}
+
+#[test]
+fn a_body_older_than_the_last_applied_one_changes_nothing() {
+    let game = Game::start();
+    game.publish(&[]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    let fresh = stat(&game, "bodyNow");
+    let old = u32::try_from(fresh - 3600).unwrap();
+    let body = slot_body(App::Relay, old, &[]);
+    game.wow
+        .set("body", game.lua.create_string(body).unwrap())
+        .unwrap();
+
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(stat(&game, "bodyNow"), fresh);
+    assert!(online(&game));
+}
+
 #[test]
 fn a_restore_bundle_brings_chats_back_once_and_never_resends_them() {
     let game = Game::start();

@@ -667,7 +667,7 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - The addon hides the "Screen captured" text for its own screenshots through the `ActionStatus` frame. Normal screenshots still show it.
 - The bridge ignores screenshots with no valid strip. Those are the screenshots of the user.
 - The first strip ever prints one line: "<title>: the colored bar at the top left carries your messages to the desktop. It shows for half a second." The saved variables remember it, so the line shows once.
-- In combat, a strip waits for the end of the fight unless it carries a message or a control of the player (Stop, a permission answer, a delete of a rule). So a hello and a request for a list (sessions, folders, settings) wait. They still ride on a strip that goes anyway. A long fight can then pass the window of slots (7.3): the replies wait for the next strip, and none is lost.
+- In combat, a strip waits for the end of the fight unless it carries a message or a control of the player (Stop, a permission answer, a delete of a rule). So a hello and a request for a list (sessions, folders, settings) wait. They still ride on a strip that goes anyway. A long fight can then reach the end of the window of slots (7.3): the polls and the replies wait for the next strip, and none is lost.
 
 **Frame layout (bytes):**
 
@@ -803,7 +803,9 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 
 - The addon reports `next` in every strip. When it nears the end of the window without a strip to send, it sends a hello with `next`.
 - At a hello, or when the saved variables file changes (a `/reload`), the bridge starts the window at the reported slot, or at slot 1.
-- A slot outside the window holds an older body. A read of an older body is harmless: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
+- A slot outside the window holds an older body. The addon never loads a slot past the window of its last strip. In a long fight, the polls stop there, and they go on after the hello at the end of the fight.
+- A slot of an earlier UI session can still hold an older body. The addon skips a body whose `now` is older than the `now` of the last body that it applied, with its live file and its restore bundle. An older body would bring back old `working` records, an old live file, and an old clock.
+- A skipped body loses no reply: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
 
 Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with four files:
 
