@@ -12,7 +12,7 @@ use crate::fs_safe::write_private;
 use crate::history::History;
 use crate::lane::LaneState;
 pub use crate::lane::{SavedRecord, SavedStatus};
-use crate::relay::{AgentSession, Job};
+use crate::relay::{AgentSession, FrameTag, Job};
 
 const FILE: &str = "state.json";
 /// 1000 seen ids and 30 records of 32 KiB fit in far less.
@@ -30,6 +30,10 @@ pub struct State {
     pub history: History,
     pub restore_for: Option<String>,
     pub sessions: Vec<AgentSession>,
+    /// The frame tags of the last `FRAME_MEMORY` seconds, with their first sight, so a
+    /// restart does not apply a stored strip again.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub frames: Vec<(u32, FrameTag)>,
 }
 
 /// `None` when there is no state yet. A damaged file is an error, not a fresh start:
