@@ -8,6 +8,7 @@ use crate::app_files::private_game_paths;
 use crate::config::{self, RelayConfig, StoryConfig};
 use crate::desktop::Prompt;
 use crate::dirs::Dirs;
+use crate::folder_path::real_path;
 use crate::fs_safe::make_private_dir;
 use crate::gate::{Gate, Places};
 use crate::hooks_install::files_for_bridge;
@@ -19,6 +20,7 @@ use crate::run::{Paths, RelayParts, run};
 use crate::settings_list::BridgeSettings;
 use crate::setup;
 use crate::story::StorySpec;
+use crate::trust::Truster;
 
 /// Holds the lock of the bridge until the run loop ends.
 pub fn start(dirs: &Dirs) -> Result<()> {
@@ -87,6 +89,13 @@ pub fn start_relay(
             .map(|(name, _)| name.clone())
             .collect(),
     };
+    let truster = Truster {
+        approvals: gate.approvals.clone(),
+        config_dir: dirs.config.clone(),
+        home: real_path(&dirs.home).unwrap_or_else(|_| dirs.home.clone()),
+        permission_timeout: relay.permission_timeout,
+        roots: gate.roots.clone(),
+    };
     let mut settings = BridgeSettings::from_config(&relay, story, Some(&dirs.home), sandbox);
     settings.rules.store = gate.always.clone();
     let var = |name: &str| std::env::var_os(name).map(std::path::PathBuf::from);
@@ -95,6 +104,7 @@ pub fn start_relay(
         policy: relay.policy,
         agents,
         raiser,
+        truster,
         settings,
         max_parallel_runs: relay.max_parallel_runs,
         daily_cost_cap_usd: relay.daily_cost_cap_usd,

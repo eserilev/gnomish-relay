@@ -23,8 +23,8 @@ use crate::usage::Usage;
 /// The two quotes of the Lua literal, and the cut line after a newline.
 const RESERVED: usize = 2 + 4 + CUT.len();
 
-/// The values that do not change while the bridge runs. The levels of the agents come
-/// from the policy at each reply, because a raise on the desktop changes them.
+/// The values of the config. The levels of the agents come from the policy at each
+/// reply, because a raise on the desktop changes them. A new root changes `roots`.
 #[derive(Clone, Debug, Default)]
 pub struct BridgeSettings {
     pub version: String,
@@ -141,6 +141,14 @@ impl BridgeSettings {
             hooks: Vec::new(),
             ci_checks: relay.ci_checks.clone(),
         }
+    }
+
+    /// A root that a click on the desktop added (SPEC.md 9.12).
+    pub fn add_root(&mut self, root: &Path) {
+        let known = !self.rules.home.as_os_str().is_empty();
+        let home = known.then(|| path_bytes(&self.rules.home));
+        self.roots.push(shown(&path_bytes(root), home.as_deref()));
+        self.rules.roots.push(root.to_owned());
     }
 
     pub fn hook_lines(&self) -> Vec<HookLine> {
@@ -407,6 +415,20 @@ mod tests {
         policy.agents.insert("codex".into(), Permission::AutoEdit);
         assert!(
             settings_reply(&settings(), &policy, &[], &[]).contains("agent\tcodex\t\tauto-edit")
+        );
+    }
+
+    #[test]
+    fn a_root_that_the_desktop_added_shows_in_the_next_reply() {
+        let mut added = settings();
+        added.rules.home = std::path::PathBuf::from("/home/x");
+
+        added.add_root(Path::new("/home/x/lighthouse"));
+
+        let reply = settings_reply(&added, &policy(), &[], &[]);
+        assert!(
+            reply.contains("\nallowed_root\t~/Code\nallowed_root\t~/lighthouse\n"),
+            "{reply}"
         );
     }
 

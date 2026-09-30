@@ -25,6 +25,7 @@ use crate::desktop::Notice;
 use crate::flags::{self, GitFlag, ListKind, TransportFlags};
 use crate::folder_list::folder_reply;
 use crate::folder_path::{folder_request, native_folder, path_bytes, relative_folder};
+use crate::folder_trust::{Untrusted, check_text};
 use crate::folder_walk::Snapshot;
 use crate::git_actions::{Effect, GitAction};
 use crate::git_blocks::{
@@ -240,6 +241,9 @@ pub struct Relay {
     cleanups: Vec<ChatWorktree>,
     /// The last runs with a change summary.
     changes: Vec<RunChanges>,
+    /// In the form of the resolver. With it, a folder in the home folder under no root
+    /// runs after a click on the desktop (SPEC.md 9.12).
+    home: Option<Vec<u8>>,
 }
 
 /// A waiting message, with its place in the order of arrival across all chats.
@@ -338,6 +342,30 @@ impl Relay {
             worktrees: Vec::new(),
             cleanups: Vec::new(),
             changes: Vec::new(),
+            home: None,
+        }
+    }
+
+    /// A folder in `home` under no root then waits for a click on the desktop, and does
+    /// not end as an error (SPEC.md 9.12).
+    pub fn take_new_folders(&mut self, home: &std::path::Path) {
+        let mut home = path_bytes(home);
+        // A Windows path starts with its drive. The resolver takes it as absolute only
+        // with a `/` first.
+        if !home.starts_with(b"/") {
+            home.insert(0, b'/');
+        }
+        self.home = Some(home);
+    }
+
+    /// A root that a click on the desktop added.
+    pub fn add_root(&mut self, root: &std::path::Path) {
+        let mut root = path_bytes(root);
+        if !root.starts_with(b"/") {
+            root.insert(0, b'/');
+        }
+        if !self.policy.folders.roots.contains(&root) {
+            self.policy.folders.roots.push(root);
         }
     }
 
@@ -512,8 +540,9 @@ impl Relay {
             .agent
             .unwrap_or_else(|| self.policy.default_agent.clone());
         self.add_to_history(r, chat, &agent);
-        let Some(cwd) = self.game_folder(&r.cwd) else {
-            return Err(self.refuse(r, chat, BAD_FOLDER.into(), Outcome::BadFolder));
+        let cwd = match self.prompt_folder(&r.cwd) {
+            Ok(cwd) => cwd,
+            Err(refused) => return Err(self.refuse(r, chat, refused, Outcome::BadFolder)),
         };
         // Only the first message of a chat makes its folder (SPEC.md 9.9).
         let new_folder = flags.new_folder && flags.new_session;
@@ -554,6 +583,23 @@ impl Relay {
         };
         self.history
             .add_message(log, MessageId(r.id), &text(&r.text));
+    }
+
+    /// A folder inside a root, or a new folder that passes the rules of its text. The
+    /// start of the run checks the real folder (SPEC.md 9.12).
+    fn prompt_folder(&self, raw: &[u8]) -> Result<Vec<u8>, String> {
+        if let Some(cwd) = self.game_folder(raw) {
+            return Ok(cwd);
+        }
+        let (Some(home), Some(request)) = (&self.home, folder_request(raw, cfg!(windows))) else {
+            return Err(BAD_FOLDER.into());
+        };
+        let base = &self.policy.folders.base;
+        let Some(cwd) = resolve_folder(std::slice::from_ref(home), base, &request) else {
+            return Err(Untrusted::OutsideHome.text().into());
+        };
+        check_text(home, &cwd).map_err(|why| why.text().to_owned())?;
+        Ok(cwd)
     }
 
     /// The folder in the form of the resolver, or `None` outside every root.
@@ -2444,6 +2490,59 @@ mod tests {
         let job = relay.next_job().unwrap();
         assert!(job.new_folder);
         assert_eq!(job.cwd, "/home/x/Code/work/new");
+    }
+
+    fn with_home() -> Relay {
+        let mut relay = relay();
+        relay.take_new_folders(std::path::Path::new("/home/x"));
+        relay
+    }
+
+    #[test]
+    fn a_folder_in_the_home_folder_under_no_root_runs_after_the_desktop_check() {
+        let mut relay = with_home();
+
+        relay.on_frame(&[record_in("../lighthouse", "c1", 1, "n", "hi")], NOW);
+
+        assert_eq!(relay.next_job().unwrap().cwd, "/home/x/lighthouse");
+    }
+
+    #[test]
+    fn with_no_home_folder_a_folder_under_no_root_never_runs() {
+        let mut relay = relay();
+
+        relay.on_frame(&[record_in("../lighthouse", "c1", 1, "n", "hi")], NOW);
+
+        assert!(relay.next_job().is_none());
+        assert!(body(&relay).contains("That folder isn't allowed."));
+    }
+
+    #[test]
+    fn the_home_folder_a_folder_above_it_and_a_hidden_folder_end_with_a_reply_and_no_run() {
+        let cases = [
+            ("..", "your whole home folder"),
+            ("../..", "outside your home folder"),
+            ("/etc", "outside your home folder"),
+            ("../.ssh", "hidden or system folders"),
+            ("../app/node_modules", "hidden or system folders"),
+        ];
+        for (id, (cwd, reason)) in (1..).zip(cases) {
+            let mut relay = with_home();
+
+            relay.on_frame(&[record_in(cwd, "c1", id, "n", "hi")], NOW);
+
+            assert!(relay.next_job().is_none(), "{cwd}");
+            assert!(body(&relay).contains(reason), "{cwd}: {}", body(&relay));
+        }
+    }
+
+    #[test]
+    fn a_root_that_the_desktop_added_takes_git_actions_and_attaches() {
+        let mut relay = with_home();
+
+        relay.add_root(std::path::Path::new("/home/x/lighthouse"));
+
+        assert!(relay.game_folder(b"../lighthouse/src").is_some());
     }
 
     #[test]

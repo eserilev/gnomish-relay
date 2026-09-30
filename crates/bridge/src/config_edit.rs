@@ -115,6 +115,15 @@ pub fn with_root(text: &str, root: &str, home: &Path) -> Result<String> {
     Ok(changed)
 }
 
+/// Checked before the dialog, when a new folder does not exist yet: the roots line has
+/// the one form that `with_root` changes, and the config loads.
+pub fn can_add_root(text: &str, home: &Path) -> Result<()> {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    roots_and_rest(lines[roots_line(&lines)?])?;
+    config::parse(text, home).context("config.toml does not load now")?;
+    Ok(())
+}
+
 fn is_roots_key(line: &str) -> bool {
     line.trim_start()
         .strip_prefix(ROOTS)
@@ -310,6 +319,15 @@ mod tests {
                 "{form}"
             );
         }
+    }
+
+    #[test]
+    fn a_root_can_be_added_only_to_a_config_in_the_one_form() {
+        let home = home();
+        let multi = CONFIG.replace("[\"~/Code\"]\n", "[\n  \"~/Code\",\n]\n");
+
+        assert!(can_add_root(CONFIG, home.path()).is_ok());
+        assert!(can_add_root(&multi, home.path()).is_err());
     }
 
     #[test]

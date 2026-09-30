@@ -3,7 +3,7 @@
 
 use std::fs;
 use std::io::ErrorKind;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use crate::folder_path::real_path;
 use crate::folder_walk::{Walk, is_shown};
@@ -59,9 +59,8 @@ pub fn real_chat_folder(walk: &Walk, folder: &Path) -> Result<String, String> {
         .map_err(|_| MISSING.to_owned())
 }
 
-/// Makes the last part of `folder` with `create_dir`, never a parent. A folder that
-/// is already there is fine: a run after a bridge restart asks again.
-pub fn make_folder(walk: &Walk, folder: &Path) -> Result<(), NewFolderError> {
+/// A new folder does not exist yet, so its real path is its real parent and its name.
+pub fn real_new_folder(folder: &Path) -> Result<PathBuf, NewFolderError> {
     let name = folder.file_name().and_then(|n| n.to_str());
     let Some(name) = name.filter(|n| is_folder_name(n)) else {
         return Err(NewFolderError::BadName);
@@ -70,16 +69,27 @@ pub fn make_folder(walk: &Walk, folder: &Path) -> Result<(), NewFolderError> {
     let real = parent
         .canonicalize()
         .map_err(|_| NewFolderError::NoParent)?;
-    if !walk.roots.hold(&real) {
+    Ok(real.join(name))
+}
+
+/// Makes the last part of `folder`, inside a root.
+pub fn make_folder(walk: &Walk, folder: &Path) -> Result<(), NewFolderError> {
+    let target = real_new_folder(folder)?;
+    if !walk.roots.hold(&target) {
         return Err(NewFolderError::OutsideRoots);
     }
-    let target = real.join(name);
     if !is_shown(walk, &target) {
         return Err(NewFolderError::NotAllowed);
     }
-    match fs::create_dir(&target) {
+    create_last(&target)
+}
+
+/// `create_dir`, never `create_dir_all`. A folder that is already there is fine: a run
+/// after a bridge restart asks again.
+pub fn create_last(target: &Path) -> Result<(), NewFolderError> {
+    match fs::create_dir(target) {
         Ok(()) => Ok(()),
-        Err(e) if e.kind() == ErrorKind::AlreadyExists => is_real_folder(&target),
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => is_real_folder(target),
         Err(e) => Err(NewFolderError::Failed(e.kind().to_string())),
     }
 }

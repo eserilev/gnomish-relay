@@ -25,6 +25,7 @@ use crate::relay::BranchPlan;
 use crate::roots::Roots;
 use crate::run_git::{RunGit, WorktreeChange};
 use crate::test_summary::{self, TestCounts};
+use crate::trust::{TrustGuard, Trusted, Truster};
 use crate::turn::STOPPED;
 use protocol::apps::App;
 use protocol::record::Record;
@@ -32,9 +33,10 @@ use protocol::version::version_fit;
 
 use crate::action_input::resolve;
 use crate::daily_usage::{DailyUsage, cap_text};
+use crate::folder_trust;
 use crate::folder_walk::{self, Snapshot, Walk};
 use crate::line_choice::{LineChoice, LineFile, with_line};
-use crate::new_folder::{make_folder, real_chat_folder};
+use crate::new_folder::{make_folder, real_chat_folder, real_new_folder};
 use crate::relay::{BAD_AGENT, ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
@@ -162,6 +164,9 @@ struct RelayLane {
     /// With no raiser, a chat never raises the level of the config (SPEC.md 9.3).
     raiser: Option<Raiser>,
     raises: RaiseGuard,
+    /// With no truster, a folder under no root never runs (SPEC.md 9.12).
+    truster: Option<Truster>,
+    trusts: TrustGuard,
     /// The answer to a settings list, with the levels of the relay.
     settings: BridgeSettings,
     /// Strips with a bad tag since the last good relay strip. The game shows a key
@@ -223,6 +228,21 @@ impl Bridge {
     pub fn with_raises(mut self, raiser: Raiser) -> Bridge {
         if let Some(relay) = &mut self.relay {
             relay.raiser = Some(raiser);
+        }
+        self
+    }
+
+    /// A chat in a folder of the home folder under no root then waits for a click on the
+    /// desktop, which adds the folder to the roots (SPEC.md 9.12).
+    #[must_use]
+    pub fn with_trust(mut self, truster: Truster) -> Bridge {
+        if let Some(lane) = &mut self.relay {
+            lane.walk.roots = truster.roots.clone();
+            if let Some(git) = &mut lane.git {
+                git.walk.roots = truster.roots.clone();
+            }
+            lane.relay.take_new_folders(&truster.home);
+            lane.truster = Some(truster);
         }
         self
     }
@@ -469,6 +489,8 @@ impl RelayLane {
             results,
             raiser: None,
             raises: RaiseGuard::default(),
+            truster: None,
+            trusts: TrustGuard::default(),
             settings: BridgeSettings::default(),
             bad_tags: 0,
             usage,
@@ -696,23 +718,49 @@ impl RelayLane {
             self.relay.begin(&job);
             self.files.changed = true;
         }
-        let real = self
-            .make_new_folder(&job)
-            .and_then(|()| real_chat_folder(&self.walk, Path::new(&job.cwd)));
-        let job = match real {
-            Ok(cwd) => Job { cwd, ..job },
+        let trust = match self.trust_for(&job) {
+            Ok(trust) => trust,
             Err(refused) => {
                 self.end_at_once(job, refused);
                 return;
             }
         };
-        let raise = self.raise_for(&job);
+        // A folder that waits for the desktop is made and checked after the click.
+        let job = if trust.is_some() {
+            job
+        } else {
+            match self.ready_folder(&job) {
+                Ok(cwd) => Job { cwd, ..job },
+                Err(refused) => {
+                    self.end_at_once(job, refused);
+                    return;
+                }
+            }
+        };
+        // One message never shows two dialogs (SPEC.md 9.12).
+        let raise = if trust.is_some() {
+            None
+        } else {
+            self.raise_for(&job)
+        };
         let finished = self.finished.clone();
         let plan = self.relay.branch_plan(&job.chat);
         let git = self.git.clone();
+        let walk = self.walk.clone();
         self.tests.remove(&job.chat);
         thread::spawn(move || {
             let mut job = job;
+            if let Some((desk, folder)) = trust
+                && let Err(refused) = trust_folder(&desk, &walk, &mut job, &folder, &control)
+            {
+                let run = Run {
+                    reply: Err(refused),
+                    session: None,
+                    usage: None,
+                };
+                let _ = finished.send(Finished::Run(job, run, Box::default()));
+                return;
+            }
             if let Some((raiser, level)) = raise {
                 job.permission = raise_level(&raiser, &job, level, &control);
             }
@@ -737,6 +785,45 @@ impl RelayLane {
         let cap = self.cost_cap?;
         let reached = job.work == Work::Prompt && self.usage.cap_reached(now(), cap);
         reached.then_some(cap)
+    }
+
+    /// The real folder of the run, in a root (SPEC.md 6.2, rule 10).
+    fn ready_folder(&self, job: &Job) -> Result<String, String> {
+        self.make_new_folder(job)?;
+        real_chat_folder(&self.walk, Path::new(&job.cwd))
+    }
+
+    /// The folder request that a job needs, if any. A folder that can never be a root
+    /// ends the message with its reason, and no dialog shows (SPEC.md 9.12).
+    fn trust_for(&mut self, job: &Job) -> Result<Option<(Truster, PathBuf)>, String> {
+        let Some(truster) = &self.truster else {
+            return Ok(None);
+        };
+        let folder = Path::new(&job.cwd);
+        let real = if job.new_folder {
+            real_new_folder(folder).map_err(|e| e.text())?
+        } else {
+            match crate::folder_path::real_path(folder) {
+                Ok(real) => real,
+                // The usual check of the folder gives the reply.
+                Err(_) => return Ok(None),
+            }
+        };
+        if truster.roots.hold(&real) {
+            return Ok(None);
+        }
+        folder_trust::check_real(&self.walk, &truster.home, &real)
+            .map_err(|why| why.text().to_owned())?;
+        self.trusts.may_ask(&real, Instant::now())?;
+        if let Err(e) = truster.can_trust() {
+            log(&format!(
+                "folder {}: config.toml cannot change: {e:#}",
+                real.display()
+            ));
+            return Err(crate::trust::NOT_WRITTEN.into());
+        }
+        self.trusts.asked();
+        Ok(Some((truster.clone(), real)))
     }
 
     /// The folder is made before the run, so the agent starts in it (SPEC.md 9.9).
@@ -843,6 +930,14 @@ impl RelayLane {
                         .ask(&chat, id, question.text, question.choices, now());
                     log(&format!("ask {} #{} as {request}", chat, id.0));
                     self.answers.insert(request, question.answer);
+                }
+                Event::Trusted { folder, trusted } => {
+                    self.trusts.answered(&folder, trusted, Instant::now());
+                    if trusted == Trusted::Added {
+                        log(&format!("new root: {}", folder.display()));
+                        self.relay.add_root(&folder);
+                        self.settings.add_root(&folder);
+                    }
                 }
                 Event::Raised {
                     agent,
@@ -981,6 +1076,27 @@ fn run_with_git(
         _ => RunEnd::default(),
     };
     (run, end)
+}
+
+/// Runs in the thread of the run: the dialog, and on Approve the real folder in its new
+/// root. Else the reply of the message.
+fn trust_folder(
+    desk: &Truster,
+    walk: &Walk,
+    job: &mut Job,
+    folder: &Path,
+    control: &Control,
+) -> Result<(), String> {
+    let trusted = desk.ask(job, folder, control);
+    control.events.send(Event::Trusted {
+        folder: folder.to_owned(),
+        trusted,
+    });
+    if trusted != Trusted::Added {
+        return Err(trusted.text().into());
+    }
+    job.cwd = real_chat_folder(walk, folder)?;
+    Ok(())
 }
 
 /// Runs in the thread of the run. Returns the level of the run after the raise.
@@ -1221,6 +1337,7 @@ pub struct RelayParts {
     pub policy: Policy,
     pub agents: Agents,
     pub raiser: Raiser,
+    pub truster: Truster,
     pub settings: BridgeSettings,
     pub max_parallel_runs: usize,
     pub daily_cost_cap_usd: Option<f64>,
@@ -1237,6 +1354,7 @@ pub fn run(
     let mut bridge = match relay {
         Some(parts) => Bridge::new(paths, parts.policy, keys, parts.agents)?
             .with_raises(parts.raiser)
+            .with_trust(parts.truster)
             .with_settings(parts.settings)
             .with_max_runs(parts.max_parallel_runs)
             .with_cost_cap(parts.daily_cost_cap_usd),

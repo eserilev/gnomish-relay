@@ -110,6 +110,7 @@ pub mod test_summary;
 pub mod timeways;
 pub mod timeways_install;
 pub mod timeways_release;
+pub mod trust;
 pub mod turn;
 pub mod update;
 pub mod usage;

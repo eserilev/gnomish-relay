@@ -20,6 +20,7 @@ use crate::gate::Gate;
 use crate::harness::CommandAgent;
 use crate::raise::Raised;
 use crate::relay::{ChatId, Job, MessageId};
+use crate::trust::Trusted;
 use crate::usage::Usage;
 
 /// The slot body cuts a reply at 32 KiB anyway.
@@ -121,6 +122,11 @@ pub enum Event {
         agent: String,
         level: Permission,
         raised: Raised,
+    },
+    /// The end of a folder request (SPEC.md 9.12). `folder` is the real path.
+    Trusted {
+        folder: PathBuf,
+        trusted: Trusted,
     },
 }
 

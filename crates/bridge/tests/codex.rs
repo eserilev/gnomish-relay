@@ -263,6 +263,7 @@ fn each_command_and_change_becomes_a_progress_line() {
             Event::Question(_)
             | Event::Desktop(_)
             | Event::Raised { .. }
+            | Event::Trusted { .. }
             | Event::Withdrawn
             | Event::CommandOutput(_) => None,
         })
@@ -306,6 +307,7 @@ fn an_approval_goes_to_the_game_with_the_honest_text_and_no_always() {
             Event::Progress(_)
             | Event::Desktop(_)
             | Event::Raised { .. }
+            | Event::Trusted { .. }
             | Event::Withdrawn
             | Event::CommandOutput(_) => None,
         })

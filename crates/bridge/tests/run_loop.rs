@@ -24,8 +24,10 @@ use bridge::raise::Raiser;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
 use bridge::relay::Job;
+use bridge::roots::Roots;
 use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{BODY_FILE, LIVE_FILE, RESTORE_FILE, slot_name};
+use bridge::trust::Truster;
 use bridge::usage::Usage;
 use bridge::vectors::TEST_KEY;
 use common::{install_window, screenshot_png, signed_frame, strip_rows};
@@ -1036,4 +1038,172 @@ fn a_start_of_the_bridge_empties_the_spool_folder() {
 
     let live = f.addons.join(slot_name(App::Relay, 1)).join(LIVE_FILE);
     assert!(!fs::read_to_string(live).unwrap().contains("Allow Bash?"));
+}
+
+const TRUST_CONFIG: &str = "allowed_roots = [\"~/Code\"]\ndefault_agent = \"claude\"\n\
+    [wow]\npath = \"~/wow\"\n\
+    [agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\npermission = \"auto-edit\"\n";
+
+struct Trusting {
+    bridge: Bridge,
+    home: std::path::PathBuf,
+    config: std::path::PathBuf,
+}
+
+/// A bridge in the home folder of `f`, with the one root `~/Code`, whose folder
+/// requests answer through `approvals` (SPEC.md 9.12).
+fn trusting_bridge(f: &Dirs, approvals: &Approvals) -> Trusting {
+    let home = f.state.parent().unwrap().canonicalize().unwrap();
+    let code = home.join("Code");
+    fs::create_dir_all(&code).unwrap();
+    let config_dir = home.join("config");
+    fs::create_dir_all(&config_dir).unwrap();
+    bridge::fs_safe::write_private(&config_dir, "config.toml", TRUST_CONFIG).unwrap();
+    let base = path_bytes(&code);
+    let policy = Policy {
+        folders: Folders {
+            roots: vec![base.clone()],
+            base,
+        },
+        ..policy()
+    };
+    let truster = Truster {
+        approvals: approvals.clone(),
+        config_dir: config_dir.clone(),
+        home: home.clone(),
+        permission_timeout: Duration::from_secs(20),
+        roots: Roots::new(vec![code]),
+    };
+    let bridge = bridge_in(f, policy, Arc::new(Echo)).with_trust(truster);
+    Trusting {
+        bridge,
+        home,
+        config: config_dir.join("config.toml"),
+    }
+}
+
+fn folder_strip(chat: &str, id: u32, cwd: &str, text: &str) -> Vec<u8> {
+    let payload = format!("tok\x1f{chat}\x1f{id}\x1f{cwd}\x1fn\x1f\x1f{text}");
+    screenshot_png(&strip_rows(&signed_frame(now(), payload.as_bytes(), KEY)))
+}
+
+#[test]
+fn a_chat_in_a_folder_under_no_root_waits_for_the_desktop_and_runs_after_approve() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut t = trusting_bridge(&f, &approvals);
+    fs::create_dir_all(t.home.join("lighthouse")).unwrap();
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        folder_strip("c1", 7, "../lighthouse", "hi"),
+    )
+    .unwrap();
+
+    let addons = f.addons.clone();
+    assert!(step_until(&mut t.bridge, || live_text(&addons)
+        .contains(" command folder")));
+    assert!(
+        !slot_body(&f.addons).contains("echo: hi"),
+        "no run before the click"
+    );
+    let open = approvals.list();
+    assert_eq!(open.len(), 1);
+    assert!(
+        open[0]
+            .text
+            .starts_with("Let agents from WoW work in ~/lighthouse?"),
+        "{}",
+        open[0].text
+    );
+    approvals.answer(&open[0].id, Verdict::Approve).unwrap();
+
+    assert!(step_until(&mut t.bridge, || slot_body(&addons).contains("echo: hi")));
+    let config = fs::read_to_string(&t.config).unwrap();
+    assert!(
+        config.starts_with("allowed_roots = [\"~/Code\", \"~/lighthouse\"]\n"),
+        "{config}"
+    );
+}
+
+#[test]
+fn a_denied_folder_ends_the_message_with_a_reply_and_no_run() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut t = trusting_bridge(&f, &approvals);
+    fs::create_dir_all(t.home.join("lighthouse")).unwrap();
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_raises(&approvals, Verdict::Deny, stop.clone());
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        folder_strip("c1", 7, "../lighthouse", "hi"),
+    )
+    .unwrap();
+
+    let addons = f.addons.clone();
+    let done = step_until(&mut t.bridge, || {
+        slot_body(&addons).contains("Denied on your desktop. Agents can't work in this folder.")
+    });
+    stop.store(true, Ordering::SeqCst);
+    assert!(done, "{}", slot_body(&f.addons));
+    assert_eq!(answering.join().unwrap(), 1);
+    assert!(!slot_body(&f.addons).contains("echo: hi"));
+    assert_eq!(fs::read_to_string(&t.config).unwrap(), TRUST_CONFIG);
+}
+
+#[test]
+fn the_home_folder_a_hidden_folder_and_a_private_folder_are_refused_with_no_dialog() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut t = trusting_bridge(&f, &approvals);
+    fs::create_dir_all(t.home.join(".secret")).unwrap();
+    let cases = [
+        ("c1", "..", "your whole home folder"),
+        ("c2", "../.secret", "hidden or system folders"),
+        ("c3", "../data", "it holds private files"),
+        ("c4", "../..", "outside your home folder"),
+    ];
+    for (n, (chat, cwd, _)) in (1..).zip(cases) {
+        fs::write(
+            f.screenshots.join(format!("WoWScrnShot_{n}.png")),
+            folder_strip(chat, n, cwd, "hi"),
+        )
+        .unwrap();
+    }
+
+    let addons = f.addons.clone();
+    let done = step_until(&mut t.bridge, || {
+        let body = slot_body(&addons);
+        cases.iter().all(|(_, _, reason)| body.contains(reason))
+    });
+
+    assert!(done, "{}", slot_body(&f.addons));
+    assert!(approvals.list().is_empty());
+    assert!(!slot_body(&f.addons).contains("echo: hi"));
+    assert_eq!(fs::read_to_string(&t.config).unwrap(), TRUST_CONFIG);
+}
+
+#[test]
+fn a_flood_of_messages_for_new_folders_gets_one_dialog() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut t = trusting_bridge(&f, &approvals);
+    for n in 1..=5 {
+        fs::create_dir_all(t.home.join(format!("p{n}"))).unwrap();
+        fs::write(
+            f.screenshots.join(format!("WoWScrnShot_{n}.png")),
+            folder_strip(&format!("c{n}"), n, &format!("../p{n}"), "hi"),
+        )
+        .unwrap();
+    }
+
+    let addons = f.addons.clone();
+    let done = step_until(&mut t.bridge, || {
+        slot_body(&addons)
+            .matches("Another folder waits for your answer on your desktop.")
+            .count()
+            == 4
+    });
+
+    assert!(done, "{}", slot_body(&f.addons));
+    assert_eq!(approvals.list().len(), 1);
 }
