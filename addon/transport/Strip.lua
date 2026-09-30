@@ -1,5 +1,6 @@
 -- Draws a frame as colored cells in the top-left corner and takes one screenshot
--- of it (SPEC.md 7.1). With a line from the bridge, the cells are 1 or 2 pixels (7.1.3). The strip shows only while the screenshot is taken.
+-- of it (SPEC.md 7.1). With a line from the bridge, the cells are 1 or 2 pixels (7.1.3).
+-- The strip shows only while the screenshot is taken.
 -- Every app of the shared transport draws in the same corner, so the apps take turns
 -- through one shared global. models/corner.qnt checks the rules of the turns.
 
