@@ -816,7 +816,10 @@ mod tests {
         assert!(!text.contains("Claude Code"), "{text}");
         assert!(text.contains("Restart any Codex sessions that are open now."));
         assert!(text.contains("trust the new hooks"));
-        assert!(text.contains("To check now, type /relay poll in the game."), "{text}");
+        assert!(
+            text.contains("To check now, type /relay poll in the game."),
+            "{text}"
+        );
     }
 
     #[test]
