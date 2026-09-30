@@ -463,6 +463,7 @@ pub const SETUP_HINT: &str = "To get notified in WoW about Claude Code and Codex
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::env::consts::EXE_SUFFIX;
 
     const USER_SETTINGS: &str = r#"{
   "model": "opus",
@@ -807,7 +808,7 @@ mod tests {
         let home = home();
         let bin = home.dir.path().join("agents");
         fs::create_dir_all(&bin).unwrap();
-        fs::write(bin.join("codex"), b"").unwrap();
+        fs::write(bin.join(format!("codex{EXE_SUFFIX}")), b"").unwrap();
         let all = HookFiles::both(home.dir.path(), &no_env);
 
         let text = output(|out| install_command(&[], all, &home.program, bin.as_os_str(), out));
