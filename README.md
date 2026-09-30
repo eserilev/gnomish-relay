@@ -1,44 +1,45 @@
 # Gnomish Relay
 
-Talk to your coding agents from inside World of Warcraft: Forever.
-You type in a chat window in the game. An agent such as Claude, Codex, or Gemini
-works in your project folder on the same computer, and its reply comes back as a whisper.
+Chat with your coding agents from inside World of Warcraft: Forever.
+Type in a window in the game. An agent such as Claude, Codex, or Gemini works in your
+project folder on the same computer, and its reply comes back as a whisper.
 
-It works with Claude Code, Codex, and any agent that speaks the Agent Client Protocol
-(ACP), on Windows, macOS, and Linux. It needs no Node.
+Gnomish Relay has two parts: an addon in the game, and a small desktop app,
+`gnomish-relay`, that runs the agents. It works with Claude Code, Codex, and any agent
+that speaks the Agent Client Protocol (ACP), on Windows, macOS, and Linux. No Node needed.
 `SPEC.md` has the design, and `VERIFICATION.md` the proofs.
 
 ## Install
 
-1. Close WoW: Forever. WoW finds a new addon only when it starts, so setup must run first.
+1. Close WoW: Forever. The game only finds new addons when it starts.
 2. Run the installer:
    - Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh`
    - Windows (PowerShell): `irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex`
-3. Answer the questions of setup. Setup asks only the questions that apply to your computer:
-   - **WoW folder**: only when setup finds no game, or more than one. Type the number of the list, or a path.
-   - **Also set up Gnomish Relay?**: only when the Timeways addon is installed and Gnomish Relay is not. The default is no.
-   - **Folders the agents can work in**: a list divided by commas. Setup suggests the code folders that it finds.
-     It never suggests the home folder, because that folder holds `~/.ssh` and the browser profiles.
+3. Answer setup's questions. You only see the ones that apply to you:
+   - **WoW folder**: when setup finds no game, or more than one. Type a number from the list, or a path.
+   - **Also set up Gnomish Relay?**: when you already have the Timeways addon but not Gnomish Relay. The default is no.
+   - **Folders the agents can work in**: separate them with commas. Setup suggests the code folders it finds.
+     It never suggests your home folder, because that holds `~/.ssh` and your browser profiles.
    - **Found aider. Add it as an agent?** (also for `llm`): only for a tool with no ACP mode. The default is no.
-     Such a tool runs its own commands with no question, inside the sandbox.
+     Such a tool runs its own commands without asking, inside the sandbox.
 4. Start WoW and type `/relay`.
 
-Setup uses the agents that you already have: `claude`, `codex`, `gemini`, `qwen`,
+Setup uses the agents you already have: `claude`, `codex`, `gemini`, `qwen`,
 `opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
-With none, replies repeat your message until you add one (below).
+If you have none, replies just repeat your message until you add one (below).
 
-The installer downloads the program, checks its SHA-256 sum, and runs `gnomish-relay setup --autostart`.
-Setup finds the game, makes its `Interface/AddOns` folder if WoW has not made it yet,
-installs the addon with a key that only this computer has, writes `config.toml`,
-and starts the bridge at each login. A second run changes nothing that works.
+The installer downloads the desktop app, checks its SHA-256 sum, and runs
+`gnomish-relay setup --autostart`. Setup finds the game, installs the addon with a key
+that only this computer has, writes `config.toml`, and starts the desktop app each time
+you log in. Running it again is safe: it leaves alone whatever already works.
 
 ## Timeways
 
-Timeways is a story addon that uses this program as its desktop half.
-When the `Timeways` addon is installed, setup finds it: it writes the Timeways key,
-makes its slot addons, and adds a `[story]` section with the model that it finds
-(`claude`, Ollama, or LM Studio) to `config.toml`. With only Timeways, setup asks no
-folder question and sets up no coding agent. `gnomish-relay setup --relay` adds them later.
+Timeways is a story addon that also uses the desktop app.
+If you have the `Timeways` addon, setup finds it: it writes the Timeways key, makes its
+addon files, and adds a `[story]` section to `config.toml` with the model it finds
+(`claude`, Ollama, or LM Studio). With only Timeways, setup skips the folder question and
+sets up no coding agent. To add coding agents later, run `gnomish-relay setup --relay`.
 
 ## Add an agent
 
@@ -65,26 +66,26 @@ command = ["gemini", "--acp"]
 permission = "auto-edit"
 ```
 
-Then run `gnomish-relay check-agent gemini`, and `gnomish-relay restart` to load the change.
+Then run `gnomish-relay check-agent gemini` to test it, and `gnomish-relay restart` to load it.
 
-`permission` is the most that a chat from the game can do. At `auto-edit`, the agent
-edits files in the chat folder with no question, and asks in the game before each
-command. At `ask`, it also asks before each edit.
+`permission` is the most a chat from the game can do. At `auto-edit`, the agent edits
+files in the chat folder without asking, and asks in the game before each command.
+At `ask`, it also asks before each edit.
 
 ## What an agent can do from the game
 
-Every tool call of a message from the game gets one answer: it runs, it asks in the
-game, it asks on your desktop, or it never runs (`SPEC.md` 6.6.3). A read of `~/.ssh`
-or a write outside the chat folder asks on the desktop: a dialog with Approve and Deny
-opens. With no dialog tool, answer it in a terminal:
+Every tool call from the game gets one of four answers: it runs, it asks in the game,
+it asks on your desktop, or it never runs (`SPEC.md` 6.6.3). Reading `~/.ssh` or
+writing outside the chat folder asks on your desktop: a dialog with Approve and Deny
+opens. If your computer has no dialog tool, answer in a terminal:
 
 ```sh
-gnomish-relay approve          # list the calls that wait
-gnomish-relay approve <id>     # allow one
-gnomish-relay deny <id>        # refuse one
+gnomish-relay approve          # list the requests that wait for you
+gnomish-relay approve <id>     # approve one
+gnomish-relay deny <id>        # deny one
 ```
 
-Commands in the allow table run with no question at `auto-edit` and `full-auto`:
+At `auto-edit` and `full-auto`, commands in the allow table run without asking:
 
 ```toml
 [allow]
@@ -93,45 +94,66 @@ commands = ["cargo test *"]
 
 ### The protection on each OS
 
-The sandbox of commands is different on each OS (`SPEC.md` 6.6.4):
+The sandbox for commands depends on your OS (`SPEC.md` 6.6.4):
 
 | OS | Commands of Claude | Commands of Codex |
 |---|---|---|
 | Linux | Each command runs in a `bwrap` sandbox. Install `bubblewrap`. | The sandbox of Codex |
 | macOS | Each command runs in a Seatbelt sandbox (`sandbox-exec`). | The sandbox of Codex |
-| Windows | No sandbox. Every command asks in the game, also a command of the allow table. | The Windows sandbox of Codex |
+| Windows | No sandbox. Every command asks in the game, even one in the allow table. | The Windows sandbox of Codex |
 
-- The sandbox of the bridge lets a command write only the chat folder and a temp folder.
-  It hides `~/.ssh`, the keys of the bridge, and the other credential folders.
+- The desktop app's sandbox lets a command write only to the chat folder and a temp folder.
+  It hides `~/.ssh`, the app's own keys, and the other credential folders.
   It lets a command reach only the allowed package hosts.
-- On a Linux with no working `bwrap`, the bridge acts as on Windows: every command asks.
-- The sandbox of Codex lets a command read the whole disk, also `~/.ssh`. It gives a command no network.
+- On Linux without a working `bwrap`, it acts as on Windows: every command asks.
+- The sandbox of Codex lets a command read the whole disk, `~/.ssh` too. It gives a command no network.
 - Other ACP agents run their commands themselves, with no sandbox. Each of their tool calls asks at most.
-- On Windows, use Codex for commands that run with no question, or run Claude and the bridge under WSL2.
-  Under WSL2, the bridge uses `bwrap`, as on Linux.
+- On Windows, use Codex for commands that run without asking, or run Claude and the desktop app under WSL2.
+  Under WSL2, the desktop app uses `bwrap`, as on Linux.
 
 ## Notifications
 
-You can also get a notification in the game when Claude Code or Codex in a normal
-terminal waits for you or finishes long work. Run this once:
+Get a notification in the game when Claude Code or Codex in a normal terminal needs
+you or finishes a long task. Run this once:
 
 ```
 gnomish-relay hooks install
 ```
 
-It adds a hook to `~/.claude/settings.json` and to `~/.codex/hooks.json`, for each of
-`claude` and `codex` on your `PATH`. It keeps your own hooks, and it makes a backup of the
-file first. Restart the sessions that run now. At its next start, Codex asks you to
-trust the new hooks: trust them, or no notification comes.
+It adds a hook to `~/.claude/settings.json` and `~/.codex/hooks.json`, for each of
+`claude` and `codex` on your `PATH`. It keeps your own hooks and backs up each file first.
+Then restart any sessions that are open. The next time Codex starts, it asks you to
+trust the new hooks: trust them to get notifications.
 
-A bell then shows at the edge of the minimap while a notification waits, with a line in
-the chat and a sound. A notification never runs anything: you answer in the terminal.
-Settings in the game turn the lines, the sounds, and the toasts on or off.
-`gnomish-relay hooks status` shows the hooks, and `gnomish-relay hooks remove` takes them out.
+While a notification waits, a bell shows at the edge of the minimap, with a line in
+chat and a sound. A notification never runs anything: you answer in the terminal.
+To turn the chat lines, sounds, or banners on or off, open Settings in the game.
+`gnomish-relay hooks status` shows whether notifications are on, and
+`gnomish-relay hooks remove` turns them off.
 
 ## Update
 
-`gnomish-relay update` installs the latest release and restarts the bridge.
+`gnomish-relay update` installs the latest version and restarts the desktop app.
+Then type `/reload` in WoW.
+
+## Troubleshooting
+
+Start with `gnomish-relay status`. It checks each part and says what to do next.
+
+| You see | Do this |
+|---|---|
+| "Desktop app offline" in the window, or "the desktop app isn't running" | Run `gnomish-relay restart`. |
+| "Your game and the desktop app don't match" | Run `gnomish-relay setup`, then type `/reload` in WoW. |
+| "Some addon files are missing" | Close the game, then run `gnomish-relay install`. |
+| "Can't take screenshots" | Free up disk space and check the `Screenshots` folder of WoW, then type `/reload`. |
+| "Another addon is in the way of the colored bar" | Turn off other addons that take screenshots, then type `/reload`. |
+| A colored bar flashes at the top left | That's normal: it's how your messages reach the desktop app. |
+| "1 message is waiting. Reload to send it." | Click **Reload**. |
+| "Claude needs you to log in again" | On your desktop, run `claude` and log in. |
+| A reply says "That agent isn't in config.toml" | Pick another agent in Settings, or add it to `config.toml` and run `gnomish-relay restart`. |
+
+The desktop app writes its log to `bridge.log` in its data folder
+(on macOS, `~/Library/Logs/gnomish-relay.log`; with the Linux service, `journalctl --user -u gnomish-relay`).
 
 ## From source
 
