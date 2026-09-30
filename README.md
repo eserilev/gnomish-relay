@@ -76,42 +76,59 @@ and CI results under each reply, and what each run cost.
 
 ## Add an agent
 
-Claude Code only needs the `claude` program, and Codex only needs `codex`:
+Setup adds the agents it finds when it runs. To add one later, edit `config.toml`:
 
-```toml
-[agents.claude]
-kind = "claude"
-command = ["claude"]
-permission = "auto-edit"
+| OS | Where `config.toml` is |
+|---|---|
+| Linux | `~/.config/gnomish-relay/config.toml` |
+| macOS | `~/Library/Application Support/gnomish-relay/config.toml` |
+| Windows | `%APPDATA%\gnomish-relay\config.toml` |
 
-[agents.codex]
-kind = "codex"
-command = ["codex"]
-permission = "auto-edit"
-```
+1. Add an entry for the agent:
+   - **Claude Code:**
+     ```toml
+     [agents.claude]
+     kind = "claude"
+     command = ["claude"]
+     permission = "auto-edit"
+     ```
+   - **Codex:**
+     ```toml
+     [agents.codex]
+     kind = "codex"
+     command = ["codex"]
+     permission = "auto-edit"
+     ```
+   - **Any ACP agent**, for example Gemini CLI:
+     ```toml
+     [agents.gemini]
+     kind = "acp"
+     command = ["gemini", "--acp"]
+     permission = "auto-edit"
+     ```
+2. Test it: `gnomish-relay check-agent gemini`. It prints the agent's name and version.
+3. Load it: `gnomish-relay restart`.
 
-Any ACP agent is one entry in `config.toml`:
+The agent now shows in the agent list of a new chat.
 
-```toml
-[agents.gemini]
-kind = "acp"
-command = ["gemini", "--acp"]
-permission = "auto-edit"
-```
+## Control what an agent can do
 
-Then run `gnomish-relay check-agent gemini` to test it, and `gnomish-relay restart` to load it.
+### Permission levels
 
-## Stay in control
+`permission` sets the most a chat from the game can do:
 
-`permission` is the most a chat from the game can do:
+| Level | Edits files in the chat's folder | Runs commands |
+|---|---|---|
+| `ask` | Asks you first | Asks you first |
+| `auto-edit` | On its own | Asks you first |
+| `full-auto` | On its own | On its own, inside the sandbox |
 
-- **`ask`**: the agent asks in the game before every edit and every command.
-- **`auto-edit`**: it edits files in the chat's folder on its own, and asks before each command.
-- **`full-auto`**: it also runs commands on its own, inside the sandbox.
+Some actions always ask on your desktop, whatever the level: for example reading `~/.ssh`,
+or writing outside the chat's folder. A dialog with **Approve** and **Deny** opens.
 
-Anything riskier asks on your desktop, not just in the game. Reading `~/.ssh` or writing
-outside the chat's folder opens a dialog with **Approve** and **Deny**. No dialog on your
-computer? Answer in a terminal:
+### Answer a desktop request in a terminal
+
+If your computer shows no dialog, answer in a terminal:
 
 ```sh
 gnomish-relay approve          # list the requests waiting for you
@@ -119,57 +136,62 @@ gnomish-relay approve <id>     # approve one
 gnomish-relay deny <id>        # deny one
 ```
 
-Commands you trust can run without asking, at `auto-edit` and `full-auto`:
+### Let trusted commands run without asking
 
-```toml
-[allow]
-commands = ["cargo test *"]
-```
+At `auto-edit` and `full-auto`, commands that match a rule run without asking.
 
-Or click **Always allow** on a popup in the game. You'll find your rules in Settings, or
-with `gnomish-relay rules`.
+- **From the game:** click **Always allow** on a popup.
+- **In `config.toml`:**
+  ```toml
+  [allow]
+  commands = ["cargo test *"]
+  ```
+
+To see or remove your rules, open Settings in the game, or run `gnomish-relay rules`.
 
 ### How your computer is protected
 
-Each command from the game runs in a sandbox, depending on your OS (`SPEC.md` 6.6.4):
+Where a command runs depends on your OS and your agent (`SPEC.md` 6.6.4):
 
-| OS | Commands from Claude | Commands from Codex |
+| OS | Commands from Claude Code | Commands from Codex |
 |---|---|---|
-| Linux | Each command runs in a `bwrap` sandbox. Install `bubblewrap`. | Codex's own sandbox |
-| macOS | Each command runs in a Seatbelt sandbox (`sandbox-exec`). | Codex's own sandbox |
-| Windows | No sandbox yet, so every command asks in the game, even one you always allow. | Codex's own Windows sandbox |
+| Linux | A `bwrap` sandbox. Needs `bubblewrap` installed. | Codex's own sandbox |
+| macOS | A Seatbelt sandbox (`sandbox-exec`). | Codex's own sandbox |
+| Windows | No sandbox yet: every command asks you first, even one you always allow. | Codex's own Windows sandbox |
 
-- The sandbox lets a command write only to the chat's folder and a temp folder. It hides
-  `~/.ssh`, the desktop app's own keys, and your other credential folders. It only lets a
-  command reach the package hosts you allow.
-- On Linux without a working `bwrap`, it acts like Windows: every command asks.
-- Codex's sandbox lets a command read the whole disk, `~/.ssh` included, but gives it no network.
-- Other ACP agents run their commands themselves, with no sandbox, so each of their tool
-  calls asks you first.
-- On Windows, use Codex for commands that run without asking, or run Claude and the desktop
-  app under WSL2, where the desktop app uses `bwrap` just like on Linux.
+- **Inside the sandbox**, a command can write only to the chat's folder and a temp folder.
+  It can't see `~/.ssh`, the desktop app's keys, or your other credential folders. It can
+  only reach the package hosts you allow.
+- **Linux without a working `bwrap`** acts like Windows: every command asks.
+- **Codex's sandbox** lets a command read the whole disk, `~/.ssh` included, but gives it no network.
+- **Other ACP agents** run their commands themselves, with no sandbox, so every tool call
+  asks you first.
+- **On Windows**, use Codex for commands that run without asking, or run Claude Code and the
+  desktop app under WSL2, where the desktop app uses `bwrap` just like on Linux.
 
-## Notifications from your terminal
+## Get notifications from your terminal
 
-Running Claude Code or Codex in a normal terminal? Get pinged in the game when it needs
-you or finishes a long task. Run this once:
+If you also run Claude Code or Codex in a normal terminal, Gnomish Relay can tell you in the
+game when a session needs you or finishes long work.
 
-```
-gnomish-relay hooks install
-```
+1. Run:
+   ```sh
+   gnomish-relay hooks install
+   ```
+   It adds a hook to `~/.claude/settings.json` and `~/.codex/hooks.json`, for each of
+   `claude` and `codex` that it finds. It keeps your own hooks, and backs up each file first.
+2. Restart the Claude Code and Codex sessions that are open.
+3. The next time Codex starts, it asks you to trust the new hooks. Trust them.
 
-It adds a hook to `~/.claude/settings.json` and `~/.codex/hooks.json` for each of `claude`
-and `codex` on your `PATH`. It keeps your own hooks and backs up each file first. Then
-restart any sessions that are open. The next time Codex starts, it asks you to trust the
-new hooks: trust them to get notifications.
+The first notification can take up to 10 minutes. To check at once, type `/relay poll` in
+the game.
 
-The first notification can take up to 10 minutes. To check right away, type `/relay poll`
-in the game.
+When a notification comes in, a bell shows at the edge of your minimap, with a chat line
+and a sound. A notification never runs anything: you answer in the terminal.
 
-While a notification waits, a bell shows at the edge of your minimap, with a chat line
-and a sound. A notification never runs anything: you answer in the terminal. Turn the
-chat lines, sounds, or banners on or off in Settings. `gnomish-relay hooks status` tells
-you whether notifications are on, and `gnomish-relay hooks remove` turns them off.
+- To choose chat lines, sounds, or banners, open Settings in the game.
+- To check the hooks, run `gnomish-relay hooks status`.
+- To turn notifications off, run `gnomish-relay hooks remove`.
 
 ## Update
 
@@ -179,91 +201,52 @@ you whether notifications are on, and `gnomish-relay hooks remove` turns them of
 
 ## Troubleshooting
 
-Start with `gnomish-relay status`. It checks every part and tells you what to do next.
+First, run `gnomish-relay status`. It checks every part, and says what to fix.
 
-| You see | Do this |
-|---|---|
-| "Desktop app offline", or "the desktop app isn't running" | Run `gnomish-relay restart`. |
-| "Your game and the desktop app don't match" | Run `gnomish-relay setup`, then type `/reload` in WoW. |
-| "Some addon files are missing" | Close the game, then run `gnomish-relay install`. |
-| "Can't take screenshots" | Free up some disk space, check WoW's `Screenshots` folder, then type `/reload`. |
-| "Another addon is in the way of the colored bar" | Turn off other addons that take screenshots, then type `/reload`. |
-| A colored bar flashes in the top-left corner | That's normal: it's how your messages reach the desktop app. |
-| "1 message is waiting. Reload to send it." | Click **Reload**. |
-| "Claude needs you to log in again" | On your computer, run `claude` and log in. |
-| A reply says "That agent isn't in config.toml" | Pick another agent in Settings, or add it to `config.toml` and run `gnomish-relay restart`. |
-
-The desktop app keeps its log in `bridge.log` in its data folder. On macOS it's
-`~/Library/Logs/gnomish-relay.log`, and with the Linux service,
-`journalctl --user -u gnomish-relay`.
-
-Still stuck? [Open an issue](https://github.com/eserilev/gnomish-relay/issues).
-
-## Build from source
-
-`cargo run -q --bin gnomish-relay -- setup`. For addon work, `scripts/dev-link.sh` links
-`addon/GnomishRelay` into the game first. `CLAUDE.md` has the rules for the code, and
-`SPEC.md` has the design. `VERIFICATION.md` covers the proofs.
-
-The checks use these tools:
-
-| Tool | For | Script |
+| What you see | Likely cause | Fix |
 |---|---|---|
-| Rust stable, with `rustfmt` and `clippy` | the build, the lints, and the tests | `check-fast.sh`, `check-all.sh` |
-| `stylua` and `selene` | the format and the lints of the addon | `check-fast.sh`, `check-all.sh` |
-| `python3` and `git` | the WoW API gate | `wow-api.sh`, `selftest-api.sh`, `check-all.sh` |
-| `cargo-deny` | the licenses and advisories of the dependencies | `check-all.sh` |
-| Charon and Aeneas, at the commits in `proofs/TOOLS`, in `~/verif` or in `CHARON_DIR` and `AENEAS_DIR` | the translation of `protocol` to Lean | `extract.sh`, `check-proofs.sh` |
-| Lean through `elan`, at the version in `proofs/lean-toolchain` | the proofs | `check-proofs.sh` |
-| Quint (`npm install -g @informalsystems/quint`) | the models of the transport | `check-model.sh` |
-| Rust nightly and `cargo-fuzz` | the fuzz targets | `fuzz.sh` |
-| `cargo-llvm-cov` | the coverage gates | `check-coverage.sh` |
+| Gnomish Relay isn't in the AddOns list | The addon isn't installed. | Install it from [CurseForge](https://www.curseforge.com/projects/1719624), then restart WoW. |
+| A "Gnomish Relay Setup" window instead of the chat | The desktop app isn't installed, or WoW started before it. | Follow [Install](#install), then restart WoW. |
+| "Desktop app offline", or "the desktop app isn't running" | The desktop app stopped. | Run `gnomish-relay restart`. |
+| "Your game and the desktop app don't match" | The key changed, for example after a new setup. | Run `gnomish-relay setup`, then type `/reload` in WoW. |
+| "Some addon files are missing" | The reply files of the desktop app are gone or turned off. | Close WoW, run `gnomish-relay install`, and keep the `GnomishRelay_…` addons turned on. |
+| "Can't take screenshots" | The disk is full, or the `Screenshots` folder isn't writable. | Free up some disk space, check WoW's `Screenshots` folder, then type `/reload`. |
+| "Another addon is in the way of the colored bar" | Another addon takes screenshots too. | Turn that addon off, then type `/reload`. |
+| "1 message is waiting. Reload to send it." | The message couldn't go out by screenshot, so it waits in WoW's saved file. WoW writes that file only at a reload. | Click **Reload**. |
+| "Claude needs you to log in again" | Your Claude Code login expired. | On your computer, run `claude` and log in. |
+| A reply says "That agent isn't in config.toml" | The chat uses an agent you removed. | Pick another agent in Settings, or [add the agent](#add-an-agent). |
+| A colored bar flashes in the top-left corner | Nothing is wrong. | That's how your messages reach the desktop app. |
 
-For a quick loop, run `scripts/check-fast.sh`. Before each commit, run `scripts/check-all.sh`.
+### Where the log is
 
-### After a game patch
+| Setup | Log |
+|---|---|
+| Linux, with the login service | `journalctl --user -u gnomish-relay` |
+| macOS | `~/Library/Logs/gnomish-relay.log` |
+| Any OS, started by hand | `bridge.log` in the desktop app's data folder |
 
-The tests run the addon in a fake game. A self-test addon measures the real game, so the
-fake game keeps acting like the real one (`SPEC.md` 14.3). Run it after each client patch:
+Still stuck? [Open an issue](https://github.com/eserilev/gnomish-relay/issues), and include
+the output of `gnomish-relay status`.
 
-1. Close the game, and run `scripts/selftest-link.sh`.
-2. Start the game and log in. Stay out of combat. When the chat says "done", type `/reload`.
-3. In this folder, run `cargo run -q --bin gnomish-relay -- selftest collect`. Then run
-   `cargo test`, and commit `tests/fixtures` and `tests/vectors`.
+## Contributing
 
-The first time, collect asks for one more `/reload`: the first session has no saved file
-yet, so it can't see the load order. `scripts/selftest-link.sh --remove` takes the
-self-test out of the game again.
-
-## Maintainers: publish on CurseForge
-
-A version tag (`v*`) starts `.github/workflows/curseforge.yml`. It builds the addon zip
-with the shared transport files copied in, and uploads it with the BigWigs packager. The
-zip holds only the `GnomishRelay` folder, never a key or the desktop app's addon files.
-
-The setup is done once:
-
-1. The CurseForge project exists. Its Project ID is 1719624.
-2. The ID is in the `## X-Curse-Project-ID` line of `addon/GnomishRelay/GnomishRelay.toc`.
-   A repository variable `CURSEFORGE_PROJECT_ID` on GitHub overrides it.
-3. An API token from <https://authors.curseforge.com/#/settings/api-tokens> is the
-   repository secret `CF_API_KEY` on GitHub.
-
-Without the ID or the secret, the job still builds the zip, keeps it as an artifact of the
-run, and skips the upload. To test the zip locally, run `scripts/package-addon.sh dist`.
+To build from source, run the checks, or publish a release, see
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Credits
 
-Gnomish Relay builds on the ideas of two earlier projects (`SPEC.md` 4):
+Gnomish Relay builds on the ideas of two earlier projects:
 
-- [chelinho139/wow-claude](https://github.com/chelinho139/wow-ai), now named `wow-ai`, by
-  chelinho139, under the MIT license. It inspired the design of the addon and the transport.
-  Gnomish Relay has no code from it.
-- [0xInuarashi/wow-forever-codex](https://github.com/0xInuarashi/wow-forever-codex), by
-  0xInuarashi. It measured the file-load rules of the Forever client and invented the
-  pixel-out channel. Gnomish Relay uses its findings, not its code.
+- [chelinho139/wow-ai](https://github.com/chelinho139/wow-ai) (formerly `wow-claude`), MIT
+  license. It inspired the design of the addon and the transport. Gnomish Relay has no code
+  from it.
+- [0xInuarashi/wow-forever-codex](https://github.com/0xInuarashi/wow-forever-codex). It
+  measured the file-load rules of the Forever client and invented the pixel-out channel.
+  Gnomish Relay uses its findings, not its code.
 
-Code in the game window uses the JetBrains Mono font, under the SIL Open Font License 1.1.
-Its license is in `addon/GnomishRelay/JetBrainsMono-OFL.txt`.
+Code in the game window uses the JetBrains Mono font, under the SIL Open Font License 1.1
+(`addon/GnomishRelay/JetBrainsMono-OFL.txt`).
 
-Gnomish Relay is under the MIT license. See `LICENSE`.
+## License
+
+MIT. See [LICENSE](LICENSE).
