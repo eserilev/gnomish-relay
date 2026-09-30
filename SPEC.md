@@ -87,11 +87,11 @@ So the bridge bounds what any message from the game can do (6.6).
 1. The folder of a chat must be inside `allowed_roots` from the config. The bridge rejects all other folders.
 2. The permission level of each agent comes only from the bridge config. A message from the game cannot raise it.
 3. A permanent "always allow" rule from the game follows 6.6.5.
-4. The bridge limits the message rate: at most 10 messages per minute (config key `max_messages_per_minute`).
+4. The bridge limits the message rate: at most 10 messages per minute (a planned config key, `max_messages_per_minute`, 12).
 5. The bridge never runs the agent with `full-auto` unless the config sets it for that agent. The classifier and the sandbox still apply (6.6.2).
 6. The bridge rejects frames with a timestamp more than 5 minutes old or more than 1 minute in the future (S11).
 7. The bridge never writes, renames, or deletes through a symbolic link. It opens files with `O_NOFOLLOW` (Unix) or checks the reparse point (Windows).
-8. The bridge deletes only the screenshots that it decoded as valid strips. It never deletes other screenshots.
+8. The bridge deletes only the screenshots that decode as a frame with a good checksum, because a normal screenshot never does. It deletes a valid strip after it takes it, and a strip that is old, early, or signed with another key, because such a strip never becomes valid and its pixels hold a prompt. It logs one line with the next step. It keeps a strip of the public test key (14.3.1) for `selftest collect`, and a frame that fails for another reason. It never deletes other screenshots.
 9. The bridge limits sizes: an image before decoding (4096 × 4096 px), a hook message (64 KB), a reply record (32 KB), a slot body (S12), and each chat queue (20 messages).
 10. The bridge resolves symbolic links in a chat folder with `canonicalize`, then checks `allowed_roots` again on the result.
 17. The proved resolver (S5) splits paths only at `/`. On Windows, the bridge first turns each `\` of a game folder into `/`, so each `..` counts. It refuses a game folder with `:`, which starts a drive or names a stream. Roots lose the `\\?\` prefix of `canonicalize`.
@@ -107,7 +107,7 @@ So the bridge bounds what any message from the game can do (6.6).
 The setup step makes a random 32-byte key.
 It writes the key into the addon (as a file-local value) and into the bridge config.
 Each strip ends with a truncated HMAC-SHA256 tag (8 bytes) of the header and payload.
-The bridge drops each strip with a wrong tag, and logs it.
+The bridge drops each strip with a wrong tag, deletes its screenshot (6.2, rule 8), and logs it.
 The bridge compares tags in constant time (`subtle::ConstantTimeEq`).
 
 The cost of HMAC-SHA256 in Lua: about 0.1 ms for a full 3221-byte strip under LuaJIT with the JIT off. The plain Lua 5.1 of WoW is a few times slower, still well under 1 ms.
@@ -129,7 +129,7 @@ Theorem S15 covers these rules.
 
 - Reply text sits in a global table after a slot loads. Any addon can read it.
 - `GnomishRelayDB` is a global table. Any addon can read the chats in it.
-- The strip is signed, not encrypted. The prompt is in the pixels of each strip screenshot until the bridge deletes it. If the bridge does not run, these files stay. A cloud sync of the Screenshots folder (for example OneDrive on Windows) copies them.
+- The strip is signed, not encrypted. The prompt is in the pixels of each strip screenshot until the bridge deletes it. If the bridge does not run, these files stay until its next start, which deletes them (6.2, rule 8). A cloud sync of the Screenshots folder (for example OneDrive on Windows) copies them.
 - An addon that loads before ours, for example one named `!Evil`, can replace global functions such as `string.char`, `tonumber`, or `bit.band` before `Key.lua` and `Sha256.lua` run. It can then read the strip key. Lua in WoW gives an addon no way to stop this. Layers 2 to 4 of 6.6 assume that any game message can come from another addon, so the key is a check against programs outside the game, not against other addons.
 - Code in the sandbox can still send data to the allowed API host, for example with an upload under another account key. A proxy that ends TLS and pins the account closes this. It is not in v1.
 - A command of a game run can send data to each host of the proxy list (6.6.4), for example a push to `github.com` with a token of its own. The list limits where a command connects, not what it sends.
@@ -211,7 +211,8 @@ There are four answers, in this order from strict to open:
 
 **Desktop approval.** The bridge runs in the background with no window. So it shows a dialog of the OS with Approve and Deny, and the command line is the fallback:
 
-- The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15).
+- The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15), and the wait in minutes (`permission_timeout_minutes`). The dialog ends with "It waits <n> minutes for an answer. After that, the agent does not get it.", and `gnomish-relay approve` shows the minutes left of each request.
+- Not yet: the reason for the desktop, for example "It reads ~/.ssh, outside the chat folder". The classifier (6.6.3) gives a verdict with no reason, so a reason needs a second, proved function beside it. The in-game line is built in `Core.lua` from the `Desktop:` line, so the minutes in the game need a change of that line and of the addon.
 - `gnomish-relay approve` lists the open requests. `gnomish-relay approve <id>` allows one, and `gnomish-relay deny <id>` refuses one. Each writes an answer file next to the request, with `create_new`, so it never follows a link. A request has at most one answer.
 - The bridge checks for the answer every 100 ms, up to `permission_timeout_minutes`. No answer refuses the call. The bridge then deletes the files. At start it deletes the files of an old bridge.
 - **The game gets a notice, not a popup** (decided with a UX advisor on 2026-09-26). The game sends no request for a desktop call, and has no Deny for it. The desktop dialog is the only prompt, so the player never sees two prompts for one call.
@@ -715,7 +716,7 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 | `list=settings` | Asks for the settings list of the bridge (13.4). The record is a message of the chat `settings`, and the reply is the list. |
 | `mkdir=1` | The folder of the record is a new folder. The bridge makes its last part before the run (9.9). Only a record with `n` makes it. Any other `mkdir=` value is ignored. |
 | `attach=<session>` | The first message of a resumed chat. It has no text. The session must be in the last list (9.6). |
-| `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not set up." |
+| `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop." |
 | `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
 | `read=<id>,<id>` | The final replies in the last body that the addon has shown. The bridge then takes them out of the slot body (7.3). A lost strip loses nothing: the next strip names them again. |
@@ -792,7 +793,7 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 
 Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with four files:
 
-- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the three Lua file names.
+- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, a grey `## Title` ("Gnomish Relay reply slot NNNN (leave on)"), `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the three Lua file names. The AddOns list of the game shows all 1000 slots, so the title says what they are and that the player leaves them on.
 - `Inbox.lua`: the body.
 - `Restore.lua`: the restore bundle (7.6). With no restore, its token is empty, and no addon takes it.
 - `Live.lua`: the progress lines of each run, and the permission requests for the game (9.3, S20, S21).
@@ -1212,8 +1213,8 @@ modes = { ask = "default" }
 
 Then run `gnomish-relay check-agent gemini`. It starts the agent, opens one session in `default_cwd`, and shows the name, the version, whether it resumes sessions, and its mode ids. It fails if a mode in `modes` does not exist.
 For `kind = "claude"`, `check-agent` runs `claude --version` and `claude auth status --json`, with no model call. It fails with "Claude Code needs a login." when `loggedIn` is not true.
-The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "Agent not set up.".
-`kind = "echo"` answers with the message, for a test of the path through the game with no agent.
+The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop."
+`kind = "echo"` answers with the message, for a test of the path through the game with no agent. Setup writes it only when it finds no agent, so the answer starts with the next step: "No agent set up. Install claude or codex, then run: gnomish-relay setup".
 
 ### 9.3 Permissions
 
@@ -1316,7 +1317,7 @@ Rules:
 - Stop for `command` kills the whole process group at once, with no grace: a harness has no cancel channel. On Linux the sandbox has its own process ids, so every program of the harness ends with it.
 - The bridge declares ACP client capabilities `fs` and `terminal` as false in v1. The agent uses its own tools.
 - `process.rs` starts every agent process: never through a shell, with the allowlist of 6.2 rule 12, a limit of 8 MiB on each line, and the last 2 KiB of stderr for an error. `turn.rs` holds the run timeout, Stop with its 10-second grace, and the wait for an answer from the game. ACP, `claude`, and `codex` share them.
-- If an agent needs a login, the bridge reports "agent needs login" in the game. The bridge never handles credentials.
+- If an agent needs a login, the bridge reports it in the game with the next step. For Claude, a failed run whose error names a login (for example "Please run /login", which is a command inside Claude) ends with "Claude needs a new login. On the desktop, run: claude". The bridge never handles credentials.
 - The bridge removes `CLAUDECODE` from the environment of each child process. It sets `GNOMISH_RELAY_JOB=1` (section 10).
 
 ### 9.5 Sessions and folders
@@ -1819,6 +1820,15 @@ The development machine runs Wayland with XWayland. The home file system is ext4
 - WoW can run on D3D12 through vkd3d-proton, or on D3D11 through DXVK.
 - The bridge finds `Interface/AddOns` and `WTF/Account/<ACCOUNT>` without regard to case. It never makes a second folder that differs only in case, for example `Addons` next to `AddOns`.
 - The game makes `Interface/` and `WTF/` only after its first start. The setup step makes `Interface/AddOns` if it is missing.
+- Ubuntu 24.04 blocks the user namespaces of normal users with AppArmor, so `bwrap` fails its probe and the bridge has no sandbox. Setup and `status` say so. An AppArmor profile gives `bwrap` its namespaces back, in `/etc/apparmor.d/bwrap`, then `sudo systemctl reload apparmor`:
+
+  ```
+  abi <abi/4.0>,
+  include <tunables/global>
+  profile bwrap /usr/bin/bwrap flags=(unconfined) {
+    userns,
+  }
+  ```
 
 ### 11.2 Other platform notes
 
@@ -1844,11 +1854,11 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
 4. **Write the config**, once. With the relay on, it has an `[agents.<name>]` entry for each known agent on `PATH`: `claude` (as `kind = "claude"`), `codex` (as `kind = "codex"`), and the ACP agents of 9.2. The default agent is the first one it finds, in the order of `KNOWN_AGENTS` in `install.rs`. With none, it is `echo`. Each entry gets `permission = "auto-edit"`. For each harness with no ACP mode on `PATH` (aider and `llm`), setup asks "Found aider. Add it as an agent? It runs its own commands with no question, inside the sandbox. (y/N)", and adds a `kind = "command"` entry with its preset only on a yes. With no terminal, the answer is no. A harness that has an ACP mode (gemini, goose, opencode) gets its ACP entry, which asks about its tool calls. A local model that answers on the loopback (Ollama on 11434, LM Studio on 1234) puts its port into `[sandbox] local_ports`, so an agent that uses it reaches it from its wall (6.6.4).
    - Why `auto-edit` (decided with an advisor on 2026-09-26): the config is the ceiling of every chat (S6), and the addon asks for `auto-edit`. With `ask` in the config, the player got a game popup for each edit and could not change that from the game. At `auto-edit`, edits inside the chat folder run, and each command still asks in the game unless the allow table covers it. The `desktop` and `deny` answers do not change. Every kind gets the same level, so the rule is simple. An ACP agent at `auto-edit` also edits the chat folder with no popup when it asks. `echo` has no tools. The config also gets a commented example of the allow table (12): setup allows no command. With a Timeways folder, the config gets a `[story]` section with the model that setup finds (9.7, decision 15). With the relay off, the config has no relay part, and setup asks no folder question.
 5. **Make the slot addons**: `GnomishRelay_S0001` to `S1000` with the relay on, and `Timeways_S0001` to `S1000` (with `## Dependencies: Timeways`) with a Timeways folder. WoW finds a new addon only at launch, so after new slots the game needs a restart. Setup says so.
-6. **Start the bridge at login**, with `--autostart`: a systemd user service on Linux, a launchd agent on macOS (log in `~/Library/Logs/gnomish-relay.log`), and a `Run` entry of the user on Windows, which needs no admin rights. On Windows, `run --background` starts the bridge with no console window, with its log in the data folder.
+6. **Start the bridge at login**, with `--autostart`. A service starts with almost no `PATH`, so the service file gets the `PATH` of the shell of setup. `restart` writes it again with the `PATH` of its shell, so an agent installed later in a new folder is found after a restart. `check-agent` and `status` say when the program of an agent is not on the `PATH` of the service: "<program> is not on the PATH of the login service. Run: gnomish-relay restart". The config keeps the bare program name, not its absolute path: a version manager such as nvm or volta moves the path at each upgrade, and a script agent such as `claude` under npm still needs its interpreter on the `PATH` of the service. The service: a systemd user service on Linux, a launchd agent on macOS (log in `~/Library/Logs/gnomish-relay.log`), and a `Run` entry of the user on Windows, which needs no admin rights. On Windows, `run --background` starts the bridge with no console window, with its log in the data folder.
 
 The order is key, addon, slots, config, then autostart: the addon and the slots need nothing else. A failed autostart prints one line, and setup goes on.
 With no code folder found, the folder question has no default: the home folder holds `~/.ssh` and the browser profiles.
-The last lines say what setup found and the next action, for example "Agent: claude", "Level: auto-edit. It edits files in the chat folder with no question, and asks in the game before each command. To change it, edit permission in <config file>", "Story model: claude (haiku)", and "Restart WoW, then type /relay". The level line shows the level of the default agent in the config, also for a config that setup did not write. With the relay off, setup says "Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay" and "Restart WoW, then log in". `gnomish-relay install` makes the slots of each app that is on.
+The last lines say what setup found and the next action, for example "Agent: claude (Claude Code 2.1.3)", the sandbox ("Sandbox: bwrap", or "Sandbox: none. Install bubblewrap so that allowed commands run with no question", or a line about AppArmor when `bwrap` is there and fails its probe, 11.1), "Level: auto-edit. It edits files in the chat folder with no question, and asks in the game before each command. To change it, edit permission in <config file>", "Story model: claude (haiku)", and "Restart WoW, then type /relay". The level line shows the level of the default agent in the config, also for a config that setup did not write. With the relay off, setup says "Gnomish Relay: off. To add coding agents: gnomish-relay setup --relay" and "Restart WoW, then log in". `gnomish-relay install` makes the slots of each app that is on.
 
 **Keeping it working.**
 
@@ -1857,10 +1867,12 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay".
 - With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running."
 - Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude needs a login. Run: claude"), not as the first reply in the game.
+- `gnomish-relay status` prints one line for each part, with the next step when it does not work: whether the bridge runs (the lock of 8.4), the time of the last strip that the bridge took (`last-strip` in the data folder), whether the config loads (with the TOML error and its line), the sandbox, and the default agent with its version or its login. It also says when the program of the default agent is not on the `PATH` of the login service. The logic is in `status.rs`, and `crates/bridge/tests/status.rs` tests it with the fake agents.
+- `gnomish-relay help`, `--help`, and `-h` print the usage on stdout and exit with success. An unknown command prints it as an error.
 
 **Updates and restarts.**
 
-- `gnomish-relay restart` stops the bridge and starts it again, for example after a config edit. With the service of setup, it uses the service: `systemctl --user restart` on Linux and `launchctl kickstart -k` on macOS. With no service (Windows, or no `--autostart`), it stops the process in `bridge.pid`, waits up to 10 s for the lock (8.4), and starts `run --background`.
+- `gnomish-relay restart` stops the bridge and starts it again, for example after a config edit. With the service of setup, it writes the service file again with the `PATH` of the shell, and restarts the service: `daemon-reload` and `systemctl --user restart` on Linux, and `launchctl bootout` and `bootstrap` on macOS. With no service (Windows, or no `--autostart`), it stops the process in `bridge.pid`, waits up to 10 s for the lock (8.4), and starts `run --background`. First it loads the config: a config that does not load stops the restart with the error and its line, and a non-zero exit, because a service restart succeeds even when the new bridge stops at once. Then it waits up to 10 s for the lock, and one second more, and prints "the bridge runs", or the last line of the log and a non-zero exit.
 - `gnomish-relay update` downloads the archive of the latest release for this OS with `curl`, checks its SHA-256 sum, and unpacks it with `tar`. Every supported OS has both tools. `GNOMISH_URL` changes the download folder, as in `install.sh`.
 - If the new program is the same as the installed one, update changes nothing. Otherwise, it puts the new program in place of the old one and restarts the bridge.
 - Windows refuses to replace a running program, but it lets update rename it. So update renames the old program to `gnomish-relay.exe.old` first, and the next update deletes that file.
@@ -1872,7 +1884,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - A version tag (`v*`) starts `.github/workflows/release.yml`. It builds the program for Linux (x86-64), macOS (Arm and x86-64), and Windows (x86-64), and attaches each archive with its SHA-256 sum to a GitHub Release. The release stays a draft until every build is attached. Before the draft, the workflow runs fmt, clippy, and the tests on the three OSes, and checks that the tag, the `Cargo.toml` version, and the TOC version match.
 - `scripts/install.sh` (Linux and macOS) and `scripts/install.ps1` (Windows) download the archive of the latest release, check its SHA-256 sum, install the program, and run `setup --autostart`. Setup asks its questions on the terminal, also under `curl | sh`.
 - Setup asks which folders the agents can use. It suggests the usual folders of code projects that hold a git repository, or the home folder. `--roots a,b` gives them with no question.
-- Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so.
+- Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so. After the player installs an agent, a second setup adds its entry (12).
 - Later: winget, Homebrew, and the AUR point at the release.
 - The addon is also listed on CurseForge and Wago Addons, so players can find it. The listing points to the program: the addon alone does nothing, because each computer needs its own key.
 
@@ -1886,7 +1898,7 @@ The config file is `config.toml` in the config folder of the OS:
 | macOS | `~/Library/Application Support/gnomish-relay` | the same |
 | Windows | `%APPDATA%\gnomish-relay` | `%LOCALAPPDATA%\gnomish-relay` |
 
-`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, or the relay part with `--relay` (11.3).
+`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
 Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
@@ -1966,14 +1978,12 @@ agent_network = "open"         # "strict": the agent reaches only its model host
 - Hosts that a user can add: `nodejs.org` (headers for native modules of npm), `proxy.golang.org` and `sum.golang.org` (Go modules).
 - Only the desktop changes `config.toml` (6.6.2), so no message from the game adds a host.
 
-The other keys below come with their features.
+The other keys below come with their features. Two keys are planned and not in the config yet: `max_parallel_runs` (8.2) and `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses them, so the example leaves them out. A test loads this example, so the example and the loader never differ.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
 ```toml
 default_cwd = "~/Documents/Code"
 allowed_roots = ["~/Documents/Code"]
-max_parallel_runs = 3
-max_messages_per_minute = 10
 timeout_minutes = 30
 permission_timeout_minutes = 10
 default_agent = "claude"
@@ -2345,7 +2355,7 @@ The run starts 5 seconds after `PLAYER_ENTERING_WORLD`, when the saved results d
 3. It writes `tests/fixtures/forever-<build>.json`: the measurements, and the behavior of the fake game that follows from them. It deletes the placeholder fixture.
 4. It writes `tests/vectors/<build>/`: each PNG, `manifest.json` with each payload and the key, and the raw saved file, which shows how WoW writes saved variables.
 
-It reads no key and no config of the relay, and it never deletes a screenshot. A running bridge leaves the test strips alone: their tag fails, so the bridge only logs them.
+It reads no key and no config of the relay, and it never deletes a screenshot. A running bridge leaves the test strips alone: it checks each strip that fails its keys against the test key, and keeps and logs a test strip.
 
 **The fake game.** The tests load the newest real fixture, or `tests/fixtures/forever-placeholder.json` while none exists. The placeholder holds the guesses of the fake game from before the self-test, and it says so. The fake game takes these values from the fixture: `GetBuildInfo`, the screen size, the delay of the slowest shot, the event of a good shot, when the picture is taken, when "Screen captured" shows, the returns of `LoadAddOn` and `FontString:SetFont`, whether `GetContentHeight` waits for the next frame, whether the saved variables load before or after the files, the login events, the timer order, the `bit` results, and `hooksecurefunc` on a missing global. The addon tests also run the relay in the other behaviors that it depends on: "Screen captured" before and after the event, a picture after the handler, saved variables after the files, a content height in the next frame, a disabled slot with and without a working `EnableAddOn`, an out-of-date slot, and a `hooksecurefunc` that refuses a missing global. A timer order that the fake game has no model for stops it at load. A test also fails when the measured shot delay no longer fits the one-second waits of the addon tests.
 

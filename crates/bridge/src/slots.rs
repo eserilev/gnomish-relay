@@ -45,11 +45,17 @@ pub fn slot_name(app: App, n: usize) -> String {
     format!("{}_S{n:04}", addon_name(app))
 }
 
-fn toc(app: App, name: &str) -> String {
+/// The title is grey, and asks the player to leave the slot on: the addon list of the
+/// game shows all 1000 slots.
+fn toc(app: App, n: usize) -> String {
     let addon = addon_name(app);
+    let title = match app {
+        App::Relay => "Gnomish Relay",
+        App::Timeways => "Timeways",
+    };
     format!(
-        "## Interface: 16001\n## Title: {name}\n## LoadOnDemand: 1\n\
-         ## Dependencies: {addon}\n\n{BODY_FILE}\n{RESTORE_FILE}\n{LIVE_FILE}\n"
+        "## Interface: 16001\n## Title: |cff808080{title} reply slot {n:04} (leave on)|r\n\
+         ## LoadOnDemand: 1\n## Dependencies: {addon}\n\n{BODY_FILE}\n{RESTORE_FILE}\n{LIVE_FILE}\n"
     )
 }
 
@@ -73,7 +79,7 @@ pub fn install(addons: &Path, app: App, files: &Files) -> Result<()> {
             }
             _ => {}
         }
-        write_atomic_unsynced(&dir, &format!("{name}.toc"), toc(app, &name).as_bytes())?;
+        write_atomic_unsynced(&dir, &format!("{name}.toc"), toc(app, n).as_bytes())?;
         files.write(&dir, write_atomic_unsynced)?;
     }
     Ok(())
@@ -142,8 +148,15 @@ mod tests {
     #[test]
     fn timeways_slots_have_their_own_names_and_depend_on_timeways() {
         assert_eq!(slot_name(App::Timeways, 7), "Timeways_S0007");
-        let toc = toc(App::Timeways, "Timeways_S0007");
+        let toc = toc(App::Timeways, 7);
         assert!(toc.contains("## Dependencies: Timeways\n"));
+    }
+
+    #[test]
+    fn a_slot_shows_in_the_addon_list_as_a_grey_reply_slot_to_leave_on() {
+        let toc = toc(App::Relay, 42);
+
+        assert!(toc.contains("## Title: |cff808080Gnomish Relay reply slot 0042 (leave on)|r\n"));
     }
 
     #[test]

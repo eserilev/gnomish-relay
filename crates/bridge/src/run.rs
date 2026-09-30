@@ -12,7 +12,7 @@ use anyhow::{Context, Result};
 use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal};
 use crate::config::{Permission, Policy};
 use crate::raise::{RaiseGuard, Raised, Raiser};
-use crate::receive::{KeySet, receive, receive_for};
+use crate::receive::{KeySet, Rejected, receive, receive_for};
 use crate::turn::STOPPED;
 use protocol::apps::App;
 use protocol::record::Record;
@@ -21,14 +21,16 @@ use protocol::version::version_fit;
 use crate::action_input::resolve;
 use crate::folder_walk::{self, Snapshot, Walk};
 use crate::new_folder::make_folder;
-use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
+use crate::relay::{BAD_AGENT, ChatId, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::settings_list::BridgeSettings;
 use crate::slots::{self, Files};
 use crate::state;
+use crate::status;
 use crate::story::{Story, StorySpec};
 use crate::timeways::{NO_STORY, Timeways};
+use crate::vectors::is_test_strip;
 use crate::versions::update_text;
 
 const TICK: Duration = Duration::from_millis(250);
@@ -74,6 +76,8 @@ pub fn log(line: &str) {
 /// calls `step` four times a second. Tests call it directly.
 pub struct Bridge {
     addons: PathBuf,
+    /// The data folder, for the time of the last strip.
+    data: PathBuf,
     keys: KeySet,
     watcher: Watcher,
     /// Only with the relay part in the config (SPEC.md 9.7, decision 15).
@@ -162,6 +166,7 @@ impl Bridge {
             timeways,
             relay,
             addons: paths.addons,
+            data: paths.state,
             keys,
         })
     }
@@ -208,7 +213,8 @@ impl Bridge {
     fn take_screenshots(&mut self) {
         for path in self.watcher.ready() {
             let keys = &self.keys;
-            let tag_checks = |bytes: &[u8]| receive(bytes, keys, now()).is_ok();
+            let tag_checks =
+                |bytes: &[u8]| receive(bytes, keys, now()).is_ok() || is_test_strip(bytes);
             let bytes = match read_strip(&path, tag_checks) {
                 Ok(Some(bytes)) => bytes,
                 Ok(None) => continue,
@@ -217,24 +223,36 @@ impl Bridge {
                     continue;
                 }
             };
-            if !self.take_strip(&bytes) {
-                log(&format!("rejected {}", path.display()));
+            if is_test_strip(&bytes) {
+                log(&format!(
+                    "kept {}: a strip of the self-test",
+                    path.display()
+                ));
                 continue;
             }
-            // Only a valid strip goes, never a screenshot of the user (SPEC.md 6.2, rule 8).
+            let outcome = self.take_strip(&bytes);
+            if let Some(why) = kept_reason(&outcome) {
+                log(&format!("rejected {}: {why}", path.display()));
+                continue;
+            }
+            // A normal screenshot never decodes as a frame, so this is a strip, and its
+            // pixels hold a prompt (SPEC.md 6.2, rule 8).
             if let Err(e) = std::fs::remove_file(&path) {
                 log(&format!("cannot delete {}: {e}", path.display()));
+                continue;
+            }
+            if let Some(line) = deleted_line(&outcome) {
+                log(line);
             }
         }
     }
 
-    /// Returns false for a frame that fails a check, or whose app has no lane.
-    fn take_strip(&mut self, bytes: &[u8]) -> bool {
+    fn take_strip(&mut self, bytes: &[u8]) -> StripOutcome {
         let (app, records) = match receive(bytes, &self.keys, now()) {
             Ok(routed) => routed,
             Err(reason) => {
                 log(&format!("strip rejected: {reason:?}"));
-                return false;
+                return StripOutcome::Rejected(reason);
             }
         };
         match (app, &mut self.relay, &mut self.timeways) {
@@ -243,10 +261,45 @@ impl Bridge {
             // `KeySet` routes to Timeways only with a Timeways key, and that key makes the lane.
             (App::Relay, None, _) | (App::Timeways, _, None) => {
                 log(&format!("strip of {app:?}, which is off"));
-                return false;
+                return StripOutcome::AppOff;
             }
         }
-        true
+        if let Err(e) = status::mark_strip(&self.data, now()) {
+            log(&format!("cannot write the time of the last strip: {e:#}"));
+        }
+        StripOutcome::Taken
+    }
+}
+
+enum StripOutcome {
+    Taken,
+    Rejected(Rejected),
+    AppOff,
+}
+
+/// `None` for a strip that goes. A strip that is old, early, or signed with another key
+/// never becomes valid, so it goes too.
+fn kept_reason(outcome: &StripOutcome) -> Option<&'static str> {
+    match outcome {
+        StripOutcome::Taken
+        | StripOutcome::Rejected(Rejected::Stale | Rejected::Future | Rejected::BadTag) => None,
+        StripOutcome::Rejected(_) => Some("a bad frame"),
+        StripOutcome::AppOff => Some("its app is off"),
+    }
+}
+
+fn deleted_line(outcome: &StripOutcome) -> Option<&'static str> {
+    match outcome {
+        StripOutcome::Rejected(Rejected::Stale) => {
+            Some("deleted an old strip from before the bridge started")
+        }
+        StripOutcome::Rejected(Rejected::Future) => {
+            Some("deleted a strip with a time in the future: check the clock of this computer")
+        }
+        StripOutcome::Rejected(Rejected::BadTag) => Some(
+            "deleted a strip signed with another key: run gnomish-relay setup, then type /reload in the game",
+        ),
+        _ => None,
     }
 }
 
@@ -362,7 +415,7 @@ impl RelayLane {
         // The policy refuses an agent that the config does not have, so this is a guard.
         let Some(agent) = self.agents.get(&job.agent).map(Arc::clone) else {
             let run = Run {
-                reply: Err("Agent not set up.".into()),
+                reply: Err(BAD_AGENT.into()),
                 session: None,
             };
             let _ = finished.send(Finished::Run(job, run));

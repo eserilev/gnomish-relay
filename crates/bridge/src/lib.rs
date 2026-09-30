@@ -65,6 +65,7 @@ pub mod settings_list;
 pub mod setup;
 pub mod slots;
 pub mod state;
+pub mod status;
 pub mod story;
 pub mod story_sandbox;
 pub mod strip;

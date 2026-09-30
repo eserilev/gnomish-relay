@@ -221,7 +221,7 @@ impl Gate {
             config_dir: places.config_dir.to_owned(),
             data_dir: places.data_dir.to_owned(),
             allow: std::sync::Arc::new(config.allow.clone()),
-            approvals: Approvals::new(places.data_dir, prompt),
+            approvals: Approvals::new(places.data_dir, prompt).with_wait(config.permission_timeout),
             sandbox: CommandSandbox::detect(config.hosts.clone(), &config.local_ports),
             wall: AgentWall::detect(places.data_dir, config.agent_network, &config.local_ports),
             always: AlwaysRules::new(places.data_dir),

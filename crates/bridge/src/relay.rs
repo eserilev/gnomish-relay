@@ -31,10 +31,12 @@ use crate::reply::render_reply;
 use crate::settings_list::{BridgeSettings, settings_reply};
 use crate::state::State;
 
-const BAD_FOLDER: &str = "Folder not allowed.";
-const BAD_AGENT: &str = "Agent not set up.";
+const BAD_FOLDER: &str =
+    "Folder not allowed: it is outside allowed_roots in config.toml. Pick another folder.";
+pub const BAD_AGENT: &str =
+    "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop.";
 const STOPPED: &str = "Stopped.";
-const RESTARTED: &str = "Stopped: the bridge restarted.";
+const RESTARTED: &str = "Stopped: the bridge restarted. Send the message again.";
 /// The agent sessions of the chats with the latest runs.
 const MAX_SESSIONS: usize = 64;
 /// The sessions in one list for the game, newest first.
@@ -1150,6 +1152,16 @@ mod tests {
     }
 
     #[test]
+    fn each_error_text_of_the_relay_says_what_to_do_next() {
+        assert!(BAD_FOLDER.contains("Pick another folder"), "{BAD_FOLDER}");
+        assert!(
+            BAD_AGENT.contains("Pick another agent in Settings"),
+            "{BAD_AGENT}"
+        );
+        assert!(RESTARTED.contains("Send the message again"), "{RESTARTED}");
+    }
+
+    #[test]
     fn the_build_counts_as_good_only_when_both_channels_work() {
         let mut relay = relay();
         relay.on_frame(
@@ -1713,7 +1725,7 @@ mod tests {
         let mut relay = relay();
         let outcomes = relay.on_frame(&[record_in("../../new", "c1", 1, "n;mkdir=1", "hi")], NOW);
         assert_eq!(outcomes, [Outcome::BadFolder]);
-        assert!(body(&relay).contains("Folder not allowed."));
+        assert!(body(&relay).contains("Folder not allowed:"));
     }
 
     #[test]
@@ -1746,7 +1758,7 @@ mod tests {
         let outcomes = relay.on_frame(&[record_in("../../.ssh", "c1", 1, "", "a")], NOW);
         assert_eq!(outcomes, [Outcome::BadFolder]);
         assert!(relay.next_job().is_none());
-        assert!(body(&relay).contains(r#"id = 1, status = "error", text = "Folder not allowed.""#));
+        assert!(body(&relay).contains(r#"id = 1, status = "error", text = "Folder not allowed:"#));
         assert_eq!(
             relay.on_frame(&[record_in("../../.ssh", "c1", 1, "", "a")], NOW),
             [Outcome::Duplicate]

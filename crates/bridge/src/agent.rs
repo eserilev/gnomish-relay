@@ -192,13 +192,17 @@ pub trait Agent: Send + Sync {
     }
 }
 
+/// Setup writes the echo agent only when it finds no agent, so its player needs this.
+pub const NO_AGENT: &str =
+    "No agent set up. Install claude or codex, then run: gnomish-relay setup";
+
 /// Answers with the message itself. It proves the whole path through the game.
 pub struct Echo;
 
 impl Agent for Echo {
     fn run(&self, job: &Job, _control: &Control) -> Run {
         Run {
-            reply: Ok(format!("echo: {}", job.text)),
+            reply: Ok(format!("{NO_AGENT}\n\necho: {}", job.text)),
             session: None,
         }
     }
@@ -345,6 +349,14 @@ mod tests {
     }
 
     #[test]
+    fn the_echo_agent_says_how_to_set_up_a_real_agent() {
+        assert_eq!(
+            NO_AGENT,
+            "No agent set up. Install claude or codex, then run: gnomish-relay setup"
+        );
+    }
+
+    #[test]
     fn the_echo_agent_has_nothing_to_check() {
         assert!(check("echo", &spec(Kind::Echo, ""), ".", &gate()).is_none());
     }
@@ -405,7 +417,7 @@ mod tests {
             new_folder: false,
         };
         let run = agents["echo"].run(&job, &Control::default());
-        assert_eq!(run.reply.unwrap(), "echo: hi");
+        assert_eq!(run.reply.unwrap(), format!("{NO_AGENT}\n\necho: hi"));
         assert_eq!(agents["echo"].sessions(".").unwrap(), []);
     }
 }

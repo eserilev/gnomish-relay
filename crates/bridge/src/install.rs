@@ -505,6 +505,53 @@ pub fn launchd_plist(exe: &Path, path_var: &str, log: &Path) -> String {
     )
 }
 
+pub const SYSTEMD_UNIT: &str = "gnomish-relay.service";
+
+/// The login service file of setup on this OS, if there is one.
+pub fn service_file(config_dir: &Path, home: &Path) -> Option<PathBuf> {
+    let file = if cfg!(target_os = "linux") {
+        config_dir.parent()?.join("systemd/user").join(SYSTEMD_UNIT)
+    } else if cfg!(target_os = "macos") {
+        home.join("Library/LaunchAgents")
+            .join(format!("{LAUNCHD_LABEL}.plist"))
+    } else {
+        return None;
+    };
+    file.is_file().then_some(file)
+}
+
+/// The `PATH` that `systemd_unit` or `launchd_plist` wrote. The service finds its agents
+/// only on this `PATH`, not on the one of the shell.
+pub fn service_path_var(text: &str) -> Option<String> {
+    if let Some(at) = text.find("Environment=\"PATH=") {
+        return Some(systemd_unquoted(&text[at + "Environment=\"PATH=".len()..]));
+    }
+    let start = text.find("<key>PATH</key><string>")? + "<key>PATH</key><string>".len();
+    let end = text[start..].find("</string>")?;
+    Some(xml_text(&text[start..start + end]))
+}
+
+/// The text up to the closing quote, with the escapes of `systemd_unit` undone.
+fn systemd_unquoted(text: &str) -> String {
+    let mut out = String::new();
+    let mut chars = text.chars();
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => break,
+            '\\' => out.extend(chars.next()),
+            c => out.push(c),
+        }
+    }
+    out
+}
+
+fn xml_text(text: &str) -> String {
+    text.replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -775,6 +822,19 @@ mod tests {
         assert!(unit.contains("ExecStart=\"/opt/my relay/gnomish-relay\" run\n"));
         assert!(unit.contains("Environment=\"PATH=/usr/bin:/home/x/.npm/bin\"\n"));
         assert!(unit.contains("WantedBy=default.target"));
+    }
+
+    #[test]
+    fn the_path_of_the_service_comes_back_from_the_unit_and_the_plist() {
+        let path = "/usr/bin:/home/x/my \"odd\" \\dir:/a&b<c>";
+        let exe = Path::new("/opt/gnomish-relay");
+
+        let from_unit = service_path_var(&systemd_unit(exe, path));
+        let from_plist = service_path_var(&launchd_plist(exe, path, Path::new("/l.log")));
+
+        assert_eq!(from_unit.as_deref(), Some(path));
+        assert_eq!(from_plist.as_deref(), Some(path));
+        assert_eq!(service_path_var("[Service]\nExecStart=x run\n"), None);
     }
 
     #[test]

@@ -16,7 +16,7 @@ use bridge::desktop::{self, Approvals, Prompt};
 use bridge::forward;
 use bridge::fs_safe::write_atomic;
 use bridge::gate::{Gate, Places};
-use bridge::install;
+use bridge::install::{self, SYSTEMD_UNIT};
 use bridge::lock::{self, Bridge};
 use bridge::model::ModelChoice;
 use bridge::model_setup;
@@ -27,6 +27,7 @@ use bridge::selftest;
 use bridge::settings_list::BridgeSettings;
 use bridge::setup::{self, KeyChoice};
 use bridge::slots::{self, Files};
+use bridge::status::{self, SandboxFound};
 use bridge::story::StorySpec;
 use bridge::update::{self, Replaced};
 use protocol::apps::App;
@@ -39,10 +40,13 @@ usage:
   gnomish-relay install              make the slot addons (game closed)
   gnomish-relay run                  read strips, run the agents, publish the replies
   gnomish-relay restart              stop the bridge and start it again, for example after a config edit
+  gnomish-relay status               show whether the bridge runs, the config, the sandbox, and the agent
   gnomish-relay update               install the latest release and restart the bridge
   gnomish-relay check-agent <name>   start an agent of the config and show what it offers
   gnomish-relay approve [id]         list the tool calls that wait for the desktop, or allow one
   gnomish-relay deny <id>            refuse a tool call that waits for the desktop
+  gnomish-relay rules                list the Always allow rules from the game
+  gnomish-relay rules remove <id>    remove one Always allow rule
   gnomish-relay say <chat> <id> <text>
                                      publish a reply to message <id> (from `/relay diag`)
   gnomish-relay selftest collect [folder] [--out <repo>]
@@ -137,7 +141,6 @@ fn command(program: &str, args: &[&str]) -> Result<()> {
 /// Starts the bridge at each login, and now (SPEC.md 11.3).
 fn autostart() -> Result<()> {
     let exe = std::env::current_exe()?;
-    let path_var = std::env::var("PATH").unwrap_or_default();
     if cfg!(windows) {
         // The Run key of the user needs no admin rights, unlike a scheduled task.
         let run = format!("\"{}\" run --background", exe.display());
@@ -157,32 +160,10 @@ fn autostart() -> Result<()> {
         )?;
         restart_process(&exe)?;
     } else if cfg!(target_os = "macos") {
-        let dir = launch_agents_dir()?;
-        std::fs::create_dir_all(&dir)?;
-        let name = format!("{}.plist", install::LAUNCHD_LABEL);
-        let log = home_dir()?
-            .join("Library")
-            .join("Logs")
-            .join("gnomish-relay.log");
-        write_atomic(
-            &dir,
-            &name,
-            install::launchd_plist(&exe, &path_var, &log).as_bytes(),
-        )?;
-        let domain = launchd_domain()?;
-        let plist = dir.join(&name).to_string_lossy().into_owned();
-        let _ = command("launchctl", &["bootout", &domain, &plist]);
-        command("launchctl", &["bootstrap", &domain, &plist])?;
+        let log = load_launchd_agent(&exe)?;
         println!("logs: {}", log.display());
     } else {
-        let dir = systemd_dir()?;
-        std::fs::create_dir_all(&dir)?;
-        write_atomic(
-            &dir,
-            SYSTEMD_UNIT,
-            install::systemd_unit(&exe, &path_var).as_bytes(),
-        )?;
-        command("systemctl", &["--user", "daemon-reload"])?;
+        write_systemd_unit(&exe)?;
         command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
         command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
         println!("logs: journalctl --user -u gnomish-relay");
@@ -190,7 +171,38 @@ fn autostart() -> Result<()> {
     Ok(())
 }
 
-const SYSTEMD_UNIT: &str = "gnomish-relay.service";
+/// A service starts with almost no `PATH`, so it gets the one of this shell, and finds
+/// the agents that the shell finds.
+fn write_systemd_unit(exe: &Path) -> Result<()> {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let dir = systemd_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    write_atomic(
+        &dir,
+        SYSTEMD_UNIT,
+        install::systemd_unit(exe, &path_var).as_bytes(),
+    )?;
+    command("systemctl", &["--user", "daemon-reload"])
+}
+
+/// Writes the launchd agent with the `PATH` of this shell, and starts it. Returns its log.
+fn load_launchd_agent(exe: &Path) -> Result<PathBuf> {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let dir = launch_agents_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    let name = format!("{}.plist", install::LAUNCHD_LABEL);
+    let log = launchd_log()?;
+    write_atomic(
+        &dir,
+        &name,
+        install::launchd_plist(exe, &path_var, &log).as_bytes(),
+    )?;
+    let domain = launchd_domain()?;
+    let plist = dir.join(&name).to_string_lossy().into_owned();
+    let _ = command("launchctl", &["bootout", &domain, &plist]);
+    command("launchctl", &["bootstrap", &domain, &plist])?;
+    Ok(log)
+}
 
 fn systemd_dir() -> Result<PathBuf> {
     Ok(config_dir()?
@@ -209,23 +221,92 @@ fn launchd_domain() -> Result<String> {
     Ok(format!("gui/{}", String::from_utf8(uid)?.trim()))
 }
 
+/// Where the bridge of each kind of start writes its log.
+enum BridgeLog {
+    Journal,
+    File(PathBuf),
+}
+
 /// Restarts the bridge through the login service of setup, or as a process with no
 /// service. `exe` is the program to start: after an update, `current_exe` names the
 /// old file.
 fn restart(exe: &Path) -> Result<()> {
+    // A service restart succeeds even when the new bridge stops at once on a bad config.
+    load_config().context(
+        "the bridge cannot start with this config.toml. Fix it, then run: gnomish-relay restart",
+    )?;
+    let log = restart_service(exe)?;
+    confirm_start(&log)
+}
+
+fn restart_service(exe: &Path) -> Result<BridgeLog> {
     if cfg!(target_os = "linux") && systemd_dir()?.join(SYSTEMD_UNIT).is_file() {
-        return command("systemctl", &["--user", "restart", SYSTEMD_UNIT]);
+        write_systemd_unit(exe)?;
+        command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
+        return Ok(BridgeLog::Journal);
     }
     let plist = launch_agents_dir()?.join(format!("{}.plist", install::LAUNCHD_LABEL));
     if cfg!(target_os = "macos") && plist.is_file() {
-        let service = format!("{}/{}", launchd_domain()?, install::LAUNCHD_LABEL);
-        return command("launchctl", &["kickstart", "-k", &service]);
+        return load_launchd_agent(exe).map(BridgeLog::File);
     }
-    restart_process(exe)
+    restart_process(exe).map(BridgeLog::File)
 }
 
-/// A bridge that runs with no service gets stopped, and then `exe` starts in the background.
-fn restart_process(exe: &Path) -> Result<()> {
+fn launchd_log() -> Result<PathBuf> {
+    Ok(home_dir()?
+        .join("Library")
+        .join("Logs")
+        .join("gnomish-relay.log"))
+}
+
+/// A bridge that stops at start holds the lock only for a moment, so the check waits a
+/// second after the lock and looks again.
+fn confirm_start(log: &BridgeLog) -> Result<()> {
+    let data = data_dir()?;
+    let runs = lock::wait_until_runs(&data, std::time::Duration::from_secs(10))? && {
+        std::thread::sleep(std::time::Duration::from_secs(1));
+        lock::status(&data)? != Bridge::Stopped
+    };
+    if runs {
+        println!("the bridge runs");
+        return Ok(());
+    }
+    match last_log_line(log) {
+        Some(line) => bail!("the bridge does not run. Its last log line: {line}"),
+        None => bail!("the bridge does not run, and its log is empty"),
+    }
+}
+
+fn last_log_line(log: &BridgeLog) -> Option<String> {
+    let text = match log {
+        BridgeLog::Journal => {
+            let args = [
+                "--user",
+                "-u",
+                SYSTEMD_UNIT,
+                "-n",
+                "1",
+                "--no-pager",
+                "-o",
+                "cat",
+            ];
+            let out = std::process::Command::new("journalctl")
+                .args(args)
+                .output()
+                .ok()?;
+            String::from_utf8_lossy(&out.stdout).into_owned()
+        }
+        BridgeLog::File(path) => std::fs::read_to_string(path).ok()?,
+    };
+    text.lines()
+        .rev()
+        .find(|line| !line.trim().is_empty())
+        .map(str::to_owned)
+}
+
+/// A bridge that runs with no service gets stopped, and then `exe` starts in the
+/// background. Returns the log file.
+fn restart_process(exe: &Path) -> Result<PathBuf> {
     let data = data_dir()?;
     std::fs::create_dir_all(&data)?;
     match lock::status(&data)? {
@@ -239,8 +320,8 @@ fn restart_process(exe: &Path) -> Result<()> {
         bail!("the bridge does not stop");
     }
     let log = start_background(exe)?;
-    println!("the bridge runs, and logs to {}", log.display());
-    Ok(())
+    println!("logs: {}", log.display());
+    Ok(log)
 }
 
 fn stop_process(pid: u32) -> Result<()> {
@@ -463,6 +544,7 @@ fn setup_config(
         Vec::new()
     };
     let local_ports = model_setup::local_ports(&models);
+    let new_agents = setup::new_agents(&agents, existing.map(|(_, config)| config));
     let parts = setup::ConfigParts {
         wow,
         relay: (!roots.is_empty()).then_some(RelayPart {
@@ -471,13 +553,21 @@ fn setup_config(
             roots: &roots,
             local_ports: &local_ports,
         }),
+        new_agents: &new_agents,
         story: wants_story.then_some(models.as_slice()),
     };
     let text = existing.map(|(text, _)| text.as_str());
-    match setup::config_text(text, &parts) {
-        Some(new) => setup::write_config(dir, &new, &home_dir()?),
-        None => load_config(),
+    let config = match setup::config_text(text, &parts) {
+        Some(new) => setup::write_config(dir, &new, &home_dir()?)?,
+        None => load_config()?,
+    };
+    let added = config.relay.as_ref().map(|relay| &relay.agents);
+    for (name, _, _) in &new_agents {
+        if added.is_some_and(|agents| agents.contains_key(*name)) {
+            println!("Added agent: {name}. Pick it for a new chat in the game, in Settings");
+        }
     }
+    Ok(config)
 }
 
 /// A harness with no ACP mode runs its own commands, so setup adds it only on a yes.
@@ -500,7 +590,9 @@ fn choose_harnesses(path_var: &std::ffi::OsStr) -> Result<Vec<&'static str>> {
 fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {
     match &config.relay {
         Some(relay_config) => {
-            println!("{}", agent_line(relay_config));
+            for line in relay_lines(relay_config) {
+                println!("{line}");
+            }
             if let Ok(dir) = config_dir() {
                 println!(
                     "{}",
@@ -516,6 +608,20 @@ fn print_setup(config: &Config, relay: setup::Relay, timeways: bool) {
     if timeways {
         println!("{}", story_line(config));
     }
+}
+
+/// The agent and the sandbox, which setup checks by starting them.
+fn relay_lines(config: &RelayConfig) -> Vec<String> {
+    let gate = match check_gate(config) {
+        Ok(gate) => gate,
+        Err(e) => return vec![format!("Agent: not checked: {e:#}")],
+    };
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let sandbox = SandboxFound::of(&gate.sandbox.tool, &path);
+    vec![
+        status::agent_line(config, &gate),
+        status::sandbox_line(&sandbox),
+    ]
 }
 
 fn story_line(config: &Config) -> String {
@@ -707,31 +813,6 @@ fn story_spec(story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
     Ok(spec)
 }
 
-/// The default agent, started once with no prompt, so a missing login shows here and
-/// not as the first reply in the game.
-fn agent_line(config: &RelayConfig) -> String {
-    let name = &config.policy.default_agent;
-    let cwd = String::from_utf8_lossy(&config.policy.folders.base).into_owned();
-    let Ok(gate) = check_gate(config) else {
-        return "Agent: none. The data folder is missing.".into();
-    };
-    let checked = config
-        .agents
-        .get(name)
-        .and_then(|spec| agent::check(name, spec, &cwd, &gate));
-    let Some(checked) = checked else {
-        return "Agent: none. Replies repeat your message.".into();
-    };
-    match checked {
-        Ok(_) => format!("Agent: {name}"),
-        Err(e) if install::needs_login(&e) => match install::login_command(name) {
-            Some(login) => format!("Agent: {name} needs a login. Run: {login}"),
-            None => format!("Agent: {name} needs a login."),
-        },
-        Err(e) => format!("Agent: {name} does not start: {e}"),
-    }
-}
-
 /// A check sends no prompt, so no tool call reaches this gate.
 fn check_gate(config: &RelayConfig) -> Result<Gate> {
     let places = Places {
@@ -740,6 +821,20 @@ fn check_gate(config: &RelayConfig) -> Result<Gate> {
         home: &home_dir()?,
     };
     Ok(Gate::new(config, &places, Prompt::Off))
+}
+
+fn print_status() -> Result<()> {
+    let places = Places {
+        config_dir: &config_dir()?,
+        data_dir: &data_dir()?,
+        home: &home_dir()?,
+    };
+    std::fs::create_dir_all(places.data_dir)?;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    for line in status::status_lines(&places, &path, now()) {
+        println!("{line}");
+    }
+    Ok(())
 }
 
 fn approvals() -> Result<Approvals> {
@@ -754,7 +849,10 @@ fn list_approvals() -> Result<()> {
     }
     for p in pending {
         let age = now().saturating_sub(p.created);
-        println!("{}  {age}s ago  {} in {}", p.id, p.agent, p.folder);
+        let left = p
+            .minutes_left(now())
+            .map_or(String::new(), |minutes| format!("  {minutes} min left"));
+        println!("{}  {age}s ago{left}  {} in {}", p.id, p.agent, p.folder);
         for line in p.text.lines() {
             println!("    {line}");
         }
@@ -827,6 +925,16 @@ fn check_agent(name: &str) -> Result<()> {
     for line in &report.details {
         println!("{line}");
     }
+    let service = install::service_file(&config_dir()?, &home_dir()?)
+        .and_then(|file| std::fs::read_to_string(file).ok())
+        .and_then(|text| install::service_path_var(&text));
+    let missing = spec
+        .command
+        .first()
+        .and_then(|program| status::service_path_line(program, service.as_deref()));
+    if let Some(line) = missing {
+        println!("{line}");
+    }
     for (level, mode) in &spec.modes {
         if !report.modes.contains(mode) {
             bail!("the agent has no mode {mode:?}, which the config names for {level:?}");
@@ -852,6 +960,10 @@ fn forward_then(socket: &str, ports: &str, child: std::process::Command) -> Resu
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["help" | "--help" | "-h"] => {
+            println!("{USAGE}");
+            Ok(())
+        }
         ["setup", ref rest @ ..] => setup(rest),
         ["install"] => install(),
         ["run"] => start(),
@@ -861,6 +973,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         ["restart"] => restart(&std::env::current_exe()?),
+        ["status"] => print_status(),
         ["update"] => self_update(),
         ["check-agent", name] => check_agent(name),
         ["approve"] => list_approvals(),

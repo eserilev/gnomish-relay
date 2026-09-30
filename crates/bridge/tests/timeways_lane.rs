@@ -215,7 +215,10 @@ fn no_timeways_key_means_no_timeways_lane_and_no_change_in_behavior() {
     )
     .contains("echo: hi")));
 
-    assert!(story.exists(), "a strip with no known key stays");
+    assert!(
+        !story.exists(),
+        "a strip with no known key goes, with its prompt"
+    );
     assert!(!f.state.join(TIMEWAYS_DIR).exists());
     assert!(!slot_file(&f.addons, App::Timeways, BODY_FILE).contains("id = 7"));
 }

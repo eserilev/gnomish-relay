@@ -78,6 +78,18 @@ pub fn wait_until_stopped(dir: &Path, timeout: Duration) -> Result<bool> {
     Ok(true)
 }
 
+/// Returns `false` when no bridge runs at the end of `timeout`.
+pub fn wait_until_runs(dir: &Path, timeout: Duration) -> Result<bool> {
+    let end = Instant::now() + timeout;
+    while status(dir)? == Bridge::Stopped {
+        if Instant::now() >= end {
+            return Ok(false);
+        }
+        std::thread::sleep(Duration::from_millis(100));
+    }
+    Ok(true)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -125,5 +137,20 @@ mod tests {
         });
         assert!(wait_until_stopped(dir.path(), Duration::from_secs(10)).unwrap());
         release.join().unwrap();
+    }
+
+    #[test]
+    fn the_wait_for_a_start_ends_when_the_bridge_runs_or_the_time_is_up() {
+        let dir = tempfile::tempdir().unwrap();
+        assert!(!wait_until_runs(dir.path(), Duration::from_millis(200)).unwrap());
+        let path = dir.path().to_owned();
+        let start = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(200));
+            let lock = take(&path).unwrap();
+            std::thread::sleep(Duration::from_secs(2));
+            drop(lock);
+        });
+        assert!(wait_until_runs(dir.path(), Duration::from_secs(10)).unwrap());
+        start.join().unwrap();
     }
 }
