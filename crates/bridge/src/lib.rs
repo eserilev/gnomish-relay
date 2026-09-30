@@ -40,6 +40,7 @@ pub mod history;
 pub mod holder;
 pub mod ids;
 pub mod install;
+pub mod iso_time;
 pub mod lane;
 #[cfg(unix)]
 pub mod launch;

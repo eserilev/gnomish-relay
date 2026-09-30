@@ -19,6 +19,7 @@ use crate::agent::{
 use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
 use crate::config::{Kind, Permission};
 use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
+use crate::iso_time::unix_time;
 use crate::process::{AgentProcess, cut};
 use crate::relay::{Job, Work};
 use crate::turn::{STOPPED, Turn};
@@ -83,29 +84,6 @@ pub fn read_sessions(result: &Value) -> Vec<SessionInfo> {
             })
         })
         .collect()
-}
-
-/// Seconds since 1970 of an ISO 8601 time in UTC, such as `2026-09-25T06:46:21.432Z`.
-pub fn unix_time(iso: &str) -> Option<u32> {
-    let number = |range: std::ops::Range<usize>| iso.get(range)?.parse::<i64>().ok();
-    let (year, month, day) = (number(0..4)?, number(5..7)?, number(8..10)?);
-    let (hour, minute, second) = (number(11..13)?, number(14..16)?, number(17..19)?);
-    if !(1..=12).contains(&month)
-        || !(1..=31).contains(&day)
-        || hour > 23
-        || minute > 59
-        || second > 60
-    {
-        return None;
-    }
-    // Days from civil, by Howard Hinnant: March starts the year, so February is last.
-    let y = if month <= 2 { year - 1 } else { year };
-    let era = y.div_euclid(400);
-    let year_of_era = y - era * 400;
-    let day_of_year = (153 * ((month + 9) % 12) + 2) / 5 + day - 1;
-    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
-    let days = era * 146_097 + day_of_era - 719_468;
-    u32::try_from(days * 86_400 + hour * 3600 + minute * 60 + second).ok()
 }
 
 impl AcpAgent {

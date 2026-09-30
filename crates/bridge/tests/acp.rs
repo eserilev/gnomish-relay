@@ -6,7 +6,7 @@
 use std::collections::BTreeMap;
 use std::time::{Duration, Instant};
 
-use bridge::acp::{AcpAgent, unix_time};
+use bridge::acp::AcpAgent;
 use bridge::agent::{Agent, Control, Event, Events, StopSignal};
 use bridge::config::Permission;
 use bridge::desktop::{Approvals, Prompt};
@@ -416,15 +416,6 @@ fn an_attach_to_an_agent_with_no_load_keeps_the_session_and_shows_nothing() {
         Some("a1"),
         "no fork, so the same session"
     );
-}
-
-#[test]
-fn an_iso_time_becomes_unix_seconds_and_a_bad_one_is_none() {
-    assert_eq!(unix_time("1970-01-01T00:00:00Z"), Some(0));
-    assert_eq!(unix_time("2024-02-29T23:59:59.999Z"), Some(1_709_251_199));
-    assert_eq!(unix_time("2026-13-01T00:00:00Z"), None);
-    assert_eq!(unix_time("yesterday"), None);
-    assert_eq!(unix_time("1969-12-31T23:59:59Z"), None);
 }
 
 /// A live run against `claude-agent-acp` on `PATH`. `GNOMISH_LIVE_SESSION` names a
