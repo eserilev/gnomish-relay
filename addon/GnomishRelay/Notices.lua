@@ -328,8 +328,9 @@ function Notices.Clear()
 end
 
 -- Seconds to the next poll while a terminal session is open, or nil.
+-- Only the bridge ends a stale turn, so an offline bridge leaves `busy` as it was.
 function Notices.PollEvery()
-	if not Notices.On() then
+	if not Notices.On() or not ns.Transport.Online() then
 		return nil
 	elseif state.busy > 0 then
 		return BUSY_POLL

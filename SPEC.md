@@ -1740,13 +1740,14 @@ notices = {busy = 1, open = 2, list = {
 | State | Poll |
 |---|---|
 | A desktop request waits (6.6.3) | every 5 s, as before |
-| Notifications on, and `busy` > 0 | every 60 s |
-| Notifications on, and `open` > 0 | every 3 min |
+| Notifications on, the bridge online, and `busy` > 0 | every 60 s |
+| Notifications on, the bridge online, and `open` > 0 | every 3 min |
 | Else | the schedule of 7.3 (10 minutes when idle) |
 
 - Cost: 60 slots in each hour of terminal work, and 20 in each hour with an idle session. The 1000 slots of a UI session then last about 16 hours of terminal work, less the slots of game chats. Diag shows the free slots, and "Reload soon" (7.3) covers the rest. The banner shows only in the window, so when fewer than 20 slots are left, the addon also prints one chat line: "Gnomish Relay: slots run low. Type /reload to keep replies and notifications." After the last slot, no poll can take a notice away, so the addon empties the list and the bell hides.
 - The addon learns that a session is open only at a poll, so the first notification of an evening can wait up to 10 minutes.
 - Notifications off stops the faster polls, so it is also a way to save slots.
+- Only the bridge ends a stale turn (10.3). A bridge that stopped leaves `busy` as it was in the last live file, so the faster polls stop while the bridge is offline (7.3).
 
 **The list.** The addon keeps the notices of the last live file that pass the filter, less the ones that the user cleared. So an answered notice leaves the list at the next poll: the bridge took it away (10.3). The filter: a `finished` or `failed` notice with a `took` below the setting shows nowhere, not in the list and not in the chat. `took` = 0 passes every setting but Never. `waiting` always passes. A change of the Finished work setting filters the list at once, with no line and no sound.
 

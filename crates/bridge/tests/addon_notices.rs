@@ -167,9 +167,23 @@ impl Game {
 
     /// The seconds between the polls of the game, from a clock that ticks each second.
     fn poll_gaps(&self, seconds: usize) -> Vec<usize> {
+        self.poll_gaps_with(seconds, |_| {})
+    }
+
+    /// As `poll_gaps`, with a bridge that writes a fresh body each 60 s, as the real one does.
+    fn poll_gaps_while_the_bridge_runs(&self, seconds: usize, busy: u32, open: u32) -> Vec<usize> {
+        self.poll_gaps_with(seconds, |second| {
+            if second % 60 == 0 {
+                self.publish(busy, open, &[]);
+            }
+        })
+    }
+
+    fn poll_gaps_with(&self, seconds: usize, each_second: impl Fn(usize)) -> Vec<usize> {
         let mut at = Vec::new();
         let mut last = self.loaded_slots();
         for second in 1..=seconds {
+            each_second(second);
             self.advance(1.0);
             let now = self.loaded_slots();
             if now != last {
@@ -425,14 +439,26 @@ fn a_running_turn_polls_every_60_seconds_and_an_open_session_every_3_minutes() {
     let game = Game::start();
     game.advance(10.0);
     game.publish_and_poll(1, 1, &[]);
-    game.advance(700.0);
-    let gaps = game.poll_gaps(400);
+    game.poll_gaps_while_the_bridge_runs(700, 1, 1);
+    let gaps = game.poll_gaps_while_the_bridge_runs(400, 1, 1);
     assert!(gaps.iter().all(|g| *g == 60), "{gaps:?}");
 
     game.publish_and_poll(0, 1, &[]);
-    game.advance(700.0);
-    let gaps = game.poll_gaps(800);
+    game.poll_gaps_while_the_bridge_runs(700, 0, 1);
+    let gaps = game.poll_gaps_while_the_bridge_runs(800, 0, 1);
     assert!(gaps.iter().all(|g| *g == 180), "{gaps:?}");
+}
+
+#[test]
+fn an_offline_bridge_stops_the_faster_polls() {
+    let game = Game::start();
+    game.advance(10.0);
+    game.publish_and_poll(1, 1, &[]);
+
+    game.advance(700.0);
+    let gaps = game.poll_gaps(1300);
+
+    assert!(gaps.iter().all(|g| *g == 600), "{gaps:?}");
 }
 
 #[test]
