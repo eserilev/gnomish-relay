@@ -322,20 +322,11 @@ mod tests {
 
     fn gate() -> Gate {
         let dir = std::env::temp_dir();
-        Gate {
-            roots: vec![dir.clone()],
-            config_dir: dir.join("gnomish-relay-config"),
-            data_dir: dir.join("gnomish-relay-data"),
-            allow: Arc::default(),
-            approvals: crate::desktop::Approvals::new(
-                &dir.join("gnomish-relay-data"),
-                crate::desktop::Prompt::Off,
-            ),
-            sandbox: crate::command_sandbox::CommandSandbox::none(),
-            wall: crate::agent_wall::AgentWall::none(),
-            always: crate::always_rules::AlwaysRules::none(),
-            home: std::env::temp_dir(),
-        }
+        Gate::bare(
+            vec![dir.clone()],
+            dir.join("gnomish-relay-config"),
+            dir.join("gnomish-relay-data"),
+        )
     }
 
     #[test]

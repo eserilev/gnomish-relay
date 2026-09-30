@@ -12,7 +12,6 @@ use std::time::{Duration, Instant};
 use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
 use bridge::claude::ClaudeAgent;
 use bridge::config::Permission;
-use bridge::desktop::{Approvals, Prompt};
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 
@@ -35,11 +34,6 @@ fn agent(script: &str, projects: &Path) -> ClaudeAgent {
 fn gate() -> Gate {
     let tmp = std::env::temp_dir().canonicalize().unwrap();
     Gate {
-        roots: vec![tmp.clone()],
-        config_dir: tmp.join("gnomish-relay-test-config"),
-        data_dir: tmp.join("gnomish-relay-test-data"),
-        allow: std::sync::Arc::default(),
-        approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
         // It marks the commands as sandboxed. With no `sandbox-exec`, the wrapper fails
         // each command, and these tests read only the answers of the gate.
         sandbox: bridge::command_sandbox::CommandSandbox::new(
@@ -47,9 +41,11 @@ fn gate() -> Gate {
             std::path::PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
             None,
         ),
-        wall: bridge::agent_wall::AgentWall::none(),
-        always: bridge::always_rules::AlwaysRules::none(),
-        home: std::env::temp_dir(),
+        ..Gate::bare(
+            vec![tmp.clone()],
+            tmp.join("gnomish-relay-test-config"),
+            tmp.join("gnomish-relay-test-data"),
+        )
     }
 }
 

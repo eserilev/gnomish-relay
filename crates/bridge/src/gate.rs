@@ -229,6 +229,22 @@ impl Gate {
         }
     }
 
+    /// No allow table, no rules, no sandbox, no wall, and no desktop prompt. Tests set
+    /// the fields that they need on top.
+    pub fn bare(roots: Vec<PathBuf>, config_dir: PathBuf, data_dir: PathBuf) -> Gate {
+        Gate {
+            roots,
+            config_dir,
+            approvals: Approvals::new(&data_dir, Prompt::Off),
+            data_dir,
+            allow: std::sync::Arc::default(),
+            sandbox: CommandSandbox::none(),
+            wall: AgentWall::none(),
+            always: AlwaysRules::none(),
+            home: std::env::temp_dir(),
+        }
+    }
+
     fn policy(&self, chat: &Path) -> Policy {
         let bridge = [&self.config_dir, &self.data_dir];
         let deny: Vec<PathBuf> = bridge
@@ -532,17 +548,10 @@ mod tests {
         std::fs::create_dir_all(&chat).unwrap();
         std::fs::create_dir_all(&config).unwrap();
         std::fs::create_dir_all(home.join(".ssh")).unwrap();
-        let allow = AllowTable::default();
         let gate = Gate {
-            roots: vec![root],
-            config_dir: config.clone(),
-            data_dir: home.join("data"),
-            allow: std::sync::Arc::new(allow),
-            approvals: Approvals::new(&home.join("data"), desktop::Prompt::Off),
-            sandbox: CommandSandbox::none(),
-            wall: AgentWall::none(),
             always: AlwaysRules::new(&home.join("data")),
             home: home.clone(),
+            ..Gate::bare(vec![root], config.clone(), home.join("data"))
         };
         Setup {
             _tmp: tmp,

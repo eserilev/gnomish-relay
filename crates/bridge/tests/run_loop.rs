@@ -374,17 +374,11 @@ fn acp_bridge(f: &Dirs, root: &tempfile::TempDir, script: &str) -> Bridge {
         modes: std::collections::BTreeMap::new(),
         timeout: Duration::from_secs(20),
         permission_timeout: Duration::from_secs(20),
-        gate: Gate {
-            roots: vec![root.path().canonicalize().unwrap()],
-            config_dir: f.state.join("config"),
-            data_dir: f.state.clone(),
-            allow: Arc::default(),
-            approvals: Approvals::new(&f.state, Prompt::Off),
-            sandbox: bridge::command_sandbox::CommandSandbox::none(),
-            wall: bridge::agent_wall::AgentWall::none(),
-            always: bridge::always_rules::AlwaysRules::none(),
-            home: std::env::temp_dir(),
-        },
+        gate: Gate::bare(
+            vec![root.path().canonicalize().unwrap()],
+            f.state.join("config"),
+            f.state.clone(),
+        ),
         wall: bridge::agent_wall::AgentWall::none(),
     };
     bridge_in(f, policy, Arc::new(fake))

@@ -14,7 +14,7 @@ use bridge::allow::{self, AllowFile};
 use bridge::claude::ClaudeAgent;
 use bridge::command_sandbox::{CommandSandbox, NO_SANDBOX};
 use bridge::config::Permission;
-use bridge::desktop::{self, Approvals, Prompt};
+use bridge::desktop;
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 use protocol::live::OptionKind;
@@ -39,11 +39,7 @@ fn home(allow_toml: &str) -> Home {
     std::fs::write(config.join("strip.key"), "not a key").unwrap();
     let file: AllowFile = toml::from_str(allow_toml).unwrap();
     let gate = Gate {
-        roots: vec![path.join("Code")],
-        config_dir: config,
-        data_dir: path.join("data"),
         allow: Arc::new(allow::parse(&file, &path).unwrap()),
-        approvals: Approvals::new(&path.join("data"), Prompt::Off),
         // It marks the commands as sandboxed. With no `sandbox-exec`, the wrapper fails
         // each command, and these tests read only the answers of the gate.
         sandbox: bridge::command_sandbox::CommandSandbox::new(
@@ -51,9 +47,7 @@ fn home(allow_toml: &str) -> Home {
             std::path::PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
             None,
         ),
-        wall: bridge::agent_wall::AgentWall::none(),
-        always: bridge::always_rules::AlwaysRules::none(),
-        home: std::env::temp_dir(),
+        ..Gate::bare(vec![path.join("Code")], config, path.join("data"))
     };
     Home {
         _tmp: tmp,

@@ -9,7 +9,6 @@ use std::time::{Duration, Instant};
 use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
 use bridge::codex::CodexAgent;
 use bridge::config::Permission;
-use bridge::desktop::{Approvals, Prompt};
 use bridge::gate::Gate;
 use bridge::relay::{ChatId, Job, MessageId, Session, Work};
 
@@ -27,17 +26,11 @@ fn agent(script: &str) -> CodexAgent {
 /// Every tempdir of the tests is inside the temp folder, so it is the one root.
 fn gate() -> Gate {
     let tmp = std::env::temp_dir().canonicalize().unwrap();
-    Gate {
-        roots: vec![tmp.clone()],
-        config_dir: tmp.join("gnomish-relay-test-config"),
-        data_dir: tmp.join("gnomish-relay-test-data"),
-        allow: std::sync::Arc::default(),
-        approvals: Approvals::new(&tmp.join("gnomish-relay-test-data"), Prompt::Off),
-        sandbox: bridge::command_sandbox::CommandSandbox::none(),
-        wall: bridge::agent_wall::AgentWall::none(),
-        always: bridge::always_rules::AlwaysRules::none(),
-        home: std::env::temp_dir(),
-    }
+    Gate::bare(
+        vec![tmp.clone()],
+        tmp.join("gnomish-relay-test-config"),
+        tmp.join("gnomish-relay-test-data"),
+    )
 }
 
 fn job(dir: &tempfile::TempDir, permission: Permission, text: &str) -> Job {
@@ -310,15 +303,12 @@ fn an_unanswered_approval_is_declined_after_the_permission_timeout() {
 fn gate_in(root: &std::path::Path, allow: &str) -> Gate {
     let file: bridge::allow::AllowFile = toml::from_str(allow).unwrap();
     Gate {
-        roots: vec![root.to_owned()],
-        config_dir: root.join("config"),
-        data_dir: root.join("data"),
         allow: std::sync::Arc::new(bridge::allow::parse(&file, root).unwrap()),
-        approvals: Approvals::new(&root.join("data"), Prompt::Off),
-        sandbox: bridge::command_sandbox::CommandSandbox::none(),
-        wall: bridge::agent_wall::AgentWall::none(),
-        always: bridge::always_rules::AlwaysRules::none(),
-        home: std::env::temp_dir(),
+        ..Gate::bare(
+            vec![root.to_owned()],
+            root.join("config"),
+            root.join("data"),
+        )
     }
 }
 

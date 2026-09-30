@@ -20,7 +20,6 @@ use bridge::agent_wall::AgentWall;
 use bridge::allow_hosts::HostList;
 use bridge::command_sandbox::{CommandSandbox, detect_overlay};
 use bridge::config::{AgentSpec, Kind, Permission};
-use bridge::desktop::{Approvals, Prompt};
 use bridge::gate::Gate;
 use bridge::harness::{CommandAgent, RAN_BEFORE, free_commands_note};
 use bridge::harness_output::LONG_OUTPUT;
@@ -175,15 +174,10 @@ fn gate(m: &Machine, tool: Sandbox, network: ProxySettings) -> Gate {
     let mut sandbox = CommandSandbox::new(tool.clone(), wrapper.clone(), Some(m.home.clone()));
     sandbox.overlay = detect_overlay(&tool);
     Gate {
-        roots: vec![m.home.join("Code")],
-        config_dir: m.config.clone(),
-        data_dir: m.data.clone(),
-        allow: Arc::default(),
-        approvals: Approvals::new(&m.data, Prompt::Off),
         sandbox,
         wall: AgentWall::new(tool, wrapper, Some(m.home.clone()), m.data.clone(), network),
-        always: bridge::always_rules::AlwaysRules::none(),
         home: m.home.clone(),
+        ..Gate::bare(vec![m.home.join("Code")], m.config.clone(), m.data.clone())
     }
 }
 
@@ -632,21 +626,16 @@ fn each_installed_preset_answers_inside_the_sandbox() {
         sandbox.overlay = detect_overlay(&tool);
         let data = base.join("data");
         let gate = Gate {
-            roots: vec![base.clone()],
-            config_dir: base.join("config"),
-            data_dir: data.clone(),
-            allow: Arc::default(),
-            approvals: Approvals::new(&data, Prompt::Off),
             sandbox,
             wall: AgentWall::new(
                 tool.clone(),
                 PathBuf::new(),
                 None,
-                data,
+                data.clone(),
                 ProxySettings::public(),
             ),
-            always: bridge::always_rules::AlwaysRules::none(),
             home: home.clone(),
+            ..Gate::bare(vec![base.clone()], base.join("config"), data)
         };
         let agent = CommandAgent::new("x", &relay.agents["x"], Duration::from_mins(3), &gate);
         let job = Job {

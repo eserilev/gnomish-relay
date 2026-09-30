@@ -21,7 +21,6 @@ use bridge::allow_hosts::HostList;
 use bridge::claude::ClaudeAgent;
 use bridge::codex::CodexAgent;
 use bridge::config::{Kind, Permission};
-use bridge::desktop::{Approvals, Prompt};
 use bridge::gate::Gate;
 use bridge::process::AgentProcess;
 use bridge::proxy::{Limits, Net, ProxySettings};
@@ -169,11 +168,6 @@ fn wall(m: &Machine, tool: Sandbox, settings: ProxySettings) -> AgentWall {
 
 fn gate(m: &Machine) -> Gate {
     Gate {
-        roots: vec![m.chat.path().canonicalize().unwrap()],
-        config_dir: m.home.join(".config/gnomish-relay"),
-        data_dir: m.data.clone(),
-        allow: Arc::default(),
-        approvals: Approvals::new(&m.data, Prompt::Off),
         // It marks the commands as sandboxed, so no notice of the command sandbox shows.
         // These probes run no command.
         sandbox: bridge::command_sandbox::CommandSandbox::new(
@@ -181,9 +175,11 @@ fn gate(m: &Machine) -> Gate {
             PathBuf::from(env!("CARGO_BIN_EXE_gnomish-relay")),
             None,
         ),
-        wall: AgentWall::none(),
-        always: bridge::always_rules::AlwaysRules::none(),
-        home: std::env::temp_dir(),
+        ..Gate::bare(
+            vec![m.chat.path().canonicalize().unwrap()],
+            m.home.join(".config/gnomish-relay"),
+            m.data.clone(),
+        )
     }
 }
 
