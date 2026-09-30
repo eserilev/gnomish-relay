@@ -123,7 +123,7 @@ So the popup never shows the label of the agent as the main text. Rules:
 - Control characters, Unicode bidi characters, and zero-width characters show as visible escapes, for example `<U+202E>`.
 - The label of the agent shows below the raw command, marked as "the agent says".
 - When the popup offers "Always allow" (6.6.5), one more line names the exact rule and its folder. The bridge makes the line, and the popup never cuts it.
-- A misclick must not allow. A new popup plays the ready-check sound, and its buttons take no click for 1 second: the player can be in the middle of a click in the game. **Reject** and **Always reject** sit at the left, and the allow buttons at the right, with a wide gap between.
+- A misclick must not allow. A new popup plays the ready-check sound, and its buttons take no click for 1 second: the player can be in the middle of a click in the game. **Deny** and **Always deny** sit at the left, and the allow buttons at the right, with a wide gap between.
 - When more requests wait, the popup says "1 of 3" at the top right. It shows the oldest request first.
 - The popup has the dark dialog border of the game. Its height follows the text, up to 600 pixels, so a long command never runs over the buttons. The text shows in the shipped mono font (13.2).
 
@@ -158,7 +158,7 @@ The trust of "always allow" (6.6.5) rests on layers 2 to 4. It never rests on la
 - The addon keeps the text of each open message in its private table (`ns`), not only in `GnomishRelayDB`.
 - When the user sends a message, the addon signs it at once. It stores the signed frame and its time in `GnomishRelayDB`, next to the text.
 - After a `/reload`, the addon sends only frames with a valid tag. It never signs text that it reads back from `GnomishRelayDB`.
-- A stored frame or an outbox frame older than 270 seconds is too old for the bridge (S11 allows 300). The message then ends with "Not sent." and a Resend link, and the user decides. While the bridge is offline (7.4), the text is "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart."
+- A stored frame or an outbox frame older than 270 seconds is too old for the bridge (S11 allows 300). The message then ends with "Not sent." and a Resend link, and the user decides. While the bridge is offline (7.4), the text is "Not sent: the desktop app isn't running. On your desktop, run gnomish-relay restart."
 - An outbox entry (7.5) is the same signed frame. The bridge checks the tag, the time, and the replay store for it (S2, S11, S7), as for a strip.
 - A permission answer carries a hash of the exact text that the popup showed: `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256, in hex. The bridge refuses an answer whose hash does not match its own text of the request.
 
@@ -223,7 +223,7 @@ There are four answers, in this order from strict to open:
   - The bridge writes one progress line of its own for the last desktop request of the run: `Desktop: <state> <id> <how>`, and ` raise <level>` for a raise (9.3). `<state>` is `wait`, `approved`, `denied`, or `none` (no answer). `<id>` is the 12 hex digits of the request. `<how>` is `dialog`, or `command` when `desktop.rs` finds no dialog tool.
   - The line comes right after the level line (9.3, "The level in the game"), so S9 and S20 do not change, and `Activity` keeps at most 5 lines. `Activity::step` puts "agent: " in front of an agent line that starts with "Desktop:", as for "Level:". The id comes from the bridge, so no agent text is in the line.
   - The addon takes the line only at its place, and only with a known state, a 12-digit id, and a known `<how>`. The Activity row then shows "Approve on desktop", "Approved on desktop", "Denied on desktop", or "No answer on desktop".
-  - At a new `wait`, the game prints one whisper line with the whisper sound: `[Claude] whispers: [chat] Approve on your desktop.`, or `Run: gnomish-relay approve <id>` with `command`. The addon keeps the ids of the last 16 requests that got a line in its saved variables, so a `/reload` does not print it again.
+  - At a new `wait`, the game prints one whisper line with the whisper sound: `[Claude] whispers: [chat] Approve on your desktop.`, or `Approve on your desktop: run gnomish-relay approve <id>` with `command`. The addon keeps the ids of the last 16 requests that got a line in its saved variables, so a `/reload` does not print it again.
   - While a request waits, the addon loads a slot every 5 seconds, at most 24 times for each request (7.3). Then it goes back to the schedule.
 
 **The dialog** (decided with an advisor on 2026-09-26). In the first test in the game, the user saw only the game popup, and did not know about the command. `crates/bridge/src/dialog.rs` shows the dialog with the tools that the user already has. The bridge installs nothing.
@@ -614,7 +614,7 @@ The goal is one click for the common case, with a bounded worst case. Any game c
 
 - The bridge adds the rules to `rules.json` and allows the call. A rule that exists already gives no second row.
 - Every other open request that the new rules now cover runs, so the user does not click twice. A run that waits for the game reads the rules about every 100 ms. When they cover its call, the call runs, and the run tells the bridge to take its popup away.
-- On the click, the addon prints one whisper line: `[Claude] whispers: [chat] Rule added: cargo test * in Code/Personal/gnomish-relay. Remove it in Settings.` A click on the line opens Settings. The addon marks the settings list as old, so the next open of Settings asks for a new one.
+- On the click, the addon prints one whisper line: `[Claude] whispers: [chat] Always allowed now: cargo test * in Code/Personal/gnomish-relay. Click to manage your rules.` A click on the line opens Settings. The addon marks the settings list as old, so the next open of Settings asks for a new one.
 - The desktop shows a plain notice: "Rule added: <line>. Remove it in the Settings tab of the game, or run: gnomish-relay rules". There is no Undo button: a notice cannot hold a button on all three OSes, and the whisper line has none.
 - A rule that the bridge cannot write leaves a log line. The call still runs, because the user allowed it.
 
@@ -624,11 +624,11 @@ The goal is one click for the common case, with a bounded worst case. Any game c
 - At load, each row must have the shape that `propose` makes: 1 or 2 plain words (the word rules above) and no `/` in the first, an absolute folder with no `.` or `..`, and no unknown field. A link in place of the file, or a file over 1 MiB, is no rules. A bad row is dropped with a log line, so a broken file never widens a rule. A missing or broken file is an empty list.
 - Global rules stay in `[allow] commands` of the config, which the user edits by hand.
 
-**Expiry.** A rule ends 30 days after its last use. So a rule that the user uses stays, and a stale or forged one goes. The bridge writes the day of the last use at most once a day for each rule, so a command does not write the file each time. A deleted or moved folder leaves orphan rules, which expire. A new folder at the same path gets them until then, and Settings shows them.
+**Expiry.** A rule ends 30 days after its last use. The group says "Rules expire after 30 days without use." So a rule that the user uses stays, and a stale or forged one goes. The bridge writes the day of the last use at most once a day for each rule, so a command does not write the file each time. A deleted or moved folder leaves orphan rules, which expire. A new folder at the same path gets them until then, and Settings shows them.
 
 **See and remove.**
 
-- The Settings tab (13.1) has a group "Always Allowed": one row for each rule, with its pattern, its folder, its last use, and a remove button. The mouse wheel scrolls it. The game can remove a rule, because a removal only narrows: a forged removal costs only a click. The addon sends `rule=remove:<id>` in a control record of the chat `settings`, and then asks for a new list. The bridge removes the rule before it answers the list. A removed row stays grey ("Removing...") until the next settings list.
+- The Settings tab (13.1) has a group "Always allowed": one row for each rule, with its pattern, its folder, its last use, and a remove button. The mouse wheel scrolls it. The game can remove a rule, because a removal only narrows: a forged removal costs only a click. The addon sends `rule=remove:<id>` in a control record of the chat `settings`, and then asks for a new list. The bridge removes the rule before it answers the list. A removed row stays grey ("Removing...") until the next settings list.
 - `gnomish-relay rules` lists the rules on the desktop, and `gnomish-relay rules remove <id>` removes one.
 - The settings list (13.4) gets `rule` lines. Diag shows no second copy.
 
@@ -666,7 +666,7 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - The addon sets the `screenshotFormat` CVar to `png` at login.
 - The addon hides the "Screen captured" text for its own screenshots through the `ActionStatus` frame. Normal screenshots still show it.
 - The bridge ignores screenshots with no valid strip. Those are the screenshots of the user.
-- The first strip ever prints one line: "<title>: the colored bar at the top left carries your messages to the desktop. It shows for half a second." The saved variables remember it, so the line shows once.
+- The first strip ever prints one line: "<title>: the colored bar that flashes at the top left is how your messages reach the desktop app. That's normal." The saved variables remember it, so the line shows once.
 - In combat, a strip waits for the end of the fight unless it carries a message or a control of the player (Stop, a permission answer, a delete of a rule). So a hello and a request for a list (sessions, folders, settings) wait. They still ride on a strip that goes anyway. A long fight can then pass the window of slots (7.3): the replies wait for the next strip, and none is lost.
 
 **Frame layout (bytes):**
@@ -771,7 +771,7 @@ A `/reload` resets the globals of all addons together, so no holder stays from a
 - While an app waits, it signs nothing, and no show counts. So its 40-second retry timer and its 3 shows wait too, and a wait never starts the outbox.
 - A screenshot event ends a strip only when the app holds the corner and has called `Screenshot()`. So `out=shot` and `out=fail` report only the shots of the app.
 - A screenshot of the player during our shot can still end our strip early, because an event has no owner. This costs at most one early end or one wrong `out=` value, and the next retry covers it. So the addon does not try to match events to shots.
-- After 30 seconds of waiting, the app shows one line: "<title>: screenshots are blocked by another addon. Turn off the addons that take screenshots, then type /reload." The window shows "Screenshots blocked". The line shows again only after the corner was free between. 30 seconds is two times the longest honest wait, and far below the 270-second limit of a signed frame.
+- After 30 seconds of waiting, the app shows one line: "<title>: another addon is in the way of the colored bar. Turn off addons that take screenshots, then type /reload." The window shows "Screenshots blocked". The line shows again only after the corner was free between. 30 seconds is two times the longest honest wait, and far below the 270-second limit of a signed frame.
 - A blocked app keeps waiting. It does not use the outbox: a hostile holder stays across every `/reload`, so the outbox would ask for a reload for each message.
 - Each app hooks the "Screen captured" text, and each hook hides the text of the shots of its own app only. A second `Hide` does nothing.
 
@@ -821,7 +821,7 @@ GnomishRelay_SlotData = {proto = 1, now = 1790211081, replies = {
 }}
 ```
 
-**The key check.** A player with an old key sees no reply and no reason: the bridge refuses each strip for its tag. So the bridge counts the strips with a bad tag since the last good relay strip. While the count is not 0, `Inbox.lua` ends with one more line after the table: `GnomishRelay_SlotData.badTags = 2`. The line holds only the global and a decimal number, so no outside text reaches it, and S9 still covers the table. A message that the addon gives up on while the count is not 0 ends with "Not sent: the bridge does not know this key. On the desktop, run gnomish-relay setup, then type /reload." A bad tag has no app, so only the relay body counts it.
+**The key check.** A player with an old key sees no reply and no reason: the bridge refuses each strip for its tag. So the bridge counts the strips with a bad tag since the last good relay strip. While the count is not 0, `Inbox.lua` ends with one more line after the table: `GnomishRelay_SlotData.badTags = 2`. The line holds only the global and a decimal number, so no outside text reaches it, and S9 still covers the table. A message that the addon gives up on while the count is not 0 ends with "Not sent: your game and the desktop app don't match. On your desktop, run gnomish-relay setup, then type /reload." A bad tag has no app, so only the relay body counts it.
 
 `Live.lua` carries the progress and the permission requests (9.3, S20), and `Restore.lua` the restore bundle (7.6, S18).
 Later fields (the session and the denied rules) go into a file of their own, or need an approved change of S9. The notifications of section 10 ride in `Live.lua`, with the restatement of S20 (10.3).
@@ -874,13 +874,13 @@ The fuzz target `markdown` checks the same shape, escapes, and size bound on the
 
 **Poll schedule after a send:** the addon loads a slot at 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, and 300 seconds.
 Then it loads one every 60 seconds until the reply is done.
-While a run of the relay works (a `working` record), the relay loads one every 15 seconds. A permission popup waits for a poll, so it comes at most 15 seconds late, not 60. Activity shows "Next check in 12 s".
+While a run of the relay works (a `working` record), the relay loads one every 15 seconds. A permission popup waits for a poll, so it comes at most 15 seconds late, not 60. Activity shows "Checking again in 12s".
 With no message pending, it loads one slot every 10 minutes, for the status light. With notifications on and a terminal session open, it loads one every 3 minutes, and every 60 seconds while a terminal turn runs (10.4).
 A signal (7.4) makes the addon load a slot at once.
 
 **Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). A working run costs 4 slots a minute, so the slots of a UI session last about 4 hours of agent work, and "Reload soon" covers the rest. The polls for notifications cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
 The window never shows the slot count. `/relay diag` shows it.
-Below 20 free slots, the window shows "Reload soon" with a **Reload** button. Only a click on **Reload** reloads. A reload from Enter took the game away for seconds with no warning, so Send never reloads.
+Below 20 free slots, the window shows "Reload soon to keep chatting." with a **Reload** button. Only a click on **Reload** reloads. A reload from Enter took the game away for seconds with no warning, so Send never reloads.
 `ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat.
 The chat history is in the saved variables, so a `/reload` keeps it.
 
@@ -914,7 +914,7 @@ Total file count for slots and signals: about 17,000.
 The addon uses the reload fallback when the strip gets no acknowledgment, the pool is empty, or the slots are missing.
 
 1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store. A frame counts only if the key of the app whose saved variables hold it signed it (9.7, decision 3).
-2. The window shows "Press Reload to send 1 message." with a **Reload** button. `ReloadUI` needs a hardware event, and a click is one. The button does nothing in combat.
+2. The window shows "1 message is waiting. Reload to send it." with a **Reload** button. `ReloadUI` needs a hardware event, and a click is one. The button does nothing in combat.
 3. WoW writes the saved variables file at reload.
 4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 250 ms).
 5. The bridge writes the reply into `GnomishRelay/Inbox.lua`. The main addon reads it at the next reload.
@@ -970,10 +970,10 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 
 **Self-test and health report.**
 
-- At login, the addon makes sure that each client function it needs exists (`Health.Required`). If one is missing, it shows one line, "Gnomish Relay: this game version has no <name>. The relay is off. On the desktop, run gnomish-relay update.", and starts nothing.
+- At login, the addon makes sure that each client function it needs exists (`Health.Required`). If one is missing, it shows one line, "Gnomish Relay is off: this version of the game has no <name>. On your desktop, run gnomish-relay update.", and starts nothing.
 - The first hello strip and the first poll test the two channels. `SCREENSHOT_SUCCEEDED` or `SCREENSHOT_FAILED` gives the result of each shot, and `LoadAddOn` gives the result of each slot.
 - Each strip carries the client build and the last result of each channel: `build=<number>`, `out=shot|fail`, and `in=slots|missing`.
-- When a channel starts to fail, the addon shows one line: "Gnomish Relay: screenshots are blocked. Check the free disk space and the Screenshots folder, then type /reload." or "Gnomish Relay: slots are missing. Run gnomish-relay install with the game closed." The window shows the same state in the bridge light.
+- When a channel starts to fail, the addon shows one line: "Gnomish Relay: can't take screenshots. Free up disk space and check the Screenshots folder, then type /reload." or "Gnomish Relay: some addon files are missing. Close the game, then run gnomish-relay install." The window shows the same state in the bridge light.
 - `/relay diag` shows the build and the last success of each channel. `gnomish-relay doctor` comes later.
 - Today each direction has one channel. A move to the next channel of the table comes with the second channel.
 
@@ -1263,7 +1263,7 @@ Each agent in the config has one permission level:
 - The dialog is a desktop request of 6.6.3 of its own kind. So it has the same dialog, the same `gnomish-relay approve` fallback, the same 0600 request file, and the first answer wins. Its text is fixed text of the bridge and the name of the agent from the config, never text from the game:
   - `auto-edit`: "A chat from WoW asks for more access. Allow <agent> to edit files in the chat folder with no question, in every chat from WoW? Commands still ask in the game, unless you added an Always rule there. This writes permission = "auto-edit" to config.toml. Approve only if you just sent a message from WoW."
   - `full-auto` gets a stronger warning: "A chat from WoW asks for full access. Allow <agent> to edit files AND run commands with no question, in every chat from WoW? Any addon that can send a chat message can then run code on this computer, inside the sandbox. The Gnomish Relay addon never asks for this by itself. This writes permission = "full-auto" to config.toml." The addon never asks for `full-auto` today, so this dialog means that another addon made the message. The bridge still offers it, because the user asked for a stronger warning, not for no dialog.
-- The run waits for the answer before the agent starts, so an approved run uses the new level. The game shows the notice of 6.6.3 with ` raise <level>`, and its whisper line is "Approve on your desktop: let <agent> work at <level>." The run timeout stops during the wait, as for any question.
+- The run waits for the answer before the agent starts, so an approved run uses the new level. The game shows the notice of 6.6.3 with ` raise <level>`, and its whisper line is "Approve on your desktop to let <agent> work at <level>." The run timeout stops during the wait, as for any question.
 - On Approve, the bridge reads `config.toml` again with the checks of config load, changes the one line `permission = "..."` of the `[agents.<name>]` table, and keeps the comments and every other line. It then parses the new text: it must load, the agent must have the new level, and every other level must be the same. Else it writes nothing. It writes the file with an atomic rename and mode 0600. Then it sets the new level of that agent in the policy of the running bridge. It reloads nothing else.
 - The bridge checks the edit before it shows the dialog, so the user never approves a change that it cannot write. It refuses a quoted table name, an inline table, dotted keys, a missing or double `permission` line, a value that is not a plain `"..."` string, and a config that does not load. Then there is no dialog, and a log line says what to fix.
 - On Deny, a closed dialog, no answer, Stop, a new message, or a write that fails, the run goes on at the level of the config, and the level line of the game shows it (9.3, "The level in the game").
@@ -1597,7 +1597,7 @@ parent \t name \t mark
 
 - A filter box at the top has the focus when the browser opens. It has no hint text. It matches the folders of the tree, as the game sends them back, by subsequence and without case. Repositories come first, then the shorter paths, at most 16 rows. Each row shows the name, a `git` mark for a repository, and the parent folder in grey at the right. Up and Down move the choice. Enter picks it. Escape clears the focus and closes the browser, so the keys of the game work again. A typed text is only a filter, never a path.
 - With an empty filter, the browser shows at most 5 recent folders: the folders of the newest chats, then the folders of the Resume list (9.6). They need no request. A folder that the last tree does not have is gone, and it does not show. One click on a recent folder sets it.
-- Below them is a gold breadcrumb, for example `Code › Personal › gnomish-relay`. A click on a part goes up to it. The first part is the root, so the player cannot go above the roots. With more than one root, the first part is "Roots", and it lists the roots.
+- Below them is a gold breadcrumb, for example `Code › Personal › gnomish-relay`. A click on a part goes up to it. The first part is the root, so the player cannot go above the roots. With more than one root, the first part is "All folders", and it lists the roots.
 - Then come the subfolders of the current folder. A click opens one. The folder of the chat is green. **Open** sets the current folder.
 - The last row is "New folder". It opens an edit box in its place. The addon checks the name: it is not empty, `.`, or `..`, it has no `/`, `\`, or control character, it is at most 255 bytes, and no subfolder there has the name (without case). A refused name shows a short reason in red. Enter sets `<current folder>/<name>` as the folder of the chat, and the header marks it "new".
 - The browser opens at the folder of the chat, or at the default folder when the tree does not have it.
@@ -1605,7 +1605,7 @@ parent \t name \t mark
 **The chat.**
 
 - A choice sets the folder of the chat. The chat takes the name of the folder, with " 2", " 3", and so on when another chat has the name. A chat in the default folder keeps its "Chat N" name.
-- The first message fixes the folder (9.5). After it, the button of the browser says "New Chat here", and each choice makes a new chat in the chosen folder, with the agent of the chat.
+- The first message fixes the folder (9.5). After it, the button of the browser says "New chat here", and each choice makes a new chat in the chosen folder, with the agent of the chat.
 - The header shows the folder as the player reads it, with the folder icon and the dropdown arrow. Before the first tree, it shows the relative folder, and nothing for the default folder.
 
 **A new folder.** The first message of a chat in a new folder has the flag `mkdir=1` next to `n`. The folder of the record is the new folder. The bridge makes it before the run starts, so a chat that never sends leaves no empty folder.
@@ -1764,7 +1764,7 @@ notices = {busy = 1, open = 2, list = {
 - **Clear** empties the list and hides the bell. A cleared notice never comes back, also when the next live file still holds it.
 - A notice has no button that runs anything. Later: "Continue in the game" through Resume (9.6), with the session of the notice, only after `session-end`, because two programs on one session conflict.
 
-**Settings.** One new group "Notifications" in the Settings tab, after Appearance (13.1). It shows only after `hooks install`: the settings list (13.4) has a `hook` line with `on`. The group has two rows: Notifications and Finished work on one, and the three Alerts boxes on the other. While it shows, the Always Allowed group below it shows 3 rules at a time, so the page still fits the least window (900 × 560).
+**Settings.** One new group "Notifications" in the Settings tab, after Appearance (13.1). It shows only after `hooks install`: the settings list (13.4) has a `hook` line with `on`. The group has two rows: Notifications and Finished tasks on one, and the three Alerts boxes on the other. While it shows, the Always allowed group below it shows 3 rules at a time, so the page still fits the least window (900 × 560).
 
 **Diag.** Three new rows, also only after `hooks install`: Hooks (the state of each agent from the settings list), Sessions (the running and open terminal sessions of the last live file), and Last notification (its age). Diag also shows the free slots.
 
@@ -1890,8 +1890,8 @@ The last lines say what setup found and the next action, for example "Agent: cla
 
 - At each start, the bridge writes `Key.lua` again if it is missing, and the addon files again if their version differs. An addon app such as CurseForge can replace the folder, and a `/reload` then loads the files.
 - At each start, the bridge also writes the Timeways `Key.lua` again when it is missing or old, and only that file. It never makes a Timeways key: that is the job of setup.
-- With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay".
-- With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart."
+- With no key, the addon shows one line: "Gnomish Relay isn't set up yet. Get the desktop app at github.com/eserilev/gnomish-relay, then run gnomish-relay setup."
+- With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: the desktop app isn't running. On your desktop, run gnomish-relay restart."
 - Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude needs a login. Run: claude"), not as the first reply in the game.
 - `gnomish-relay status` prints one line for each part, with the next step when it does not work: whether the bridge runs (the lock of 8.4), the time of the last strip that the bridge took (`last-strip` in the data folder), whether the config loads (with the TOML error and its line), the sandbox, and the default agent with its version or its login. It also says when the program of the default agent is not on the `PATH` of the login service. The logic is in `status.rs`, and `crates/bridge/tests/status.rs` tests it with the fake agents.
 - `gnomish-relay help`, `--help`, and `-h` print the usage on stdout and exit with success. An unknown command prints it as an error.
@@ -2051,9 +2051,9 @@ The mockup is the reference for the layout.
 
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
 - **Size:** a grip at the bottom-right corner resizes the window, from 900 × 560 up to the size of the screen. The saved variables keep the size. The transcript, the input, and the Settings and Diag pages grow with the window. The chat column and the Activity column keep their width. The transcript draws again at the end of a resize, not during it.
-- **Bridge light:** at the right of the title bar, so every tab shows it: a dot and a label. "Checking the bridge" in grey until the first poll, "Bridge online" in green, "Bridge slow" in amber, and "Bridge offline" in red (7.4). A channel problem (7.8) or a version mismatch (7.7) shows here in red too.
+- **Bridge light:** at the right of the title bar, so every tab shows it: a dot and a label. "Connecting..." in grey until the first poll, "Connected" in green, "Slow connection" in amber, and "Desktop app offline" in red (7.4). A channel problem (7.8) or a version mismatch (7.7) shows here in red too.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
-- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. An orange "?" marks a chat whose permission popup waits for the player. The last tiles are "Start a New Chat" and "Resume". When the tiles do not fit in the column, the mouse wheel scrolls them, and a new chat scrolls to the end. A new chat opens the folder browser in the center (9.9). Escape closes it, and the chat keeps the default folder. Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**. The question is a dialog of the game (`StaticPopupDialogs`), so it has the border of the game, and Escape closes it.
+- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. An orange "?" marks a chat whose permission popup waits for the player. The last tiles are "New chat" and "Resume". When the tiles do not fit in the column, the mouse wheel scrolls them, and a new chat scrolls to the end. A new chat opens the folder browser in the center (9.9). Escape closes it, and the chat keeps the default folder. Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**. The question is a dialog of the game (`StaticPopupDialogs`), so it has the border of the game, and Escape closes it.
 - **Center:** a dropdown for the agent and the permission mode, and the folder button. The folder button shows a small folder icon, the folder of the chat, and a dropdown arrow. It turns gold on hover. A click opens the folder browser of 9.9 in place of the transcript, and the input stays. A second click, a choice, or Escape in the filter closes it. Below them, the transcript on a black background: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. A sent message with no final reply shows its delivery state in grey at its right: "Sending...", "Retry 2 of 3" at the second show of its strip (7.1.1), "Delivered" once a body holds its record, and "Needs reload" while it waits in the outbox (7.5). The state goes when the reply comes. The mouse wheel scrolls it, and a new entry scrolls it to the bottom. A new entry draws below the others, and the old entries stay as they are. The whole chat draws again only when the chat, the font size, or the width changes, or when the history drops its first entry.
 - **Replies:** a rendered reply (7.3.1) shows its blocks below the name.
   - Headings, paragraphs, list items, and quotes go into one SimpleHTML frame, with real sizes for `h1` to `h3`, and a bullet or the number before each item.
@@ -2062,17 +2062,17 @@ The mockup is the reference for the layout.
   - If anything fails while a reply draws, it shows as plain text.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Errors:** an error comes from the relay, not from the agent. So it shows as a grey line `[Relay]: Not sent.`, never under the name of the agent. Below it, a blue "Resend" link sends the message again. Before a `/reload`, the addon still holds the text in its private table, so Resend signs it and sends it at once. After a `/reload`, only the saved variables hold the text, and the addon never signs that text (6.6.1). So Resend then puts the text in the input with the focus, and Enter sends it.
-- **Input:** one line, with no label. While it is empty and has no focus, it shows a grey hint: "Type a task. Enter sends." Enter sends, empties the line, and clears the focus, so the keys of the game work again. The limit is the room of one strip: a payload of 3200 bytes (7.1), less the other fields of the record and 440 bytes for the report. That leaves about 2600 bytes of text. With fewer than 400 bytes left, a small counter above the right end says "100 bytes left", and past the limit it says "5 bytes too many" in red.
-- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for you: approve in popup" in orange: the run makes no progress then. At the bottom, a grey line gives the time to the next poll: "Next check in 12 s". The cast bar and this line change at most 5 times a second.
+- **Input:** one line, with no label. While it is empty and has no focus, it shows a grey hint: "Type a message, then press Enter." Enter sends, empties the line, and clears the focus, so the keys of the game work again. The limit is the room of one strip: a payload of 3200 bytes (7.1), less the other fields of the record and 440 bytes for the report. That leaves about 2600 bytes of text. With fewer than 400 bytes left, a small counter above the right end says "100 left", and past the limit it says "5 over the limit" in red.
+- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for your approval" in orange: the run makes no progress then. At the bottom, a grey line gives the time to the next poll: "Checking again in 12s". The cast bar and this line change at most 5 times a second.
 - **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. The window stays on screen with its tabs: the clamp of the window counts the tabs as part of it. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
-  - **New Chats:** Agent, a dropdown of the agents in the settings list (13.4), and Level, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Max: <level> (set on the desktop)", the level of the chosen agent in the config.
-  - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
-  - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the toasts, the bell, and the faster polls of 10.4, and greys the other two rows. Finished work, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Toast (default on).
-  - **Always Allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
-  - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "No data yet.". A click asks for a new list.
+  - **New chats:** Agent, a dropdown of the agents in the settings list (13.4), and Permissions, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Up to <level> (set on your desktop)", the level of the chosen agent in the config.
+  - **Appearance:** Font size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply whisper: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
+  - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the toasts, the bell, and the faster polls of 10.4, and greys the other two rows. Finished tasks, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Banner (default on).
+  - **Always allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
+  - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "Not loaded yet". A click asks for a new list.
 - **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
-- **Key binding:** `Bindings.xml` adds "Open or close the window" under "Gnomish Relay" in the Key Bindings menu of the game. It calls the global `GnomishRelay_Toggle`.
+- **Key binding:** `Bindings.xml` adds "Toggle window" under "Gnomish Relay" in the Key Bindings menu of the game. It calls the global `GnomishRelay_Toggle`.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
 - **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A notification of a terminal session gets its own line with a bell (10.4).
 - **Permission requests** use the separate popup of 6.4, never the window. A desktop request has no popup: an Activity row and one whisper line (6.6.3).
@@ -2102,7 +2102,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Folders.lua` | The folder tree of 9.9: the parser, the relative folders, the filter, the recent folders, and the name rules. |
 | `Browser.lua` | The folder browser of 9.9 in the center of the window. |
 | `BridgeSettings.lua` | The settings list of 13.4: the parser, the cache, and the agent of a new chat. |
-| `RulesGroup.lua` | The "Always Allowed" group of the Settings tab (6.6.5). |
+| `RulesGroup.lua` | The "Always allowed" group of the Settings tab (6.6.5). |
 | `SettingsTab.lua` | The Settings tab of 13.1. |
 | `DiagTab.lua` | The Diag tab of 13.1. |
 | `Window.lua` | The window of 13.1, its side tabs, and its place. |

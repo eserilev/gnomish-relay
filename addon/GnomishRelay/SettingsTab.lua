@@ -150,7 +150,7 @@ end
 function SettingsTab.Status()
 	local age = ns.BridgeSettings.Age()
 	if not age then
-		return "|cff" .. GREY .. "No data yet.|r"
+		return "|cff" .. GREY .. "Not loaded yet|r"
 	elseif not ns.Transport.Online() then
 		return string.format("|cff%sOffline · %s|r", GREY, Ago(age))
 	end
@@ -214,7 +214,7 @@ function SettingsTab.Refresh()
 	SetChoices(ui.agent, AgentOptions())
 	ui.agent:SetText(ns.Relay.AgentName(agent))
 	ui.level:SetText(ns.Store.NewLevel())
-	ui.ceiling:SetText(string.format("|cff%sMax: %s (set on the desktop)|r", GREY, Ceiling(agent)))
+	ui.ceiling:SetText(string.format("|cff%sUp to %s (set on your desktop)|r", GREY, Ceiling(agent)))
 	ui.font:SetValue(db.fontSize)
 	ui.fontValue:SetText(db.fontSize)
 	ui.whisperOn:SetChecked(db.whisperOn)
@@ -226,13 +226,13 @@ function SettingsTab.Refresh()
 end
 
 local function BuildNewChats()
-	Heading("New Chats", -12)
+	Heading("New chats", -12)
 	RowLabel("Agent", -40)
 	ui.agent = Dropdown("GnomishRelaySettingsAgent", -40, 140, function(value)
 		ns.Store.db.newAgent = value
 		SettingsTab.Refresh()
 	end)
-	RowLabel("Level", -40 - ROW)
+	RowLabel("Permissions", -40 - ROW)
 	ui.level = Dropdown("GnomishRelaySettingsLevel", -40 - ROW, 140, function(value)
 		ns.Store.db.newLevel = value
 		SettingsTab.Refresh()
@@ -246,7 +246,7 @@ local function BuildNewChats()
 end
 
 local function BuildFontSize(y)
-	RowLabel("Font Size", y)
+	RowLabel("Font size", y)
 	ui.font = CreateFrame("Slider", "GnomishRelaySettingsFont", ui.page, "UISliderTemplate")
 	ui.font:SetPoint("TOPLEFT", ui.page, "TOPLEFT", 20 + LABEL_WIDTH, y - 4)
 	ui.font:SetSize(200, 16)
@@ -294,7 +294,7 @@ local function Swatch(i, color, y)
 end
 
 local function BuildReplyLine(y)
-	RowLabel("Reply line", y)
+	RowLabel("Reply whisper", y)
 	ui.whisperOn = Checkbox("GnomishRelaySettingsReply", 20 + LABEL_WIDTH, y + 2, function(on)
 		ns.Store.db.whisperOn = on
 	end)
@@ -343,7 +343,7 @@ local function BuildNotify()
 		ns.NoticeFrames.Refresh()
 	end, ui.notify)
 	local finishedLabel = Label(ui.notify, "GameFontHighlight", 20 + LABEL_WIDTH + 44, -34)
-	finishedLabel:SetText("Finished work")
+	finishedLabel:SetText("Finished tasks")
 	ui.finished = Dropdown("GnomishRelaySettingsFinished", -28, 110, function(value)
 		ns.Store.db.notifyFinished = value
 		SettingsTab.Refresh()
@@ -357,7 +357,7 @@ local function BuildNotify()
 	local x = 20 + LABEL_WIDTH
 	ui.notifyChat = Alert("GnomishRelaySettingsNotifyChat", "notifyChat", "Chat line", x, -28 - ROW)
 	ui.notifySound = Alert("GnomishRelaySettingsNotifySound", "notifySound", "Sound", x + 100, -28 - ROW)
-	ui.notifyToast = Alert("GnomishRelaySettingsNotifyToast", "notifyToast", "Toast", x + 180, -28 - ROW)
+	ui.notifyToast = Alert("GnomishRelaySettingsNotifyToast", "notifyToast", "Banner", x + 180, -28 - ROW)
 	ui.notifyParts = { finishedLabel, ui.finished, ui.notifyChat, ui.notifySound, ui.notifyToast }
 	ui.notify:Hide()
 end

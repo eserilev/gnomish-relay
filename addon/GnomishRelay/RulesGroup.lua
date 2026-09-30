@@ -120,10 +120,10 @@ end
 function RulesGroup.Build(page, y)
 	ui.page = page
 	ui.heading = page:CreateFontString(nil, "OVERLAY", "GameFontNormalLarge")
-	ui.heading:SetText("Always Allowed")
+	ui.heading:SetText("Always allowed")
 	local hint = page:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	hint:SetPoint("LEFT", ui.heading, "RIGHT", 12, 0)
-	hint:SetText("|cff" .. GREY .. "A rule ends 30 days after its last use.|r")
+	hint:SetText("|cff" .. GREY .. "Rules expire after 30 days without use.|r")
 	ui.empty = page:CreateFontString(nil, "OVERLAY", "GameFontHighlight")
 	ui.empty:SetText("|cff" .. GREY .. "No rules yet. Click Always allow in a popup to add one.|r")
 	for i = 1, ROWS do

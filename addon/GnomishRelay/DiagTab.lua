@@ -77,7 +77,7 @@ local function BridgeRows(last, rows)
 	Group("Agents", Agents(last), rows)
 	Group("Commands", Commands(last), rows)
 	local timeouts =
-		string.format("%s min · ask %s min", v.timeout_minutes or "?", v.permission_timeout_minutes or "?")
+		string.format("%s min · approvals %s min", v.timeout_minutes or "?", v.permission_timeout_minutes or "?")
 	table.insert(rows, BridgeRow("Timeout", Plain(timeouts)))
 	table.insert(rows, BridgeRow("Sandbox", Plain(v.sandbox or "")))
 end
@@ -92,7 +92,8 @@ local function StoryRows(v, rows)
 	table.insert(rows, BridgeRow("Budget", Plain(budget)))
 end
 
-local HOOK_WORDS = { on = "on", off = "off", moved = "moved: run hooks install", disabled = "hooks turned off" }
+local HOOK_WORDS =
+	{ on = "on", off = "off", moved = "moved: run gnomish-relay hooks install", disabled = "hooks turned off" }
 
 local function Hooks(last)
 	local parts = {}
@@ -123,7 +124,7 @@ local function NoticeRows(last, rows)
 end
 
 local function Rows()
-	local rows = { Heading("Bridge") }
+	local rows = { Heading("Desktop app") }
 	local last = ns.BridgeSettings.Last()
 	if not last then
 		table.insert(rows, Row("Status", ns.SettingsTab.Status()))
@@ -134,7 +135,7 @@ local function Rows()
 	end
 	table.insert(rows, Heading("Versions"))
 	local bridge = last and last.values.version or "?"
-	table.insert(rows, BridgeRow("", string.format("Bridge %s · protocol %d", Plain(bridge), ns.App.version)))
+	table.insert(rows, BridgeRow("", string.format("Desktop app %s · protocol %d", Plain(bridge), ns.App.version)))
 	table.insert(rows, Heading("Transport"))
 	for _, line in ipairs(ns.Relay.DiagLines()) do
 		table.insert(rows, Row("", Plain(line)))

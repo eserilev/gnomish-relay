@@ -51,7 +51,7 @@ function Health.Shot(ok)
 		status.out = "fail"
 		print(
 			ns.App.title
-				.. ": screenshots are blocked. Check the free disk space and the Screenshots folder, then type /reload."
+				.. ": can't take screenshots. Free up disk space and check the Screenshots folder, then type /reload."
 		)
 	end
 end
@@ -62,7 +62,7 @@ function Health.Corner(free)
 	if not free and not status.cornerBlocked then
 		print(
 			ns.App.title
-				.. ": screenshots are blocked by another addon. Turn off the addons that take screenshots, then type /reload."
+				.. ": another addon is in the way of the colored bar. Turn off addons that take screenshots, then type /reload."
 		)
 	end
 	status.cornerBlocked = not free
@@ -73,7 +73,7 @@ function Health.Slot(ok)
 		status.inbound, status.inAt = "slots", time()
 	elseif status.inbound ~= "missing" then
 		status.inbound = "missing"
-		print(ns.App.title .. ": slots are missing. Run gnomish-relay install with the game closed.")
+		print(ns.App.title .. ": some addon files are missing. Close the game, then run gnomish-relay install.")
 	end
 end
 

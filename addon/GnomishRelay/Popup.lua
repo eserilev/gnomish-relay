@@ -21,8 +21,8 @@ local REJECTS = { reject_once = true, reject_always = true }
 local LABELS = {
 	allow_once = "Allow once",
 	allow_always = "Always allow",
-	reject_once = "Reject",
-	reject_always = "Always reject",
+	reject_once = "Deny",
+	reject_always = "Always deny",
 }
 
 local frame

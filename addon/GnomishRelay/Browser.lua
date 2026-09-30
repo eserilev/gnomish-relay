@@ -137,7 +137,7 @@ local function Crumbs(tree)
 		node = node.parent
 	end
 	if tree and #tree.roots > 1 then
-		table.insert(crumbs, 1, { text = "Roots" })
+		table.insert(crumbs, 1, { text = "All folders" })
 	end
 	return crumbs
 end
@@ -212,7 +212,7 @@ function Browser.Refresh()
 		BrowseLines(tree, chat, lines)
 	end
 	ShowRows(tree, lines)
-	ui.open:SetText(Fixed(chat) and "New Chat here" or "Open")
+	ui.open:SetText(Fixed(chat) and "New chat here" or "Open")
 	ui.open:SetShown(not filtering and Current(tree) ~= nil)
 	ui.spinner:SetShown(ns.Transport.ListingFolders())
 end

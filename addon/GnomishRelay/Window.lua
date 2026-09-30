@@ -143,7 +143,7 @@ local function ShowTile(index, chat, selected)
 		end
 		tile.mark:SetText(mark)
 	else
-		tile.name:SetText("|cff1eff00New Chat|r")
+		tile.name:SetText("|cff1eff00New chat|r")
 		tile.agent:SetText("")
 		tile.mark:SetText("|cff1eff00+|r")
 	end
@@ -196,14 +196,14 @@ local function UpdateCast(chat)
 	if ns.Transport.WaitsForAnswer(chat.id) then
 		ui.cast:SetStatusBarColor(0.3, 0.3, 0.3)
 		ui.cast:SetValue(1)
-		ui.cast.text:SetText("|cff" .. ORANGE .. "Waiting for you: approve in popup|r")
+		ui.cast.text:SetText("|cff" .. ORANGE .. "Waiting for your approval|r")
 	else
 		local elapsed = GetTime() - working.since
 		ui.cast:SetStatusBarColor(1, 0.7, 0)
 		ui.cast:SetValue(elapsed % 10 / 10)
 		ui.cast.text:SetText("Tinkering " .. Elapsed(elapsed))
 	end
-	ui.nextCheck:SetText(string.format("Next check in %d s", math.ceil(ns.Transport.NextPollIn())))
+	ui.nextCheck:SetText(string.format("Checking again in %ds", math.ceil(ns.Transport.NextPollIn())))
 end
 
 local function RefreshActivity(chat)
@@ -224,11 +224,11 @@ end
 -- Only a click on Reload reloads. A reload from Enter took the game away with no warning.
 local function BannerText(waiting)
 	if waiting == 1 then
-		return "Press Reload to send 1 message."
+		return "1 message is waiting. Reload to send it."
 	elseif waiting > 1 then
-		return string.format("Press Reload to send %d messages.", waiting)
+		return string.format("%d messages are waiting. Reload to send them.", waiting)
 	end
-	return "Reload soon"
+	return "Reload soon to keep chatting."
 end
 
 local function RefreshStatus(chat)
@@ -250,13 +250,13 @@ end
 
 -- The color of the text, the color of the dot, and the text of each state of the bridge.
 local LIGHTS = {
-	checking = { "9d9d9d", { 0.6, 0.6, 0.6 }, "Checking the bridge" },
-	online = { "1eff00", { 0.1, 1, 0 }, "Bridge online" },
-	slow = { "ffb000", { 1, 0.7, 0 }, "Bridge slow" },
-	offline = { "ff2020", { 1, 0.1, 0.1 }, "Bridge offline" },
-	missing = { "ff2020", { 1, 0.1, 0.1 }, "Slots missing" },
+	checking = { "9d9d9d", { 0.6, 0.6, 0.6 }, "Connecting..." },
+	online = { "1eff00", { 0.1, 1, 0 }, "Connected" },
+	slow = { "ffb000", { 1, 0.7, 0 }, "Slow connection" },
+	offline = { "ff2020", { 1, 0.1, 0.1 }, "Desktop app offline" },
+	missing = { "ff2020", { 1, 0.1, 0.1 }, "Addon files missing" },
 	blocked = { "ff2020", { 1, 0.1, 0.1 }, "Screenshots blocked" },
-	mismatch = { "ff2020", { 1, 0.1, 0.1 }, "Update the bridge" },
+	mismatch = { "ff2020", { 1, 0.1, 0.1 }, "Update needed" },
 }
 
 -- The light is in the title bar, so every tab shows it.
@@ -329,7 +329,7 @@ local function RefreshPicker()
 	elseif #lines == 0 and ns.Transport.ListingSessions() then
 		note = "Loading..."
 	elseif #lines == 0 then
-		note = "No sessions"
+		note = "No sessions to resume."
 	end
 	ui.pickNote:SetText(note)
 end
@@ -483,7 +483,7 @@ function Window.Send(text)
 	local chat = Selected() or ns.Store.NewChat()
 	ns.Store.db.selected = chat.id
 	if not ns.Transport.Send(chat, text) then
-		UIErrorsFrame:AddMessage("Too long to send.", 1, 0.1, 0.1)
+		UIErrorsFrame:AddMessage("Too long to send. Try a shorter message.", 1, 0.1, 0.1)
 		return false
 	end
 	Window.Refresh()
@@ -560,16 +560,16 @@ local function RefreshInputHelp()
 	local left = chat and ns.Transport.Room(chat) - #text
 	ui.count:SetShown(left ~= nil and left < COUNT_FROM)
 	if left and left < 0 then
-		ui.count:SetText(string.format("|cffff2020%d bytes too many|r", -left))
+		ui.count:SetText(string.format("|cffff2020%d over the limit|r", -left))
 	elseif left then
-		ui.count:SetText(string.format("%d bytes left", left))
+		ui.count:SetText(string.format("%d left", left))
 	end
 end
 
 local function BuildInputHelp()
 	ui.hint = ui.input:CreateFontString("GnomishRelayInputHint", "OVERLAY", "GameFontDisable")
 	ui.hint:SetPoint("LEFT", ui.input, "LEFT", 2, 0)
-	ui.hint:SetText("Type a task. Enter sends.")
+	ui.hint:SetText("Type a message, then press Enter.")
 	ui.count = ui.input:CreateFontString("GnomishRelayInputCount", "OVERLAY", "GameFontDisableSmall")
 	ui.count:SetPoint("BOTTOMRIGHT", ui.input, "TOPRIGHT", 0, 2)
 	ui.count:Hide()
