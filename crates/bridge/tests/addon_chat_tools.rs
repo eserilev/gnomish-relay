@@ -462,6 +462,24 @@ fn names_that_do_not_fit_share_the_row_equally() {
 }
 
 #[test]
+fn a_wider_window_gives_each_button_the_width_of_its_name_again() {
+    let game = Game::start();
+    game.run(
+        "local ns = ... ns.QuickActions.Add() \
+         ns.QuickActions.Rename(6, 'Deploy to staging now') \
+         ns.QuickActions.SetMessage(6, 'Deploy.') ns.Window.Refresh()",
+    );
+    assert_eq!(quick_width(&game, 1), quick_width(&game, 6));
+
+    game.run(
+        "GnomishRelayFrame:SetSize(1400, 700) \
+         GnomishRelayResizeGrip:GetScript('OnMouseUp')(GnomishRelayResizeGrip)",
+    );
+
+    assert!(quick_width(&game, 1) < quick_width(&game, 6));
+}
+
+#[test]
 fn the_editor_renames_moves_and_removes_a_quick_action_and_the_row_follows() {
     let game = Game::start();
     open_quick_editor(&game);
@@ -684,6 +702,26 @@ fn a_click_on_a_pinned_reply_jumps_to_it_opens_it_and_marks_it() {
     assert!(game.shows("The last line."));
     assert!(game.shown("GnomishRelayMark"));
     assert!(!game.shown("GnomishRelayPinnedList"));
+}
+
+#[test]
+fn the_pinned_list_shows_twelve_rows_and_the_wheel_scrolls_it() {
+    let game = Game::start();
+    for n in 1..=13 {
+        game.exchange("next", &format!("Reply {n}"));
+    }
+    game.run(
+        "local ns = ... for _, e in ipairs(ns.Window.SelectedChat().history) do \
+           if e.role == 'agent' then e.pinned = true end end",
+    );
+    game.click("GnomishRelayPinnedButton");
+    assert_eq!(pinned_rows(&game).len(), 12);
+    assert_eq!(pinned_rows(&game)[0], "Reply 1");
+
+    game.run("GnomishRelayPinnedList:GetScript('OnMouseWheel')(GnomishRelayPinnedList, -1)");
+
+    assert_eq!(pinned_rows(&game)[0], "Reply 2");
+    assert_eq!(pinned_rows(&game)[11], "Reply 13");
 }
 
 #[test]
