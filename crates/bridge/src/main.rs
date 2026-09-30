@@ -15,6 +15,7 @@ use bridge::dirs::Dirs;
 #[cfg(unix)]
 use bridge::forward;
 use bridge::gate::Places;
+use bridge::hooks_install;
 use bridge::install;
 use bridge::run::now;
 use bridge::selftest;
@@ -40,6 +41,11 @@ usage:
   gnomish-relay deny <id>            refuse a tool call that waits for the desktop
   gnomish-relay rules                list the Always allow rules from the game
   gnomish-relay rules remove <id>    remove one Always allow rule
+  gnomish-relay hooks install [--claude] [--codex]
+                                     show notifications from Claude Code and Codex in a terminal
+  gnomish-relay hooks remove [--claude] [--codex]
+                                     take the hooks of the notifications out again
+  gnomish-relay hooks status         show the hooks of each agent
   gnomish-relay say <chat> <id> <text>
                                      publish a reply to message <id> (from `/relay diag`)
   gnomish-relay selftest collect [folder] [--out <repo>]
@@ -169,6 +175,9 @@ fn main() -> Result<()> {
             selftest::collect_command(&Dirs::from_env()?, rest)
         }
         ["hook", agent] => bridge::hook::main(agent),
+        ["hooks", action, ref flags @ ..] => {
+            hooks_install::command(&Dirs::from_env()?, action, flags, &mut std::io::stdout())
+        }
         [command_sandbox::RUN_FLAG, command] => {
             std::process::exit(command_sandbox::run_wrapped(command))
         }

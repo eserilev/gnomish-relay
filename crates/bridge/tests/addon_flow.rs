@@ -3222,6 +3222,7 @@ fn settings_text(story: bool) -> String {
         allow: vec!["cargo test".into()],
         allow_folders: vec![("~/Code/lighthouse".into(), "npm test".into())],
         rules: bridge::always_rules::RuleList::default(),
+        hooks: Vec::new(),
     };
     let policy = Policy {
         folders: Folders {
@@ -3235,7 +3236,7 @@ fn settings_text(story: bool) -> String {
         .into(),
         default_agent: "claude".into(),
     };
-    settings_reply(&settings, &policy, &[])
+    settings_reply(&settings, &policy, &[], &[])
 }
 
 fn click(game: &Game, frame: &str) {

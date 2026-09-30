@@ -43,6 +43,8 @@ pub mod history;
 pub mod holder;
 pub mod hook;
 pub mod hook_input;
+pub mod hooks_install;
+pub mod hooks_merge;
 pub mod ids;
 pub mod install;
 pub mod iso_time;

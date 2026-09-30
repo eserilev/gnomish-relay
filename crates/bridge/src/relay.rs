@@ -29,7 +29,7 @@ pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
 use crate::new_folder::{NewFolderError, is_folder_name};
 use crate::reply::render_reply;
-use crate::settings_list::{BridgeSettings, settings_reply};
+use crate::settings_list::{BridgeSettings, HookLine, settings_reply};
 use crate::state::State;
 
 const BAD_FOLDER: &str =
@@ -803,9 +803,15 @@ impl Relay {
     }
 
     /// Answers a settings list with the values of the bridge (SPEC.md 13.1).
-    pub fn finish_settings(&mut self, job: &Job, settings: &BridgeSettings, rules: &[RuleLine]) {
+    pub fn finish_settings(
+        &mut self,
+        job: &Job,
+        settings: &BridgeSettings,
+        rules: &[RuleLine],
+        hooks: &[HookLine],
+    ) {
         self.running.remove(&job.chat);
-        let text = settings_reply(settings, &self.policy, rules);
+        let text = settings_reply(settings, &self.policy, rules, hooks);
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
 
@@ -1841,7 +1847,7 @@ mod tests {
         let job = relay.next_job().unwrap();
         assert_eq!(job.work, Work::ListSettings);
 
-        relay.finish_settings(&job, &BridgeSettings::default(), &[]);
+        relay.finish_settings(&job, &BridgeSettings::default(), &[], &[]);
 
         let body = body(&relay);
         assert!(

@@ -9,6 +9,7 @@ use crate::check_agent;
 use crate::config::{self, Config, RelayConfig};
 use crate::config_text::RelayPart;
 use crate::dirs::Dirs;
+use crate::hooks_install;
 use crate::install;
 use crate::model::ModelChoice;
 use crate::model_setup;
@@ -194,6 +195,10 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         }
     }
     println!("{}", last_line(&changed, relay, args.keys));
+    // Setup changes no settings of an agent: they belong to the user (SPEC.md 10.5).
+    if relay == setup::Relay::On {
+        println!("{}", hooks_install::SETUP_HINT);
+    }
     Ok(())
 }
 

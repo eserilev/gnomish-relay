@@ -14,6 +14,8 @@ use crate::always_rules::{RuleLine, RuleList};
 use crate::config::{Policy, RelayConfig, StoryConfig};
 use crate::folder_list::CUT;
 use crate::folder_path::{is_inside_folder, native_folder, path_bytes, path_parts};
+use crate::hooks_install::{self, HookFiles, HookState};
+use crate::hooks_merge::agent_word;
 use crate::model::ModelChoice;
 
 /// The two quotes of the Lua literal, and the cut line after a newline.
@@ -37,7 +39,13 @@ pub struct BridgeSettings {
     pub allow_folders: Vec<(String, String)>,
     /// The "Always allow" rules, read at each reply (SPEC.md 6.6.5).
     pub rules: RuleList,
+    /// The settings files of the agents that can hold our hooks, read at each reply,
+    /// because `hooks install` runs while the bridge runs (SPEC.md 10.5).
+    pub hooks: Vec<HookFiles>,
 }
+
+/// The state of our hooks for one agent: a `hook` line of the list.
+pub type HookLine = (&'static str, HookState);
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct StorySettings {
@@ -119,11 +127,22 @@ impl BridgeSettings {
                 home: shown_home.map(Path::to_owned).unwrap_or_default(),
                 ..RuleList::default()
             },
+            hooks: Vec::new(),
         }
     }
 
+    pub fn hook_lines(&self) -> Vec<HookLine> {
+        let state = |f: &HookFiles| (agent_word(f.source), hooks_install::state(f));
+        self.hooks.iter().map(state).collect()
+    }
+
     /// Each line is a key and its fields. The reply joins the fields with tabs.
-    fn lines(&self, policy: &Policy, rules: &[RuleLine]) -> Vec<(&'static str, Vec<String>)> {
+    fn lines(
+        &self,
+        policy: &Policy,
+        rules: &[RuleLine],
+        hooks: &[HookLine],
+    ) -> Vec<(&'static str, Vec<String>)> {
         let one = |key, value: &str| (key, vec![value.to_owned()]);
         let mut lines = vec![
             one("version", &self.version),
@@ -143,6 +162,9 @@ impl BridgeSettings {
             lines.push(one("story_model", &story.model));
             let window = story.budget_window_minutes.to_string();
             lines.push(one("story_budget_window_minutes", &window));
+        }
+        for (agent, state) in hooks {
+            lines.push(("hook", vec![(*agent).to_owned(), state.word().to_owned()]));
         }
         for rule in rules {
             let fields = vec![
@@ -181,10 +203,15 @@ fn cost(line: &str) -> usize {
 /// Keeps the first lines that fit in one reply record (S12). The "Always allow" rules and
 /// then the allow table come last, because only they can be long. A cut then drops allow
 /// patterns first.
-pub fn settings_reply(settings: &BridgeSettings, policy: &Policy, rules: &[RuleLine]) -> String {
+pub fn settings_reply(
+    settings: &BridgeSettings,
+    policy: &Policy,
+    rules: &[RuleLine],
+    hooks: &[HookLine],
+) -> String {
     let mut kept: Vec<String> = Vec::new();
     let mut size = RESERVED;
-    for (key, fields) in settings.lines(policy, rules) {
+    for (key, fields) in settings.lines(policy, rules, hooks) {
         let fields: Vec<String> = fields.iter().map(|f| field(f)).collect();
         let line = format!("{key}\t{}", fields.join("\t"));
         if size + cost(&line) > MAX_TEXT {
@@ -231,12 +258,41 @@ mod tests {
             allow: vec!["cargo test".into()],
             allow_folders: vec![("~/Code/app".into(), "npm test".into())],
             rules: RuleList::default(),
+            hooks: Vec::new(),
         }
     }
 
     #[test]
+    fn the_hook_lines_come_before_the_rules_with_the_state_of_each_agent() {
+        let hooks = [("claude", HookState::On), ("codex", HookState::Moved)];
+        let reply = settings_reply(&settings(), &policy(), &[], &hooks);
+        assert!(
+            reply.contains(
+                "permission_timeout_minutes\t10\nhook\tclaude\ton\nhook\tcodex\tmoved\nallow\t"
+            ),
+            "{reply}"
+        );
+    }
+
+    #[test]
+    fn the_hook_lines_read_the_settings_of_the_agents_at_each_reply() {
+        let home = tempfile::tempdir().unwrap();
+        let no_env = |_: &str| None;
+        let mut with_hooks = settings();
+        with_hooks.hooks = HookFiles::both(home.path(), &no_env);
+        assert_eq!(
+            with_hooks.hook_lines(),
+            [("claude", HookState::Off), ("codex", HookState::Off)]
+        );
+        let program = home.path().join("gnomish-relay");
+        std::fs::write(&program, b"").unwrap();
+        hooks_install::install(&with_hooks.hooks[0], &program).unwrap();
+        assert_eq!(with_hooks.hook_lines()[0], ("claude", HookState::On));
+    }
+
+    #[test]
     fn each_value_is_one_line_of_key_and_value() {
-        let reply = settings_reply(&settings(), &policy(), &[]);
+        let reply = settings_reply(&settings(), &policy(), &[], &[]);
         assert_eq!(
             reply,
             "version\t0.1.0\nsandbox\tbwrap\ndefault_cwd\t~/Code\nallowed_root\t~/Code\n\
@@ -254,7 +310,7 @@ mod tests {
             pattern: "cargo test *".into(),
             days: 3,
         }];
-        let reply = settings_reply(&settings(), &policy(), &rules);
+        let reply = settings_reply(&settings(), &policy(), &rules, &[]);
         assert!(
             reply.contains("permission_timeout_minutes\t10\nrule\ta1b2\tCode/app\tcargo test *\t3\nallow\tcargo test"),
             "{reply}"
@@ -294,27 +350,29 @@ mod tests {
             model: "claude haiku".into(),
             budget_window_minutes: 20,
         });
-        let reply = settings_reply(&with_story, &policy(), &[]);
+        let reply = settings_reply(&with_story, &policy(), &[], &[]);
         assert!(reply.contains("\nstory_model\tclaude haiku\nstory_budget_window_minutes\t20\n"));
-        assert!(!settings_reply(&settings(), &policy(), &[]).contains("story"));
+        assert!(!settings_reply(&settings(), &policy(), &[], &[]).contains("story"));
     }
 
     #[test]
     fn a_raised_level_shows_in_the_next_reply() {
         let mut policy = policy();
         policy.agents.insert("codex".into(), Permission::AutoEdit);
-        assert!(settings_reply(&settings(), &policy, &[]).contains("agent\tcodex\t\tauto-edit"));
+        assert!(
+            settings_reply(&settings(), &policy, &[], &[]).contains("agent\tcodex\t\tauto-edit")
+        );
     }
 
     #[test]
     fn a_control_character_in_a_value_becomes_a_space() {
         let mut odd = settings();
         odd.roots = vec!["~/a\nb\tc".into()];
-        let reply = settings_reply(&odd, &policy(), &[]);
+        let reply = settings_reply(&odd, &policy(), &[], &[]);
         assert!(reply.contains("\nallowed_root\t~/a b c\n"), "{reply}");
         let mut folder = settings();
         folder.allow_folders = vec![("~/a\tb".into(), "make".into())];
-        let reply = settings_reply(&folder, &policy(), &[]);
+        let reply = settings_reply(&folder, &policy(), &[], &[]);
         assert!(reply.ends_with("\nallow_folder\t~/a b\tmake"), "{reply}");
     }
 
@@ -322,7 +380,7 @@ mod tests {
     fn a_long_allow_table_is_cut_to_fit_one_record_with_a_mark() {
         let mut long = settings();
         long.allow = (0..5000).map(|n| format!("tool{n} run")).collect();
-        let reply = settings_reply(&long, &policy(), &[]);
+        let reply = settings_reply(&long, &policy(), &[], &[]);
         assert!(reply.ends_with("\n+"));
         assert!(lua_string(reply.as_bytes()).len() <= MAX_TEXT);
         assert!(reply.starts_with("version\t0.1.0\n"));
@@ -383,7 +441,7 @@ mod tests {
             Some(&home_path),
             "none".into(),
         );
-        let reply = settings_reply(&settings, &relay.policy, &[]);
+        let reply = settings_reply(&settings, &relay.policy, &[], &[]);
         assert!(reply.contains("\nallowed_root\t~/code\n"), "{reply}");
         assert!(reply.contains("\nagent\tclaude\tclaude\task\n"), "{reply}");
         assert!(reply.ends_with("\nallow\tcargo test"), "{reply}");

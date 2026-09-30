@@ -1,0 +1,687 @@
+//! `gnomish-relay hooks install`, `remove`, and `status`: our hooks in the settings of
+//! Claude Code and Codex (SPEC.md 10.5). The settings of an agent belong to the user, so
+//! only this explicit command changes them.
+
+use std::ffi::OsStr;
+use std::fs::{self, OpenOptions};
+use std::io::{ErrorKind, Write};
+use std::path::{Path, PathBuf};
+
+use anyhow::{Context, Result, bail};
+use serde_json::{Map, Value};
+
+use crate::dirs::{Dirs, EnvVar};
+use crate::hooks_merge::{self, our_programs};
+use crate::program::find_program;
+use crate::spool::Source;
+
+const BACKUP: &str = "gnomish-relay.bak";
+
+/// The files of one agent that hold our hooks.
+#[derive(Clone, Debug)]
+pub struct HookFiles {
+    pub source: Source,
+    /// `settings.json` of Claude Code, or `hooks.json` of Codex.
+    pub hooks: PathBuf,
+    /// `config.toml` of Codex, which can turn all hooks off.
+    pub codex_config: Option<PathBuf>,
+}
+
+impl HookFiles {
+    /// `CLAUDE_CONFIG_DIR` moves the settings of Claude Code, as Claude Code reads it.
+    pub fn claude(home: &Path, var: EnvVar) -> HookFiles {
+        let dir = var("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude"));
+        HookFiles {
+            source: Source::Claude,
+            hooks: dir.join("settings.json"),
+            codex_config: None,
+        }
+    }
+
+    /// `CODEX_HOME` moves the settings of Codex, as Codex reads it.
+    pub fn codex(home: &Path, var: EnvVar) -> HookFiles {
+        let dir = var("CODEX_HOME").unwrap_or_else(|| home.join(".codex"));
+        HookFiles {
+            source: Source::Codex,
+            hooks: dir.join("hooks.json"),
+            codex_config: Some(dir.join("config.toml")),
+        }
+    }
+
+    pub fn both(home: &Path, var: EnvVar) -> Vec<HookFiles> {
+        vec![HookFiles::claude(home, var), HookFiles::codex(home, var)]
+    }
+}
+
+pub fn agent_name(source: Source) -> &'static str {
+    match source {
+        Source::Claude => "Claude Code",
+        Source::Codex => "Codex",
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum HookState {
+    On,
+    Off,
+    /// The program of a hook does not exist: the binary moved.
+    Moved,
+    /// Our hooks are there, but the agent runs no hooks.
+    Disabled,
+}
+
+impl HookState {
+    pub fn word(self) -> &'static str {
+        match self {
+            HookState::On => "on",
+            HookState::Off => "off",
+            HookState::Moved => "moved",
+            HookState::Disabled => "disabled",
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum Change {
+    Changed,
+    Unchanged,
+}
+
+struct Settings {
+    /// The real file: a link from a dotfiles folder stays a link.
+    real: PathBuf,
+    value: Value,
+    existed: bool,
+}
+
+fn real_path(path: &Path) -> Result<PathBuf> {
+    match fs::canonicalize(path) {
+        Ok(real) => Ok(real),
+        Err(e) if e.kind() == ErrorKind::NotFound => Ok(path.to_owned()),
+        Err(e) => Err(e).with_context(|| format!("cannot read {}", path.display())),
+    }
+}
+
+fn read_settings(path: &Path) -> Result<Settings> {
+    let real = real_path(path)?;
+    let (value, existed) = match fs::read_to_string(&real) {
+        Ok(text) => {
+            let value = serde_json::from_str(&text)
+                .with_context(|| format!("{} is not valid JSON", path.display()))?;
+            (value, true)
+        }
+        Err(e) if e.kind() == ErrorKind::NotFound => (Value::Object(Map::new()), false),
+        Err(e) => return Err(e).with_context(|| format!("cannot read {}", path.display())),
+    };
+    Ok(Settings {
+        real,
+        value,
+        existed,
+    })
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name()
+        .map(|n| n.to_string_lossy().into_owned())
+        .unwrap_or_default()
+}
+
+/// The file from before the first install. A later install never writes over it.
+fn backup(real: &Path) -> Result<()> {
+    let backup = real.with_file_name(format!("{}.{BACKUP}", file_name(real)));
+    match OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(&backup)
+    {
+        Ok(mut file) => Ok(file.write_all(&fs::read(real)?)?),
+        Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(()),
+        Err(e) => Err(e).with_context(|| format!("cannot write {}", backup.display())),
+    }
+}
+
+/// An atomic rename in the folder of the real file, with the mode of the old file.
+fn write_settings(settings: &Settings, value: &Value) -> Result<()> {
+    let real = &settings.real;
+    let dir = real.parent().context("the settings file has no folder")?;
+    fs::create_dir_all(dir)?;
+    if settings.existed {
+        backup(real)?;
+    }
+    let tmp = dir.join(format!(".{}.gnomish-relay.tmp", file_name(real)));
+    let mut text = serde_json::to_string_pretty(value)?;
+    text.push('\n');
+    fs::write(&tmp, text)?;
+    if settings.existed {
+        fs::set_permissions(&tmp, fs::metadata(real)?.permissions())?;
+    }
+    fs::rename(&tmp, real).with_context(|| format!("cannot write {}", real.display()))
+}
+
+fn change(files: &HookFiles, merge: impl FnOnce(Value) -> Result<Value>) -> Result<Change> {
+    let settings = read_settings(&files.hooks)?;
+    let merged = merge(settings.value.clone())
+        .with_context(|| format!("{} did not change", files.hooks.display()))?;
+    if merged == settings.value {
+        return Ok(Change::Unchanged);
+    }
+    write_settings(&settings, &merged)?;
+    Ok(Change::Changed)
+}
+
+/// Codex runs no hooks when `config.toml` sets `hooks = false` (or the old name
+/// `codex_hooks = false`) under `[features]`.
+fn codex_hooks_off(config: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(config) else {
+        return false;
+    };
+    let Ok(table) = text.parse::<toml::Table>() else {
+        return false;
+    };
+    let features = table.get("features").and_then(toml::Value::as_table);
+    let off = |key: &str| {
+        features
+            .and_then(|f| f.get(key))
+            .and_then(toml::Value::as_bool)
+            == Some(false)
+    };
+    off("hooks") || off("codex_hooks")
+}
+
+fn hooks_off(files: &HookFiles, settings: &Value) -> bool {
+    match &files.codex_config {
+        Some(config) => codex_hooks_off(config),
+        None => settings.get("disableAllHooks") == Some(&Value::Bool(true)),
+    }
+}
+
+/// Refuses when the user turned the hooks of Codex off: that is the choice of the user.
+pub fn install(files: &HookFiles, program: &Path) -> Result<Change> {
+    if let Some(config) = files.codex_config.as_deref().filter(|c| codex_hooks_off(c)) {
+        bail!(
+            "{} turns hooks off under [features]. Gnomish Relay leaves that choice to you.",
+            config.display()
+        );
+    }
+    change(files, |value| {
+        hooks_merge::install(value, program, files.source)
+    })
+}
+
+pub fn remove(files: &HookFiles) -> Result<Change> {
+    change(files, |value| hooks_merge::remove(value, files.source))
+}
+
+pub fn state(files: &HookFiles) -> HookState {
+    let Ok(settings) = read_settings(&files.hooks) else {
+        return HookState::Off;
+    };
+    let programs = our_programs(&settings.value, files.source);
+    if programs.is_empty() {
+        HookState::Off
+    } else if hooks_off(files, &settings.value) {
+        HookState::Disabled
+    } else if programs.iter().any(|p| !Path::new(p).is_file()) {
+        HookState::Moved
+    } else {
+        HookState::On
+    }
+}
+
+/// The agents that a flag names, or with no flag each agent on `PATH`.
+fn chosen(flags: &[&str], all: Vec<HookFiles>, path: &OsStr) -> Result<Vec<HookFiles>> {
+    let mut wanted = Vec::new();
+    for flag in flags {
+        match *flag {
+            "--claude" => wanted.push(Source::Claude),
+            "--codex" => wanted.push(Source::Codex),
+            other => bail!("unknown flag {other}. Use --claude or --codex."),
+        }
+    }
+    if wanted.is_empty() {
+        let on_path = |f: &HookFiles| {
+            let name = hooks_merge::agent_word(f.source);
+            find_program(name, path, cfg!(windows)).is_some()
+        };
+        return Ok(all.into_iter().filter(on_path).collect());
+    }
+    Ok(all
+        .into_iter()
+        .filter(|f| wanted.contains(&f.source))
+        .collect())
+}
+
+pub fn install_command(
+    flags: &[&str],
+    all: Vec<HookFiles>,
+    program: &Path,
+    path: &OsStr,
+    out: &mut dyn Write,
+) -> Result<()> {
+    let agents = chosen(flags, all, path)?;
+    if agents.is_empty() {
+        writeln!(
+            out,
+            "Neither claude nor codex is on PATH. Name one: gnomish-relay hooks install --claude"
+        )?;
+        return Ok(());
+    }
+    let mut changed = Vec::new();
+    let mut failed = false;
+    for files in &agents {
+        let name = agent_name(files.source);
+        match install(files, program) {
+            Ok(Change::Changed) => {
+                writeln!(
+                    out,
+                    "{name}: notifications on. Hooks added to {}",
+                    files.hooks.display()
+                )?;
+                changed.push(files.source);
+            }
+            Ok(Change::Unchanged) => writeln!(out, "{name}: notifications already on")?,
+            Err(e) => {
+                writeln!(out, "{name}: nothing changed: {e:#}")?;
+                failed = true;
+            }
+        }
+    }
+    if !changed.is_empty() {
+        let names: Vec<&str> = changed.iter().map(|s| agent_name(*s)).collect();
+        // Both agents load hooks only at the start of a session.
+        writeln!(
+            out,
+            "Restart the {} sessions that run now.",
+            names.join(" and ")
+        )?;
+    }
+    if changed.contains(&Source::Codex) {
+        writeln!(
+            out,
+            "Codex asks you to trust the new hooks at the start of its next session. Trust them, or no notification comes."
+        )?;
+    }
+    if failed {
+        bail!("some hooks were not added");
+    }
+    Ok(())
+}
+
+pub fn remove_command(flags: &[&str], all: Vec<HookFiles>, out: &mut dyn Write) -> Result<()> {
+    let agents = if flags.is_empty() {
+        all
+    } else {
+        chosen(flags, all, OsStr::new(""))?
+    };
+    for files in &agents {
+        let name = agent_name(files.source);
+        match remove(files)? {
+            Change::Changed => writeln!(
+                out,
+                "{name}: notifications off. Hooks taken out of {}",
+                files.hooks.display()
+            )?,
+            Change::Unchanged => writeln!(out, "{name}: notifications already off")?,
+        }
+    }
+    Ok(())
+}
+
+fn state_line(files: &HookFiles) -> String {
+    let name = agent_name(files.source);
+    match state(files) {
+        HookState::On => format!("{name}: notifications on"),
+        HookState::Off => format!("{name}: notifications off"),
+        HookState::Moved => format!(
+            "{name}: the hooks name a program that does not exist. Run: gnomish-relay hooks install"
+        ),
+        HookState::Disabled if files.source == Source::Claude => format!(
+            "{name}: hooks are there, but disableAllHooks is true in {}",
+            files.hooks.display()
+        ),
+        HookState::Disabled => {
+            format!("{name}: hooks are there, but config.toml turns hooks off under [features]")
+        }
+    }
+}
+
+pub fn status_command(all: &[HookFiles], out: &mut dyn Write) -> Result<()> {
+    for files in all {
+        writeln!(out, "{}", state_line(files))?;
+    }
+    Ok(())
+}
+
+/// `gnomish-relay hooks <action> [flags]`.
+pub fn command(dirs: &Dirs, action: &str, flags: &[&str], out: &mut dyn Write) -> Result<()> {
+    let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
+    let all = HookFiles::both(&dirs.home, &var);
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    match action {
+        "install" => install_command(flags, all, &std::env::current_exe()?, &path, out),
+        "remove" => remove_command(flags, all, out),
+        "status" if flags.is_empty() => status_command(&all, out),
+        _ => {
+            bail!("usage: gnomish-relay hooks install|remove [--claude] [--codex], or hooks status")
+        }
+    }
+}
+
+/// The last line of `setup`, which changes no agent settings itself.
+pub const SETUP_HINT: &str =
+    "For notifications from Claude Code and Codex in a terminal, run: gnomish-relay hooks install";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const USER_SETTINGS: &str = r#"{
+  "model": "opus",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "notify-send done"
+          }
+        ]
+      }
+    ]
+  }
+}
+"#;
+
+    struct Home {
+        dir: tempfile::TempDir,
+        program: PathBuf,
+    }
+
+    fn home() -> Home {
+        let dir = tempfile::tempdir().unwrap();
+        let program = dir.path().join("bin").join("gnomish-relay");
+        fs::create_dir_all(program.parent().unwrap()).unwrap();
+        fs::write(&program, b"").unwrap();
+        Home { dir, program }
+    }
+
+    fn no_env(_: &str) -> Option<PathBuf> {
+        None
+    }
+
+    impl Home {
+        fn claude(&self) -> HookFiles {
+            HookFiles::claude(self.dir.path(), &no_env)
+        }
+
+        fn codex(&self) -> HookFiles {
+            HookFiles::codex(self.dir.path(), &no_env)
+        }
+
+        fn write(&self, relative: &str, text: &str) -> PathBuf {
+            let path = self.dir.path().join(relative);
+            fs::create_dir_all(path.parent().unwrap()).unwrap();
+            fs::write(&path, text).unwrap();
+            path
+        }
+    }
+
+    fn json_of(path: &Path) -> Value {
+        serde_json::from_str(&fs::read_to_string(path).unwrap()).unwrap()
+    }
+
+    #[test]
+    fn install_keeps_the_hooks_of_the_user_with_an_indent_of_two_spaces() {
+        let home = home();
+        let settings = home.write(".claude/settings.json", USER_SETTINGS);
+
+        assert_eq!(
+            install(&home.claude(), &home.program).unwrap(),
+            Change::Changed
+        );
+
+        let text = fs::read_to_string(&settings).unwrap();
+        assert!(
+            text.starts_with("{\n  \"model\": \"opus\",\n  \"hooks\": {\n    \"Stop\": [\n"),
+            "{text}"
+        );
+        let value = json_of(&settings);
+        assert_eq!(
+            value["hooks"]["Stop"][0]["hooks"][0]["command"],
+            "notify-send done"
+        );
+        assert_eq!(our_programs(&value, Source::Claude).len(), 6);
+        assert_eq!(state(&home.claude()), HookState::On);
+    }
+
+    #[test]
+    fn a_second_install_writes_nothing() {
+        let home = home();
+        install(&home.claude(), &home.program).unwrap();
+        assert_eq!(
+            install(&home.claude(), &home.program).unwrap(),
+            Change::Unchanged
+        );
+    }
+
+    #[test]
+    fn install_then_remove_gives_the_same_json_value_as_before() {
+        let home = home();
+        let settings = home.write(".claude/settings.json", USER_SETTINGS);
+        install(&home.claude(), &home.program).unwrap();
+        assert_eq!(remove(&home.claude()).unwrap(), Change::Changed);
+        assert_eq!(fs::read_to_string(&settings).unwrap(), USER_SETTINGS);
+        assert_eq!(state(&home.claude()), HookState::Off);
+    }
+
+    #[test]
+    fn a_broken_file_changes_nothing_and_is_named() {
+        let home = home();
+        let settings = home.write(".claude/settings.json", "{\"model\": ");
+        let error = install(&home.claude(), &home.program).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("settings.json is not valid JSON"),
+            "{error:#}"
+        );
+        assert_eq!(fs::read_to_string(&settings).unwrap(), "{\"model\": ");
+    }
+
+    #[test]
+    fn a_wrong_type_changes_nothing_and_names_the_key() {
+        let home = home();
+        let settings = home.write(".claude/settings.json", r#"{"hooks": {"Stop": 1}}"#);
+        let error = install(&home.claude(), &home.program).unwrap_err();
+        assert!(
+            format!("{error:#}").contains("hooks.Stop is not a list"),
+            "{error:#}"
+        );
+        assert_eq!(
+            fs::read_to_string(&settings).unwrap(),
+            r#"{"hooks": {"Stop": 1}}"#
+        );
+    }
+
+    #[test]
+    fn the_backup_is_the_file_from_before_the_first_install() {
+        let home = home();
+        let settings = home.write(".claude/settings.json", USER_SETTINGS);
+        install(&home.claude(), &home.program).unwrap();
+        remove(&home.claude()).unwrap();
+        install(&home.claude(), &home.program).unwrap();
+        let backup = settings.with_file_name("settings.json.gnomish-relay.bak");
+        assert_eq!(fs::read_to_string(backup).unwrap(), USER_SETTINGS);
+    }
+
+    #[test]
+    fn a_missing_file_is_made_with_no_backup() {
+        let home = home();
+        install(&home.codex(), &home.program).unwrap();
+        let hooks = home.dir.path().join(".codex/hooks.json");
+        assert_eq!(our_programs(&json_of(&hooks), Source::Codex).len(), 5);
+        assert!(
+            !hooks
+                .with_file_name("hooks.json.gnomish-relay.bak")
+                .exists()
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn install_follows_a_link_to_the_real_file_and_keeps_its_mode() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = home();
+        let real = home.write("dotfiles/claude-settings.json", USER_SETTINGS);
+        fs::set_permissions(&real, fs::Permissions::from_mode(0o600)).unwrap();
+        fs::create_dir_all(home.dir.path().join(".claude")).unwrap();
+        let link = home.dir.path().join(".claude/settings.json");
+        std::os::unix::fs::symlink(&real, &link).unwrap();
+
+        install(&home.claude(), &home.program).unwrap();
+
+        assert!(
+            fs::symlink_metadata(&link)
+                .unwrap()
+                .file_type()
+                .is_symlink()
+        );
+        assert_eq!(our_programs(&json_of(&real), Source::Claude).len(), 6);
+        assert_eq!(
+            fs::metadata(&real).unwrap().permissions().mode() & 0o777,
+            0o600
+        );
+    }
+
+    #[test]
+    fn codex_install_refuses_when_its_config_turns_hooks_off() {
+        let home = home();
+        for line in ["hooks = false", "codex_hooks = false"] {
+            home.write(
+                ".codex/config.toml",
+                &format!("model = \"x\"\n[features]\n{line}\n"),
+            );
+            let error = install(&home.codex(), &home.program).unwrap_err();
+            assert!(error.to_string().contains("turns hooks off"), "{error}");
+        }
+        assert!(!home.dir.path().join(".codex/hooks.json").exists());
+    }
+
+    #[test]
+    fn codex_install_never_changes_its_config() {
+        let home = home();
+        let config = home.write(".codex/config.toml", "notify = [\"say\"]\n");
+        install(&home.codex(), &home.program).unwrap();
+        assert_eq!(fs::read_to_string(config).unwrap(), "notify = [\"say\"]\n");
+        assert_eq!(state(&home.codex()), HookState::On);
+    }
+
+    #[test]
+    fn the_state_shows_a_moved_binary_and_hooks_that_are_off() {
+        let home = home();
+        install(&home.claude(), &home.program).unwrap();
+        install(&home.codex(), &home.program).unwrap();
+        fs::remove_file(&home.program).unwrap();
+        assert_eq!(state(&home.claude()), HookState::Moved);
+
+        let settings = home.dir.path().join(".claude/settings.json");
+        let mut value = json_of(&settings);
+        value["disableAllHooks"] = Value::Bool(true);
+        fs::write(&settings, value.to_string()).unwrap();
+        assert_eq!(state(&home.claude()), HookState::Disabled);
+
+        home.write(".codex/config.toml", "[features]\nhooks = false\n");
+        assert_eq!(state(&home.codex()), HookState::Disabled);
+    }
+
+    #[test]
+    fn the_env_moves_the_folders_of_both_agents() {
+        let env = |name: &str| match name {
+            "CLAUDE_CONFIG_DIR" => Some(PathBuf::from("/c")),
+            "CODEX_HOME" => Some(PathBuf::from("/x")),
+            _ => None,
+        };
+        let home = Path::new("/home/u");
+        assert_eq!(
+            HookFiles::claude(home, &env).hooks,
+            PathBuf::from("/c/settings.json")
+        );
+        assert_eq!(
+            HookFiles::codex(home, &env).hooks,
+            PathBuf::from("/x/hooks.json")
+        );
+        assert_eq!(
+            HookFiles::claude(home, &no_env).hooks,
+            PathBuf::from("/home/u/.claude/settings.json")
+        );
+    }
+
+    fn output(run: impl FnOnce(&mut Vec<u8>) -> Result<()>) -> String {
+        let mut out = Vec::new();
+        run(&mut out).unwrap();
+        String::from_utf8(out).unwrap()
+    }
+
+    #[test]
+    fn install_with_no_flag_takes_each_agent_on_path_and_says_to_restart() {
+        let home = home();
+        let bin = home.dir.path().join("agents");
+        fs::create_dir_all(&bin).unwrap();
+        fs::write(bin.join("codex"), b"").unwrap();
+        let all = HookFiles::both(home.dir.path(), &no_env);
+
+        let text = output(|out| install_command(&[], all, &home.program, bin.as_os_str(), out));
+
+        assert!(text.contains("Codex: notifications on"), "{text}");
+        assert!(!text.contains("Claude Code"), "{text}");
+        assert!(text.contains("Restart the Codex sessions that run now."));
+        assert!(text.contains("trust the new hooks"));
+    }
+
+    #[test]
+    fn install_with_no_agent_on_path_names_the_flag() {
+        let home = home();
+        let all = HookFiles::both(home.dir.path(), &no_env);
+        let text = output(|out| install_command(&[], all, &home.program, OsStr::new(""), out));
+        assert!(text.contains("hooks install --claude"), "{text}");
+    }
+
+    #[test]
+    fn remove_and_status_speak_of_notifications() {
+        let home = home();
+        let all = HookFiles::both(home.dir.path(), &no_env);
+        output(|out| {
+            install_command(
+                &["--claude"],
+                all.clone(),
+                &home.program,
+                OsStr::new(""),
+                out,
+            )
+        });
+
+        let status = output(|out| status_command(&all, out));
+        let removed = output(|out| remove_command(&[], all.clone(), out));
+
+        assert_eq!(
+            status,
+            "Claude Code: notifications on\nCodex: notifications off\n"
+        );
+        assert!(
+            removed.contains("Claude Code: notifications off. Hooks taken out of"),
+            "{removed}"
+        );
+        assert!(
+            removed.contains("Codex: notifications already off"),
+            "{removed}"
+        );
+    }
+
+    #[test]
+    fn an_unknown_flag_is_an_error() {
+        let home = home();
+        let all = HookFiles::both(home.dir.path(), &no_env);
+        let mut out = Vec::new();
+        assert!(
+            install_command(&["--gemini"], all, &home.program, OsStr::new(""), &mut out).is_err()
+        );
+    }
+}

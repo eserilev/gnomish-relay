@@ -463,7 +463,9 @@ impl RelayLane {
                 Work::ListFolders => self.start_folder_list(job),
                 Work::ListSettings => {
                     let rules = self.settings.rules.lines(now());
-                    self.relay.finish_settings(&job, &self.settings, &rules);
+                    let hooks = self.settings.hook_lines();
+                    self.relay
+                        .finish_settings(&job, &self.settings, &rules, &hooks);
                     self.files.changed = true;
                 }
                 Work::Prompt | Work::Attach { .. } => self.start_run(job),
