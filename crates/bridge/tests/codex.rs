@@ -381,6 +381,13 @@ fn a_wrapped_command_in_the_allow_table_runs_with_no_popup_at_auto_edit() {
 }
 
 #[test]
+fn for_codex_ls_still_asks_at_auto_edit() {
+    let reply = gated("command", "/bin/bash -lc 'ls'", "", Permission::AutoEdit);
+
+    assert!(reply.unwrap().starts_with("command decline"));
+}
+
+#[test]
 fn a_change_of_the_strip_key_is_declined_at_every_level() {
     for level in [Permission::Ask, Permission::AutoEdit, Permission::FullAuto] {
         let reply = gated("change", "ROOT/config/strip.key", "", level).unwrap();

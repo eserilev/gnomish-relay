@@ -300,6 +300,72 @@ fn with_no_sandbox_a_command_of_the_allow_table_asks_the_game_and_the_reply_says
     assert_eq!(questions.len(), 1, "no sandbox: every command asks");
 }
 
+#[test]
+fn at_auto_edit_in_the_sandbox_ls_and_cargo_test_run_with_no_question() {
+    let home = home("");
+    for command in ["ls", "cargo test"] {
+        let (reply, questions) = call_with_game(
+            &home,
+            "Bash",
+            &json!({ "command": command }),
+            Permission::AutoEdit,
+            |_| Some(Some(1)),
+        );
+
+        assert_eq!(reply, "allow: Allowed by Gnomish Relay.", "{command}");
+        assert!(questions.is_empty(), "{command}");
+    }
+}
+
+#[test]
+fn at_auto_edit_in_the_sandbox_xargs_and_a_network_tool_still_ask_in_the_game() {
+    let home = home("");
+    for command in ["xargs rm", "wget https://example.com"] {
+        let (reply, questions) = call_with_game(
+            &home,
+            "Bash",
+            &json!({ "command": command }),
+            Permission::AutoEdit,
+            |_| Some(Some(1)),
+        );
+
+        assert_eq!(reply, "deny: Denied in the game.", "{command}");
+        assert_eq!(questions.len(), 1, "{command}");
+    }
+}
+
+#[test]
+fn with_no_sandbox_ls_still_asks_in_the_game_at_auto_edit() {
+    let mut home = home("");
+    home.gate.sandbox = CommandSandbox::none();
+
+    let (reply, questions) = call_with_game(
+        &home,
+        "Bash",
+        &json!({ "command": "ls" }),
+        Permission::AutoEdit,
+        |_| Some(Some(1)),
+    );
+
+    assert!(reply.ends_with("deny: Denied in the game."), "{reply}");
+    assert_eq!(questions.len(), 1);
+}
+
+#[test]
+fn at_the_level_ask_ls_still_asks_in_the_game() {
+    let home = home("");
+
+    let (_, questions) = call_with_game(
+        &home,
+        "Bash",
+        &json!({ "command": "ls" }),
+        Permission::Ask,
+        |_| Some(Some(1)),
+    );
+
+    assert_eq!(questions.len(), 1);
+}
+
 /// `None` skips the test on a computer with no working sandbox.
 #[cfg(unix)]
 fn real_sandbox() -> Option<CommandSandbox> {
@@ -410,8 +476,10 @@ fn rm_r_asks_in_the_game_at_auto_edit_and_runs_at_full_auto() {
 
 #[test]
 fn always_in_the_game_adds_a_rule_and_the_next_same_command_runs_with_no_question() {
-    let home = with_rules(home(""));
-    let first = json!({ "command": "cargo test -p x" });
+    // At auto-edit, `cargo test` alone runs with no question. The popup offers Always only
+    // when the allow table covers a part that gets no rule, such as this script.
+    let home = with_rules(home("commands = [\"./build.sh\"]"));
+    let first = json!({ "command": "./build.sh && cargo test -p x" });
     let (reply, questions) = call_with_game(
         &home,
         "Bash",
@@ -423,7 +491,7 @@ fn always_in_the_game_adds_a_rule_and_the_next_same_command_runs_with_no_questio
     assert_eq!(questions.len(), 1);
     assert_eq!(questions[0].choices[1].label, "cargo test * in Code/app");
 
-    let next = json!({ "command": "cargo test -q" });
+    let next = json!({ "command": "./build.sh && cargo test -q" });
     let (reply, questions) = call_with_game(&home, "Bash", &next, Permission::AutoEdit, |_| None);
 
     assert_eq!(reply, "allow: Allowed by Gnomish Relay.");
@@ -455,7 +523,7 @@ fn a_deny_in_the_game_reaches_claude() {
     let (reply, _) = call_with_game(
         &home,
         "Bash",
-        &json!({ "command": "make" }),
+        &json!({ "command": "npx prettier" }),
         Permission::AutoEdit,
         |_| Some(Some(1)),
     );
