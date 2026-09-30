@@ -38,6 +38,8 @@ local wow = {
 	-- Every screenshot again, by the name of each strip frame in `strips` that it shows.
 	strips = { "GnomishRelayStrip" },
 	shotsOf = {},
+	-- The same screenshots as rectangles of physical pixels, for the line (SPEC.md 7.1.3).
+	picturesOf = {},
 	-- How often a strip frame showed while another one showed. Both sit in one corner.
 	overlaps = 0,
 	-- The slot files of an app other than the relay, by the slot prefix before `_S`.
@@ -543,16 +545,41 @@ function wow.Save(name)
 end
 
 -- The cells of one strip on screen, by row, from the colors of the visible textures.
+-- The cells of the old strip, which are 4 units wide. The line has other cells.
 local function StripCells(frameName)
 	local rows = {}
 	for _, t in ipairs(wow.textures) do
-		if t.parent.name == frameName and t:IsVisible() and t.color then
+		if t.parent.name == frameName and t:IsVisible() and t.color and t.width == 4 then
 			local row, col = -t.y / 4 + 1, t.x / 4 + 1
 			rows[row] = rows[row] or {}
 			rows[row][col] = t.color[1] * 4 + t.color[2] * 2 + t.color[3]
 		end
 	end
 	return rows
+end
+
+local function Pixels(units, scale)
+	return math.floor(units * scale + 0.5)
+end
+
+-- Each visible texture of a strip frame as a rectangle of physical pixels, with its color
+-- from 0 to 255. The frame sits at the top-left corner.
+local function StripPicture(frameName)
+	local picture = {}
+	local _, height = GetPhysicalScreenSize()
+	for _, t in ipairs(wow.textures) do
+		if t.parent.name == frameName and t:IsVisible() and t.color then
+			local scale = t.parent:GetEffectiveScale() * height / 768
+			table.insert(picture, {
+				x = Pixels(t.x, scale),
+				y = Pixels(-t.y, scale),
+				width = Pixels(t.width, scale),
+				height = Pixels(t.height, scale),
+				color = { Pixels(t.color[1], 255), Pixels(t.color[2], 255), Pixels(t.color[3], 255) },
+			})
+		end
+	end
+	return picture
 end
 
 UIParent = New("Frame", "UIParent")
@@ -642,8 +669,10 @@ local function Capture()
 	table.insert(wow.shots, StripCells("GnomishRelayStrip"))
 	for _, frameName in ipairs(wow.strips) do
 		wow.shotsOf[frameName] = wow.shotsOf[frameName] or {}
+		wow.picturesOf[frameName] = wow.picturesOf[frameName] or {}
 		if _G[frameName] and _G[frameName].shown then
 			table.insert(wow.shotsOf[frameName], StripCells(frameName))
+			table.insert(wow.picturesOf[frameName], StripPicture(frameName))
 		end
 	end
 end

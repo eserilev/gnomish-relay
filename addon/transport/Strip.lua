@@ -1,5 +1,5 @@
 -- Draws a frame as colored cells in the top-left corner and takes one screenshot
--- of it (SPEC.md 7.1). The strip shows only while the screenshot is taken.
+-- of it (SPEC.md 7.1). With a line from the bridge, the cells are 1 or 2 pixels (7.1.3). The strip shows only while the screenshot is taken.
 -- Every app of the shared transport draws in the same corner, so the apps take turns
 -- through one shared global. models/corner.qnt checks the rules of the turns.
 
@@ -30,6 +30,13 @@ local BLOCK_AFTER = 30
 
 local frame
 local textures = {}
+local lineTextures = {}
+-- The frame id of the last line. A strip with the same id is a retry, so the line did
+-- not reach the bridge (SPEC.md 7.1.3).
+local lastLineId
+local failedLineId
+local lineFailures = 0
+local LINE_FAILURES_OFF = 2
 local pending -- the callback of the screenshot in progress
 -- True once our Screenshot() runs. The SCREENSHOT_* events also fire for the
 -- screenshots of the player and of other addons, and those must not end our strip.
@@ -159,16 +166,109 @@ local function Paint(t, cell)
 	t:Show()
 end
 
-local function Draw(rows)
-	for _, t in pairs(textures) do
-		t:Hide()
+local function LineTexture(index)
+	local t = lineTextures[index]
+	if not t then
+		t = frame:CreateTexture(nil, "OVERLAY")
+		-- The snap rounds a float error of the scale to the nearest pixel.
+		t:SetSnapToPixelGrid(true)
+		lineTextures[index] = t
 	end
+	return t
+end
+
+local function PaintLine(rows, size)
+	local width = ns.Codec.LINE_CELLS_PER_ROW
+	for r, row in ipairs(rows) do
+		for c, color in ipairs(row) do
+			local t = LineTexture((r - 1) * width + c)
+			t:SetSize(size, size)
+			t:SetPoint("TOPLEFT", frame, "TOPLEFT", (c - 1) * size, -(r - 1) * size)
+			t:SetColorTexture(color[1] / 255, color[2] / 255, color[3] / 255)
+			t:Show()
+		end
+	end
+end
+
+local function PaintStrip(rows)
 	for r, row in ipairs(rows) do
 		for c, cell in ipairs(row) do
 			Paint(Texture(r, c), cell)
 		end
 	end
-	-- One UI unit is one physical pixel at this scale, so a cell is 4 pixels.
+end
+
+local function HideAll()
+	for _, t in pairs(textures) do
+		t:Hide()
+	end
+	for _, t in pairs(lineTextures) do
+		t:Hide()
+	end
+end
+
+local function FrameId(frameBytes)
+	local hi, lo = frameBytes:byte(8, 9)
+	return (hi or 0) * 256 + (lo or 0)
+end
+
+-- Any addon can write the saved variables, so a value of a wrong shape counts as none.
+local function SavedLine()
+	local line = ns.Saved().stripLine
+	if type(line) ~= "table" or not ns.Codec.LINE_MODES[line.mode] then
+		return nil
+	end
+	local width, height = GetPhysicalScreenSize()
+	if line.width ~= width or line.height ~= height then
+		return nil
+	end
+	return line.mode
+end
+
+-- A retry of a line draws the old strip, which always reads.
+local function IsLineRetry(id)
+	if id == 0 or id ~= lastLineId then
+		return false
+	end
+	if id ~= failedLineId then
+		failedLineId = id
+		lineFailures = lineFailures + 1
+	end
+	return true
+end
+
+-- The mode of the line for this frame, or nil for the old strip (SPEC.md 7.1.3).
+local function LineMode(frameBytes)
+	local mode = lineFailures < LINE_FAILURES_OFF and SavedLine()
+	if not mode then
+		return nil
+	end
+	local id = FrameId(frameBytes)
+	if IsLineRetry(id) then
+		return nil
+	end
+	lastLineId = id
+	return mode
+end
+
+-- `line` comes from the slot body of the bridge. Nil removes the line.
+function Strip.TakeLine(line)
+	local valid = type(line) == "table"
+		and ns.Codec.LINE_MODES[line.mode]
+		and type(line.width) == "number"
+		and type(line.height) == "number"
+	ns.Saved().stripLine = valid and { mode = line.mode, width = line.width, height = line.height } or nil
+end
+
+local function Draw(frameBytes)
+	HideAll()
+	local mode = LineMode(frameBytes)
+	if mode then
+		PaintLine(ns.Codec.LineRows(frameBytes, mode), ns.Codec.LINE_MODES[mode].size)
+	else
+		PaintStrip(ns.Codec.StripRows(frameBytes))
+	end
+	-- One UI unit is one physical pixel at this scale, as in PixelUtil.
 	local _, height = GetPhysicalScreenSize()
 	frame:SetScale(768 / height)
 	frame:Show()
@@ -202,7 +302,7 @@ function Strip.Show(frameBytes, done)
 		Build()
 	end
 	pending = done
-	Draw(ns.Codec.StripRows(frameBytes))
+	Draw(frameBytes)
 	C_Timer.After(SHOT_DELAY, function()
 		-- The strip can have ended by a timeout in between. A shot now would have no strip.
 		if pending ~= done then
