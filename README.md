@@ -10,10 +10,57 @@ Gnomish Relay puts your AI coding agent in a chat window inside World of Warcraf
 Claude Code or Codex a task, keep questing, and read the result when it's done. The agent
 works on your own computer, in your own projects, the same way it does in your terminal.
 
-It comes in two parts: an addon for the game, and a small desktop app, `gnomish-relay`,
-that runs your agents. It works with Claude Code, Codex, and any agent that speaks the
-Agent Client Protocol (ACP), on Linux, macOS, and Windows. Today it supports the
-WoW: Forever client.
+## Requirements
+
+- **WoW: Forever**, and the [CurseForge app](https://www.curseforge.com/download/app).
+- **A coding agent**, installed and logged in on your computer:
+  [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex, or any agent that
+  speaks the Agent Client Protocol (ACP).
+- **Linux, macOS, or Windows.**
+
+## Install
+
+Gnomish Relay has two parts: the addon, from CurseForge, and a small desktop app that runs
+your agents. To install both:
+
+1. **Install the addon** from CurseForge: <https://www.curseforge.com/projects/1719624>.
+2. **Close WoW.**
+3. **Install the desktop app** with one command:
+   - Linux and macOS:
+     ```sh
+     curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh
+     ```
+   - Windows (PowerShell):
+     ```powershell
+     irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex
+     ```
+4. **Answer the setup questions.** Setup finds WoW, then asks which folders your agents
+   can work in.
+5. **Start WoW** and type `/relay`.
+
+### Check that it works
+
+Run `gnomish-relay status`. It shows `Desktop app: running`, your agent, and
+`Sandbox: bwrap` (Linux) or `sandbox-exec` (macOS). In the game, the top of the
+Gnomish Relay window says **Connected**.
+
+If a line shows a problem, it also says how to fix it. See also
+[Troubleshooting](#troubleshooting).
+
+<details>
+<summary>What the installer does</summary>
+
+- It downloads the desktop app for your OS and checks its SHA-256 sum.
+- It runs `gnomish-relay setup --autostart`. Setup finds the game, makes a key that only
+  your computer has, writes its settings file `config.toml`, and starts the desktop
+  app each time you log in.
+- Setup uses the agents it finds on your computer: `claude`, `codex`, `gemini`, `qwen`,
+  `opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
+- You can run it again at any time. It leaves alone whatever already works.
+- To install without the login service, add `--no-autostart`:
+  `curl -fsSL …/install.sh | sh -s -- --no-autostart`.
+
+</details>
 
 ## How it works
 
@@ -26,39 +73,6 @@ WoW: Forever client.
 Along the way you get approval popups, a list of the files that changed with **Commit**
 and **Revert** buttons, a branch of its own for each chat, quick-action buttons, test
 and CI results under each reply, and what each run cost.
-
-## Install
-
-1. **Get the addon on CurseForge:** <https://www.curseforge.com/projects/1719624>.
-   Install it with the CurseForge app, so it stays up to date.
-2. Close WoW. The game only finds new addons when it starts.
-3. Install the desktop app with one command:
-   - **Linux and macOS:** `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh`
-   - **Windows (PowerShell):** `irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex`
-4. Answer a few questions. You only see the ones that apply to you:
-   - **Where's WoW?** Only when setup finds no game, or more than one.
-   - **Which folders can the agents work in?** Setup suggests the code folders it finds.
-     It never suggests your home folder, because that holds your SSH keys and browser data.
-   - **Also set up Gnomish Relay?** Only when you already have the Timeways addon.
-   - **Add aider (or `llm`) as an agent?** Only for a tool with no ACP mode.
-5. Start WoW and type `/relay`.
-
-The installer checks the download's SHA-256 sum, then runs `gnomish-relay setup --autostart`.
-Setup finds the game, makes a key that only your computer has, writes
-`config.toml`, and starts the desktop app every time you log in. Running it again is safe:
-it leaves alone whatever already works.
-
-Setup uses the agents you already have: `claude`, `codex`, `gemini`, `qwen`, `opencode`,
-`goose`, and the other ACP agents listed in `SPEC.md` 9.2. No agent yet? Replies just
-repeat your message until you add one.
-
-**Why does the addon need the desktop app?** The addon can't do anything on your computer
-by itself. The desktop app makes your key and runs the agents. Without it, the addon shows
-a window with the install command.
-
-**CurseForge updates are safe.** They only replace the `GnomishRelay` folder. Your key and
-the reply files live in their own folders (`GnomishRelay_Key`, `GnomishRelay_S0001`, and
-so on). Leave them turned on in the AddOns list.
 
 ## Add an agent
 
@@ -157,27 +171,11 @@ and a sound. A notification never runs anything: you answer in the terminal. Tur
 chat lines, sounds, or banners on or off in Settings. `gnomish-relay hooks status` tells
 you whether notifications are on, and `gnomish-relay hooks remove` turns them off.
 
-## Timeways
-
-Timeways is a story addon that also uses the desktop app. If you have it, setup finds it:
-it writes the Timeways key, makes its addon files, and adds a `[story]` section to
-`config.toml` with the model it finds (`claude`, Ollama, or LM Studio). With only
-Timeways, setup skips the folder question and sets up no coding agent. To add coding
-agents later, run `gnomish-relay setup --relay`.
-
-Setup also installs the Timeways story program from its latest release, and builds its
-lore on your computer from the public Wowpedia dump (about a 133 MB download, deleted
-after the build). To do all this in the install command, add `--timeways`:
-
-- **Linux and macOS:** `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh -s -- --timeways`
-- **Windows (PowerShell):** `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways`
-
-To reinstall the story program and build fresh lore later, run `gnomish-relay setup --timeways`.
-
 ## Update
 
-`gnomish-relay update` installs the latest version and restarts the desktop app. It also
-updates the Timeways story program if setup installed it. Then type `/reload` in WoW.
+- **The addon:** the CurseForge app keeps it up to date.
+- **The desktop app:** run `gnomish-relay update`. It installs the latest version and
+  restarts itself. Then type `/reload` in WoW.
 
 ## Troubleshooting
 
