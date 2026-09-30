@@ -43,9 +43,24 @@ fn pid(dir: &Path) -> Option<u32> {
         .ok()
 }
 
+/// A status check holds the lock for a moment, so a start tries again for this long.
+const STATUS_CHECK_PATIENCE: Duration = Duration::from_millis(500);
+
+fn try_lock_with_patience(file: &File) -> Result<(), TryLockError> {
+    let end = Instant::now() + STATUS_CHECK_PATIENCE;
+    loop {
+        match file.try_lock() {
+            Err(TryLockError::WouldBlock) if Instant::now() < end => {
+                std::thread::sleep(Duration::from_millis(10));
+            }
+            result => return result,
+        }
+    }
+}
+
 pub fn take(dir: &Path) -> Result<BridgeLock> {
     let file = open(dir)?;
-    match file.try_lock() {
+    match try_lock_with_patience(&file) {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
             let id = pid(dir).map_or(String::new(), |id| format!(" (process {id})"));
@@ -136,6 +151,21 @@ mod tests {
             drop(lock);
         });
         assert!(wait_until_stopped(dir.path(), Duration::from_secs(10)).unwrap());
+        release.join().unwrap();
+    }
+
+    /// `status` holds the lock for a moment to test it, so a start at that moment
+    /// would see another bridge.
+    #[test]
+    fn a_status_check_at_the_same_moment_does_not_stop_a_start() {
+        let dir = tempfile::tempdir().unwrap();
+        let probe = open(dir.path()).unwrap();
+        probe.try_lock().unwrap();
+        let release = std::thread::spawn(move || {
+            std::thread::sleep(Duration::from_millis(30));
+            drop(probe);
+        });
+        assert!(take(dir.path()).is_ok());
         release.join().unwrap();
     }
 
