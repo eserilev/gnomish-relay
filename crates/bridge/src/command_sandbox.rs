@@ -630,11 +630,27 @@ fn is_git_name(name: &std::ffi::OsStr) -> bool {
 }
 
 /// A `.git` folder, or a folder of a submodule or a worktree inside one.
-fn is_git_folder(chat: &Path, folder: &Path) -> bool {
+fn is_git_folder(chat: &Path, folder: &Path) -> Result<bool, String> {
     let inside_git = folder
         .strip_prefix(chat)
         .is_ok_and(|rest| rest.iter().any(is_git_name));
-    inside_git && folder.join("HEAD").is_file()
+    if !inside_git {
+        return Ok(false);
+    }
+    match std::fs::metadata(folder.join("HEAD")) {
+        Ok(meta) => Ok(meta.is_file()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(unreadable(folder, &e)),
+    }
+}
+
+/// The chat folder belongs to the user, so a folder there that the walk cannot read is
+/// the work of a command of an earlier run, which then hides a `.env` from the walk.
+fn unreadable(folder: &Path, e: &std::io::Error) -> String {
+    format!(
+        "The sandbox cannot look inside {} ({e}), so it cannot hide the credential files there. Give the folder back its permissions, for example with chmod u+rwx.",
+        folder.display()
+    )
 }
 
 /// The hidden paths and the `.git` entries in the chat folder. The walk does not follow
@@ -645,12 +661,14 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
     let mut scan = ChatScan::default();
     let mut folders = vec![chat.to_path_buf()];
     while let Some(folder) = folders.pop() {
-        if is_git_folder(chat, &folder) {
+        if is_git_folder(chat, &folder)? {
             for name in GIT_FOLDER_GUARDED {
                 push_real(&mut scan.hidden, &folder.join(name));
             }
         }
-        for entry in std::fs::read_dir(&folder).into_iter().flatten().flatten() {
+        let entries = std::fs::read_dir(&folder).map_err(|e| unreadable(&folder, &e))?;
+        for entry in entries {
+            let entry = entry.map_err(|e| unreadable(&folder, &e))?;
             scan.entries += 1;
             let path = entry.path();
             let name = entry.file_name();
@@ -1234,6 +1252,49 @@ mod tests {
         ] {
             assert!(run.walls.hidden.contains(&path), "{}", path.display());
         }
+    }
+
+    /// A command of an earlier run can take the read permission of a folder, so that the
+    /// walk of the next run does not see the `.env` in it.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_that_the_walk_cannot_read_stops_the_run_with_its_name() {
+        use std::os::unix::fs::PermissionsExt;
+        let h = folders();
+        let locked = h.chat.join("locked");
+        std::fs::create_dir(&locked).unwrap();
+        std::fs::write(locked.join(".env"), "TOKEN=3").unwrap();
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read_dir(&locked).is_ok() {
+            // Root reads every folder, so there is nothing to test.
+            return;
+        }
+
+        let result = run_walls(&h, &h.chat);
+
+        std::fs::set_permissions(&locked, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let error = result.err().unwrap();
+        assert!(error.contains(&locked.display().to_string()), "{error}");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_git_folder_whose_head_the_walk_cannot_check_stops_the_run() {
+        use std::os::unix::fs::PermissionsExt;
+        let h = folders();
+        let git = h.chat.join(".git");
+        std::fs::write(git.join("HEAD"), "ref: refs/heads/main\n").unwrap();
+        // Read but no search: the walk lists the names, but cannot look at `HEAD`.
+        std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o400)).unwrap();
+        if std::fs::metadata(git.join("HEAD")).is_ok() {
+            return;
+        }
+
+        let result = run_walls(&h, &h.chat);
+
+        std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o700)).unwrap();
+        let error = result.err().unwrap();
+        assert!(error.contains(&git.display().to_string()), "{error}");
     }
 
     #[cfg(unix)]
