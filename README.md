@@ -110,6 +110,25 @@ The sandbox of commands is different on each OS (`SPEC.md` 6.6.4):
 - On Windows, use Codex for commands that run with no question, or run Claude and the bridge under WSL2.
   Under WSL2, the bridge uses `bwrap`, as on Linux.
 
+## Notifications
+
+You can also get a notification in the game when Claude Code or Codex in a normal
+terminal waits for you or finishes long work. Run this once:
+
+```
+gnomish-relay hooks install
+```
+
+It adds a hook to `~/.claude/settings.json` and to `~/.codex/hooks.json`, for each of
+`claude` and `codex` on your `PATH`. It keeps your own hooks, and it makes a backup of the
+file first. Restart the sessions that run now. At its next start, Codex asks you to
+trust the new hooks: trust them, or no notification comes.
+
+A bell then shows at the edge of the minimap while a notification waits, with a line in
+the chat and a sound. A notification never runs anything: you answer in the terminal.
+Settings in the game turn the lines, the sounds, and the toasts on or off.
+`gnomish-relay hooks status` shows the hooks, and `gnomish-relay hooks remove` takes them out.
+
 ## Update
 
 `gnomish-relay update` installs the latest release and restarts the bridge.

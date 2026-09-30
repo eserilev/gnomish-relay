@@ -11,7 +11,7 @@ Gnomish Relay connects AI coding agents to World of Warcraft: Forever.
 You send a task from a chat window in the game. The agent does the work on your computer.
 The reply comes back into the game with a whisper sound.
 
-Planned (section 10): Gnomish Relay also shows notifications from agent sessions that you run in a normal terminal.
+Gnomish Relay also shows notifications from agent sessions that you run in a normal terminal (section 10).
 When a terminal session ends a turn or needs input, a message appears in the game.
 
 Gnomish Relay has two parts:
@@ -1007,7 +1007,7 @@ A client patch can break either one. So a patch costs a day of work, not the pro
  │  gnomish-relay bridge (Rust)         │
  │   PNG → decode → policy → queue      │
  │   agent runner → publisher           │
- │   spool ◄── terminal hooks (planned) │
+ │   spool ◄── terminal hooks (10)      │
  └──────┬───────────────────────────────┘
         │ ACP / claude / codex / command
  ┌──────▼──────────┐
@@ -1637,7 +1637,7 @@ parent \t name \t mark
 
 ## 10. Notifications from terminal sessions
 
-**Status: approved (2026-09-28), mostly not built.** Built: only the pure parts in `protocol`, with their proofs: `notice.rs` (S40), `sessions.rs` (S41), and the notices of `live.rs` (S20 restated). The bridge writes an empty notice list. Not built: the `hook` subcommand, the spool folder, `hooks install`, the notices in the addon, the fuzz targets of 10.7, and `crates/bridge/tests/notices_e2e.rs`. The text below is the plan.
+**Status: built (2026-09-29).** The pure parts in `protocol` with their proofs: `notice.rs` (S40), `sessions.rs` (S41), and the notices of `live.rs` (S20 restated). In the bridge: the `hook` subcommand (`hook.rs`, `hook_input.rs`), the spool folder (`spool.rs`), the session table (`terminal_sessions.rs`), and `hooks install` (`hooks_merge.rs`, `hooks_install.rs`). In the addon: `Notices.lua`, `NoticeFrames.lua`, and the Settings and Diag parts. The fuzz targets `hook_input`, `notice_file`, and `hooks_merge`, and `crates/bridge/tests/notices_e2e.rs`. The build checked the design against Claude Code 2.1.285 and codex-cli 0.157.0 (2026-09-29), and changed the lines that real use showed wrong. Each change says "Changed in the build" and why.
 
 The implementer and an advisor agent with a UX critic view wrote the proposal (2026-09-27). The user approved it with the changes of a UX review: the name "Notifications", a bell at the minimap in place of a tab, and the texts, sounds, and settings below. Each "Why" says what real use showed.
 
@@ -1668,33 +1668,37 @@ The hook is a subcommand of the one binary: `gnomish-relay hook claude` and `gno
 
 | Agent | Hook | Event | Text |
 |---|---|---|---|
-| Claude Code | `SessionStart` | `session-start` | none |
+| Claude Code | `SessionStart`, matcher `startup\|resume\|clear` | `session-start` | none |
 | Claude Code | `UserPromptSubmit` | `turn-start` | none (the prompt never leaves the terminal) |
 | Claude Code | `Stop` | `finished` | `last_assistant_message`, or "Turn done." when it is empty (a turn that ends on a tool call) |
-| Claude Code | `StopFailure` | `failed` | the error text |
+| Claude Code | `StopFailure` | `failed` | `error_details`, else the error code in `error` |
 | Claude Code | `Notification`, matcher `permission_prompt\|elicitation_dialog\|elicitation_url_dialog\|worker_permission_prompt` | `waiting` | `message` |
 | Claude Code | `SessionEnd` | `session-end` | none |
-| Codex | `SessionStart` | `session-start` | none |
+| Codex | `SessionStart`, matcher `startup\|resume\|clear` | `session-start` | none |
 | Codex | `UserPromptSubmit` | `turn-start` | none |
-| Codex | `Stop` | `finished` | the last message of the agent, or "Turn done." |
-| Codex | `PermissionRequest` | `waiting` | the command or the request |
+| Codex | `Stop` | `finished` | `last_assistant_message`, or "Turn done." |
+| Codex | `PermissionRequest` | `waiting` | the command in `tool_input.command` (a string or its words), else `tool_name` |
+| Codex | `SessionEnd` | `session-end` | none |
 
-- `idle_prompt` is not in the matcher: it fires 60 seconds after each `Stop`, so it is a copy of `finished`.
+- `idle_prompt` is not in the matcher: it fires 60 seconds after each `Stop`, so it is a copy of `finished`. The hook also checks `notification_type`, so a matcher that the user changed never brings it back.
+- `compact` is not in the `SessionStart` matcher. Changed in the build: a compaction inside a long turn starts a session again, and the turn then lost its start, so its notice said nothing about its length.
+- Codex has `SessionEnd` in 0.157.0. Changed in the build: without it, a closed Codex session kept the faster polls on for 12 hours.
 - `SubagentStop` and `agent_needs_input` (a teammate) give no notification.
 - Esc in Claude ends a turn with no `Stop`. The next `turn-start` or `session-end` of the session ends it.
 - Gemini CLI: not checked yet (17). Another tool can run `gnomish-relay hook claude` from a wrapper script, with a JSON line of its own.
-- The advisor found these names in the binaries of Claude Code 2.1.283 and codex-cli 0.157.0 (2026-09-27). The Codex hooks need the feature flag `codex_hooks` (10.5).
+- The advisor found these names in the binaries of Claude Code 2.1.283 and codex-cli 0.157.0 (2026-09-27). The build checked them again in Claude Code 2.1.285 and codex-cli 0.157.0 (2026-09-29): a live `claude -p` with the hooks of `hooks install` wrote `session-start`, `turn-start`, `finished`, and `session-end`, in that order, and the app server of Codex (`hooks/list`) read all five groups of `hooks.json`.
+- The time limit is a thread that ends the process after 300 ms, also when the agent never closes stdin.
 
 ### 10.2 The spool folder
 
-The spool folder is `<data>/notices/`, mode 0700. The bridge makes it at start and removes it at a clean exit.
+The spool folder is `<data>/notices/`, mode 0700. The relay lane of the bridge makes it at start, and empties it. Changed in the build: the bridge has no clean exit (the OS or `restart` ends it), so it cannot remove the folder. A file from the time with no bridge has lost its time, so the next start deletes it. A hook that runs while no bridge runs writes at most 100 files (below), and the next start deletes them.
 
-- **A file** is one JSON object, at most 4 KiB: `{"v":1,"source":"claude","event":"finished","session":"…","repo":"…","text":"…"}`. The name is unique: the process id, the time in nanoseconds, and a counter, then `.json`. The command writes `<name>.tmp` first and renames it, so the bridge never reads half a file.
-- **The bridge reads the folder every 250 ms**, with the watch of the saved variables. It takes at most 64 files for each read, oldest first. It deletes each file before it parses it, so a bad file never comes back. It ignores `*.tmp` files, and deletes a `.tmp` file that is older than 60 seconds. It never follows a link.
+- **A file** is one JSON object, at most 4 KiB: `{"v":1,"source":"claude","event":"finished","session":"…","repo":"…","text":"…"}`. The name is unique: the time in nanoseconds (39 digits), the process id, and a counter, then `.json`. The time comes first, so the names sort oldest first. The command writes `<name>.tmp` first and renames it, so the bridge never reads half a file. The hook cuts `repo` to 64 bytes and `text` to 600 bytes, and turns each control character into a space, so JSON doubles at most `"` and `\` and the file stays below 4 KiB.
+- **The bridge reads the folder every 250 ms**, with the watch of the saved variables. It takes at most 64 files for each read, oldest first. It deletes each file before it parses it, so a bad file never comes back. It ignores `*.tmp` files, and deletes a `.tmp` file that is older than 60 seconds. It never follows a link: a link or a folder named `*.json` is deleted and logged.
 - **The checks.** The fields are exact (`deny_unknown_fields`, a key twice is an error). `source` is `claude` or `codex`. `event` is one of the events of 10.1. `session` is 1 to 128 bytes of `[A-Za-z0-9_-]`. `repo` and `text` are strings. A file that fails a check is dropped, and the bridge logs one line for it.
 - **Every text is untrusted.** Any local process of the user can write a file. So the bridge cuts `repo` to 64 bytes and `text` to 600 bytes, at a character. `notice_text` turns each control character into a space, and removes each bidi, zero-width, and tag character. Every `|` is doubled (S10). The live writer escapes each string (S8). S40 proves the cut and the escape.
 - **The time is the bridge's own.** A file has no time field. The bridge takes the time of the read, so the length of a turn never comes from the file.
-- **No rate limit.** A flood of files cannot cost slots, because only a poll of the addon costs a slot, and the bridge writes the live file at most every 3 seconds. The session table has at most 32 sessions, so memory stays bounded.
+- **No rate limit.** A flood of files cannot cost slots, because only a poll of the addon costs a slot, and a change of the notices writes the live file at most every 3 seconds. The session table has at most 32 sessions, so memory stays bounded.
 
 ### 10.3 Sessions and notices
 
@@ -1746,21 +1750,21 @@ notices = {busy = 1, open = 2, list = {
 
 **New notices.** A notice is new when its id is not in the last 64 ids that the addon showed. The saved variables keep these ids, so a `/reload` shows nothing twice. For the new notices of one poll:
 
-- **The chat line.** It starts with a bell icon, and has the color of the reply line (13.1). Each `waiting` notice gets its own line: `[Claude · gnomish-relay] Waiting for you: <text>`. The `finished` and `failed` notices get one line together. With one: `[Codex · lighthouse] Finished in 4 min: <text>`, or `Failed after 2 min: <text>`. With more: `3 agents finished: gnomish-relay, lighthouse, timeways`. The text is its first 120 characters. A click on the line opens the list. It is a link of the addon (`|Hgnomishrelaynotices|h`), never a chat that can take an answer.
+- **The chat line.** It starts with the icon of the bell, and has the color of the reply line (13.1). Each `waiting` notice gets its own line: `[Claude · gnomish-relay] Waiting for you: <text>`. The `finished` and `failed` notices get one line together. With one: `[Codex · lighthouse] Finished in 4 min: <text>`, or `Failed after 2 min: <text>`. With more: `3 agents finished: gnomish-relay, lighthouse, timeways`. The text is its first 120 characters. A click on the line opens the list. It is a link of the addon (`|Hgnomishrelaynotices|h`), never a chat that can take an answer.
 - **The sound.** One sound for each poll: the Battle.net toast sound (`SOUNDKIT.UI_BNET_TOAST`) when a `waiting` notice is new, else the whisper sound. Built-in sound kits only, so nothing needs to exist at game start.
 - **The toast.** For a new `waiting` notice: a small frame at the bottom left, above the chat frame, as the Battle.net toast. Its first line is `<Agent> is waiting · <repo>`, and below it at most 2 lines of the text. It goes away after 8 seconds. A click opens the list.
 - **In combat** (`InCombatLockdown`), the chat line shows at once. The toast and the sound wait until combat ends, and then come only for notices that are still in the list.
 
-**The bell.** A round button with a bell on the edge of the minimap (parent `Minimap`). It shows only while the list holds a notice, and it glows while a `waiting` notice is in the list. The user can drag it along the edge of the minimap, and the saved variables keep its angle. A click opens the list, and a second click closes it.
+**The bell.** A round button on the edge of the minimap (parent `Minimap`). It shows only while the list holds a notice, and it glows while a `waiting` notice is in the list. The user can drag it along the edge of the minimap, and the saved variables keep its angle. A click opens the list, and a second click closes it. Changed in the build: the Forever client has no bell texture. The icon is the horn of a minimap event (the atlas `minimap-genericevent-hornicon`, and its `-small` form in the chat line), on the border and the background of a minimap button. The name "the bell" stays.
 
 **The list frame.** A small frame in the style of a tooltip, below the minimap:
 
 - The title "Notifications", and a × that closes it. Escape also closes it.
-- One row for each notice, newest first: the agent icon, the repo in gold, the state ("Waiting" in orange, "Finished · 4 min" in green, "Failed · 2 min" in red), the age, and the first words of the text on a second line. A click on a row shows its full text (at most 600 bytes), and a second click folds it.
+- One row for each notice, newest first: the agent name in its color (the addon has no agent icons), the repo in gold, the state ("Waiting" in orange, "Finished · 4 min" in green, "Failed · 2 min" in red), the age, and the first words of the text on a second line. A click on a row shows its full text (at most 600 bytes), and a second click folds it.
 - **Clear** empties the list and hides the bell. A cleared notice never comes back, also when the next live file still holds it.
 - A notice has no button that runs anything. Later: "Continue in the game" through Resume (9.6), with the session of the notice, only after `session-end`, because two programs on one session conflict.
 
-**Settings.** One new group "Notifications" in the Settings tab, after Appearance (13.1). It shows only after `hooks install`: the settings list (13.4) has a `hook` line with `on`.
+**Settings.** One new group "Notifications" in the Settings tab, after Appearance (13.1). It shows only after `hooks install`: the settings list (13.4) has a `hook` line with `on`. The group has two rows: Notifications and Finished work on one, and the three Alerts boxes on the other. While it shows, the Always Allowed group below it shows 3 rules at a time, so the page still fits the least window (900 × 560).
 
 **Diag.** Three new rows, also only after `hooks install`: Hooks (the state of each agent from the settings list), Sessions (the running and open terminal sessions of the last live file), and Last notification (its age). Diag also shows the free slots.
 
@@ -1770,26 +1774,31 @@ notices = {busy = 1, open = 2, list = {
 
 `gnomish-relay hooks install [--claude] [--codex]` adds the hooks. With no flag, it adds them for each of `claude` and `codex` on `PATH`. `gnomish-relay hooks remove` takes them out, and `gnomish-relay hooks status` shows them. Their output speaks of notifications. `setup` changes no agent settings. It prints one line at its end: "For notifications from Claude Code and Codex in a terminal, run: gnomish-relay hooks install". Why: the settings of the agents belong to the user, so only an explicit command changes them.
 
-**Claude Code** (`~/.claude/settings.json`):
+**Claude Code** (`~/.claude/settings.json`, or `$CLAUDE_CONFIG_DIR/settings.json` when that is set, as Claude Code reads it):
 
-- The command adds one group to `hooks.<event>` for each event of 10.1: `{"matcher": …, "hooks": [{"type": "command", "command": "\"<absolute path>\" hook claude", "timeout": 5, "async": true}]}`. With `async`, Claude never waits for the hook and ignores its output. The path is quoted, for a space on Windows.
-- It keeps every other key and every hook of the user, in their order, with an indent of 2 spaces. So `serde_json` needs its `preserve_order` feature.
+- The command adds one group to `hooks.<event>` for each event of 10.1: `{"matcher": …, "hooks": [{"type": "command", "command": "\"<absolute path>\" hook claude", "timeout": 5, "async": true}]}`. A group has a `matcher` only where 10.1 names one. With `async`, Claude never waits for the hook and ignores its output. The path is quoted, for a space on Windows.
+- It keeps every other key and every hook of the user, in their order, with an indent of 2 spaces. So `serde_json` needs its `preserve_order` feature. Cargo turns a feature on for the whole build, so `app-protocol` asks for it too, and its JSON lines keep one key order in every build.
+- A second install puts our new group in the place of our old one, so a hook of the user after ours stays after ours.
+- A group is ours only when it has exactly one hook, our command. A group of the user that also holds our command stays as it is.
 - It finds its own groups by the command `hook claude` after a path whose file name is `gnomish-relay`. So a second install changes nothing, and an install after a move of the binary replaces the old path.
 - If the file does not parse, or `hooks` or one of its events has another type, it changes nothing and names the key.
-- It follows a link to the real file (for a dotfiles folder), and writes the real file with an atomic rename in its folder.
+- It follows a link to the real file (for a dotfiles folder), and writes the real file with an atomic rename in its folder. The new file gets the mode of the old one.
 - Before its first change, it copies the file to `settings.json.gnomish-relay.bak`. It never writes over an existing backup, so the backup is the file from before the first install.
 - `remove` takes out only its own groups, and an event with no group left. Install and then remove give the same JSON value as before.
 
-**Codex** (`~/.codex/hooks.json` and `~/.codex/config.toml`):
+**Codex** (`~/.codex/hooks.json`, or `$CODEX_HOME/hooks.json`, and `config.toml` in the same folder):
 
-- The command merges its groups into `hooks.json` by the same rules, with `hook codex`. With no file, it makes one.
-- The hooks need `codex_hooks = true` under `[features]` in `config.toml`. The command adds the line, and says so. It changes the file as `config_edit.rs` does: it adds one line and changes no other byte. It refuses when the file sets `codex_hooks = false`, because the user chose that.
+- The command merges its groups into `hooks.json` by the same rules, with `hook codex`. With no file, it makes one. The Codex groups have no `async`: Codex 0.157.0 knows the field, but the hook ends in 300 ms and prints nothing, so a wait costs little, and a field that a later version reads another way cannot break a turn.
+- Changed in the build: in codex-cli 0.157.0 the feature `hooks` is stable and on by default, and `codex_hooks` is only its old name. So the command never changes `config.toml`. It refuses when the file sets `hooks = false` or `codex_hooks = false` under `[features]`, because the user chose that.
+- Changed in the build: Codex runs a new or changed hook only after the user trusts it. At its next start, Codex says "Hooks need review" and asks. The command says so after an install. The command never writes the trust itself: that is the choice of the user.
 - It never changes `notify`.
-- `remove` takes out its groups, and leaves the feature line. It says so.
+- `remove` takes out its groups.
 
-**After an install**, the command prints "Restart the Claude Code and Codex sessions that run now." Both load hooks only at the start of a session.
+**After an install**, the command prints "Restart the <agents> sessions that run now.", with the agents that it changed. Both load hooks only at the start of a session.
 
-**`hooks status`** shows for each agent: on, off, or on with a path that does not exist (a moved binary). It also shows `disableAllHooks` in the Claude settings, and a Codex config with no `codex_hooks`. The settings list (13.4) carries the same state, so Diag shows it.
+**`hooks status`** shows for each agent: on, off, or on with a path that does not exist (a moved binary). It also shows `disableAllHooks` in the Claude settings, and a Codex config that turns hooks off. The settings list (13.4) carries the same state, so Diag shows it. It reads the files at each list, because `hooks install` can run while the bridge runs.
+
+`setup` prints its hint only when it sets up the relay: the notices ride in the live file of the relay.
 
 ### 10.6 Checks for each part
 
@@ -1801,7 +1810,7 @@ notices = {busy = 1, open = 2, list = {
 | Hook input | | new target `hook_input` | each event of each agent with the input shapes of the checked versions, an empty message, 1 MiB of input, no spool folder, a full spool folder, `GNOMISH_RELAY_JOB` |
 | Spool reader | | `notice_file` | a half file, a `.tmp` file, a link, 65 files, a file of 4 KiB and 1 byte |
 | Settings merge | | new target `hooks_merge` | hooks of the user stay, a second install, a moved binary, a broken file, a link, the backup, install then remove |
-| Addon | | | the fake game (10.7) |
+| Addon | | | the fake game (10.7), in `crates/bridge/tests/addon_notices.rs` |
 
 ### 10.7 Verification plan
 
@@ -1816,9 +1825,9 @@ notices = {busy = 1, open = 2, list = {
 
 **Unit tests** for each rule of 10.1 to 10.5, with sentence names, for example `a_hook_in_a_bridge_job_writes_nothing`, `a_turn_start_removes_the_notice_of_its_session`, `short_finished_work_shows_nowhere`, and `install_keeps_the_hooks_of_the_user`.
 
-**Fake-game tests** (`crates/bridge/tests/addon_flow.rs`, with the fake WoW API): the hook subcommand writes a spool file, the bridge publishes, and the Lua poll shows the line, the sound, the toast, and the bell. Other cases: nothing twice across a `/reload`, an answered notice that leaves the list, the filter of short work, one line for three `finished` notices, a toast and a sound that wait for the end of combat, the 60 s and 3 min polls, notifications off, Clear, the angle of the bell, and a Settings group that shows only after `hooks install`. A seeded test feeds the addon 600 random live files, as for the settings list (14.4).
+**Fake-game tests** (`crates/bridge/tests/addon_notices.rs`, with the fake WoW API; `addon_flow.rs` is long already, so the notices got their own file): the hook subcommand writes a spool file, the bridge publishes, and the Lua poll shows the line, the sound, the toast, and the bell. Other cases: nothing twice across a `/reload`, an answered notice that leaves the list, the filter of short work, one line for three `finished` notices, a toast and a sound that wait for the end of combat, the 60 s and 3 min polls, notifications off, Clear, the angle of the bell, and a Settings group that shows only after `hooks install`. A seeded test feeds the addon 600 random live files, as for the settings list (14.4).
 
-**The end-to-end test** (`crates/bridge/tests/notices_e2e.rs`) runs the real bridge and the real binary in a temp home, with no game. `hooks install` merges into a `settings.json` that holds hooks of the user. The test then runs the real `gnomish-relay hook claude` with the stdin of each Claude event, and reads `Live.lua` with the Lua slot poll. It also checks that the hook with no bridge exits 0 in less than 300 ms with an empty stdout. A live test marked `#[ignore]` runs the real `claude -p` with `--settings <temp file>`, so the real `~/.claude` stays the same, and waits for the `finished` notice. A live Codex test waits until a temp `CODEX_HOME` can keep the login.
+**The end-to-end test** (`crates/bridge/tests/notices_e2e.rs`) runs the real bridge and the real binary in a temp home, with no game. `hooks install` merges into a `settings.json` that holds hooks of the user. The test then runs the real `gnomish-relay hook claude` with the stdin of each Claude event, and reads `Live.lua` with the Lua slot poll. It also checks that the hook with no bridge exits 0 in less than 300 ms with an empty stdout. A live test marked `#[ignore]` runs the real `claude -p` with `--settings <temp file>`, so the real `~/.claude` stays the same, and waits for the `finished` notice. It passed with Claude Code 2.1.285 on 2026-09-29. A live Codex test waits until a temp `CODEX_HOME` can keep the login, and until a test can trust hooks with no terminal.
 
 ## 11. Platforms
 
@@ -2060,7 +2069,7 @@ The mockup is the reference for the layout.
   - **New Chats:** Agent, a dropdown of the agents in the settings list (13.4), and Level, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Max: <level> (set on the desktop)", the level of the chosen agent in the config.
   - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
   - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the toasts, the bell, and the faster polls of 10.4, and greys the other two rows. Finished work, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Toast (default on).
-  - **Always Allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time. The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
+  - **Always Allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
   - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "No data yet.". A click asks for a new list.
 - **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
 - **Key binding:** `Bindings.xml` adds "Open or close the window" under "Gnomish Relay" in the Key Bindings menu of the game. It calls the global `GnomishRelay_Toggle`.
@@ -2087,6 +2096,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Slots.lua` (shared) | Loads one slot, and takes the three globals of the app. |
 | `Messages.lua` (shared) | The send queue, the signed outbox, retries and give-up, the hello, the report flags (`next`, `read`, `restored`, and the health flags), and the slot poll with the replies. It follows `models/transport.qnt`. It keeps the token and the message ids. An app sets its hooks: the store of its messages, the fields of a record, and the calls for each reply. |
 | `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, the folder tree request, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
+| `Notices.lua` | The notifications of terminal sessions (10.4): the list, the filter, the chat line, the sound, Clear, and the faster polls. |
 | `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
 | `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks. |
 | `Folders.lua` | The folder tree of 9.9: the parser, the relative folders, the filter, the recent folders, and the name rules. |
@@ -2097,6 +2107,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `DiagTab.lua` | The Diag tab of 13.1. |
 | `Window.lua` | The window of 13.1, its side tabs, and its place. |
 | `Popup.lua` | The permission popup (6.4). Each button names the kind of its option, never the label of the agent. |
+| `NoticeFrames.lua` | The bell at the minimap, the list of notifications, and the toast (10.4). |
 | `Core.lua` | Startup, slash commands, and the whisper line. |
 
 **The hooks of `Messages.lua`.** An app sets them after the file loads. The defaults suit an app with one chat, such as Timeways. An advisor agent and the implementer chose this split (2026-09-26, 9.7 step 5b):
@@ -2108,7 +2119,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 - `OnStatus` gets each record of a known message, also `working`. `OnOther` gets each record of no known message, and its result says whether the addon reports it as read (the session list of the relay).
 - `Control(chat, id, flags)` sends a record once, and starts a strip. `Riders` are records that go only with a strip that goes out anyway, for example the `d` records of the relay. A rider that started a strip would start one every second while the bridge is off. `d` is a coding flag (9.7, decision 6), so the deletes stay in `Transport.lua`.
 - `OnPoll(restore, live)` gets the other files of each slot. `Awaits` keeps the fast poll schedule while the app waits for a reply that is not a message.
-- `PollEvery` gives the seconds to the next poll while the app waits for something off the schedule, or nil. The default is nil, so Timeways does not change. The relay gives 5 while a desktop request waits (6.6.3), and 15 while a run works (7.3).
+- `PollEvery` gives the seconds to the next poll while the app waits for something off the schedule, or nil. The default is nil, so Timeways does not change. The relay gives 5 while a desktop request waits (6.6.3), 15 while a run works (7.3), and 60 or 180 while a terminal session is open (10.4).
 - The title of the app starts each line of `Health.lua`, and `helloChat` is the chat of a hello.
 
 The folder also holds `JetBrainsMono-Regular.ttf`, the mono font of code boxes, with its license in `JetBrainsMono-OFL.txt` (SIL Open Font License 1.1). Setup installs both.
@@ -2199,7 +2210,7 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 | `rule` | `id \t folder \t pattern \t days`: one "Always allow" rule (6.6.5), with the days since its last use. |
 | `allow` | One pattern of `[allow] commands`, as words. |
 | `allow_folder` | `folder \t pattern`: one pattern of `[allow.folders]`. |
-| `hook` | Proposal (10.5): `agent \t state`, one line for `claude` and one for `codex`. The state is `on`, `off`, `moved` (the path of the hook does not exist), or `disabled` (`disableAllHooks`, or no `codex_hooks`). |
+| `hook` | `agent \t state`, one line for `claude` and one for `codex` (10.5). The state is `on`, `off`, `moved` (the path of the hook does not exist), or `disabled` (`disableAllHooks`, or a Codex config that turns hooks off). These lines come after the timeouts and `[story]`, and before the `rule` lines. |
 
 - The list never holds a key, an `env` entry, or the command line of an agent. A command line can hold a secret, and the game does not need it.
 - The reply is at most 32 KB after the Lua escape (S12). The allow table comes last, because only it can be long. The `rule` lines (6.6.5) come just before it, so a cut removes allow patterns first. A list that does not fit keeps its first lines and ends with a line `+`, as the folder tree does.
@@ -2477,7 +2488,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 8. **Done: threat model in code:** `allowed_roots`, the policy, and the MAC check. **Done (8a):** `config.toml`, the `level` flag under the ceiling of the config (S6), and "Agent not set up." **Done (8b):** the action classifier (6.6.3) in `protocol`, with S16, S17, S27, and S28 proved, and the input of the classifier in the bridge. **Done (8c):** every backend calls the classifier through one gate (6.6.3, 9.3): the hook of Claude for every tool call, the approvals of Codex, and the permission requests of ACP agents. The config has its allow table, and `gnomish-relay approve` answers desktop requests.
 9. **ACP backend.** **Done (9a):** any ACP agent from one config entry, `check-agent`, the process limits, and permissions under the ceiling. **Done (9b):** session resume and Stop for a run in progress. **Done (9c):** progress and permission requests in `Live.lua`, the popup in the addon, and the checked `perm=` answer. **Done (9d):** Markdown replies show as blocks in the window (7.3.1), with S22 to S25 proved. **Done:** live tests with Claude in the game on 2026-09-26 (9.3).
 10. **Done: "Always allow" (6.6.5, 9.3).** One click in the game adds a rule that the sandbox bounds, with S36 to S39 proved. The Settings tab and `gnomish-relay rules` list and remove the rules.
-11. **Notifications from terminal sessions (section 10).** **Done:** the pure parts in `protocol`, with S40, S41, and S20 restated. **Next:** the rest. Approved on 2026-09-28: the hook subcommand, the spool folder, one notice for each session with S40 and S41, the notices in `Live.lua` (S20 restated), the bell at the minimap, and `hooks install`. No `note` signal: signals do not work (7.4).
+11. **Done: notifications from terminal sessions (section 10).** The pure parts in `protocol`, with S40, S41, and S20 restated. The hook subcommand, the spool folder, one notice for each session, the notices in `Live.lua`, the bell at the minimap with its list, toast, and settings, the faster polls while a terminal session is open, and `hooks install` for Claude Code and Codex. Checked against Claude Code 2.1.285 and codex-cli 0.157.0 (10.1). No `note` signal: signals do not work (7.4). **Next:** a test in the real game, and a live Codex test.
 12. **Done: a generic backend for any LLM coding harness (9.2).** `acp` for any harness that speaks ACP, the `claude` and `codex` backends, and `command` for a harness that has only a command line, inside the sandbox, with presets for aider, gemini, opencode, goose, and llm. **Next:** a live test of each preset with the real tool.
 13. **Voice (13.3). Not planned now.** Voice output first, then push-to-talk with its privacy rules.
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
