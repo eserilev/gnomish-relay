@@ -464,6 +464,10 @@ fn collect_finds_every_line_mode_clean_and_chooses_mode_1_for_the_screen_of_the_
     };
     assert_eq!(line_choice::load(data.path()).unwrap(), Some(choice));
     let report = collected.line_report().join("\n");
+    assert!(
+        report.starts_with("Strip line modes, for a screen of 1280x720:"),
+        "{report}"
+    );
     assert!(report.contains("mode 6 (2 px, 6 bits): clean"), "{report}");
     assert!(
         report.contains(

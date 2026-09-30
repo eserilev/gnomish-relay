@@ -220,9 +220,9 @@ fn screen(results: &Value) -> Option<(u32, u32)> {
 }
 
 /// The smallest clean mode, for the screen of the run.
-fn line_choice(lines: &[(Mode, Verdict)], results: &Value) -> Option<LineChoice> {
+fn line_choice(lines: &[(Mode, Verdict)], screen: Option<(u32, u32)>) -> Option<LineChoice> {
     let mode = calibration::chosen(lines)?;
-    let (width, height) = screen(results)?;
+    let (width, height) = screen?;
     Some(LineChoice {
         mode: mode.id(),
         width,
@@ -239,6 +239,8 @@ pub struct Collected {
     pub capture: fixture::Capture,
     /// Empty when the run drew no line.
     pub lines: Vec<(Mode, Verdict)>,
+    /// The physical screen size of the run, which the line fits.
+    pub screen: Option<(u32, u32)>,
     pub line: Option<LineChoice>,
 }
 
@@ -250,7 +252,12 @@ impl Collected {
                 "The self-test drew no strip line. Link the new self-test and run it again.".into(),
             ];
         }
-        let mut report = vec!["Strip line modes:".to_owned()];
+        let screen = self
+            .screen
+            .map_or("an unknown screen".to_owned(), |(w, h)| {
+                format!("a screen of {w}x{h}")
+            });
+        let mut report = vec![format!("Strip line modes, for {screen}:")];
         for (mode, verdict) in &self.lines {
             report.push(format!(
                 "  mode {} ({}): {}",
@@ -322,8 +329,9 @@ pub fn collect(game: &Path, repo: &Path) -> Result<Collected> {
         vectors,
         missing,
         capture: fixture.fake.capture,
-        line: line_choice(&lines, &parts.results),
+        line: line_choice(&lines, screen(&parts.results)),
         lines,
+        screen: screen(&parts.results),
     })
 }
 
