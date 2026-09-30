@@ -1465,7 +1465,7 @@ fn a_chat_that_waits_for_a_popup_answer_says_so_in_activity_and_on_its_tile() {
         "|cffff9f40Waiting for you: approve in popup|r"
     );
 
-    game.run("GnomishRelayPopupButton1:Click()");
+    click_popup(&game, 1);
     assert_eq!(tile_mark(&game), "...");
 }
 
@@ -1473,6 +1473,85 @@ fn tile_mark(game: &Game) -> String {
     game.run("return GnomishRelayTile1.mark:GetText()")
         .as_string_lossy()
         .unwrap()
+}
+
+/// A new popup takes no click in its first second, so the player waits it out first.
+fn click_popup(game: &Game, button: usize) {
+    game.advance(1.0);
+    game.run(&format!("GnomishRelayPopupButton{button}:Click()"));
+}
+
+#[test]
+fn a_new_popup_takes_no_click_in_its_first_second() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+
+    game.run("GnomishRelayPopupButton1:Click()");
+    assert!(
+        game.run("local ns = ... return ns.Transport.Request() ~= nil")
+            .as_boolean()
+            .unwrap()
+    );
+
+    game.advance(1.0);
+    game.run("GnomishRelayPopupButton1:Click()");
+    assert!(
+        game.run("local ns = ... return ns.Transport.Request() == nil")
+            .as_boolean()
+            .unwrap()
+    );
+}
+
+#[test]
+fn reject_sits_at_the_left_and_the_allow_buttons_at_the_right() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+
+    let point = |n: usize| {
+        game.run(&format!("return (GnomishRelayPopupButton{n}:GetPoint())"))
+            .as_string_lossy()
+            .unwrap()
+    };
+    assert_eq!(point(2), "BOTTOMLEFT", "the reject option");
+    assert_eq!(point(1), "BOTTOMRIGHT", "the allow option");
+}
+
+#[test]
+fn a_new_popup_plays_the_ready_check_sound_once() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+    game.run("local ns = ... ns.Popup.Refresh() ns.Popup.Refresh()");
+
+    let sounds: Vec<i64> = game.wow.get("sounds").unwrap();
+    assert_eq!(sounds.iter().filter(|s| **s == 8960).count(), 1);
+}
+
+#[test]
+fn a_popup_says_how_many_requests_wait() {
+    let game = Game::start();
+    game.send("clean up");
+    let first = request(&game, "rm -rf build");
+    let second = LiveRequest {
+        request: b"p9z8y".to_vec(),
+        ..request(&game, "rm -rf dist")
+    };
+    game.wow
+        .set(
+            "live",
+            game.lua.create_string(live(&[], &[first, second])).unwrap(),
+        )
+        .unwrap();
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(
+        shown_text(&game, "GnomishRelayPopupCount").as_deref(),
+        Some("1 of 2")
+    );
+    click_popup(&game, 1);
+    assert_eq!(shown_text(&game, "GnomishRelayPopupCount"), None);
 }
 
 #[test]
@@ -1504,7 +1583,7 @@ fn a_click_sends_the_answer_with_the_hash_of_the_text_once() {
     let text = "rm -rf build\nthe agent says: clean the build";
     ask(&game, text);
     let shots = game.shots();
-    game.run("GnomishRelayPopupButton1:Click()");
+    click_popup(&game, 1);
     game.advance(5.0);
 
     let expected = format!("perm=p1a2b:o1:{}", text_hash(text.as_bytes()));
@@ -1595,7 +1674,7 @@ fn always_sends_the_hash_of_the_text_and_the_rule_line_and_whispers_the_rule() {
     ask_always(&game, text);
     let shots = game.shots();
 
-    game.run("GnomishRelayPopupButton2:Click()");
+    click_popup(&game, 2);
     game.advance(5.0);
 
     let shown = format!("{text}\n{RULE_LINE}");
@@ -1616,7 +1695,7 @@ fn allow_once_next_to_always_adds_no_rule_line() {
     ask_always(&game, text);
     let shots = game.shots();
 
-    game.run("GnomishRelayPopupButton1:Click()");
+    click_popup(&game, 1);
     game.advance(5.0);
 
     let expected = format!("perm=p1a2b:o1:{}", text_hash(text.as_bytes()));
@@ -1661,7 +1740,7 @@ fn the_bridge_takes_the_always_click_of_the_game() {
         .unwrap();
     game.run("local ns = ... ns.Transport.Poll()");
 
-    game.run("GnomishRelayPopupButton2:Click()");
+    click_popup(&game, 2);
     game.advance(1.0);
     relay.on_frame(&records_of_last_shot(&game, now), now);
 
@@ -1779,7 +1858,7 @@ fn an_always_click_marks_the_settings_list_old_so_the_next_tab_asks_again() {
     click(&game, "GnomishRelayTab1");
     game.send("test it");
     ask_always(&game, "cargo test");
-    game.run("GnomishRelayPopupButton2:Click()");
+    click_popup(&game, 2);
     game.advance(2.0);
     let before = game.shots();
 

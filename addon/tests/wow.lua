@@ -547,7 +547,7 @@ GameTooltip = New("GameTooltip", "GameTooltip")
 UIErrorsFrame = New("MessageFrame", "UIErrorsFrame")
 ActionStatus = New("Frame", "ActionStatus")
 UISpecialFrames = {}
-SOUNDKIT = { TELL_MESSAGE = 3081 }
+SOUNDKIT = { TELL_MESSAGE = 3081, READY_CHECK = 8960 }
 ChatFontNormal, GameFontNormal = {}, {}
 SlashCmdList = {}
 

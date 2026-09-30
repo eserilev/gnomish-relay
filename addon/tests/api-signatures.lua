@@ -94,6 +94,12 @@ return {
 		Screenshot = {},
 	},
 	methods = {
+		["DurationTextBindingObjectAPI:SetEnabled"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "enabled", Type = "bool", Nilable = false },
+			},
+		},
 		["FrameAPICharacterModelBase:SetRotation"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
@@ -247,6 +253,14 @@ return {
 				{ Name = "buttons", Type = "ClickButton", Nilable = false, StrideIndex = 1 },
 			},
 		},
+		["SimpleButtonAPI:SetEnabled"] = {
+			IsProtectedFunction = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretArgumentsAddAspect = { Enum.SecretAspect.ButtonState },
+			Arguments = {
+				{ Name = "enabled", Type = "bool", Nilable = false, Default = false },
+			},
+		},
 		["SimpleButtonAPI:SetHighlightTexture"] = {
 			CheckAllowChangeParent = true,
 			SecretArguments = "AllowedWhenUntainted",
@@ -296,6 +310,12 @@ return {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
 				{ Name = "autoFocus", Type = "bool", Nilable = false, Default = false },
+			},
+		},
+		["SimpleEditBoxAPI:SetEnabled"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "enabled", Type = "bool", Nilable = false, Default = false },
 			},
 		},
 		["SimpleEditBoxAPI:SetFocus"] = {
@@ -894,6 +914,12 @@ return {
 			SecretArgumentsAddAspect = { Enum.SecretAspect.ScrollOffset },
 			Arguments = {
 				{ Name = "offset", Type = "uiUnit", Nilable = false },
+			},
+		},
+		["SimpleSliderAPI:SetEnabled"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "enabled", Type = "bool", Nilable = false },
 			},
 		},
 		["SimpleSliderAPI:SetMinMaxValues"] = {

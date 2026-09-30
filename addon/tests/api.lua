@@ -26,6 +26,7 @@ return {
 		"PlaySound",
 		"ReloadUI",
 		"SOUNDKIT",
+		"SOUNDKIT.READY_CHECK",
 		"SOUNDKIT.TELL_MESSAGE",
 		"Screenshot",
 		"SetCVar",

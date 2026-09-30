@@ -122,6 +122,8 @@ So the popup never shows the label of the agent as the main text. Rules:
 - Control characters, Unicode bidi characters, and zero-width characters show as visible escapes, for example `<U+202E>`.
 - The label of the agent shows below the raw command, marked as "the agent says".
 - When the popup offers "Always allow" (6.6.5), one more line names the exact rule and its folder. The bridge makes the line, and the popup never cuts it.
+- A misclick must not allow. A new popup plays the ready-check sound, and its buttons take no click for 1 second: the player can be in the middle of a click in the game. **Reject** and **Always reject** sit at the left, and the allow buttons at the right, with a wide gap between.
+- When more requests wait, the popup says "1 of 3" at the top right. It shows the oldest request first.
 
 Theorem S15 covers these rules.
 

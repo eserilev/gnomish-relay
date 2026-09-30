@@ -408,6 +408,16 @@ function Transport.Request()
 	end
 end
 
+function Transport.RequestCount()
+	local count = 0
+	for _, r in ipairs(state.requests) do
+		if not state.answered[r.request] then
+			count = count + 1
+		end
+	end
+	return count
+end
+
 -- True while a popup of the chat waits for the player.
 function Transport.WaitsForAnswer(chatId)
 	for _, r in ipairs(state.requests) do
