@@ -1551,6 +1551,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
     - **Claude:** `claude -p --tools "" --strict-mcp-config`, with the flags that load no user or project settings (checked live), in an empty private temp folder for each call. The `PreToolUse` gate denies every tool on this route, and the check on tool results stays on.
     - **A local model** (Ollama, LM Studio): through `curl` with `-q` first, `--proto =http`, `--max-redirs 0` and no `-L`, `--noproxy '*'`, `--max-time`, and the prompt through stdin (`--data-binary @-`), never in the arguments. The bridge limits the size of the answer while it reads it. The config accepts only `127.0.0.1` and `[::1]`, not `localhost`. The answer is hostile text, like an agent reply.
     - **Budget.** The bridge enforces a budget of calls for each app with the proved limiter of S14. A hostile addon cannot spend the model subscription faster than that.
+    - **Later, a hosted model** that the player pays for comes as one more route, with no addon change. Its shape is in 11.6.
     - **Step 6, as built.** `crates/bridge/src/model.rs` holds the open calls and the budget, `model_claude.rs` the Claude route, and `model_local.rs` the local route. Each call runs on its own thread, with the timeout `[story] model_timeout_seconds` (12). A stop of the story program, and the end of the bridge, end every open call: the bridge kills its `claude` or `curl` process at once. An answer of a call that ended so never reaches the next story program.
     - **The Claude flags, checked live on Claude Code 2.1.283.** The command is `claude -p --input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio --tools "" --strict-mcp-config --setting-sources "" --safe-mode --disable-slash-commands --no-session-persistence`, plus `--model <claude_model>` when the config names one. With these flags the `init` message lists no tools, no MCP servers, no skills, no slash commands, and no plugins of the user. A `UserPromptSubmit` hook of the user does not run. A `CLAUDE.md` in a parent folder and a `CLAUDE.local.md` in the folder do not reach the model. `--setting-sources ""` alone keeps out the plugins and the skills of the user and the `CLAUDE.md`. `--safe-mode` alone keeps out the skills of the user and the `CLAUDE.md`, but a plugin of the user stays. The bridge uses both, and `--disable-slash-commands` also removes the built-in skills. `--bare` keeps out the same, but it also skips the OAuth login, so the bridge does not use it. The `PreToolUse` hook of the `initialize` request still fires with these flags: with `--tools Read`, a read of a file reached the hook, and the deny of the hook stopped it. The prompt goes in as one stream-json `user` message on stdin, never in the arguments. The folder of each call is new, empty, mode 0700, and removed after the call. The environment is the allowlist of 6.2 rule 12. `command` is always `claude` from `PATH`, never the command of a relay agent.
     - **The gate on this route** answers every `PreToolUse` hook and every `can_use_tool` request with a deny ("The story program gets no tools."). The check on tool results stays on: a tool result with no error for a call that the hook never saw stops the call, and the call fails.
@@ -1575,7 +1576,7 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
     - **The config with no relay.** It holds `[wow]` and `[story]`, and no relay key (12). `allowed_roots` alone turns the relay on. The bridge then has no relay lane, and a `Config` holds `relay: Option<RelayConfig>`. Why: an idle relay lane needs a fake policy, and a fake policy is a trap, because an admitted strip then reaches an agent path. Setup still makes `strip.key`, so `KeySet` and S29 need no change. `setup --relay` adds the relay later: its top keys before the old text, because TOML needs them before the first table, and its tables after.
     - **One `--new-key` for every app.** It makes a new `strip.key`, and a new `timeways.key` when the `Timeways` folder exists, and writes both key addons. Why: an addon that reads one key reads both (decision 18), so after a leak both change. A new Timeways key is never equal to the relay key, and setup loads both keys at its end, as the bridge does.
     - **`program` and `lore_pack` are optional**, both or neither (12). Setup writes them as commented lines. It sets both when it installs the programs of the Timeways release and builds the lore pack (11.4).
-    - **The model.** Setup takes the first model it finds: `claude` on `PATH` (with `claude_model = "haiku"`), then Ollama on 127.0.0.1:11434, then LM Studio on 127.0.0.1:1234. It asks a local server for `/v1/models` with `curl` and the flags of a model call, and takes the first id that is not an embedding model. Another model that it finds goes in as commented lines. With none, `[story]` has no model. Why: `claude` is a deliberate install, its answers are better than a small local model, and the budget of decision 10 bounds its use. `curl` is already the only HTTP client of the bridge.
+    - **The model.** Setup takes the first model it finds: `claude` on `PATH` (with `claude_model = "haiku"`), then Ollama on 127.0.0.1:11434, then LM Studio on 127.0.0.1:1234. It asks a local server for `/v1/models` with `curl` and the flags of a model call, and takes the first id that is not an embedding model. Another model that it finds goes in as commented lines. With none, `[story]` has no model, and setup offers to install a free local model (11.6). A later setup fills a `[story]` with no model in the same way. Why: `claude` is a deliberate install, its answers are better than a small local model, and the budget of decision 10 bounds its use. `curl` is already the only HTTP client of the bridge.
     - **An existing config.** Setup adds `[story]` to a config that has none when the `Timeways` folder exists, for a relay user who installs Timeways later. It checks every new text with the config loader before it writes. It never changes a key that exists.
     - **`## Group:`** is in neither app's slots. Nothing shows yet that the Forever client reads it. After a test in the game, both apps get it in one commit.
 16. **Life cycle.** `restart` and `update` also stop and start the story program. The bridge kills its process group when it exits. A story program that crashes starts again after a backoff.
@@ -2339,6 +2340,55 @@ Native Windows has no sandbox for the commands of Claude (6.6.4, "Windows"). So 
 13. In PowerShell, run `wsl --shutdown`. After about 5 seconds, `/relay` in WoW works again.
 14. Run the one-liner again with no flag. It sets up the Windows desktop app. The `Run` entry now starts the Windows one, and `gnomish-relay status` in PowerShell shows "Sandbox: none".
 
+### 11.6 A free local model for Timeways
+
+The user decided this on 2026-09-30, with the Timeways session ("A plus C"). Setup gives Timeways a model when it can. `crates/bridge/src/ollama_install.rs` holds the steps, and `setup_command.rs` the question.
+
+**When.** Setup runs this step when the `Timeways` addon folder exists, or with `--timeways`, and `[story]` has no `model` (or the config has no `[story]`). It runs before the install of the Timeways programs (11.4), so the player answers the question first and then waits once.
+
+**A: a model that the player has.** Setup first looks for a model as in 9.7, decision 15: `claude` on `PATH`, then Ollama, then LM Studio. The first one goes into `[story]`.
+
+**C: no model found.** Setup asks one question in the terminal:
+
+```
+No AI model found. Timeways works without one, but it writes no story text.
+Setup can install Ollama with its official installer: curl -fsSL https://ollama.com/install.sh | sh
+Install a free local model? It runs on this computer and needs about 2 GB. [Y/n]:
+```
+
+On Windows the second line names `https://ollama.com/download/OllamaSetup.exe`. So the player sees what setup runs before the yes.
+
+- An empty answer, `y`, or `yes` (any case) is yes. Any other answer is no.
+- On no, setup prints "To install it later, run gnomish-relay setup --timeways".
+- With no terminal on stdin (for example `curl | sh` with no terminal), the answer is no, and setup downloads nothing. It prints the first line of the question, then "To install a free local model, run gnomish-relay setup --timeways in a terminal". Why: a download of 2 GB never starts without a yes.
+- The install is terminal only on every OS. Setup opens no window.
+
+**On yes**, setup takes these steps, and prints a line in plain words for each:
+
+1. When Ollama already answers on `127.0.0.1:11434` (it runs, but has no chat model), setup skips steps 2 and 3.
+2. Setup downloads the installer with `curl --proto =https --proto-redir =https --location --max-redirs 5` into a new private temp folder. The URL is a constant, and only HTTPS works, also for each redirect. `https://ollama.com/install.sh` redirects to the release of Ollama on GitHub.
+3. Setup runs the installer in the terminal, with no shell of its own:
+   - Linux and macOS: `sh install.sh`. The script asks for `sudo` on Linux. On macOS it installs the official `Ollama.app` into `/Applications`, links the `ollama` command into `/usr/local/bin` (with `sudo` only when it needs it), and starts the app with no window.
+   - Windows: `OllamaSetup.exe /VERYSILENT /SUPPRESSMSGBOXES /NORESTART /SP-`. The installer needs no admin rights: it installs into `%LOCALAPPDATA%\Programs\Ollama`, and starts Ollama in the background.
+   - Why the script on macOS, and not Homebrew: the script is the route of Ollama itself, it works with no `brew`, it installs the signed app of Ollama and starts its server, and Linux and macOS share one code path. The Homebrew formula is kept by Homebrew, not by Ollama, and its server needs `brew services start`.
+4. Setup waits up to 60 seconds for `GET /api/version` on `127.0.0.1:11434`.
+5. Setup pulls one model, `LOCAL_STORY_MODEL` (one constant in `ollama_install.rs`; Timeways picks it), through `POST /api/pull` with a stream of JSON lines. It shows the megabytes so far. A line with `error`, or an end with no `success` line, is a failure.
+6. Setup writes `model = "local"`, `local_url = "http://127.0.0.1:11434"`, and `local_model` into `[story]`, in place of the old model keys and the note "No model found". It checks the new text with the config loader before it writes (11.3).
+7. Setup sends one short prompt to the model of the new config, through `model_local.rs`, the same code as a model call of the story program (9.7, decision 10).
+
+A failed step prints one line: what failed, the reason, and the next step ("To try again, run gnomish-relay setup --timeways"). Setup goes on, and ends as usual. When only step 7 fails, the model stays in the config, and the next step is "Check that Ollama is running, then run gnomish-relay restart".
+
+**Network of the story program.** The story program still has no network (6.6.4). It never talks to the model: it sends a `model_call` to the bridge (9.8), and the bridge runs `curl` outside the story sandbox, to the literal loopback address of `local_url`. The Ollama service listens on `127.0.0.1:11434` by default, and the config accepts only a loopback URL (12). So the local model needs no change to a sandbox rule. Setup does not add port 11434 to `[sandbox] local_ports` here: that key opens the port to the agents of the relay, and this step is for Timeways only.
+
+**Later: a hosted model (B).** A hosted service that the player pays for can come later as one more `model` value of `[story]`, with no change to the addon. Its shape:
+
+- `[story] model = "<service>"` and a key for its model name, as `claude_model` and `local_model` are. The API key of the service lives in a file of the config folder, which the sandboxes hide (6.6.3, 6.6.4), never in `config.toml`.
+- One more `ModelChoice` variant in `model.rs`, and one module `model_<service>.rs` with an `ask` that takes the prompt and returns the text. `ask_of` in `model.rs` maps each variant to its `ask`. The open calls, the budget, the size limits, and the cleaning of the answer stay the same for every route.
+- The bridge makes the call, not the story program, so the story sandbox keeps no network. The call uses `curl` with `--proto =https`, a fixed host of the service, and no redirect.
+- The addon shows `story_model` as plain text (13, Diag), so a new value such as `<service> <model>` needs no addon change.
+
+Nothing in the code blocks this today.
+
 ## 12. Config
 
 The config file is `config.toml` in the config folder of the OS:
@@ -2349,7 +2399,7 @@ The config file is `config.toml` in the config folder of the OS:
 | macOS | `~/Library/Application Support/gnomish-relay` | the same |
 | Windows | `%APPDATA%\gnomish-relay` | `%LOCALAPPDATA%\gnomish-relay` |
 
-`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists, but `program` and `lore_pack` of `[story]` after it installs Timeways (11.4). It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
+`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists, but `program` and `lore_pack` of `[story]` after it installs Timeways (11.4). It adds the model keys of `[story]` only when `[story]` has no model (11.6). It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
 Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, `[git]` with `ci_checks`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.

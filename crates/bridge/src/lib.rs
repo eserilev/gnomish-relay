@@ -73,6 +73,7 @@ pub mod model_claude;
 pub mod model_local;
 pub mod model_setup;
 pub mod new_folder;
+pub mod ollama_install;
 pub mod pipe;
 pub mod process;
 pub mod program;
