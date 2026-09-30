@@ -1715,7 +1715,7 @@ The bridge keeps a table of the terminal sessions. Each session has a state and 
 | `failed` | open, no turn runs | a new notice `failed`, with `took` |
 | `session-end` | removed | removed |
 
-- `took` is the length of the turn in seconds, at least 1. It is 0 when the bridge saw no `turn-start`, for example after a restart of the bridge. The addon counts 0 as long work.
+- `took` is the length of the turn in seconds, at least 1. It is 0 when the bridge saw no `turn-start`, for example for a turn that started while no bridge ran: the bridge empties the spool folder at its start. A restart during a turn keeps the length, because `notices.json` keeps the start of the turn. The addon counts 0 as long work.
 - A running turn ends after 30 minutes with no event of its session. An open session ends after 12 hours with no event. So a crash of the agent never keeps the faster polls on.
 - With 32 sessions, a new session takes the place of a session with no notice: the one whose latest event is the oldest. Only when all 32 sessions have a notice, it takes the place of the session whose notice is the oldest (by the time of the notice). "Oldest" always means the latest event or the notice time, never the start of the session. (The user chose this rule on 2026-09-28.)
 - **A notice id** is the next number of a counter, and never less than the Unix time. The counter lives in `<data>/notices.json` with the table, so a restart of the bridge keeps them. Why the time: after a wipe of the data folder, the new ids never repeat the ids that the addon already showed, as for message ids (13.2).
