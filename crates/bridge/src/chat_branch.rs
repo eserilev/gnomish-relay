@@ -428,7 +428,7 @@ mod tests {
 
     fn walk(repo: &Repo) -> Walk {
         Walk {
-            roots: vec![repo.root.clone()],
+            roots: crate::roots::Roots::new(vec![repo.root.clone()]),
             deny: Vec::new(),
             home: None,
         }
@@ -534,7 +534,7 @@ mod tests {
     fn a_repository_that_is_a_root_itself_refuses_an_own_branch() {
         let repo = repo();
         let walk = Walk {
-            roots: vec![repo.top.clone()],
+            roots: crate::roots::Roots::new(vec![repo.top.clone()]),
             deny: Vec::new(),
             home: None,
         };

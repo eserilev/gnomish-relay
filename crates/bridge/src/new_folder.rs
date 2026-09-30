@@ -3,9 +3,9 @@
 
 use std::fs;
 use std::io::ErrorKind;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
-use crate::folder_path::{is_inside_folder, path_bytes, real_path};
+use crate::folder_path::real_path;
 use crate::folder_walk::{Walk, is_shown};
 
 /// The longest file name on the file systems that the bridge runs on.
@@ -51,9 +51,7 @@ pub fn is_folder_name(name: &str) -> bool {
 /// of the folder, and a link in it can leave every root.
 pub fn real_chat_folder(walk: &Walk, folder: &Path) -> Result<String, String> {
     let real = real_path(folder).map_err(|_| MISSING.to_owned())?;
-    let bytes = path_bytes(&real);
-    let inside = |root: &PathBuf| is_inside_folder(&bytes, &path_bytes(root));
-    if !walk.roots.iter().any(inside) {
+    if !walk.roots.hold(&real) {
         return Err(OUTSIDE_ROOTS.into());
     }
     real.into_os_string()
@@ -72,9 +70,7 @@ pub fn make_folder(walk: &Walk, folder: &Path) -> Result<(), NewFolderError> {
     let real = parent
         .canonicalize()
         .map_err(|_| NewFolderError::NoParent)?;
-    let real_bytes = path_bytes(&real);
-    let inside = |root: &PathBuf| is_inside_folder(&real_bytes, &path_bytes(root));
-    if !walk.roots.iter().any(inside) {
+    if !walk.roots.hold(&real) {
         return Err(NewFolderError::OutsideRoots);
     }
     let target = real.join(name);
@@ -116,7 +112,7 @@ mod tests {
 
     fn walk(h: &Home) -> Walk {
         Walk {
-            roots: vec![h.root.clone()],
+            roots: crate::roots::Roots::new(vec![h.root.clone()]),
             deny: vec![h.root.join("bridge-config")],
             home: None,
         }

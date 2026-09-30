@@ -18,6 +18,7 @@ use crate::command_sandbox::CommandSandbox;
 use crate::config::{Permission, RelayConfig};
 use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Waiting};
 use crate::dirs::Dirs;
+use crate::roots::Roots;
 use crate::turn::{Answer, Turn};
 
 pub const NOT_FROM_THE_GAME: &str = "Not allowed from the game.";
@@ -181,8 +182,7 @@ impl Refusal {
 
 #[derive(Clone, Debug)]
 pub struct Gate {
-    /// `allowed_roots`, resolved.
-    pub roots: Vec<PathBuf>,
+    pub roots: Roots,
     /// The config folder of the bridge. Every path in it is `deny`.
     pub config_dir: PathBuf,
     /// The data folder of the bridge: its state, locks, log, and desktop requests. Every
@@ -228,7 +228,7 @@ impl Gate {
             .map(|r| PathBuf::from(String::from_utf8_lossy(r).into_owned()))
             .collect();
         Gate {
-            roots,
+            roots: Roots::new(roots),
             config_dir: places.config_dir.to_owned(),
             data_dir: places.data_dir.to_owned(),
             allow: std::sync::Arc::new(config.allow.clone()),
@@ -244,7 +244,7 @@ impl Gate {
     /// the fields that they need on top.
     pub fn bare(roots: Vec<PathBuf>, config_dir: PathBuf, data_dir: PathBuf) -> Gate {
         Gate {
-            roots,
+            roots: Roots::new(roots),
             config_dir,
             approvals: Approvals::new(&data_dir, Prompt::Off),
             data_dir,
@@ -264,7 +264,7 @@ impl Gate {
             .map(|d| resolve(d).unwrap_or_else(|| d.clone()))
             .collect();
         let rules = self.allow.rules_for(chat);
-        action_input::policy(&self.roots, chat, &deny, &rules)
+        action_input::policy(&self.roots.list(), chat, &deny, &rules)
     }
 
     /// `Ok` when the call runs. A question waits in the game or on the desktop.
@@ -315,9 +315,10 @@ impl Gate {
         if !asking.job.offers_always() || !self.always.is_on() {
             return None;
         }
+        let roots = self.roots.list();
         let place = Place {
             chat: asking.chat,
-            roots: &self.roots,
+            roots: &roots,
             home: &self.home,
         };
         offer_for(&asking.call.tool, asking.policy, rules, &place)

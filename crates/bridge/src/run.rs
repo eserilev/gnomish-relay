@@ -22,6 +22,7 @@ use crate::git_host::GitHost;
 use crate::raise::{RaiseGuard, Raised, Raiser};
 use crate::receive::{KeySet, Rejected, frame_tag, receive, receive_for};
 use crate::relay::BranchPlan;
+use crate::roots::Roots;
 use crate::run_git::{RunGit, WorktreeChange};
 use crate::test_summary::{self, TestCounts};
 use crate::turn::STOPPED;
@@ -1180,9 +1181,11 @@ impl TimewaysLane {
 fn repo_walk(policy: &Policy, paths: &Paths) -> Walk {
     let roots = policy.folders.roots.iter();
     Walk {
-        roots: roots
-            .map(|r| PathBuf::from(String::from_utf8_lossy(r).into_owned()))
-            .collect(),
+        roots: Roots::new(
+            roots
+                .map(|r| PathBuf::from(String::from_utf8_lossy(r).into_owned()))
+                .collect(),
+        ),
         deny: [&paths.config, &paths.state]
             .map(|d| resolve(d).unwrap_or_else(|| d.clone()))
             .into(),

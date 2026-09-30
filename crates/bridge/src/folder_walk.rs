@@ -9,6 +9,7 @@ use std::time::{Duration, Instant};
 use protocol::action::{ToolCall, Verdict, classify};
 
 use crate::action_input::{self, resolved_bytes};
+use crate::roots::Roots;
 
 /// Folders that hold tools, builds, or packages, never a project of the user.
 const SKIPPED: &[&str] = &[
@@ -56,7 +57,7 @@ pub struct Snapshot {
 /// Where the walk may look, and what it never shows. All paths are resolved.
 #[derive(Clone)]
 pub struct Walk {
-    pub roots: Vec<PathBuf>,
+    pub roots: Roots,
     /// The config folder and the data folder of the bridge.
     pub deny: Vec<PathBuf>,
     /// The browser shows a path in the home folder as `~/...`.
@@ -75,7 +76,7 @@ fn is_repo(dir: &Path) -> bool {
 /// The classifier gives the answer of an agent that reads the folder. Only a folder
 /// that it reads with no question shows: never a credential or a bridge folder.
 pub fn is_shown(walk: &Walk, dir: &Path) -> bool {
-    let policy = action_input::policy(&walk.roots, dir, &walk.deny, &[]);
+    let policy = action_input::policy(&walk.roots.list(), dir, &walk.deny, &[]);
     let read = ToolCall::Files {
         reads: vec![resolved_bytes(dir)],
         writes: Vec::new(),
@@ -104,8 +105,12 @@ fn subfolders(dir: &Path) -> Vec<PathBuf> {
 /// show hides its subfolders too.
 pub fn walk_folders(walk: &Walk, limits: &Limits) -> Snapshot {
     let deadline = Instant::now() + limits.time;
-    let mut queue: VecDeque<(PathBuf, usize, Option<usize>)> =
-        walk.roots.iter().map(|r| (r.clone(), 0, None)).collect();
+    let mut queue: VecDeque<(PathBuf, usize, Option<usize>)> = walk
+        .roots
+        .list()
+        .into_iter()
+        .map(|r| (r, 0, None))
+        .collect();
     let mut seen = BTreeSet::new();
     let mut folders = Vec::new();
     let mut complete = true;
@@ -173,7 +178,7 @@ mod tests {
 
     fn find(roots: &[PathBuf], deny: &[PathBuf], limits: &Limits) -> Snapshot {
         let walk = Walk {
-            roots: roots.to_vec(),
+            roots: Roots::new(roots.to_vec()),
             deny: deny.to_vec(),
             home: None,
         };

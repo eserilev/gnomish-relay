@@ -264,7 +264,7 @@ mod tests {
         git.bytes(&top, &["add", "-A"]).unwrap();
         git.bytes(&top, &["commit", "-q", "-m", "one"]).unwrap();
         let walk = Walk {
-            roots: vec![root],
+            roots: crate::roots::Roots::new(vec![root]),
             deny: Vec::new(),
             home: None,
         };
