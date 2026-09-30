@@ -555,3 +555,58 @@ fn show_more_above_a_reply_with_changes_leaves_one_change_block() {
         .count();
     assert_eq!(blocks, 1);
 }
+
+/// A long reply with a usage line, a change summary, a test line, and a CI line.
+const LONG_REPLY: &str = "\x1bM1\nu\x1f1.2k in · 350 out\nG\x1f1\x1f4\x1f1\nF\x1fsrc/a.rs\x1f4\x1f1\x1fM\nT\x1f41\x1f2\x1f0\nC\x1f5\x1f1\x1f0\x1flint\np\x1fFixed the test.\np\x1fTwo.\np\x1fThree.\np\x1fFour.\np\x1fFive.\np\x1fSix.\np\x1fSeven.\np\x1fEight.\np\x1fThe last line.\n";
+
+/// The place of the first drawn text with each part, from the top.
+fn places(game: &Game, parts: &[&str]) -> Vec<usize> {
+    let texts = game.texts();
+    parts
+        .iter()
+        .map(|part| {
+            texts
+                .iter()
+                .position(|t| t.contains(part))
+                .unwrap_or_else(|| panic!("no {part} in {texts:?}"))
+        })
+        .collect()
+}
+
+fn is_top_down(places: &[usize]) -> bool {
+    places.windows(2).all(|pair| pair[0] < pair[1])
+}
+
+#[test]
+fn a_long_reply_shows_its_text_then_the_link_the_changes_the_tests_the_ci_and_the_usage() {
+    let game = Game::start();
+    game.send("fix it");
+    game.reply(game.last_id(), Status::Done, LONG_REPLY);
+
+    let closed = places(
+        &game,
+        &[
+            "Fixed the test.",
+            "Show more",
+            "1 file changed",
+            "Tests:",
+            "CI:",
+            "1.2k in",
+        ],
+    );
+    game.run("local ns = ... local h = ns.Store.db.chats[1].history ns.Transcript.Toggle(h[#h])");
+    let open = places(
+        &game,
+        &[
+            "The last line.",
+            "Show less",
+            "1 file changed",
+            "Tests:",
+            "CI:",
+            "1.2k in",
+        ],
+    );
+
+    assert!(is_top_down(&closed), "{closed:?}");
+    assert!(is_top_down(&open), "{open:?}");
+}
