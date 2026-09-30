@@ -3419,10 +3419,10 @@ fn a_long_reply_shown_as_its_summary_keeps_its_usage_line() {
     game.run("local ns = ... ns.Window.Open()");
     game.send("go");
     game.advance(1.0);
-    let mut body = String::from("\x1bM1\nu\x1f1.2k in · 350 out · $0.04\np\x1fThe summary.\n");
-    for i in 0..10 {
-        body.push_str(&format!("p\x1fDetail {i}.\n"));
-    }
+    let details = "p\x1fDetail.\n".repeat(9);
+    let body = format!(
+        "\x1bM1\nu\x1f1.2k in · 350 out · $0.04\np\x1fThe summary.\n{details}p\x1fDetail 9.\n"
+    );
 
     game.publish(&[reply(
         &game.chat_id(),
