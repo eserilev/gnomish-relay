@@ -7,14 +7,12 @@ root=$(git rev-parse --show-toplevel)
 cd "$root"
 mkdir -p dist
 build=target/$target/release
-# The program holds the addon, so the archive carries both MIT notices.
-upstream=addon/GnomishRelay/LICENSE-wow-claude.txt
 if [[ $target == *windows* ]]; then
   name=gnomish-relay-$target.zip
-  pwsh -NoProfile -Command "Compress-Archive -Force -Path '$build/gnomish-relay.exe', 'LICENSE', '$upstream' -DestinationPath 'dist/$name'"
+  pwsh -NoProfile -Command "Compress-Archive -Force -Path '$build/gnomish-relay.exe', 'LICENSE' -DestinationPath 'dist/$name'"
 else
   name=gnomish-relay-$target.tar.gz
-  tar -czf "dist/$name" -C "$build" gnomish-relay -C "$root" LICENSE -C "$root/addon/GnomishRelay" LICENSE-wow-claude.txt
+  tar -czf "dist/$name" -C "$build" gnomish-relay -C "$root" LICENSE
 fi
 cd dist
 if command -v sha256sum > /dev/null; then

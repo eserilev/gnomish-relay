@@ -40,11 +40,11 @@ Gnomish Relay has two parts:
 Gnomish Relay uses the design of two earlier projects:
 
 - [chelinho139/wow-claude](https://github.com/chelinho139/wow-claude) (MIT), now named `chelinho139/wow-ai`.
-  It is a Windows-only Node bridge for Claude Code. Gnomish Relay starts from its Lua addon and its transport design.
+  It is a Windows-only Node bridge for Claude Code. It inspired the design of the addon and the transport. Gnomish Relay has no code from it.
 - [0xInuarashi/wow-forever-codex](https://github.com/0xinuarashi/wow-forever-codex).
   It measured the file-load rules of the Forever client and invented the pixel-out channel.
 
-The README credits both projects. The addon code from `wow-claude` keeps its MIT license notice, in `addon/GnomishRelay/LICENSE-wow-claude.txt`. `wow-forever-codex` has no license file, so Gnomish Relay takes no code from it.
+The README credits both projects. `wow-forever-codex` has no license file, so Gnomish Relay takes no code from it.
 References in this spec to `wow-claude` files use the path in that repo, for example `bridge/protocol.js`.
 
 ## 5. Terms
