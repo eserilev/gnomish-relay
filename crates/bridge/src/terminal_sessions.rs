@@ -55,7 +55,13 @@ pub struct TerminalSessions {
     table: Vec<Session>,
     last_id: u32,
     dir: PathBuf,
+    /// The sessions that ended in the last `ENDED_MEMORY` seconds, with the time.
+    ended: Vec<(Vec<u8>, u32)>,
 }
+
+/// Claude runs its hooks async, so the file of `Stop` can come just after the file of
+/// `SessionEnd`. The race takes milliseconds, and the spool is read 4 times a second.
+const ENDED_MEMORY: u32 = 60;
 
 fn live_source(source: Source) -> LiveSource {
     match source {
@@ -234,6 +240,7 @@ impl TerminalSessions {
             last_id: sound_last_id(saved.last_id, &sessions, now),
             table: sessions.into_iter().map(from_saved).collect(),
             dir: dir.to_owned(),
+            ended: Vec::new(),
         };
         (terminal, problem)
     }
@@ -254,6 +261,10 @@ impl TerminalSessions {
     }
 
     pub fn apply(&mut self, file: &SpoolFile, now: u32) {
+        if self.is_late_turn_end(file, now) {
+            return;
+        }
+        self.track_end(file, now);
         let event = Event {
             session: file.session.as_bytes().to_vec(),
             kind: event_kind(file.event),
@@ -263,6 +274,34 @@ impl TerminalSessions {
             id: self.next_id(now),
         };
         self.table = apply_event(&self.table, &event, now);
+    }
+
+    /// A turn end that would open the session again with no turn start (took 0).
+    fn is_late_turn_end(&mut self, file: &SpoolFile, now: u32) -> bool {
+        self.ended
+            .retain(|(_, at)| now.saturating_sub(*at) <= ENDED_MEMORY);
+        let ends_a_turn = matches!(
+            file.event,
+            SpoolEvent::Waiting | SpoolEvent::Finished | SpoolEvent::Failed
+        );
+        ends_a_turn
+            && self
+                .ended
+                .iter()
+                .any(|(id, _)| id == file.session.as_bytes())
+    }
+
+    /// A start of the same session id, for example a resume, makes it live again.
+    fn track_end(&mut self, file: &SpoolFile, now: u32) {
+        let session = file.session.as_bytes();
+        self.ended.retain(|(id, _)| id != session);
+        if file.event != SpoolEvent::SessionEnd {
+            return;
+        }
+        if self.ended.len() == MAX_SESSIONS {
+            self.ended.remove(0);
+        }
+        self.ended.push((session.to_vec(), now));
     }
 
     /// Returns whether a session or a turn ended.
@@ -362,6 +401,42 @@ mod tests {
         sessions.apply(&file("s1", SpoolEvent::SessionEnd, ""), NOW + 400);
         assert_eq!(sessions.notices().open, 0);
         assert!(kinds(&sessions).is_empty());
+    }
+
+    #[test]
+    fn a_finish_just_after_the_end_of_its_session_opens_no_session() {
+        let (_dir, mut sessions) = fresh();
+        sessions.apply(&file("s1", SpoolEvent::TurnStart, ""), NOW);
+        sessions.apply(&file("s1", SpoolEvent::SessionEnd, ""), NOW + 10);
+
+        sessions.apply(&file("s1", SpoolEvent::Finished, "Done."), NOW + 10);
+
+        assert_eq!(sessions.notices().open, 0);
+        assert!(kinds(&sessions).is_empty());
+    }
+
+    #[test]
+    fn a_resumed_session_after_its_end_gives_notices_again() {
+        let (_dir, mut sessions) = fresh();
+        sessions.apply(&file("s1", SpoolEvent::SessionEnd, ""), NOW);
+        sessions.apply(&file("s1", SpoolEvent::SessionStart, ""), NOW + 20);
+
+        sessions.apply(&file("s1", SpoolEvent::Finished, "Done."), NOW + 30);
+
+        assert_eq!(kinds(&sessions), [NoticeKind::Finished]);
+    }
+
+    #[test]
+    fn a_finish_long_after_the_end_of_its_session_counts() {
+        let (_dir, mut sessions) = fresh();
+        sessions.apply(&file("s1", SpoolEvent::SessionEnd, ""), NOW);
+
+        sessions.apply(
+            &file("s1", SpoolEvent::Finished, "Done."),
+            NOW + ENDED_MEMORY + 1,
+        );
+
+        assert_eq!(kinds(&sessions), [NoticeKind::Finished]);
     }
 
     #[test]
