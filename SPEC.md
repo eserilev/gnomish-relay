@@ -74,7 +74,7 @@ The bridge treats all four as untrusted input.
 | A local program | Writes fake notifications into the spool folder (10.2) | The folder has mode 0700, and game runs cannot reach it. Size limits, exact fields, and one notice for each session (S41). The text goes through the same escapes as agent text (S40). A notification never starts a run. |
 | A malicious or prompt-injected agent | Writes a reply that injects Lua or fakes WoW chat links. Asks for permission with a false label. Writes a huge reply. | Lua escape and UI escape (S8 to S10). Honest permission popup (6.4). Size limits (S12). |
 | An old screenshot | A strip is replayed from an old file, for example after `state.json` is lost | Freshness check (S11). |
-| Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our handlers, fill our input box, click our buttons, read and change `GnomishRelayDB`, and replace a slot body during a load. | Signed state (6.6.1) stops changes to stored messages. A call to our handlers gets no more than a message that the user typed: the ceiling, the classifier, the sandbox, and desktop approvals (6.6.2 to 6.6.4, 9.3) bound every game message, whoever sent it. |
+| Another addon or a WeakAura | Runs Lua in the same environment as our addon. It can call our handlers, fill our input box, click our buttons, read and change `GnomishRelayDB`, and replace a slot body during a load. | Signed state (6.6.1) stops changes to stored messages. A call to our handlers gets no more than a message that the user typed: the ceiling, the classifier, the sandbox, and desktop approvals (6.6.2 to 6.6.4, 9.3) bound every game message, whoever sent it. It can ask for a new chat folder, and only a click on the desktop adds one (9.12). |
 | A prompt injection in a file | The agent reads a README, an issue, or a web page with hidden instructions | The action classifier (6.6.3) and the sandbox (6.6.4). Layer 1 does not help: the prompt came from the user. |
 | A stream or recording | The strip shows the prompt on screen | None. Do not stream while you use the relay. The README says this. |
 
@@ -84,7 +84,7 @@ So the bridge bounds what any message from the game can do (6.6).
 
 ### 6.2 Bridge policy
 
-1. The folder of a chat must be inside `allowed_roots` from the config. The bridge rejects all other folders.
+1. The folder of a chat must be inside `allowed_roots` from the config. A folder in the home folder that is under no root runs only after a click on the desktop adds it to the roots (9.12). The bridge rejects all other folders.
 2. The permission level of each agent comes only from the bridge config. A message from the game cannot raise it.
 3. A permanent "always allow" rule from the game follows 6.6.5.
 4. The bridge limits the message rate: at most 10 messages per minute (a planned config key, `max_messages_per_minute`, 12).
@@ -222,7 +222,7 @@ There are four answers, in this order from strict to open:
 - `gnomish-relay approve` lists the open requests. `gnomish-relay approve <id>` allows one, and `gnomish-relay deny <id>` refuses one. Each writes an answer file next to the request, with `create_new`, so it never follows a link. A request has at most one answer.
 - The bridge checks for the answer every 100 ms, up to `permission_timeout_minutes`. No answer refuses the call. The bridge then deletes the files. At start it deletes the files of an old bridge.
 - **The game gets a notice, not a popup** (decided with a UX advisor on 2026-09-26). The game sends no request for a desktop call, and has no Deny for it. The desktop dialog is the only prompt, so the player never sees two prompts for one call.
-  - The bridge writes one progress line of its own for the last desktop request of the run: `Desktop: <state> <id> <how>`, and ` raise <level>` for a raise (9.3). `<state>` is `wait`, `approved`, `denied`, or `none` (no answer). `<id>` is the 12 hex digits of the request. `<how>` is `dialog`, or `command` when `desktop.rs` finds no dialog tool.
+  - The bridge writes one progress line of its own for the last desktop request of the run: `Desktop: <state> <id> <how>`, and ` raise <level>` for a raise (9.3), or ` folder` for a new folder (9.12). `<state>` is `wait`, `approved`, `denied`, or `none` (no answer). `<id>` is the 12 hex digits of the request. `<how>` is `dialog`, or `command` when `desktop.rs` finds no dialog tool.
   - The line comes right after the level line (9.3, "The level in the game"), so S9 and S20 do not change, and `Activity` keeps at most 5 lines. `Activity::step` puts "agent: " in front of an agent line that starts with "Desktop:", as for "Level:". The id comes from the bridge, so no agent text is in the line.
   - The addon takes the line only at its place, and only with a known state, a 12-digit id, and a known `<how>`. The Activity row then shows "Approve on your desktop", "Approved on your desktop", "Denied on your desktop", or "No answer on your desktop".
   - At a new `wait`, the game prints one whisper line with the whisper sound: `[Claude] whispers: [chat] Approve on your desktop.`, or `Approve on your desktop: run gnomish-relay approve <id>` with `command`. The addon keeps the ids of the last 16 requests that got a line in its saved variables, so a `/reload` does not print it again.
@@ -1714,11 +1714,11 @@ The script builds `timeways-story` and `timeways-pack` into `target/timeways`, s
 
 ### 9.9 Choose the folder of a chat
 
-A new chat starts in `default_cwd`, and the folder browser opens at once. The default folder often holds all the projects, and an agent there works on the wrong one, so the player picks the folder first. Escape keeps `default_cwd`. The folder in the chat header is a button. A click opens the folder browser in the center of the window (13.1). The browser shows a tree of the folders inside `allowed_roots`.
+A new chat starts in `default_cwd`, and the folder browser opens at once. The default folder often holds all the projects, and an agent there works on the wrong one, so the player picks the folder first. Escape keeps `default_cwd`. The folder in the chat header is a button. A click opens the folder browser in the center of the window (13.1). The browser shows a tree of the folders inside `allowed_roots` and of the home folder (9.12).
 
 **The request.** Each time the browser opens, the addon sends a `list=folders` record of the chat `folders`. The browser shows the last tree at once, and a small spinner turns until the new tree comes. The bridge walks the roots in a thread, off the main loop (`folder_walk.rs`), and answers with the tree (`folder_list.rs`).
 
-**The reply.** The first line is `default_cwd` as the player reads it. Then comes one line per folder, breadth first:
+**The reply.** The first line is `default_cwd` as the player reads it. Then comes one line per folder, each line after the line of its parent:
 
 ```
 parent \t name \t mark
@@ -1739,19 +1739,21 @@ parent \t name \t mark
 - The walk goes into a repository, so the browser can show its subfolders.
 - It never follows a symbolic link or a Windows junction. Two roots that overlap give each folder once. A root stays a root.
 - It skips hidden folders (a name that starts with `.`) and `node_modules`, `target`, `build`, `dist`, `vendor`, `venv`, `__pycache__`, `Library`, and `AppData`.
+- **The home folder** (9.12). After the roots, a second walk goes through the home folder with the same rules: at most 3 levels below it, at most 1000 folders, and 1 second. It never goes into a root, because the first walk has it. It asks the classifier with the home folder as the only root, so only a folder that the classifier reads with no question shows, as in the first walk. It always goes down to each root inside the home folder, also below 3 levels, so each such root hangs in the tree of the home folder. A root outside the home folder stays a root of its own. With no home folder, only the roots show.
+- The order of the reply: the home folder, then the folders on the way down to each root, then the folders of the roots breadth first, then the other folders of the home folder breadth first. So the size cut takes the folders of the home folder first, and the projects of the roots stay.
 - It reads at most 3000 folders, and stops after 2 seconds. A stop at one of these two limits cuts the tree. The depth limit does not.
 - A repository is a folder with a `.git` entry: a folder, or a file as in a worktree. The walk never reads the `gitdir:` line of such a file, because it can lead out of the roots.
 - The walk asks the classifier (6.6.3) for a read of each folder, with the folder as the chat folder. Only a folder with the answer `allow` shows, and a folder that does not show hides its subfolders. So the config folder and the data folder of the bridge (`deny`) and credential folders such as `snap/firefox` (`desktop`) never show. This is a filter of the tree, not a wall: the classifier still checks every tool call in the chat.
 - A folder that the game cannot send back is left out with its subfolders: a relative path with a control character, a path that is not UTF-8 or longer than 255 bytes, a name that fails the name rules below, or a `:` on Windows (7.1.1).
 - The walk never fails. A folder that it cannot read is left out.
 
-**The size cut.** The reply is one record, at most 32 KB after the Lua escape (S12). A tab, a newline, and a byte that is not printable ASCII cost 4 bytes there. The bridge keeps the longest breadth-first start of the tree that fits, and adds the `+` line. So the shallow folders always come.
+**The size cut.** The reply is one record, at most 32 KB after the Lua escape (S12). A tab, a newline, and a byte that is not printable ASCII cost 4 bytes there. The bridge keeps the longest start of the reply that fits, and adds the `+` line. So the shallow folders of the roots always come.
 
 **The browser.**
 
 - A filter box at the top has the focus when the browser opens. It has no hint text. It matches the folders of the tree, as the game sends them back, by subsequence and without case. Repositories come first, then the shorter paths, at most 16 rows. Each row shows the name, a `git` mark for a repository, and the parent folder in grey at the right. Up and Down move the choice. Enter picks it. Escape clears the focus and closes the browser, so the keys of the game work again. A typed text is only a filter, never a path.
 - With an empty filter, the browser shows at most 5 recent folders: the folders of the newest chats, then the folders of the Resume list (9.6). They need no request. A folder that the last tree does not have is gone, and it does not show. One click on a recent folder sets it.
-- Below them is a gold breadcrumb, for example `Code › Personal › gnomish-relay`. A click on a part goes up to it. The first part is the root, so the player cannot go above the roots. With more than one root, the first part is "All folders", and it lists the roots.
+- Below them is a gold breadcrumb, for example `Code › Personal › gnomish-relay`. A click on a part goes up to it. The first part is the top of the tree: the home folder (`~`), or a root outside it. The player cannot go above it. With more than one top, the first part is "All folders", and it lists them.
 - Then come the subfolders of the current folder. A click opens one. The folder of the chat is green. **Open** sets the current folder.
 - The last row is "New folder". It opens an edit box in its place. The addon checks the name: it is not empty, `.`, or `..`, it has no `/`, `\`, or control character, it is at most 255 bytes, and no subfolder there has the name (without case). A refused name shows a short reason in red. Enter sets `<current folder>/<name>` as the folder of the chat, and the header marks it "new".
 - The browser opens at the folder of the chat, or at the default folder when the tree does not have it.
@@ -1924,6 +1926,63 @@ The bridge adds its own blocks to a reply (7.3.1): the branch of the chat folder
 6. **The files of the summary, not all files, for Commit.** See Commit.
 7. **The message of the player, not of the agent.** See Commit.
 8. **Revert refuses rather than merges.** A three-way merge of a revert with later changes can lose work of the user. A refusal loses nothing.
+
+### 9.12 Trust a folder on first use
+
+The user asked for this on 2026-09-30, after a test of a fresh install: "nobody types folder paths in a terminal". So setup asks no folder question (11.3). It trusts the folders of code projects that it finds. The player adds another folder in the game, and one click on the desktop allows it. The code is in `folder_trust.rs` (the rules of a new folder), `trust.rs` (the desktop request), `config_edit.rs` (the new root), and `roots.rs` (the roots that the parts of the running bridge share).
+
+**A new folder.** A folder from the game that is under no root is a new folder when all of these hold:
+
+1. It is inside the home folder, and it is not the home folder. A folder above the home folder is outside it.
+2. No part below the home folder is a name that the walk skips (9.9): a hidden name (it starts with `.`), `node_modules`, `Library`, `AppData`, and the others.
+3. The classifier reads it with no question, with the home folder as the only root, as in the walk (9.9). So a `deny` folder (the config and data folders of the bridge) and a `desktop` path (`.ssh`, a browser profile, `snap/firefox`) is never a new folder.
+4. It does not hold the config folder or the data folder of the bridge.
+
+The relay checks rules 1 and 2 on the text when the message comes (6.2, rule 1). When the run starts, the bridge checks all four on the real path, after `canonicalize` (6.2, rule 10), so a link cannot lead out. For a folder that the message makes (`mkdir=1`, 9.9), the real path is the real parent and the new name. Any other folder ends the message with a reply, and no dialog shows:
+
+- The home folder: "Agents can't work in your whole home folder. Pick a project folder inside it."
+- Outside the home folder: "That folder is outside your home folder. Pick a folder inside it."
+- Rule 2: "Agents can't work in hidden or system folders. Pick another folder."
+- Rules 3 and 4: "Agents can't work in that folder: it holds private files. Pick another folder."
+
+**The request.** The run of a new folder waits before the agent starts. The request is a desktop request of 6.6.3, of its own kind `folder`. So it has the same dialog, the same `gnomish-relay approve` fallback, the same 0600 request file, and the first answer wins.
+
+- The text is fixed text of the bridge and the real path, never text from the game: "Let agents from WoW work in ~/Documents/Code/lighthouse? They can read and change files in this folder." The path starts with `~/`. Each character that is not a letter, a digit, or printable ASCII shows as `<U+XXXX>`, so a bidi or zero-width character cannot hide a part.
+- The buttons are **Approve** and **Deny**, as in every desktop dialog, and `gnomish-relay approve` is the fallback. Deny is the default. The coordinator asked for Allow. The UI copy rules of `CLAUDE.md` keep Approve for the desktop and Allow for the buttons in the game, so one word names one thing.
+- The game shows the notice of 6.6.3 with ` folder`. The row says "Approve this folder on your desktop". The whisper line is "Approve this folder on your desktop.", or "Approve this folder on your desktop: run gnomish-relay approve <id>" with `command`.
+- The run timeout stops during the wait, as for any question.
+
+**Approve.** When the message makes the folder, the bridge makes it first, because config load needs each root to exist. Then it reads `config.toml` again with the checks of config load. It adds the folder itself to `allowed_roots`, never its parent: the player picked this folder, and a parent gives the agents its other folders too.
+
+- It changes only the one line `allowed_roots = [...]` before the first table, and keeps the comments and every other line. When the config has no `default_cwd` and no root yet, it also adds `default_cwd = "~"`. So the base of the folders of the game (9.9) stays the same after a restart.
+- It then parses the new text: it must load, the roots must be the old roots and the new folder, and every other value must be the same. Else it writes nothing. It writes the file with an atomic rename and mode 0600.
+- The bridge checks the edit before it shows the dialog, so the user never approves a change that it cannot write. It refuses a config with no single `allowed_roots` line, or with the list on more than one line. The message then ends with "Couldn't add the folder: config.toml can't change. See bridge.log.", and a log line says what to fix.
+- Then the running bridge adds the root to the relay, the folder walk, the gate of every agent, and the settings list. So the Settings and Diag tabs show it. The run goes on at once, with the folder check of 6.2 rule 10 as for every run.
+
+**No Approve.**
+
+- Deny or a closed dialog: the message ends with "Denied on your desktop. Agents can't work in this folder. Pick another folder." The bridge then refuses this folder with no dialog until it starts again.
+- No answer: the message ends with "No answer on your desktop. Send the message again in 10 minutes to ask again."
+- Stop and a new message end it as "Stopped." (9.3).
+
+**Limits**, as for a raise (9.3):
+
+- At most one folder request waits at a time. A second new folder meanwhile ends with "Another folder waits for your answer on your desktop. Answer it, then send this again." So a flood of messages gives one dialog.
+- Every answer that is not Approve starts 10 quiet minutes with no folder dialog. A new folder then ends with "No new folders for 10 minutes after one wasn't approved. Pick a folder that agents can already use." A hostile addon that sends messages gets at most one dialog in 10 minutes, and a Deny ends its folder until the bridge starts again.
+- A message for a new folder never raises the level in the same run. It runs at the level of the config, so one message never shows two dialogs.
+
+**What the game can do.** Only a click on the desktop, or `gnomish-relay approve`, adds a root. No message from the game writes `config.toml`, and S6 does not change. The home folder, a folder above it, a hidden folder, and a `deny` or `desktop` path never become a root, also with a click: the bridge refuses them before the dialog.
+
+**Checked against the threat model** (6.1). A hostile addon can already send any message. Now it can also ask the user, in a dialog of the OS, to allow one folder. It cannot click the dialog. The dialog names the real folder and what Approve gives, and it comes at most once in 10 minutes. A root widens only two things: the reads of the gate (6.6.2), and the folders that a chat can use. The classifier, the sandbox, and the ceiling still bound each run in the new root. The browser now lists folders of the home folder outside the roots. It shows only names, never files, and the classifier filter keeps the credential folders out of it. The proved parts (S5, S16, S17) do not change: the relay calls the same resolver with the home folder as the root for rule 1.
+
+**Decisions** (the coordinator and the implementer, 2026-09-30):
+
+1. **The folder itself, not its parent.** The dialog then says exactly what it gives.
+2. **The home folder is never a root.** It holds `~/.ssh`, the browser profiles, and the keys of the bridge. The classifier guards them, but a root is also the read area of the gate and the wide scope of "Always allow" rules (6.6.5).
+3. **The check of the text comes first.** A message for a hidden folder or a folder outside the home folder gets its reply at once, with no run.
+4. **No new mark in the tree.** An older addon drops a line with an unknown mark, and all the folders below it. So the tree does not mark the folders that need a click, and the bridge refuses the home folder with a clear reply.
+5. **`default_cwd = "~"` with the first root.** With no roots, the base is the home folder. With a root and no `default_cwd`, config load takes the first root as the base. Every folder of the game is relative to the base, so a new base would move the folders of the saved chats.
+6. **No raise in the same run.** Two dialogs for one message is too much. The raise comes with the next message.
 
 ## 10. Notifications from terminal sessions
 
@@ -2178,12 +2237,12 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
    - With a version out of range, setup says "Update Gnomish Relay in the CurseForge app, then restart WoW.", or "Update the desktop app: run gnomish-relay update." for a newer addon.
    With a Timeways key, setup writes the key addon `Timeways_Key` from `timeways.key`, also before the Timeways folder exists. It never makes the Timeways folder, and writes no file in it but the old `Key.lua` of 7.3.2.
 4. **Write the config**, once. With the relay on, it has an `[agents.<name>]` entry for each known agent on `PATH`: `claude` (as `kind = "claude"`), `codex` (as `kind = "codex"`), and the ACP agents of 9.2. The default agent is the first one it finds, in the order of `KNOWN_AGENTS` in `install.rs`. With none, it is `echo`. Each entry gets `permission = "auto-edit"`. For each harness with no ACP mode on `PATH` (aider and `llm`), setup asks "Found aider. Add it as an agent? It runs its own commands without asking, inside the sandbox. (y/N)", and adds a `kind = "command"` entry with its preset only on a yes. With no terminal, the answer is no. A harness that has an ACP mode (gemini, goose, opencode) gets its ACP entry, which asks about its tool calls. A local model that answers on the loopback (Ollama on 11434, LM Studio on 1234) puts its port into `[sandbox] local_ports`, so an agent that uses it reaches it from its wall (6.6.4).
-   - Why `auto-edit` (decided with an advisor on 2026-09-26): the config is the ceiling of every chat (S6), and the addon asks for `auto-edit`. With `ask` in the config, the player got a game popup for each edit and could not change that from the game. At `auto-edit`, edits inside the chat folder run, and each command still asks in the game unless the allow table covers it. The `desktop` and `deny` answers do not change. Every kind gets the same level, so the rule is simple. An ACP agent at `auto-edit` also edits the chat folder with no popup when it asks. `echo` has no tools. The config also gets a commented example of the allow table (12): setup allows no command. With a Timeways folder, the config gets a `[story]` section with the model that setup finds (9.7, decision 15). With the relay off, the config has no relay part, and setup asks no folder question.
+   - Why `auto-edit` (decided with an advisor on 2026-09-26): the config is the ceiling of every chat (S6), and the addon asks for `auto-edit`. With `ask` in the config, the player got a game popup for each edit and could not change that from the game. At `auto-edit`, edits inside the chat folder run, and each command still asks in the game unless the allow table covers it. The `desktop` and `deny` answers do not change. Every kind gets the same level, so the rule is simple. An ACP agent at `auto-edit` also edits the chat folder with no popup when it asks. `echo` has no tools. The config also gets a commented example of the allow table (12): setup allows no command. With a Timeways folder, the config gets a `[story]` section with the model that setup finds (9.7, decision 15). With the relay off, the config has no relay part. Setup asks no folder question (9.12): `allowed_roots` holds the folders of code projects that setup finds, or is empty.
 5. **Make the slot addons**: `GnomishRelay_S0001` to `S1000` with the relay on, and `Timeways_S0001` to `S1000` (with `## Dependencies: Timeways`) with a Timeways folder. WoW finds a new addon only at launch, so after new slots the game needs a restart. Setup says so.
 6. **Start the bridge at login**, with `--autostart`. A service starts with almost no `PATH`, so the service file gets the `PATH` of the shell of setup. On Linux the unit also gets `XDG_CONFIG_HOME` and `XDG_DATA_HOME` of the shell when they are set, so the service, the hook, `status`, and `restart` use the same config and data folders. `restart` writes it again with the `PATH` of its shell, so an agent installed later in a new folder is found after a restart. `check-agent` and `status` say when the program of an agent is not on the `PATH` of the service: "<program> is not on the PATH of the login service. Run: gnomish-relay restart". The config keeps the bare program name, not its absolute path: a version manager such as nvm or volta moves the path at each upgrade, and a script agent such as `claude` under npm still needs its interpreter on the `PATH` of the service. The service: a systemd user service on Linux in `~/.config/systemd/user`, where the user manager reads it also when a shell rc file sets `XDG_CONFIG_HOME`, a launchd agent on macOS (log in `~/Library/Logs/gnomish-relay.log`), and a `Run` entry of the user on Windows, which needs no admin rights. On Windows, `run --background` starts the bridge with no console window, with its log in the data folder. Under WSL2, a `Run` entry of Windows starts the desktop app in the distro and keeps the distro alive (11.5).
 
 The order is key, key addon, slots, config, then autostart: the key addon and the slots need nothing else. A failed autostart prints one line, and setup goes on.
-With no code folder found, the folder question has no default: the home folder holds `~/.ssh` and the browser profiles.
+With the relay on, one line says where agents work: "Agents can work in ~/Documents/Code. To add another folder, pick it in the game.", or with no root "Pick a project folder in the game to get started."
 The last lines say what setup found and the next action, for example "Agent: claude (Claude Code 2.1.3)", the sandbox ("Sandbox: bwrap", or "Sandbox: none. Install bubblewrap so allowed commands can run without asking", or a line about AppArmor when `bwrap` is there and fails its probe, 11.1), "Permissions: auto-edit. It edits files in the chat folder without asking, and asks in the game before each command. To change it, edit permission in <config file>", "Story model: claude (haiku)", and "All set. Restart WoW, then type /relay". With the relay addon missing or out of range, the line of step 3 takes the place of the "All set" line, and comes last. With Timeways on and no Timeways folder, "Get the Timeways addon on CurseForge, then restart WoW." also takes the place of the "All set" line, and comes last. The level line shows the level of the default agent in the config, also for a config that setup did not write. With the relay off, setup says "Coding agents: off. To turn them on, run gnomish-relay setup --relay" and "All set. Restart WoW to load the addon". `gnomish-relay install` makes the slots of each app that is on.
 
 **Keeping it working.**
@@ -2209,7 +2268,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 
 - A version tag (`v*`) starts `.github/workflows/release.yml`. It builds the program for Linux (x86-64), macOS (Arm and x86-64), and Windows (x86-64), and attaches each archive with its SHA-256 sum to a GitHub Release. The release stays a draft until every build is attached. Before the draft, the workflow runs fmt, clippy, and the tests on the three OSes, and checks that the tag, the `Cargo.toml` version, and the TOC version match.
 - `scripts/install.sh` (Linux and macOS) and `scripts/install.ps1` (Windows) download the archive of the latest release, check its SHA-256 sum, install the program, and run `setup --autostart`. Setup is their last step. So when the relay addon is missing, the CurseForge line of step 3 is also the last line of the installer. Setup asks its questions on the terminal, also under `curl | sh`.
-- Setup asks which folders the agents can use. It suggests the usual folders of code projects that hold a git repository, or the home folder. `--roots a,b` gives them with no question.
+- Setup asks no folder question. It trusts the usual folders of code projects that hold a git repository (`suggest_roots` in `install.rs`), never the home folder. With none, `allowed_roots` is empty, and the player picks the first folder in the game (9.12). `--roots a,b` gives the roots instead, for scripts.
 - Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so. After the player installs an agent, a second setup adds its entry (12).
 - Later: winget, Homebrew, and the AUR point at the release.
 - Players get the addon only from CurseForge, and the desktop app never installs it. The listing points to the desktop app: the addon alone does nothing, because each computer needs its own key (7.3.2).
@@ -2282,7 +2341,7 @@ Native Windows has no sandbox for the commands of Claude (6.6.4, "Windows"). So 
 - `symlink_metadata` shows a Windows link or a junction as a link, so the link checks of 6.2 rule 7 hold on drvfs.
 - The atomic rename works on drvfs: WSL replaces the target in one step. WoW reads an addon file only when it loads it, so the rename seldom meets an open file.
 
-**Chat folders.** `allowed_roots` are Linux paths, and the folder list of the game shows Linux paths. A project in the Linux home is fast, so setup suggests the folders there. A project under `/mnt/c` works, but git, builds, and the walk of the chat folder (6.6.4) are many times slower on drvfs.
+**Chat folders.** `allowed_roots` are Linux paths, and the folder list of the game shows Linux paths. A project in the Linux home is fast, so setup looks for the folders there, and the browser shows the Linux home (9.12). A project under `/mnt/c` works, but git, builds, and the walk of the chat folder (6.6.4) are many times slower on drvfs.
 
 **`PATH`.** WSL adds the Windows `PATH` to the Linux `PATH`. There, a Windows `claude` from npm runs Windows Node, outside every wall. So under WSL, setup and the start file drop each `PATH` entry under `/mnt/`, and an agent must be a Linux install. The bridge finds `powershell.exe` and `cmd.exe` in `Windows/System32` of the first drive that has them.
 
@@ -2499,7 +2558,7 @@ ci_checks = true   # show the CI checks of the pull request of a chat branch, th
 
 The other keys below come with their features. One key is planned and not in the config yet: `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses it, so the example leaves it out. A test loads this example, so the example and the loader never differ.
 `max_parallel_runs` is 1 to 16 (8.2). `daily_cost_cap_usd` is a number of US dollars above 0 and at most 10000 (9.10). With no key, there is no cap.
-Each root and `default_cwd` must exist. The bridge resolves links in them at start. `default_cwd` must be inside a root.
+Each root and `default_cwd` must exist. The bridge resolves links in them at start. `default_cwd` must be inside a root, or be the home folder. With no `default_cwd`, it is the first root, or the home folder when `allowed_roots` is empty. An empty `allowed_roots` still turns the relay on: every folder then needs a click on the desktop. A click on the desktop adds a root to this list (9.12).
 
 ```toml
 default_cwd = "~/Documents/Code"
