@@ -1787,7 +1787,7 @@ notices = {busy = 1, open = 2, list = {
 - If the file does not parse, or `hooks` or one of its events has another type, it changes nothing and names the key.
 - It follows a link to the real file (for a dotfiles folder), and writes the real file with an atomic rename in its folder. The temp file has mode 0600 from its first byte and never follows a link at its name, because the settings can hold an API key. The new file gets the mode of the old one, and a file that did not exist gets mode 0600.
 - Before its first change, it copies the file to `settings.json.gnomish-relay.bak`, mode 0600. It never writes over an existing backup, so the backup is the file from before the first install.
-- `remove` takes out only its own groups, and an event with no group left. Install and then remove give the same JSON value as before.
+- `remove` takes out only its own groups, and an event with no group left. Install and then remove give the same JSON value as before, with two exceptions. An empty list of one of our events goes, and so does an empty `hooks`: remove cannot tell a list that the user left empty from one that it emptied, and for both agents an empty list and a missing key mean the same.
 
 **Codex** (`~/.codex/hooks.json`, or `$CODEX_HOME/hooks.json`, and `config.toml` in the same folder):
 

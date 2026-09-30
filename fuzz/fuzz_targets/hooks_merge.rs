@@ -1,6 +1,8 @@
 //! Any `settings.json` text (SPEC.md 10.7): the merge never panics. It refuses and changes
 //! nothing, or its result holds every key and hook of the input, and each group of ours
-//! once. A remove then takes out every group of ours.
+//! once. A remove then takes out every group of ours. For an input with no group of
+//! ours, install then remove gives the input back, but an empty list of one of our
+//! events and an empty `hooks` go.
 #![no_main]
 
 use std::path::Path;
@@ -22,6 +24,29 @@ fn user_groups(root: &Value, event: &str, source: Source) -> Vec<Value> {
         .filter(|g| !is_our_group(g, source))
         .cloned()
         .collect()
+}
+
+/// The input as install then remove gives it back.
+fn without_empty_lists_of_our_events(root: &Value, source: Source) -> Value {
+    let mut out = root.clone();
+    let Some(hooks) = out.get_mut("hooks").and_then(Value::as_object_mut) else {
+        return out;
+    };
+    for hook in our_hooks(source) {
+        if hooks
+            .get(hook.event)
+            .and_then(Value::as_array)
+            .is_some_and(Vec::is_empty)
+        {
+            hooks.shift_remove(hook.event);
+        }
+    }
+    if hooks.is_empty() {
+        out.as_object_mut()
+            .expect("it has hooks")
+            .shift_remove("hooks");
+    }
+    out
 }
 
 fn check(root: &Value, source: Source) {
@@ -50,6 +75,9 @@ fn check(root: &Value, source: Source) {
     }
     let removed = remove(merged, source).expect("our own result always removes");
     assert!(our_programs(&removed, source).is_empty());
+    if our_programs(root, source).is_empty() {
+        assert_eq!(removed, without_empty_lists_of_our_events(root, source));
+    }
 }
 
 fuzz_target!(|data: &[u8]| {
