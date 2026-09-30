@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use protocol::apps::App;
 
 use crate::config::{self, Config};
+use crate::config_edit;
 use crate::config_story;
 use crate::config_text::{self, RelayPart};
 use crate::fs_safe::{make_private_dir, write_private};
@@ -114,6 +115,27 @@ pub struct Changed {
     pub new_slots: bool,
 }
 
+/// The keys in hex. `timeways` is `None` with Timeways off.
+pub struct Keys {
+    pub relay: String,
+    pub timeways: Option<String>,
+}
+
+/// The keys of each app that this computer has. They need no game, so setup makes them
+/// also before WoW is there.
+pub fn make_keys(dir: &Path, timeways: Timeways, keys: KeyChoice) -> Result<Keys> {
+    make_private_dir(dir)?;
+    // `KeySet` needs the relay key, so every player gets it. With no addon, it does nothing.
+    let relay = key(dir, RELAY_KEY_FILE, keys, None)?;
+    let timeways = match timeways {
+        Timeways::On => Some(key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay))?),
+        Timeways::Off => None,
+    };
+    // Equal keys stop setup here, as they stop the bridge.
+    KeySet::load(dir)?;
+    Ok(Keys { relay, timeways })
+}
+
 /// The keys, the key addons, and the slots of each app that this computer has. They
 /// need nothing else, so they come before the config (SPEC.md 11.3).
 pub fn install_files(
@@ -122,28 +144,22 @@ pub fn install_files(
     timeways: Timeways,
     keys: KeyChoice,
 ) -> Result<Changed> {
-    let dir = &folders.config;
-    make_private_dir(dir)?;
-    // `KeySet` needs the relay key, so every player gets it. With no addon, it does nothing.
-    let relay_hex = key(dir, RELAY_KEY_FILE, keys, None)?;
+    let hex = make_keys(&folders.config, timeways, keys)?;
     let mut new_slots = false;
     let relay_key = match relay {
         Relay::On => {
             new_slots |= install_slots(&folders.addons, App::Relay)?;
-            Some(install::write_relay_keys(&folders.addons, &relay_hex)?)
+            Some(install::write_relay_keys(&folders.addons, &hex.relay)?)
         }
         Relay::Off => None,
     };
-    let timeways_key = match timeways {
-        Timeways::On => {
-            let hex = key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay_hex))?;
+    let timeways_key = match &hex.timeways {
+        Some(timeways_hex) => {
             new_slots |= install_slots(&folders.addons, App::Timeways)?;
-            Some(install::write_timeways_keys(&folders.addons, &hex)?)
+            Some(install::write_timeways_keys(&folders.addons, timeways_hex)?)
         }
-        Timeways::Off => None,
+        None => None,
     };
-    // Equal keys stop setup here, as they stop the bridge.
-    KeySet::load(dir)?;
     Ok(Changed {
         relay_key,
         timeways_key,
@@ -185,7 +201,8 @@ pub fn repair_timeways_key(config_dir: &Path, addons: &Path) -> Result<Option<In
 
 /// The parts that the config gets. Each one is `Some` only when the config lacks it.
 pub struct ConfigParts<'a> {
-    pub wow: &'a Path,
+    /// The game folder, when the config has none or another one.
+    pub wow: Option<&'a Path>,
     pub relay: Option<RelayPart<'a>>,
     /// Agents on `PATH` that a config with the relay lacks (`new_agents`).
     pub new_agents: &'a [config::Found<'a>],
@@ -208,26 +225,16 @@ pub fn new_agents<'a>(
         .collect()
 }
 
-/// The new text of the config, or `None` when it needs no change. Setup never changes a
-/// key that exists: it writes a first config, or adds a missing part.
-pub fn config_text(existing: Option<&str>, parts: &ConfigParts) -> Option<String> {
+/// The new text of the config, or `None` when it needs no change. Setup changes no key
+/// that exists but the game folder: it writes a first config, or adds a missing part.
+pub fn config_text(existing: Option<&str>, parts: &ConfigParts) -> Result<Option<String>> {
     let Some(existing) = existing else {
-        let text = match (&parts.relay, parts.story) {
-            (Some(relay), story) => {
-                let text = config_text::relay_config(parts.wow, relay);
-                match story {
-                    Some(models) => config_text::with_story(&text, models),
-                    None => text,
-                }
-            }
-            (None, story) => config_text::timeways_config(parts.wow, story.unwrap_or(&[])),
-        };
-        return Some(text);
+        return Ok(Some(first_config(parts)));
     };
-    if parts.relay.is_none() && parts.new_agents.is_empty() && parts.story.is_none() {
-        return None;
-    }
     let mut text = existing.to_owned();
+    if let Some(wow) = parts.wow {
+        text = config_edit::with_wow_path(&text, wow)?;
+    }
     if let Some(relay) = &parts.relay {
         text = config_text::with_relay(&text, relay);
     }
@@ -237,7 +244,18 @@ pub fn config_text(existing: Option<&str>, parts: &ConfigParts) -> Option<String
     if let Some(models) = parts.story {
         text = config_text::with_story(&text, models);
     }
-    Some(text)
+    Ok((text != existing).then_some(text))
+}
+
+fn first_config(parts: &ConfigParts) -> String {
+    let Some(relay) = &parts.relay else {
+        return config_text::timeways_config(parts.wow, parts.story.unwrap_or(&[]));
+    };
+    let text = config_text::relay_config(parts.wow, relay);
+    match parts.story {
+        Some(models) => config_text::with_story(&text, models),
+        None => text,
+    }
 }
 
 /// Checks a new text before it replaces the config, so setup never leaves a config that
@@ -327,12 +345,12 @@ mod tests {
     #[test]
     fn a_first_config_with_no_relay_is_the_timeways_config() {
         let parts = ConfigParts {
-            wow: Path::new("/wow"),
+            wow: Some(Path::new("/wow")),
             relay: None,
             new_agents: &[],
             story: Some(&[]),
         };
-        let text = config_text(None, &parts).unwrap();
+        let text = config_text(None, &parts).unwrap().unwrap();
         assert!(text.starts_with("[wow]\n"), "{text}");
         assert!(text.contains("\n[story]\n"), "{text}");
         assert!(!text.contains("allowed_roots"), "{text}");
@@ -341,12 +359,30 @@ mod tests {
     #[test]
     fn an_existing_config_that_lacks_nothing_stays_as_it_is() {
         let parts = ConfigParts {
-            wow: Path::new("/wow"),
+            wow: None,
             relay: None,
             new_agents: &[],
             story: None,
         };
-        assert_eq!(config_text(Some("anything"), &parts), None);
+        assert_eq!(config_text(Some("anything"), &parts).unwrap(), None);
+    }
+
+    #[test]
+    fn an_existing_config_gets_the_new_game_folder_and_keeps_the_rest() {
+        let parts = ConfigParts {
+            wow: Some(Path::new("/games/wow")),
+            relay: None,
+            new_agents: &[],
+            story: None,
+        };
+        let old = "# mine\n[wow]\npath = \"/old/wow\"\n[story]\nmodel = \"claude\"\n";
+
+        let text = config_text(Some(old), &parts).unwrap().unwrap();
+
+        assert_eq!(
+            text,
+            "# mine\n[wow]\npath = \"/games/wow\"\n[story]\nmodel = \"claude\"\n"
+        );
     }
 
     fn level_line_of(permission: &str) -> String {

@@ -114,7 +114,7 @@ impl Computer {
             home,
         };
         fs::create_dir_all(&dirs.data).unwrap();
-        let text = timeways_config(&dirs.home.join("wow"), &[]);
+        let text = timeways_config(Some(&dirs.home.join("wow")), &[]);
         write_config(&dirs.config, &text, &dirs.home).unwrap();
         fs::create_dir(root.path().join("dump")).unwrap();
         Computer { root, dirs }

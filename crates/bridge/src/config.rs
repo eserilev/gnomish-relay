@@ -17,6 +17,7 @@ use crate::allow_hosts::{Defaults, HostList, check_host_name};
 use crate::ci_checks::CiChecks;
 use crate::claude;
 use crate::folder_path::path_bytes;
+use crate::game_choice::NO_WOW;
 use crate::model::{ModelChoice, ModelSpec};
 use crate::model_local::{self, LocalModel};
 use crate::relay::Folders;
@@ -102,8 +103,9 @@ pub struct Policy {
 }
 
 pub struct Config {
-    /// The game folder that holds `Interface`, `Screenshots`, and `WTF`.
-    pub wow: PathBuf,
+    /// The game folder that holds `Interface`, `Screenshots`, and `WTF`. `None` when
+    /// setup found no game: the next setup adds it (SPEC.md 11.3).
+    pub wow: Option<PathBuf>,
     /// A player with only Timeways has no relay part (SPEC.md 9.7, decision 15).
     pub relay: Option<RelayConfig>,
     /// With no `[story]`, Timeways answers each message with a fixed error.
@@ -111,6 +113,10 @@ pub struct Config {
 }
 
 impl Config {
+    pub fn game(&self) -> Result<&Path> {
+        self.wow.as_deref().context(NO_WOW)
+    }
+
     pub fn require_relay(&self) -> Result<&RelayConfig> {
         self.relay
             .as_ref()
@@ -215,7 +221,7 @@ struct File {
     permission_timeout_minutes: Option<u64>,
     max_parallel_runs: Option<usize>,
     daily_cost_cap_usd: Option<f64>,
-    wow: Wow,
+    wow: Option<Wow>,
     agents: Option<BTreeMap<String, Agent>>,
     allow: Option<AllowFile>,
     sandbox: Option<SandboxFile>,
@@ -626,7 +632,10 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
         .map(|s| s.agent_network)
         .unwrap_or_default();
     let story = story(file.story.as_ref(), network, home)?;
-    let wow = expand(&file.wow.path, home)?;
+    let wow = match &file.wow {
+        Some(wow) => Some(expand(&wow.path, home)?),
+        None => None,
+    };
     Ok(Config {
         wow,
         relay: relay(file, home)?,
@@ -786,15 +795,26 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
     parse(&text, home).with_context(|| format!("{} is not valid", path.display()))
 }
 
+/// No `config.toml`: setup stopped before it wrote it, or never ran.
+#[derive(Debug)]
+pub struct SetupUnfinished;
+
+impl std::fmt::Display for SetupUnfinished {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Setup didn't finish. Run gnomish-relay setup.")
+    }
+}
+
+impl std::error::Error for SetupUnfinished {}
+
 /// The text of `config.toml`, only from a plain file that no other user can write.
 pub fn read_text(dir: &Path) -> Result<String> {
     let path = dir.join(FILE);
-    let meta = fs::symlink_metadata(&path).with_context(|| {
-        format!(
-            "can't read {}. To create it, run gnomish-relay setup <wow folder>",
-            path.display()
-        )
-    })?;
+    let meta = match fs::symlink_metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!(SetupUnfinished),
+        Err(e) => return Err(e).with_context(|| format!("can't read {}", path.display())),
+    };
     if !meta.is_file() || meta.len() > MAX_FILE {
         bail!("{} is not a config file", path.display());
     }
@@ -896,7 +916,7 @@ mod tests {
             config.require_relay().unwrap().policy.agents["claude"],
             Permission::AutoEdit
         );
-        assert_eq!(config.wow, home.path().join("wow"));
+        assert_eq!(config.wow, Some(home.path().join("wow")));
     }
 
     #[test]

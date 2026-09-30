@@ -164,7 +164,7 @@ pub fn finish_line(relay_addons: Option<&Path>) -> &'static str {
 fn relay_addons(dirs: &Dirs) -> Option<PathBuf> {
     let config = config::load(&dirs.config, &dirs.home).ok()?;
     config.relay.as_ref()?;
-    Some(install::addons_dir(&config.wow))
+    Some(install::addons_dir(config.wow.as_deref()?))
 }
 
 /// The Timeways programs that setup installed, from the latest Timeways release

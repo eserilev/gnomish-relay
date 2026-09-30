@@ -109,7 +109,7 @@ impl Computer {
 }
 
 #[test]
-fn status_with_no_config_says_the_bridge_is_stopped_and_how_to_set_up() {
+fn status_with_no_config_says_the_bridge_is_stopped_and_setup_did_not_finish() {
     let computer = Computer::new();
 
     let lines = computer.status();
@@ -122,8 +122,7 @@ fn status_with_no_config_says_the_bridge_is_stopped_and_how_to_set_up() {
         lines[1],
         "Last message from WoW: none yet. Send one in the game to test"
     );
-    assert!(lines[2].starts_with("Config: has an error."), "{lines:?}");
-    assert!(lines[2].contains("gnomish-relay setup"), "{lines:?}");
+    assert_eq!(lines[2], "Setup didn't finish. Run gnomish-relay setup.");
     assert_eq!(lines.len(), 3);
 }
 

@@ -265,7 +265,7 @@ fn a_pull_that_stops_before_its_end_is_an_error() {
 /// A config folder with the `[story]` of a setup that found no model.
 fn config_with_no_model(home: &std::path::Path) -> PathBuf {
     let dir = home.join("config");
-    let text = timeways_config(&home.join("wow"), &[]);
+    let text = timeways_config(Some(&home.join("wow")), &[]);
     setup::write_config(&dir, &text, home).unwrap();
     dir
 }

@@ -82,7 +82,7 @@ impl Computer {
         let roots = ["~/Code".to_owned()];
         let wow = self.wow();
         let parts = ConfigParts {
-            wow: &wow,
+            wow: Some(&wow),
             relay: (relay == Relay::On).then_some(RelayPart {
                 agents: &agents,
                 harnesses: &[],
@@ -92,7 +92,7 @@ impl Computer {
             new_agents: &[],
             story,
         };
-        let text = setup::config_text(None, &parts).unwrap();
+        let text = setup::config_text(None, &parts).unwrap().unwrap();
         setup::write_config(&self.folders.config, &text, self.home()).unwrap()
     }
 }
@@ -379,15 +379,14 @@ fn a_relay_config_gets_a_story_section_once_timeways_is_installed() {
     let computer = Computer::new(&[]);
     computer.config(Relay::On, None);
     let old = fs::read_to_string(computer.folders.config.join("config.toml")).unwrap();
-    let wow = computer.wow();
     let parts = ConfigParts {
-        wow: &wow,
+        wow: None,
         relay: None,
         new_agents: &[],
         story: Some(&[FoundModel::Claude]),
     };
 
-    let text = setup::config_text(Some(&old), &parts).unwrap();
+    let text = setup::config_text(Some(&old), &parts).unwrap().unwrap();
     let config = setup::write_config(&computer.folders.config, &text, computer.home()).unwrap();
 
     assert!(text.starts_with(&old), "every old key stays");
@@ -439,22 +438,21 @@ fn a_second_setup_adds_a_new_agent_and_keeps_the_default() {
         roots: &roots,
         local_ports: &[],
     };
-    let old = bridge::config_text::relay_config(&computer.wow(), &first);
+    let old = bridge::config_text::relay_config(Some(&computer.wow()), &first);
     let config = setup::write_config(&computer.folders.config, &old, computer.home()).unwrap();
     let found = [
         ("claude", Kind::Claude, ["claude"].as_slice()),
         ("codex", Kind::Codex, ["codex"].as_slice()),
     ];
     let new = setup::new_agents(&found, Some(&config));
-    let wow = computer.wow();
     let parts = ConfigParts {
-        wow: &wow,
+        wow: None,
         relay: None,
         new_agents: &new,
         story: None,
     };
 
-    let text = setup::config_text(Some(&old), &parts).unwrap();
+    let text = setup::config_text(Some(&old), &parts).unwrap().unwrap();
     let config = setup::write_config(&computer.folders.config, &text, computer.home()).unwrap();
 
     assert!(text.starts_with(&old), "every old key stays");

@@ -43,6 +43,7 @@ pub mod folder_trust;
 pub mod folder_walk;
 pub mod forward;
 pub mod fs_safe;
+pub mod game_choice;
 pub mod gate;
 pub mod git_actions;
 pub mod git_blocks;

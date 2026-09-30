@@ -138,6 +138,48 @@ fn status_in_a_fresh_home_says_the_bridge_is_stopped() {
     );
 }
 
+/// A setup that stopped after the keys, as in a fresh-install test before 0.3.1.
+#[cfg(unix)]
+#[test]
+fn restart_and_run_with_only_the_keys_say_that_setup_did_not_finish() {
+    let home = tempfile::tempdir().unwrap();
+    let config_dir = home.path().join("config/gnomish-relay");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(config_dir.join("strip.key"), "ab".repeat(32)).unwrap();
+
+    let restart = in_home(home.path(), &["restart"]);
+    let run = in_home(home.path(), &["run"]);
+
+    for out in [restart, run] {
+        assert!(!out.status.success());
+        let error = stderr(&out);
+        assert!(
+            error.contains("Setup didn't finish. Run gnomish-relay setup."),
+            "{error}"
+        );
+        assert!(!error.contains("has an error"), "{error}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn restart_with_a_config_that_does_not_parse_keeps_the_error_with_its_line() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let config_dir = home.path().join("config/gnomish-relay");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    let file = config_dir.join("config.toml");
+    std::fs::write(&file, "allowed_rots = []\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    let out = in_home(home.path(), &["restart"]);
+
+    assert!(!out.status.success());
+    let error = stderr(&out);
+    assert!(error.contains("config.toml has an error"), "{error}");
+    assert!(error.contains("line 1"), "{error}");
+}
+
 /// Players get the Timeways addon from `CurseForge`, so `setup --timeways` can come first.
 /// No `curl` on the `PATH`, so nothing downloads.
 #[cfg(target_os = "linux")]
@@ -234,6 +276,211 @@ fn setup_with_no_code_folder_trusts_no_folder_and_says_to_pick_one_in_the_game()
     assert!(config.contains("allowed_roots = []\n"), "{config}");
     assert!(
         stdout.contains("\nPick a project folder in the game to get started.\n"),
+        "{stdout}"
+    );
+}
+
+/// Setup with the given arguments in a fresh home, with no agent and stdin closed.
+#[cfg(target_os = "linux")]
+fn setup_in(home: &std::path::Path, args: &[&str]) -> Output {
+    let empty = home.join("empty");
+    std::fs::create_dir_all(&empty).unwrap();
+    Command::new(env!("CARGO_BIN_EXE_gnomish-relay"))
+        .arg("setup")
+        .args(args)
+        .env_clear()
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("PATH", &empty)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap()
+}
+
+#[cfg(target_os = "linux")]
+fn config_of(home: &std::path::Path) -> String {
+    std::fs::read_to_string(home.join("config/gnomish-relay/config.toml")).unwrap_or_default()
+}
+
+/// A WoW install in a Wine prefix, last played `age` seconds ago.
+#[cfg(target_os = "linux")]
+fn game_played(prefix: &std::path::Path, age: u64) -> std::path::PathBuf {
+    let game = prefix.join("drive_c/Program Files (x86)/World of Warcraft/_classic_beta_");
+    std::fs::create_dir_all(game.join("WTF")).unwrap();
+    let saved = game.join("WTF/Config.wtf");
+    std::fs::write(&saved, "SET x 1\n").unwrap();
+    let time = std::time::SystemTime::now() - std::time::Duration::from_secs(age);
+    std::fs::File::options()
+        .write(true)
+        .open(&saved)
+        .unwrap()
+        .set_modified(time)
+        .unwrap();
+    game
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn with_two_installs_setup_takes_the_one_played_last_and_asks_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    game_played(&home.path().join(".wine"), 86_400);
+    let newer = game_played(&home.path().join("Games/battlenet"), 60);
+
+    let out = setup_in(home.path(), &[]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.starts_with(&format!(
+            "Using WoW at {}. To use another one, run gnomish-relay setup --wow <folder>.\n",
+            newer.display()
+        )),
+        "{stdout}"
+    );
+    let config = config_of(home.path());
+    assert!(
+        config.contains(&format!("path = \"{}\"", newer.display())),
+        "{config}"
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn the_wow_flag_overrides_the_install_played_last_and_changes_the_config() {
+    let home = tempfile::tempdir().unwrap();
+    let older = game_played(&home.path().join(".wine"), 86_400);
+    let newer = game_played(&home.path().join("Games/battlenet"), 60);
+    setup_in(home.path(), &[]);
+
+    let out = setup_in(home.path(), &["--wow", &older.to_string_lossy()]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.starts_with(&format!("WoW: {}\n", older.display())),
+        "{stdout}"
+    );
+    let config = config_of(home.path());
+    assert!(
+        config.contains(&format!("path = \"{}\"", older.display())),
+        "{config}"
+    );
+    assert!(!config.contains(&*newer.to_string_lossy()), "{config}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn with_no_wow_setup_finishes_the_rest_and_ends_with_what_to_do() {
+    let home = tempfile::tempdir().unwrap();
+
+    let out = setup_in(home.path(), &[]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.ends_with("\nWoW not found. Start WoW once, then run gnomish-relay setup.\n"),
+        "{stdout}"
+    );
+    let config = config_of(home.path());
+    assert!(config.contains("allowed_roots = []\n"), "{config}");
+    assert!(!config.contains("[wow]"), "{config}");
+    assert!(home.path().join("config/gnomish-relay/strip.key").is_file());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn with_no_wow_the_desktop_app_ends_cleanly_and_status_and_restart_say_what_to_do() {
+    let home = tempfile::tempdir().unwrap();
+    setup_in(home.path(), &[]);
+
+    let run = in_home(home.path(), &["run"]);
+    let status = in_home(home.path(), &["status"]);
+    let restart = in_home(home.path(), &["restart"]);
+
+    let line = "WoW not found. Start WoW once, then run gnomish-relay setup.";
+    assert!(run.status.success(), "{}", stderr(&run));
+    assert_eq!(stdout(&run), format!("{line}\n"));
+    assert!(status.status.success(), "{}", stderr(&status));
+    assert!(
+        stdout(&status).contains(&format!("\nConfig: OK\n{line}\n")),
+        "{}",
+        stdout(&status)
+    );
+    assert!(!restart.status.success());
+    assert!(stderr(&restart).contains(line), "{}", stderr(&restart));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_setup_after_the_first_start_of_wow_adds_the_game_to_the_config() {
+    let home = tempfile::tempdir().unwrap();
+    setup_in(home.path(), &[]);
+    let game = game_played(&home.path().join(".wine"), 60);
+
+    let out = setup_in(home.path(), &[]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(!stdout.contains("WoW not found"), "{stdout}");
+    let config = config_of(home.path());
+    assert!(
+        config.contains(&format!("[wow]\npath = \"{}\"\n", game.display())),
+        "{config}"
+    );
+    assert!(game.join("Interface/AddOns/GnomishRelay_Key").is_dir());
+}
+
+/// A setup that stopped at a question after the keys and before `config.toml`.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_next_setup_completes_a_config_folder_with_only_the_keys() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let game = home.path().join("wow");
+    std::fs::create_dir_all(&game).unwrap();
+    let config_dir = home.path().join("config/gnomish-relay");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    for (file, key) in [("strip.key", "ab"), ("timeways.key", "cd")] {
+        std::fs::write(config_dir.join(file), key.repeat(32)).unwrap();
+        std::fs::set_permissions(
+            config_dir.join(file),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+    }
+
+    let out = setup_in(home.path(), &["--wow", &game.to_string_lossy()]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        config_of(home.path()).contains("allowed_roots = []\n"),
+        "{}",
+        config_of(home.path())
+    );
+    let strip_key = std::fs::read_to_string(config_dir.join("strip.key")).unwrap();
+    assert_eq!(strip_key, "ab".repeat(32), "the key stays");
+    let key_addon =
+        std::fs::read_to_string(game.join("Interface/AddOns/GnomishRelay_Key/Key.lua")).unwrap();
+    assert!(key_addon.contains(&"ab".repeat(32)), "{key_addon}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_second_setup_keeps_the_wow_folder_of_the_config() {
+    let home = tempfile::tempdir().unwrap();
+    let older = game_played(&home.path().join(".wine"), 86_400);
+    setup_in(home.path(), &["--wow", &older.to_string_lossy()]);
+    game_played(&home.path().join("Games/battlenet"), 60);
+
+    let out = setup_in(home.path(), &[]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.starts_with(&format!("WoW: {}\n", older.display())),
         "{stdout}"
     );
 }
