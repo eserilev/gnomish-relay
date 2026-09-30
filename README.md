@@ -29,8 +29,8 @@ and CI results under each reply, and what each run cost.
 
 ## Install
 
-1. Get the addon on CurseForge: <https://www.curseforge.com/projects/1719624>.
-   (You can skip this step: the desktop app installs the addon too.)
+1. Get the addon on CurseForge: <https://www.curseforge.com/projects/1719624>, and
+   install it with the CurseForge app. The desktop app doesn't install the addon.
 2. Close WoW. The game only finds new addons when it starts.
 3. Install the desktop app with one command:
    - **Linux and macOS:** `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh`
@@ -44,9 +44,10 @@ and CI results under each reply, and what each run cost.
 5. Start WoW and type `/relay`.
 
 The installer checks the download's SHA-256 sum, then runs `gnomish-relay setup --autostart`.
-Setup finds the game, installs the addon, makes a key that only your computer has, writes
-`config.toml`, and starts the desktop app every time you log in. Running it again is safe:
-it leaves alone whatever already works.
+Setup finds the game, makes a key that only your computer has, writes `config.toml`, and
+starts the desktop app every time you log in. If the addon is missing or too old, setup
+ends with a line that tells you what to get or update on CurseForge. Running it again is
+safe: it leaves alone whatever already works.
 
 Setup uses the agents you already have: `claude`, `codex`, `gemini`, `qwen`, `opencode`,
 `goose`, and the other ACP agents listed in `SPEC.md` 9.2. No agent yet? Replies just
@@ -187,6 +188,7 @@ Start with `gnomish-relay status`. It checks every part and tells you what to do
 |---|---|
 | "Desktop app offline", or "the desktop app isn't running" | Run `gnomish-relay restart`. |
 | "Your game and the desktop app don't match" | Run `gnomish-relay setup`, then type `/reload` in WoW. |
+| `status` says "Addon: missing" or "Addon: too old" | Get or update Gnomish Relay in the CurseForge app, then restart WoW. |
 | "Some addon files are missing" | Close the game, then run `gnomish-relay install`. |
 | "Can't take screenshots" | Free up some disk space, check WoW's `Screenshots` folder, then type `/reload`. |
 | "Another addon is in the way of the colored bar" | Turn off other addons that take screenshots, then type `/reload`. |
