@@ -180,10 +180,17 @@ fn update_timeways(dirs: &Dirs) -> Vec<String> {
     match timeways_install::update(dirs, &sources, &program) {
         Ok(changed) => changed,
         Err(e) => {
-            println!("Timeways: couldn't update the story program. {e:#}");
+            println!("{}", update_failed_line(&e));
             Vec::new()
         }
     }
+}
+
+fn update_failed_line(error: &anyhow::Error) -> String {
+    format!(
+        "Timeways: couldn't update the story program. {} To try again, run gnomish-relay update",
+        timeways_install::sentence(&format!("{error:#}"))
+    )
 }
 
 /// Installs the latest release in place of `current_exe`, and restarts the bridge.
@@ -218,6 +225,16 @@ pub fn self_update(dirs: &Dirs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_failed_timeways_update_gives_the_error_and_then_the_next_step() {
+        let error = anyhow::anyhow!("the Timeways manifest is damaged");
+
+        assert_eq!(
+            update_failed_line(&error),
+            "Timeways: couldn't update the story program. The Timeways manifest is damaged. To try again, run gnomish-relay update"
+        );
+    }
 
     const SUM_OF_ABC: &str = "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad";
 

@@ -2211,7 +2211,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 
 Setup installs the story program of Timeways and builds its lore pack (planned with the Timeways session on 2026-09-30; the tests came first). The release format below is the one that the release job of `eserilev/timeways` makes. `crates/bridge/src/timeways_release.rs` holds every asset name in one place, `lore_pack.rs` the dump and the build, and `timeways_install.rs` the steps.
 
-**When.** `setup --timeways` always installs the programs, builds the lore pack again, and sets the config. Setup with a `Timeways` addon folder and no `--timeways` does the same only when `[story]` has no `program` yet. `gnomish-relay update` installs new programs when `[story] program` is set, into the folder of that program. It builds no lore pack. A failed Timeways step prints one line with the next step, and setup and update go on.
+**When.** `setup --timeways` always installs the programs, builds the lore pack again, and sets the config. Setup with a `Timeways` addon folder and no `--timeways` does the same only when `[story]` has no `program` yet. `gnomish-relay update` installs new programs when `[story] program` is set, into the folder of that program. It builds no lore pack. A failed Timeways step prints one line: the error as a sentence of its own, then the next step ("To try again, run gnomish-relay setup --timeways", or "To try again, run gnomish-relay update"). Setup and update go on.
 
 **The release.** The base is `https://github.com/eserilev/timeways/releases/latest/download`. `TIMEWAYS_URL` changes it, as `GNOMISH_URL` does for the desktop app (11.3). The files:
 

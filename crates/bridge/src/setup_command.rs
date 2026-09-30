@@ -253,13 +253,20 @@ fn setup_timeways(dirs: &Dirs, autostart: Autostart) {
     }
     let lines = match result {
         Ok(report) => timeways_lines(&report, &places, autostart),
-        Err(e) => vec![format!(
-            "Timeways: couldn't install the story program. {e:#} To try again, run gnomish-relay setup --timeways"
-        )],
+        Err(e) => vec![install_failed_line(&e)],
     };
     for line in lines {
         println!("{line}");
     }
+}
+
+const TRY_AGAIN: &str = "To try again, run gnomish-relay setup --timeways";
+
+fn install_failed_line(error: &anyhow::Error) -> String {
+    format!(
+        "Timeways: couldn't install the story program. {} {TRY_AGAIN}",
+        timeways_install::sentence(&format!("{error:#}"))
+    )
 }
 
 fn timeways_lines(
@@ -277,7 +284,8 @@ fn timeways_lines(
             lines.extend(summary.iter().map(|line| format!("Timeways lore: {line}")));
         }
         Lore::Kept(error) => lines.push(format!(
-            "Timeways lore: {error} To try again, run gnomish-relay setup --timeways"
+            "Timeways lore: {} {TRY_AGAIN}",
+            timeways_install::sentence(error)
         )),
     }
     if autostart == Autostart::Off {
@@ -545,6 +553,37 @@ mod tests {
         assert_eq!(
             off.last().unwrap(),
             "To start the story program, run gnomish-relay restart"
+        );
+    }
+
+    #[test]
+    fn a_lore_error_with_no_period_stays_apart_from_the_next_step() {
+        let places = timeways_install::Places {
+            bin: PathBuf::from("/b"),
+            pack: PathBuf::from("/p"),
+            work: PathBuf::from("/w"),
+        };
+        let kept = timeways_install::Report {
+            version: "0.1.0".into(),
+            changed: vec![],
+            lore: Lore::Kept("the download of the Wowpedia lore failed".into()),
+        };
+
+        let lines = timeways_lines(&kept, &places, Autostart::On);
+
+        assert_eq!(
+            lines[1],
+            "Timeways lore: The download of the Wowpedia lore failed. To try again, run gnomish-relay setup --timeways"
+        );
+    }
+
+    #[test]
+    fn a_failed_timeways_install_gives_the_error_and_then_the_next_step() {
+        let error = anyhow::anyhow!("the download of timeways-x.tar.gz has a wrong SHA-256 sum");
+
+        assert_eq!(
+            install_failed_line(&error),
+            "Timeways: couldn't install the story program. The download of timeways-x.tar.gz has a wrong SHA-256 sum. To try again, run gnomish-relay setup --timeways"
         );
     }
 
