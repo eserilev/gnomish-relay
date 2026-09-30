@@ -87,6 +87,18 @@ fn head(git: &GitHost, top: &Path) -> Option<String> {
         .filter(|h| !h.is_empty())
 }
 
+/// git trusts the stat data of an entry only when the entry is older than the index file.
+/// A fresh mtime on the copy hides an edit of the same size in the second of the index.
+/// The time comes first, so a newer index makes more entries suspect, never fewer.
+fn copy_index(index: &Path, copy: &Path) -> std::io::Result<()> {
+    let modified = std::fs::metadata(index)?.modified()?;
+    std::fs::copy(index, copy)?;
+    std::fs::File::options()
+        .write(true)
+        .open(copy)?
+        .set_modified(modified)
+}
+
 /// A copy of the index keeps the file times, so `git add` reads only the changed files.
 pub fn snapshot(git: &GitHost, top: &Path) -> Result<Snapshot, GitError> {
     let private = tempfile::tempdir_in(git.scratch())
@@ -97,7 +109,7 @@ pub fn snapshot(git: &GitHost, top: &Path) -> Result<Snapshot, GitError> {
         &["rev-parse", "--path-format=absolute", "--git-path", "index"],
     )?;
     if Path::new(&index).is_file() {
-        std::fs::copy(&index, &copy)
+        copy_index(Path::new(&index), &copy)
             .map_err(|e| GitError::other(format!("cannot copy the index: {e}")))?;
     }
     git.with_index(top, &copy, &["add", "-A"])?;
@@ -222,6 +234,34 @@ mod tests {
         assert_eq!(run(&repo, &["status", "--porcelain"]), status);
         assert_eq!(fs::read(repo.top.join(".git/index")).unwrap(), index);
         assert!(run(&repo, &["stash", "list"]).is_empty());
+    }
+
+    fn set_mtime(path: &Path, time: std::time::SystemTime) {
+        fs::File::open(path).unwrap().set_modified(time).unwrap();
+    }
+
+    /// git reads the file again only when its mtime is not older than the index. So
+    /// the test pins both times to one old second, as a fast agent does in real use.
+    #[test]
+    fn a_snapshot_sees_a_change_of_the_same_size_in_the_second_of_the_index() {
+        let repo = repo();
+        let second = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_600_000_000);
+        let kept = repo.top.join("kept.txt");
+        run(&repo, &["config", "core.trustctime", "false"]);
+        set_mtime(&kept, second);
+        run(&repo, &["add", "kept.txt"]);
+        set_mtime(&repo.top.join(".git/index"), second);
+        let start = snapshot(&repo.git, &repo.top).unwrap();
+        fs::write(&kept, "one\nTWO\n").unwrap();
+        set_mtime(&kept, second);
+
+        let end = snapshot(&repo.git, &repo.top).unwrap();
+
+        let paths: Vec<String> = diff(&repo, &start, &end)
+            .into_iter()
+            .map(|f| f.path)
+            .collect();
+        assert_eq!(paths, ["kept.txt"]);
     }
 
     #[test]
