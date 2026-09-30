@@ -236,8 +236,10 @@ mod tests {
         assert!(run(&repo, &["stash", "list"]).is_empty());
     }
 
+    /// Windows sets a file time only through a handle with write access.
     fn set_mtime(path: &Path, time: std::time::SystemTime) {
-        fs::File::open(path).unwrap().set_modified(time).unwrap();
+        let file = fs::File::options().write(true).open(path).unwrap();
+        file.set_modified(time).unwrap();
     }
 
     /// git reads the file again only when its mtime is not older than the index. So
