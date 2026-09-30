@@ -17,12 +17,11 @@ use serde::{Deserialize, Serialize};
 use crate::activity::{self, Activity};
 use crate::agent::{Choice, SessionInfo};
 use crate::always_rules::RuleLine;
-use crate::config::{
-    Permission, Policy, folder_request, native_folder, path_bytes, relative_folder,
-};
+use crate::config::{Permission, Policy};
 use crate::desktop::Notice;
 use crate::flags::{self, ListKind, TransportFlags};
 use crate::folder_list::folder_reply;
+use crate::folder_path::{folder_request, native_folder, path_bytes, relative_folder};
 use crate::folder_walk::Snapshot;
 use crate::history::{ChatLog, History, Speaker};
 pub use crate::lane::{ChatId, MessageId};

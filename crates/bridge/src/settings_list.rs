@@ -11,10 +11,9 @@ use protocol::lua::lua_string;
 use protocol::slot::MAX_TEXT;
 
 use crate::always_rules::{RuleLine, RuleList};
-use crate::config::{
-    Policy, RelayConfig, StoryConfig, is_inside_folder, native_folder, path_bytes, path_parts,
-};
+use crate::config::{Policy, RelayConfig, StoryConfig};
 use crate::folder_list::CUT;
+use crate::folder_path::{is_inside_folder, native_folder, path_bytes, path_parts};
 use crate::model::ModelChoice;
 
 /// The two quotes of the Lua literal, and the cut line after a newline.

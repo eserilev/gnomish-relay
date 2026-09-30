@@ -5,7 +5,7 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
-use crate::config::{is_inside_folder, path_bytes};
+use crate::folder_path::{is_inside_folder, path_bytes};
 use crate::folder_walk::{Walk, is_shown};
 
 /// The longest file name on the file systems that the bridge runs on.

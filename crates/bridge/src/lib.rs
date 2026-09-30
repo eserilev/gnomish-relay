@@ -26,6 +26,7 @@ pub mod dialog;
 pub mod fixture;
 pub mod flags;
 pub mod folder_list;
+pub mod folder_path;
 pub mod folder_walk;
 pub mod forward;
 pub mod fs_safe;

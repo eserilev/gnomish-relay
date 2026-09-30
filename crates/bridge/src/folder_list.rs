@@ -7,7 +7,7 @@
 use protocol::lua::lua_string;
 use protocol::slot::MAX_TEXT;
 
-use crate::config::{
+use crate::folder_path::{
     folder_request, is_inside_folder, native_folder, path_bytes, path_parts, relative_folder,
 };
 use crate::folder_walk::{Folder, Snapshot};

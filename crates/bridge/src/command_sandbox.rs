@@ -973,7 +973,7 @@ fn raw_bytes(path: &Path) -> Vec<u8> {
 
 #[cfg(not(unix))]
 fn raw_bytes(path: &Path) -> Vec<u8> {
-    crate::config::path_bytes(path)
+    crate::folder_path::path_bytes(path)
 }
 
 /// One rule with one filter, `subpath` or `literal`, for each path. No path gives no rule.

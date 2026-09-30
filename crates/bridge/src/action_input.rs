@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 
 use protocol::action::{Policy, ToolCall};
 
-use crate::config::path_bytes;
+use crate::folder_path::path_bytes;
 
 /// Credentials: reads and writes ask on the desktop. Each is a list of whole parts that
 /// match anywhere in a path, without ASCII case. A last `*` matches the rest of a part.
