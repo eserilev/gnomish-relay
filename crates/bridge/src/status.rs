@@ -30,6 +30,10 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     lines.push(last_strip_line(last_strip(places.data_dir), now));
     let config = match config::load(places.config_dir, places.home) {
         Ok(config) => config,
+        Err(e) if e.is::<config::SetupUnfinished>() => {
+            lines.push(e.to_string());
+            return lines;
+        }
         Err(e) => {
             lines.push(format!("Config: has an error. {e:#}"));
             return lines;

@@ -793,15 +793,26 @@ pub fn load(dir: &Path, home: &Path) -> Result<Config> {
     parse(&text, home).with_context(|| format!("{} is not valid", path.display()))
 }
 
+/// No `config.toml`: setup stopped before it wrote it, or never ran.
+#[derive(Debug)]
+pub struct SetupUnfinished;
+
+impl std::fmt::Display for SetupUnfinished {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("Setup didn't finish. Run gnomish-relay setup.")
+    }
+}
+
+impl std::error::Error for SetupUnfinished {}
+
 /// The text of `config.toml`, only from a plain file that no other user can write.
 pub fn read_text(dir: &Path) -> Result<String> {
     let path = dir.join(FILE);
-    let meta = fs::symlink_metadata(&path).with_context(|| {
-        format!(
-            "can't read {}. To create it, run gnomish-relay setup <wow folder>",
-            path.display()
-        )
-    })?;
+    let meta = match fs::symlink_metadata(&path) {
+        Ok(meta) => meta,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => bail!(SetupUnfinished),
+        Err(e) => return Err(e).with_context(|| format!("can't read {}", path.display())),
+    };
     if !meta.is_file() || meta.len() > MAX_FILE {
         bail!("{} is not a config file", path.display());
     }

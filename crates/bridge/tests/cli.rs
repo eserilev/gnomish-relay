@@ -138,6 +138,48 @@ fn status_in_a_fresh_home_says_the_bridge_is_stopped() {
     );
 }
 
+/// A setup that stopped after the keys, as in a fresh-install test before 0.3.1.
+#[cfg(unix)]
+#[test]
+fn restart_and_run_with_only_the_keys_say_that_setup_did_not_finish() {
+    let home = tempfile::tempdir().unwrap();
+    let config_dir = home.path().join("config/gnomish-relay");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(config_dir.join("strip.key"), "ab".repeat(32)).unwrap();
+
+    let restart = in_home(home.path(), &["restart"]);
+    let run = in_home(home.path(), &["run"]);
+
+    for out in [restart, run] {
+        assert!(!out.status.success());
+        let error = stderr(&out);
+        assert!(
+            error.contains("Setup didn't finish. Run gnomish-relay setup."),
+            "{error}"
+        );
+        assert!(!error.contains("has an error"), "{error}");
+    }
+}
+
+#[cfg(unix)]
+#[test]
+fn restart_with_a_config_that_does_not_parse_keeps_the_error_with_its_line() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let config_dir = home.path().join("config/gnomish-relay");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    let file = config_dir.join("config.toml");
+    std::fs::write(&file, "allowed_rots = []\n").unwrap();
+    std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o600)).unwrap();
+
+    let out = in_home(home.path(), &["restart"]);
+
+    assert!(!out.status.success());
+    let error = stderr(&out);
+    assert!(error.contains("config.toml has an error"), "{error}");
+    assert!(error.contains("line 1"), "{error}");
+}
+
 /// Players get the Timeways addon from `CurseForge`, so `setup --timeways` can come first.
 /// No `curl` on the `PATH`, so nothing downloads.
 #[cfg(target_os = "linux")]

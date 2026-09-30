@@ -149,14 +149,22 @@ enum BridgeLog {
 /// old file.
 pub fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
     // A service restart succeeds even when the new bridge stops at once on a bad config.
-    let config = config::load(&dirs.config, &dirs.home).context(
-        "config.toml has an error, so the desktop app can't start. Fix it, then run gnomish-relay restart",
-    )?;
+    let config = config::load(&dirs.config, &dirs.home).map_err(with_fix_hint)?;
     // With no game, a new bridge ends at once, so the wait for its lock fails.
     config.game()?;
     let before = lock::status(&dirs.data)?;
     let log = restart_service(dirs, exe)?;
     confirm_start(dirs, &log, &before)
+}
+
+/// A missing config already says what to do.
+fn with_fix_hint(error: anyhow::Error) -> anyhow::Error {
+    if error.is::<config::SetupUnfinished>() {
+        return error;
+    }
+    error.context(
+        "config.toml has an error, so the desktop app can't start. Fix it, then run gnomish-relay restart",
+    )
 }
 
 fn restart_service(dirs: &Dirs, exe: &Path) -> Result<BridgeLog> {
