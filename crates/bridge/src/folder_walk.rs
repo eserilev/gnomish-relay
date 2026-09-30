@@ -64,7 +64,7 @@ pub struct Walk {
     pub home: Option<PathBuf>,
 }
 
-fn is_skipped(name: &str) -> bool {
+pub fn is_skipped(name: &str) -> bool {
     name.starts_with('.') || SKIPPED.contains(&name)
 }
 
