@@ -147,7 +147,9 @@ end
 
 local function Command(arg)
 	arg = strtrim(arg or "")
-	if arg == "" then
+	if not ns.key then
+		ns.SetupNeeded.Toggle()
+	elseif arg == "" then
 		ns.Window.Toggle()
 	elseif arg == "diag" then
 		Diag()
@@ -163,6 +165,10 @@ local function Command(arg)
 end
 
 local function Ask(text)
+	if not ns.key then
+		ns.SetupNeeded.Show()
+		return
+	end
 	text = strtrim(text or "")
 	if text ~= "" then
 		ns.Window.Send(text)
@@ -190,11 +196,11 @@ events:SetScript("OnEvent", function(_, event, name)
 			return
 		end
 		if not ns.key then
-			print(
-				"Gnomish Relay isn't set up yet. Get the desktop app at github.com/eserilev/gnomish-relay, then run gnomish-relay setup."
-			)
+			print(ns.SetupNeeded.Line())
+			ns.SetupNeeded.Show()
 			return
 		end
+		ns.Store.db.hadKey = true
 		SetCVarValue("screenshotFormat", "png")
 		ns.Messages.OnChange = function()
 			ns.Window.Refresh()

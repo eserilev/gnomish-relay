@@ -4,8 +4,8 @@
 ## Version: 0.2.0
 ## SavedVariables: GnomishRelayDB
 
-Key.lua
 App.lua
+KeyHandoff.lua
 Sha256.lua
 Codec.lua
 Saved.lua
@@ -27,4 +27,5 @@ DiagTab.lua
 Window.lua
 Popup.lua
 NoticeFrames.lua
+SetupNeeded.lua
 Core.lua

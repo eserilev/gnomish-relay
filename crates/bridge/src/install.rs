@@ -5,20 +5,24 @@ use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, bail};
+use protocol::apps::App;
 
+use crate::app_files::{key_addon_name, key_global};
 use crate::config::{Found, Kind};
-use crate::fs_safe::{write_atomic_unsynced, write_private};
+use crate::fs_safe::{check_real_dir, make_private_dir, write_atomic_unsynced, write_private};
 use crate::ids::random_hex;
 
 pub const ADDON: &str = "GnomishRelay";
 pub const TIMEWAYS: &str = "Timeways";
 pub const KEY_FILE: &str = "Key.lua";
+/// The `## Interface` of every addon that the desktop app writes: the Forever client.
+pub const INTERFACE: &str = "16001";
 
 /// The addon, built into the program, so one download installs everything. The files of
 /// `addon/transport` are shared with other apps (SPEC.md 9.7, decision 14). They go into
 /// this addon here, so the repo never holds a copy of them.
-pub const ADDON_FILES: [(&str, &[u8]); 27] = [
+pub const ADDON_FILES: [(&str, &[u8]); 29] = [
     (
         "GnomishRelay.toc",
         include_bytes!("../../../addon/GnomishRelay/GnomishRelay.toc"),
@@ -26,6 +30,10 @@ pub const ADDON_FILES: [(&str, &[u8]); 27] = [
     (
         "App.lua",
         include_bytes!("../../../addon/GnomishRelay/App.lua"),
+    ),
+    (
+        "KeyHandoff.lua",
+        include_bytes!("../../../addon/transport/KeyHandoff.lua"),
     ),
     (
         "Sha256.lua",
@@ -110,6 +118,10 @@ pub const ADDON_FILES: [(&str, &[u8]); 27] = [
     (
         "NoticeFrames.lua",
         include_bytes!("../../../addon/GnomishRelay/NoticeFrames.lua"),
+    ),
+    (
+        "SetupNeeded.lua",
+        include_bytes!("../../../addon/GnomishRelay/SetupNeeded.lua"),
     ),
     (
         "Core.lua",
@@ -292,12 +304,39 @@ pub fn new_key() -> Result<String> {
     random_hex(32)
 }
 
-/// The key in the private table of the addon. An addon that loads first can still
-/// replace the string functions that this code calls, and read the key (SPEC.md 6.5).
+/// The old `Key.lua` inside the app addon: the key in the private table of the addon.
+// TODO: remove when every Timeways release reads Timeways_Key.
 pub fn key_lua(key_hex: &str) -> String {
     format!(
         "local _, ns = ...\nns.key = (\"{key_hex}\"):gsub(\"%x%x\", function(h)\n\
          \treturn string.char(tonumber(h, 16))\nend)\n"
+    )
+}
+
+/// A key is 32 bytes in hex. Anything else never goes into a Lua file.
+fn check_key_hex(key_hex: &str) -> Result<()> {
+    if key_hex.len() != 64 || !key_hex.bytes().all(|b| b.is_ascii_hexdigit()) {
+        bail!("the strip key is not 64 hex digits. Run gnomish-relay setup --new-key");
+    }
+    Ok(())
+}
+
+/// The `Key.lua` of a key addon. The app takes the global and clears it (SPEC.md 7.3.2).
+pub fn key_addon_lua(app: App, key_hex: &str) -> Result<String> {
+    check_key_hex(key_hex)?;
+    Ok(format!("{} = \"{key_hex}\"\n", key_global(app)))
+}
+
+/// Load on demand, so the key loads only when its app asks for it (SPEC.md 7.3.2).
+pub fn key_addon_toc(app: App) -> String {
+    let title = match app {
+        App::Relay => "Gnomish Relay",
+        App::Timeways => "Timeways",
+    };
+    format!(
+        "## Interface: {INTERFACE}\n## Title: |cff808080{title} key (leave on)|r\n\
+         ## Notes: Made by the desktop app for this computer. Don't share it.\n\
+         ## LoadOnDemand: 1\n\n{KEY_FILE}\n"
     )
 }
 
@@ -321,8 +360,8 @@ fn is_private_copy(path: &Path, key: &str) -> bool {
     meta.is_file() && same(path, key.as_bytes())
 }
 
-/// What `install_addon` changed.
-#[derive(Debug, PartialEq, Eq)]
+/// What an install step changed.
+#[derive(Debug, PartialEq, Eq, Clone, Copy)]
 pub enum Installed {
     /// The folder is new: WoW finds it only after a restart.
     New,
@@ -331,37 +370,137 @@ pub enum Installed {
     Unchanged,
 }
 
-/// Writes the addon and its key into `addons/GnomishRelay`. A folder that is a link
-/// is a developer checkout (SPEC.md 16): only `Key.lua` goes into its real folder.
-pub fn install_addon(addons: &Path, key_hex: &str) -> Result<Installed> {
-    let dir = addons.join(ADDON);
-    let key = key_lua(key_hex);
-    let meta = fs::symlink_metadata(&dir);
-    if meta.as_ref().is_ok_and(|m| m.file_type().is_symlink()) {
-        return write_key_file(&dir, key_hex);
+impl Installed {
+    /// The change of two steps together: a new folder needs a restart, whatever the other did.
+    #[must_use]
+    pub fn and(self, other: Installed) -> Installed {
+        match (self, other) {
+            (Installed::New, _) | (_, Installed::New) => Installed::New,
+            (Installed::Updated, _) | (_, Installed::Updated) => Installed::Updated,
+            _ => Installed::Unchanged,
+        }
     }
-    let new = meta.is_err();
+
+    fn from_change(new: bool, changed: bool) -> Installed {
+        match (new, changed) {
+            (true, _) => Installed::New,
+            (false, true) => Installed::Updated,
+            (false, false) => Installed::Unchanged,
+        }
+    }
+}
+
+/// The `## Version` of a TOC as numbers, so `0.10.0` is newer than `0.9.0`.
+pub fn toc_version(toc: &str) -> Option<(u32, u32, u32)> {
+    let line = toc.lines().find_map(|l| l.strip_prefix("## Version:"))?;
+    let version = line.trim().trim_start_matches('v');
+    let mut parts = version.split(['.', '-']).map(|p| p.parse::<u32>().ok());
+    Some((parts.next()??, parts.next()??, parts.next()??))
+}
+
+/// An addon app such as `CurseForge` can install a newer addon than the one built into
+/// this program. The newer one stays, and the version check of 7.7 names the fix.
+fn has_newer_addon(dir: &Path) -> bool {
+    let installed = fs::read_to_string(dir.join(format!("{ADDON}.toc")));
+    let built_in = std::str::from_utf8(ADDON_FILES[0].1)
+        .ok()
+        .and_then(toc_version);
+    let installed = installed.ok().as_deref().and_then(toc_version);
+    matches!((installed, built_in), (Some(i), Some(b)) if i > b)
+}
+
+fn is_link(path: &Path) -> bool {
+    fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink())
+}
+
+/// Writes the addon into `addons/GnomishRelay`, and removes the key file of an older
+/// setup. A folder that is a link is a developer checkout (SPEC.md 16), and gets no file.
+pub fn install_addon(addons: &Path) -> Result<Installed> {
+    let dir = addons.join(ADDON);
+    let removed = remove_old_key_file(&dir)?;
+    if is_link(&dir) || has_newer_addon(&dir) {
+        return Ok(Installed::from_change(false, removed));
+    }
+    let new = fs::symlink_metadata(&dir).is_err();
     fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
-    let mut changed = false;
+    let mut changed = removed;
     for (name, content) in ADDON_FILES.iter().copied() {
         if !same(&dir.join(name), content) {
             write_atomic_unsynced(&dir, name, content)?;
             changed = true;
         }
     }
+    Ok(Installed::from_change(new, changed))
+}
+
+/// Deletes `Key.lua` in the real folder of `dir`. Returns true when it was there.
+pub fn remove_old_key_file(dir: &Path) -> Result<bool> {
+    let Ok(real) = dir.canonicalize() else {
+        return Ok(false);
+    };
+    let file = real.join(KEY_FILE);
+    match fs::remove_file(&file) {
+        Ok(()) => Ok(true),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e).with_context(|| format!("cannot delete {}", file.display())),
+    }
+}
+
+/// Writes the key addon of `app` next to the app addon (SPEC.md 7.3.2). Its folder and
+/// its key file are private: the key signs the strips.
+pub fn write_key_addon(addons: &Path, app: App, key_hex: &str) -> Result<Installed> {
+    let dir = addons.join(key_addon_name(app));
+    let new = fs::symlink_metadata(&dir).is_err();
+    if new {
+        make_private_dir(&dir)?;
+    }
+    check_real_dir(&dir)?;
+    let key = key_addon_lua(app, key_hex)?;
+    let toc_name = format!("{}.toc", key_addon_name(app));
+    let toc = key_addon_toc(app);
+    let mut changed = false;
+    if !same(&dir.join(&toc_name), toc.as_bytes()) {
+        write_atomic_unsynced(&dir, &toc_name, toc.as_bytes())?;
+        changed = true;
+    }
     if !is_private_copy(&dir.join(KEY_FILE), &key) {
         write_private(&dir, KEY_FILE, &key)?;
         changed = true;
     }
-    Ok(match (new, changed) {
-        (true, _) => Installed::New,
-        (false, true) => Installed::Updated,
-        (false, false) => Installed::Unchanged,
-    })
+    Ok(Installed::from_change(new, changed))
 }
 
-/// Writes only `Key.lua`, into the real folder of `dir`: a link stays a link. The
-/// Timeways addon owns every other file of its folder (SPEC.md 9.7, decision 15).
+/// The relay addon and its key addon.
+pub fn install_relay(addons: &Path, key_hex: &str) -> Result<Installed> {
+    let addon = install_addon(addons)?;
+    let key = write_key_addon(addons, App::Relay, key_hex)?;
+    Ok(addon.and(key))
+}
+
+/// Whether the TOC of the addon in `dir` still loads `Key.lua` from its own folder.
+fn toc_lists_key_file(dir: &Path, toc_name: &str) -> bool {
+    fs::read_to_string(dir.join(toc_name))
+        .is_ok_and(|toc| toc.lines().any(|line| line.trim() == KEY_FILE))
+}
+
+/// The Timeways key addon, and the old `Key.lua` in the Timeways folder for as long as
+/// the installed Timeways TOC loads it. Timeways owns every other file of its folder
+/// (SPEC.md 9.7, decision 15).
+pub fn write_timeways_keys(addons: &Path, timeways: &Path, key_hex: &str) -> Result<Installed> {
+    let key_addon = write_key_addon(addons, App::Timeways, key_hex)?;
+    let real = timeways
+        .canonicalize()
+        .with_context(|| format!("{} is missing or a broken link", timeways.display()))?;
+    let old = if toc_lists_key_file(&real, &format!("{TIMEWAYS}.toc")) {
+        write_key_file(&real, key_hex)?
+    } else {
+        Installed::from_change(false, remove_old_key_file(&real)?)
+    };
+    Ok(key_addon.and(old))
+}
+
+/// Writes only `Key.lua`, into the real folder of `dir`: a link stays a link.
+// TODO: remove when every Timeways release reads Timeways_Key.
 pub fn write_key_file(dir: &Path, key_hex: &str) -> Result<Installed> {
     let real = dir
         .canonicalize()
@@ -667,19 +806,17 @@ mod tests {
     }
 
     #[test]
-    fn every_file_of_the_toc_is_built_in() {
+    fn every_file_of_the_toc_is_built_in_and_the_toc_loads_no_key_file() {
         let toc = std::str::from_utf8(ADDON_FILES[0].1).unwrap();
         let is_lua = |name: &&str| Path::new(name).extension().is_some_and(|e| e == "lua");
-        let listed: Vec<&str> = toc
-            .lines()
-            .filter(|l| is_lua(l) && *l != KEY_FILE)
-            .collect();
+        let listed: Vec<&str> = toc.lines().filter(is_lua).collect();
         let built: Vec<&str> = ADDON_FILES[1..]
             .iter()
             .map(|(name, _)| *name)
             .filter(is_lua)
             .collect();
         assert_eq!(listed, built);
+        assert!(!listed.contains(&KEY_FILE));
     }
 
     /// The self-test addon is for developers only (SPEC.md 14.3). The name is split, so
@@ -701,43 +838,167 @@ mod tests {
     }
 
     #[test]
-    fn install_writes_the_addon_once_and_repairs_a_missing_key() {
+    fn install_writes_the_addon_once_and_no_key_into_it() {
+        let addons = tempfile::tempdir().unwrap();
+
+        assert_eq!(install_addon(addons.path()).unwrap(), Installed::New);
+        assert_eq!(install_addon(addons.path()).unwrap(), Installed::Unchanged);
+
+        assert!(!addons.path().join(ADDON).join(KEY_FILE).exists());
+    }
+
+    #[test]
+    fn install_deletes_the_key_file_of_an_older_setup() {
+        let addons = tempfile::tempdir().unwrap();
+        install_addon(addons.path()).unwrap();
+        let old = addons.path().join(ADDON).join(KEY_FILE);
+        fs::write(&old, key_lua(&"ab".repeat(32))).unwrap();
+
+        assert_eq!(install_addon(addons.path()).unwrap(), Installed::Updated);
+
+        assert!(!old.exists());
+    }
+
+    #[test]
+    fn a_newer_addon_from_an_addon_app_stays() {
+        let addons = tempfile::tempdir().unwrap();
+        let dir = addons.path().join(ADDON);
+        fs::create_dir(&dir).unwrap();
+        let newer = "## Title: Gnomish Relay\n## Version: 99.0.0\n\nApp.lua\n";
+        fs::write(dir.join("GnomishRelay.toc"), newer).unwrap();
+
+        assert_eq!(install_addon(addons.path()).unwrap(), Installed::Unchanged);
+
+        assert_eq!(
+            fs::read_to_string(dir.join("GnomishRelay.toc")).unwrap(),
+            newer
+        );
+        assert!(!dir.join("Core.lua").exists());
+    }
+
+    #[test]
+    fn an_older_addon_gets_the_built_in_one() {
+        let addons = tempfile::tempdir().unwrap();
+        let dir = addons.path().join(ADDON);
+        fs::create_dir(&dir).unwrap();
+        fs::write(dir.join("GnomishRelay.toc"), "## Version: 0.0.1\n").unwrap();
+
+        assert_eq!(install_addon(addons.path()).unwrap(), Installed::Updated);
+
+        assert!(dir.join("Core.lua").is_file());
+    }
+
+    #[test]
+    fn the_toc_version_compares_as_numbers() {
+        assert_eq!(toc_version("## Version: 0.10.0\n"), Some((0, 10, 0)));
+        assert_eq!(toc_version("## Version: v1.2.3-beta\n"), Some((1, 2, 3)));
+        assert_eq!(toc_version("## Version: 1.2\n"), None);
+        assert_eq!(toc_version("## Title: x\n"), None);
+        assert!(toc_version("## Version: 0.10.0") > toc_version("## Version: 0.9.9"));
+    }
+
+    #[test]
+    fn the_built_in_addon_has_a_version() {
+        let toc = std::str::from_utf8(ADDON_FILES[0].1).unwrap();
+        assert!(toc_version(toc).is_some());
+    }
+
+    #[test]
+    fn the_key_addon_holds_the_key_in_the_global_of_its_app() {
         let addons = tempfile::tempdir().unwrap();
         let key = "ab".repeat(32);
-        assert_eq!(install_addon(addons.path(), &key).unwrap(), Installed::New);
+
         assert_eq!(
-            install_addon(addons.path(), &key).unwrap(),
-            Installed::Unchanged
+            write_key_addon(addons.path(), App::Relay, &key).unwrap(),
+            Installed::New
         );
-        fs::remove_file(addons.path().join(ADDON).join(KEY_FILE)).unwrap();
+
+        let dir = addons.path().join("GnomishRelay_Key");
         assert_eq!(
-            install_addon(addons.path(), &key).unwrap(),
-            Installed::Updated
+            fs::read_to_string(dir.join(KEY_FILE)).unwrap(),
+            format!("GnomishRelayKey = \"{key}\"\n")
         );
-        let written = fs::read_to_string(addons.path().join(ADDON).join(KEY_FILE)).unwrap();
-        assert_eq!(written, key_lua(&key));
+        let toc = fs::read_to_string(dir.join("GnomishRelay_Key.toc")).unwrap();
+        assert!(toc.contains("## LoadOnDemand: 1\n"), "{toc}");
+        assert!(!toc.contains("Dependencies"), "{toc}");
+        assert!(toc.ends_with("\nKey.lua\n"), "{toc}");
+    }
+
+    #[test]
+    fn the_key_addon_has_the_interface_of_the_addon() {
+        let addon_toc = std::str::from_utf8(ADDON_FILES[0].1).unwrap();
+        let interface = format!("## Interface: {INTERFACE}\n");
+        assert!(addon_toc.starts_with(&interface));
+        assert!(key_addon_toc(App::Timeways).starts_with(&interface));
+    }
+
+    #[test]
+    fn the_key_addon_is_written_once_and_again_when_its_key_is_missing() {
+        let addons = tempfile::tempdir().unwrap();
+        let key = "cd".repeat(32);
+        write_key_addon(addons.path(), App::Timeways, &key).unwrap();
+
+        let again = write_key_addon(addons.path(), App::Timeways, &key).unwrap();
+        fs::remove_file(addons.path().join("Timeways_Key").join(KEY_FILE)).unwrap();
+        let repaired = write_key_addon(addons.path(), App::Timeways, &key).unwrap();
+
+        assert_eq!(again, Installed::Unchanged);
+        assert_eq!(repaired, Installed::Updated);
+    }
+
+    #[test]
+    fn a_key_that_is_not_64_hex_digits_never_goes_into_lua() {
+        let addons = tempfile::tempdir().unwrap();
+        let quote = format!("{}\"", "a".repeat(63));
+
+        assert!(write_key_addon(addons.path(), App::Relay, &quote).is_err());
+        assert!(key_addon_lua(App::Relay, "abcd").is_err());
+        assert!(
+            !addons
+                .path()
+                .join("GnomishRelay_Key")
+                .join(KEY_FILE)
+                .exists()
+        );
     }
 
     /// A command of a game run must not read the strip key (SPEC.md 6.6.4).
     #[cfg(unix)]
     #[test]
-    fn the_key_file_has_mode_0600_also_after_an_older_install() {
+    fn the_key_addon_is_private_also_after_an_older_write() {
         use std::os::unix::fs::PermissionsExt;
         let addons = tempfile::tempdir().unwrap();
-        let key = addons.path().join(ADDON).join(KEY_FILE);
-        install_addon(addons.path(), &"ab".repeat(32)).unwrap();
+        let dir = addons.path().join("GnomishRelay_Key");
+        write_key_addon(addons.path(), App::Relay, &"ab".repeat(32)).unwrap();
+        let key = dir.join(KEY_FILE);
         fs::set_permissions(&key, fs::Permissions::from_mode(0o644)).unwrap();
 
-        install_addon(addons.path(), &"ab".repeat(32)).unwrap();
+        write_key_addon(addons.path(), App::Relay, &"ab".repeat(32)).unwrap();
 
-        let mode = fs::metadata(&key).unwrap().permissions().mode() & 0o777;
-        assert_eq!(mode, 0o600);
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        assert_eq!(mode(&key), 0o600);
+        assert_eq!(mode(&dir), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_key_addon_folder_that_is_a_link_is_refused() {
+        let root = tempfile::tempdir().unwrap();
+        let elsewhere = root.path().join("elsewhere");
+        fs::create_dir(&elsewhere).unwrap();
+        let addons = root.path().join("AddOns");
+        fs::create_dir(&addons).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, addons.join("GnomishRelay_Key")).unwrap();
+
+        assert!(write_key_addon(&addons, App::Relay, &"ab".repeat(32)).is_err());
+
+        assert_eq!(fs::read_dir(&elsewhere).unwrap().count(), 0);
     }
 
     #[test]
     fn install_writes_the_mono_font_with_its_license() {
         let addons = tempfile::tempdir().unwrap();
-        install_addon(addons.path(), &"ab".repeat(32)).unwrap();
+        install_addon(addons.path()).unwrap();
         let dir = addons.path().join(ADDON);
         let font = fs::read(dir.join("JetBrainsMono-Regular.ttf")).unwrap();
         // A TrueType file starts with the version 1.0 tag.
@@ -746,26 +1007,71 @@ mod tests {
         assert!(license.contains("SIL Open Font License"));
     }
 
+    /// The key addon is a real folder in `AddOns`, never in the repository (SPEC.md 16).
     #[cfg(unix)]
     #[test]
-    fn a_linked_checkout_gets_only_the_key() {
+    fn a_linked_repository_gets_no_file_and_loses_an_old_key() {
         let root = tempfile::tempdir().unwrap();
-        let checkout = root.path().join("checkout");
-        fs::create_dir(&checkout).unwrap();
+        let repo = root.path().join("repo");
+        fs::create_dir(&repo).unwrap();
+        fs::write(repo.join(KEY_FILE), "old key").unwrap();
+        fs::write(repo.join("Core.lua"), "-- mine").unwrap();
         let addons = root.path().join("AddOns");
         fs::create_dir(&addons).unwrap();
-        std::os::unix::fs::symlink(&checkout, addons.join(ADDON)).unwrap();
+        std::os::unix::fs::symlink(&repo, addons.join(ADDON)).unwrap();
 
-        assert_eq!(
-            install_addon(&addons, &"cd".repeat(32)).unwrap(),
-            Installed::Updated
-        );
-        let names: Vec<_> = fs::read_dir(&checkout)
+        assert_eq!(install_addon(&addons).unwrap(), Installed::Updated);
+        assert_eq!(install_addon(&addons).unwrap(), Installed::Unchanged);
+
+        let names: Vec<_> = fs::read_dir(&repo)
             .unwrap()
             .flatten()
             .map(|e| e.file_name())
             .collect();
-        assert_eq!(names, [KEY_FILE]);
+        assert_eq!(names, ["Core.lua"]);
+        assert!(is_link(&addons.join(ADDON)));
+    }
+
+    #[test]
+    fn a_timeways_toc_that_loads_key_lua_keeps_getting_it() {
+        let addons = tempfile::tempdir().unwrap();
+        let timeways = addons.path().join(TIMEWAYS);
+        fs::create_dir(&timeways).unwrap();
+        let toc = "## Title: Timeways\n\nKey.lua\nCore.lua\n";
+        fs::write(timeways.join("Timeways.toc"), toc).unwrap();
+        let key = "cd".repeat(32);
+
+        let written = write_timeways_keys(addons.path(), &timeways, &key).unwrap();
+
+        assert_eq!(written, Installed::New);
+        assert_eq!(
+            fs::read_to_string(timeways.join(KEY_FILE)).unwrap(),
+            key_lua(&key)
+        );
+        assert!(addons.path().join("Timeways_Key").join(KEY_FILE).is_file());
+    }
+
+    #[test]
+    fn a_timeways_toc_that_reads_the_key_addon_loses_its_old_key_file() {
+        let addons = tempfile::tempdir().unwrap();
+        let timeways = addons.path().join(TIMEWAYS);
+        fs::create_dir(&timeways).unwrap();
+        let toc = "## Title: Timeways\n\nKeyHandoff.lua\n";
+        fs::write(timeways.join("Timeways.toc"), toc).unwrap();
+        fs::write(timeways.join(KEY_FILE), "old").unwrap();
+
+        write_timeways_keys(addons.path(), &timeways, &"cd".repeat(32)).unwrap();
+
+        assert!(!timeways.join(KEY_FILE).exists());
+        assert!(timeways.join("Timeways.toc").is_file());
+    }
+
+    #[test]
+    fn a_new_folder_wins_over_an_update_and_an_update_over_no_change() {
+        use Installed::{New, Unchanged, Updated};
+        assert_eq!(Updated.and(New), New);
+        assert_eq!(Unchanged.and(Updated), Updated);
+        assert_eq!(Unchanged.and(Unchanged), Unchanged);
     }
 
     #[test]

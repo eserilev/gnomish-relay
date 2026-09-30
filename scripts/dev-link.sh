@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 # Links the addon into the game, so an edit plus /reload loads the new code (SPEC.md 16).
-# Then `setup` makes the strip key once, writes Key.lua here, and makes the slots.
+# Then `setup` makes the strip key once, and writes the key addon GnomishRelay_Key and the
+# slots as real folders in AddOns, never in this repository.
 # WoW finds addons only at launch, so run this with the game closed.
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
@@ -20,5 +21,5 @@ for file in "$root"/addon/transport/*.lua; do
   ln -sfn "../transport/$(basename "$file")" "$root/addon/GnomishRelay/$(basename "$file")"
 done
 echo "linked addon/transport into addon/GnomishRelay"
-# The link first: setup then writes only the key into this checkout.
+# The link first: setup then writes no file into this repository.
 cargo run -q --bin gnomish-relay -- setup "$wow"

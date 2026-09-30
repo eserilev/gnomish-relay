@@ -6,9 +6,13 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use anyhow::{Context, Result, bail};
+use protocol::apps::App;
 use sha2::{Digest, Sha256};
 
+use crate::app_files::key_addon_name;
+use crate::config;
 use crate::dirs::Dirs;
+use crate::install;
 
 pub const RELEASES: &str = "https://github.com/eserilev/gnomish-relay/releases/latest/download";
 
@@ -119,6 +123,25 @@ pub fn replace(exe: &Path, new: &Path) -> Result<Replaced> {
     Ok(Replaced::New)
 }
 
+/// A key addon that is new since the launch of the game loads only after a restart
+/// (SPEC.md 7.3.2). `relay_addons` is `None` with the relay off.
+pub fn finish_line(relay_addons: Option<&Path>) -> &'static str {
+    let key_addon_is_new =
+        relay_addons.is_some_and(|addons| !addons.join(key_addon_name(App::Relay)).is_dir());
+    if key_addon_is_new {
+        "Restart WoW to finish."
+    } else {
+        "Type /reload in WoW to finish."
+    }
+}
+
+/// The `AddOns` folder of a config with the relay.
+fn relay_addons(dirs: &Dirs) -> Option<PathBuf> {
+    let config = config::load(&dirs.config, &dirs.home).ok()?;
+    config.relay.as_ref()?;
+    Some(install::addons_dir(&config.wow))
+}
+
 /// Installs the latest release in place of `current_exe`, and restarts the bridge.
 pub fn self_update(dirs: &Dirs) -> Result<()> {
     let name = archive_name().context("there is no release build for this OS and CPU")?;
@@ -134,8 +157,10 @@ pub fn self_update(dirs: &Dirs) -> Result<()> {
         return Ok(());
     }
     println!("Updated {}", exe.display());
+    // Before the restart: the new bridge writes the key addon at its start.
+    let finish = finish_line(relay_addons(dirs).as_deref());
     crate::service::restart(dirs, &exe)?;
-    println!("Type /reload in WoW to finish.");
+    println!("{finish}");
     Ok(())
 }
 
@@ -241,6 +266,18 @@ mod tests {
             let mode = fs::metadata(&exe).unwrap().permissions().mode();
             assert_eq!(mode & 0o777, 0o755);
         }
+    }
+
+    #[test]
+    fn an_update_asks_for_a_restart_only_when_the_key_addon_is_new() {
+        let addons = tempfile::tempdir().unwrap();
+        assert_eq!(finish_line(Some(addons.path())), "Restart WoW to finish.");
+        fs::create_dir(addons.path().join("GnomishRelay_Key")).unwrap();
+        assert_eq!(
+            finish_line(Some(addons.path())),
+            "Type /reload in WoW to finish."
+        );
+        assert_eq!(finish_line(None), "Type /reload in WoW to finish.");
     }
 
     #[test]

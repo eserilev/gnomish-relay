@@ -35,10 +35,9 @@ pub fn start(dirs: &Dirs) -> Result<()> {
     };
     // Equal keys, or a `timeways.key` that does not load, stop the bridge here.
     let keys = KeySet::load(&dirs.config)?;
-    // Only `Key.lua`, never another file of the Timeways addon (SPEC.md 9.7, decision 15).
-    if setup::repair_timeways_key(&dirs.config, &paths.addons)? == Some(install::Installed::Updated)
-    {
-        println!("Updated the Timeways key. Type /reload in WoW");
+    // Never a file of the Timeways addon but an old `Key.lua` (SPEC.md 9.7, decision 15).
+    if let Some(changed) = setup::repair_timeways_key(&dirs.config, &paths.addons)? {
+        print_changed("Timeways", changed);
     }
     let relay = match config.relay {
         Some(relay) => Some(start_relay(dirs, relay, config.story.as_ref(), &paths)?),
@@ -59,9 +58,10 @@ pub fn start_relay(
     paths: &Paths,
 ) -> Result<(Policy, Agents, Raiser, BridgeSettings)> {
     let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
-    if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
-        println!("Updated the Gnomish Relay addon. Type /reload in WoW");
-    }
+    print_changed(
+        "Gnomish Relay",
+        install::install_relay(&paths.addons, hex.trim())?,
+    );
     let places = Places {
         config_dir: &dirs.config,
         data_dir: &paths.state,
@@ -94,6 +94,15 @@ pub fn start_relay(
     Ok((relay.policy, agents, raiser, settings))
 }
 
+/// WoW finds a new addon folder only at launch (SPEC.md 7.2, rule 1).
+fn print_changed(title: &str, changed: install::Installed) {
+    match changed {
+        install::Installed::New => println!("Updated {title}. Restart WoW to load it"),
+        install::Installed::Updated => println!("Updated {title}. Type /reload in WoW"),
+        install::Installed::Unchanged => {}
+    }
+}
+
 fn story_spec(dirs: &Dirs, story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
     let spec = StorySpec::from_config(story, &dirs.config, &paths.state, &dirs.home)?;
     if spec.is_none() {
@@ -110,7 +119,7 @@ mod tests {
         [wow]\npath = \"~/wow\"\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n";
 
     #[test]
-    fn a_relay_start_writes_the_addon_again_and_keeps_the_policy_of_the_config() {
+    fn a_relay_start_writes_the_addon_and_its_key_addon_and_keeps_the_policy_of_the_config() {
         let home = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(home.path().join("Code")).unwrap();
         let dirs = Dirs {
@@ -133,13 +142,9 @@ mod tests {
         let (policy, _, raiser, _) =
             start_relay(&dirs, config.relay.unwrap(), None, &paths).unwrap();
 
-        assert!(
-            paths
-                .addons
-                .join(install::ADDON)
-                .join(install::KEY_FILE)
-                .is_file()
-        );
+        let key_addon = paths.addons.join("GnomishRelay_Key");
+        assert!(key_addon.join(install::KEY_FILE).is_file());
+        assert!(paths.addons.join(install::ADDON).join("Core.lua").is_file());
         assert_eq!(policy.default_agent, "echo");
         assert!(raiser.free_commands.is_empty());
     }

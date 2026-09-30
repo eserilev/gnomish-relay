@@ -38,6 +38,8 @@ globals:
     args: []
   GetBuildInfo:
     args: []
+  IsMacClient:
+    args: []
   time:
     args: []
   GetPhysicalScreenSize:

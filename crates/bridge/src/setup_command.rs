@@ -341,16 +341,14 @@ fn story_line(config: &Config) -> String {
 
 /// WoW finds a new addon folder only at launch, and a new key only after a `/reload`.
 fn last_line(changed: &setup::Changed, relay: setup::Relay, keys: KeyChoice) -> &'static str {
-    let new_relay = changed.relay_addon == Some(install::Installed::New);
-    if changed.new_slots || new_relay {
+    let parts = [changed.relay_addon.as_ref(), changed.timeways_key.as_ref()];
+    if changed.new_slots || parts.contains(&Some(&install::Installed::New)) {
         return match relay {
             setup::Relay::On => "All set. Restart WoW, then type /relay",
             setup::Relay::Off => "All set. Restart WoW to load the addon",
         };
     }
-    let updated = [changed.relay_addon.as_ref(), changed.timeways_key.as_ref()]
-        .contains(&Some(&install::Installed::Updated));
-    if updated || keys == KeyChoice::New {
+    if parts.contains(&Some(&install::Installed::Updated)) || keys == KeyChoice::New {
         return "All set. Type /reload in WoW";
     }
     "All set"
@@ -463,5 +461,13 @@ mod tests {
             "All set. Type /reload in WoW"
         );
         assert_eq!(last_line(&changed(false, None), on, keep), "All set");
+        let new_timeways_key = setup::Changed {
+            timeways_key: Some(install::Installed::New),
+            ..changed(false, None)
+        };
+        assert_eq!(
+            last_line(&new_timeways_key, setup::Relay::Off, keep),
+            "All set. Restart WoW to load the addon"
+        );
     }
 }

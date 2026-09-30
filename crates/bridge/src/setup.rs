@@ -89,7 +89,7 @@ fn key(dir: &Path, file: &str, choice: KeyChoice, other: Option<&str>) -> Result
 pub struct Changed {
     /// `None` with the relay off.
     pub relay_addon: Option<Installed>,
-    /// `None` with no Timeways folder.
+    /// `None` with no Timeways folder. `New` for a new key addon folder.
     pub timeways_key: Option<Installed>,
     /// WoW finds a new slot folder only at launch.
     pub new_slots: bool,
@@ -106,7 +106,7 @@ pub fn install_files(folders: &Folders, relay: Relay, keys: KeyChoice) -> Result
     let relay_addon = match relay {
         Relay::On => {
             new_slots |= install_slots(&folders.addons, App::Relay)?;
-            Some(install::install_addon(&folders.addons, &relay_key)?)
+            Some(install::install_relay(&folders.addons, &relay_key)?)
         }
         Relay::Off => None,
     };
@@ -114,7 +114,11 @@ pub fn install_files(folders: &Folders, relay: Relay, keys: KeyChoice) -> Result
         Some(timeways) => {
             let hex = key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay_key))?;
             new_slots |= install_slots(&folders.addons, App::Timeways)?;
-            Some(install::write_key_file(&timeways, &hex)?)
+            Some(install::write_timeways_keys(
+                &folders.addons,
+                &timeways,
+                &hex,
+            )?)
         }
         None => None,
     };
@@ -150,8 +154,8 @@ pub fn install_all_slots(addons: &Path, relay: Relay) -> Result<Vec<App>> {
     Ok(apps)
 }
 
-/// Writes `Key.lua` into the Timeways folder again when it is missing or old, as the
-/// bridge does for the relay at each start (SPEC.md 11.3). The bridge never makes a key.
+/// Writes the Timeways key addon again when it is missing or old, as the bridge does for
+/// the relay at each start (SPEC.md 11.3). The bridge never makes a key.
 pub fn repair_timeways_key(config_dir: &Path, addons: &Path) -> Result<Option<Installed>> {
     let Some(timeways) = install::timeways_dir(addons) else {
         return Ok(None);
@@ -159,7 +163,7 @@ pub fn repair_timeways_key(config_dir: &Path, addons: &Path) -> Result<Option<In
     let Ok(hex) = fs::read_to_string(config_dir.join(TIMEWAYS_KEY_FILE)) else {
         return Ok(None);
     };
-    install::write_key_file(&timeways, hex.trim()).map(Some)
+    install::write_timeways_keys(addons, &timeways, hex.trim()).map(Some)
 }
 
 /// The parts that the config gets. Each one is `Some` only when the config lacks it.
