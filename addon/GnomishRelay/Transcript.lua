@@ -8,6 +8,7 @@ ns.Transcript = Transcript
 
 local MONO = "Interface\\AddOns\\GnomishRelay\\JetBrainsMono-Regular.ttf"
 local MONO_FALLBACK = "Fonts\\ARIALN.TTF"
+Transcript.MONO, Transcript.MONO_FALLBACK = MONO, MONO_FALLBACK
 local BODY_FONT = "Fonts\\ARIALN.TTF"
 local HEADING_FONT = "Fonts\\FRIZQT__.TTF"
 -- Each heading is this much bigger than the body text. The font size is a setting.
@@ -15,18 +16,24 @@ local HEADINGS = { { "h1", 4 }, { "h2", 1 }, { "h3", -1 } }
 local YOU = "69ccf0"
 local GREY = "9d9d9d"
 local CODE = "b8c8b8"
+local LINK = "69ccf0"
 local GAP = 8
 local PAD = 6
 local CELL_PAD = 6
 local MAX_COLUMNS = 8
 local WHEEL_STEP = 40
+-- Room at the right of a sent message for its delivery state.
+local STATUS_WIDTH = 80
 -- Four no-break spaces: SimpleHTML drops normal spaces at the start of a line.
 local INDENT = ("\194\160"):rep(4)
 
 local ui = {}
 local width, viewHeight
 local contentHeight = 0
-local drawnKey
+-- What the scroll child shows now: the chat, the font size, and the entries drawn.
+local drawn = { count = 0 }
+-- The drawn messages with no final reply, each with the line of its delivery state.
+local open = {}
 
 local function NewPool(create)
 	return { free = {}, used = {}, create = create }
@@ -376,19 +383,74 @@ local function DrawReply(prefix, text, y)
 	return TextLine(prefix .. PlainText(text), 0, y, width)
 end
 
+local function DeliveryText(entry)
+	local where, shows, most = ns.Transport.Delivery(entry)
+	if where == "reload" then
+		return "Needs reload"
+	elseif where == "delivered" then
+		return "Delivered"
+	elseif where == "sending" and shows >= 2 then
+		return string.format("Retry %d of %d", shows, most)
+	elseif where == "sending" then
+		return "Sending..."
+	end
+end
+
+-- A state that ends hides its line. The line keeps its room, so nothing moves.
+local function UpdateDelivery()
+	for i = #open, 1, -1 do
+		local text = DeliveryText(open[i].entry)
+		open[i].line:SetShown(text ~= nil)
+		open[i].line:SetText(text and string.format("|cff%s%s|r", GREY, text) or "")
+		if not text then
+			table.remove(open, i)
+		end
+	end
+end
+
+local function DrawMessage(entry, y)
+	if entry.answered then
+		return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width)
+	end
+	local line = Acquire(ui.pools.status)
+	line:SetWidth(STATUS_WIDTH)
+	Place(line, width - STATUS_WIDTH, y)
+	table.insert(open, { entry = entry, line = line })
+	return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width - STATUS_WIDTH)
+end
+
+-- The text goes back into the input, not out: the player sees what is sent again.
+local function DrawPutBack(text, y)
+	local button = Acquire(ui.pools.putBack)
+	button.saved = text
+	button.label:SetText(string.format("|cff%sPut the text back|r", LINK))
+	button:SetSize(button.label:GetUnboundedStringWidth() + 4, 16)
+	Place(button, 0, y + 2)
+	return y + 20
+end
+
+-- An error comes from the relay, not from the agent, so it has its own grey line.
+local function DrawError(chat, entry, y)
+	y = TextLine(string.format("|cff%s[Relay]: %s|r", GREY, ns.Relay.Plain(entry.text)), 0, y, width)
+	local message = entry.id and ns.Store.Message(chat, entry.id)
+	if message and not message.attach and message.text ~= "" then
+		y = DrawPutBack(message.text, y)
+	end
+	return y
+end
+
 -- Only the bridge renders, and only a done reply: an error that looks rendered is text.
 local function DrawEntry(chat, entry, y)
 	if entry.attach then
 		return TextLine(string.format('|cff%sResumed "%s"|r', GREY, ns.Relay.Plain(chat.name)), 0, y, width)
 	elseif entry.role == "user" then
-		return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width)
+		return DrawMessage(entry, y)
+	end
+	if entry.role == "error" then
+		return DrawError(chat, entry, y)
 	end
 	local agent = entry.agent or chat.agent
-	local name = ns.Relay.AgentName(agent)
-	if entry.role == "error" then
-		return TextLine(Prefix(name, "ff2020") .. PlainText(entry.text), 0, y, width)
-	end
-	return DrawReply(Prefix(name, ns.Relay.AgentColor(agent)), entry.text, y)
+	return DrawReply(Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), entry.text, y)
 end
 
 local function ScrollTo(offset)
@@ -396,28 +458,41 @@ local function ScrollTo(offset)
 	ui.scroll:SetVerticalScroll(math.max(0, math.min(most, offset)))
 end
 
--- Drawing costs time, so a chat draws again only when its history or the font size changes.
-local function KeyOf(chat)
-	if not chat then
-		return "none"
+-- The drawn entries are still the start of the history. A history over its limit drops
+-- its first entry, and then the whole chat draws again.
+local function OnlyNewEntries(chat, history)
+	if drawn.chatId ~= (chat and chat.id) or drawn.fontSize ~= FontSize() or drawn.width ~= width then
+		return false
 	end
-	local history = chat.history
-	return table.concat({ chat.id, #history, tostring(history[#history]), FontSize() }, ":")
+	return drawn.count == 0 or (history[1] == drawn.first and history[drawn.count] == drawn.last)
 end
 
-function Transcript.Show(chat)
-	local key = KeyOf(chat)
-	if key == drawnKey then
-		return
-	end
-	drawnKey = key
+local function Clear(chat)
 	for _, pool in pairs(ui.pools) do
 		ReleaseAll(pool)
 	end
-	local y = 0
-	for _, entry in ipairs(chat and chat.history or {}) do
-		y = DrawEntry(chat, entry, y) + GAP
+	contentHeight = 0
+	drawn = { count = 0, chatId = chat and chat.id, fontSize = FontSize(), width = width }
+	open = {}
+end
+
+-- Drawing costs time, so only new entries draw. The whole chat draws again only when
+-- the chat, the font size, or the width changes.
+function Transcript.Show(chat)
+	local history = chat and chat.history or {}
+	if not OnlyNewEntries(chat, history) then
+		Clear(chat)
 	end
+	if #history == drawn.count and drawn.count > 0 then
+		UpdateDelivery()
+		return
+	end
+	local y = contentHeight
+	for i = drawn.count + 1, #history do
+		y = DrawEntry(chat, history[i], y) + GAP
+	end
+	drawn.count, drawn.first, drawn.last = #history, history[1], history[#history]
+	UpdateDelivery()
 	contentHeight = y
 	ui.child:SetHeight(math.max(y, 1))
 	ScrollTo(y)
@@ -444,14 +519,34 @@ local function NewFontString(template, font)
 	end
 end
 
--- `parent` is the inset of the log. The size is fixed, so the layout needs no frame sizes.
-function Transcript.Build(parent, w, h)
+local putBacks = 0
+
+local function NewPutBack()
+	putBacks = putBacks + 1
+	local button = CreateFrame("Button", "GnomishRelayPutBack" .. putBacks, ui.child)
+	button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	button.label:SetPoint("LEFT", button, "LEFT", 0, 0)
+	button:SetScript("OnClick", function(self)
+		ns.Window.PutBack(self.saved)
+	end)
+	return button
+end
+
+-- The next Show draws the whole chat again for the new width.
+function Transcript.Resize(w, h)
 	width, viewHeight = w, h
+	ui.scroll:SetSize(w, h)
+	ui.child:SetWidth(w)
+end
+
+-- `parent` is the inset of the log. The window gives the size, so the layout needs no
+-- frame sizes.
+function Transcript.Build(parent, w, h)
 	ui.scroll = CreateFrame("ScrollFrame", "GnomishRelayScroll", parent)
 	ui.scroll:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -6)
-	ui.scroll:SetSize(w, h)
 	ui.child = CreateFrame("Frame", "GnomishRelayTranscript", ui.scroll)
-	ui.child:SetSize(w, 1)
+	ui.child:SetHeight(1)
+	Transcript.Resize(w, h)
 	ui.scroll:SetScrollChild(ui.child)
 	ui.scroll:EnableMouseWheel(true)
 	ui.scroll:SetScript("OnMouseWheel", function(self, delta)
@@ -460,6 +555,8 @@ function Transcript.Build(parent, w, h)
 	ui.pools = {
 		text = NewPool(NewFontString("GameFontHighlight", ChatFontNormal)),
 		cell = NewPool(NewFontString("GameFontHighlightSmall")),
+		status = NewPool(NewFontString("GameFontDisableSmall")),
+		putBack = NewPool(NewPutBack),
 		html = NewPool(NewHtml),
 		code = NewPool(NewCodeBox),
 		rule = NewPool(NewTexture("ARTWORK", 0.6, 0.5, 0.2, 0.8)),

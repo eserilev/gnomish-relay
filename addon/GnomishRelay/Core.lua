@@ -176,7 +176,12 @@ events:SetScript("OnEvent", function(_, event, name)
 	elseif event == "PLAYER_LOGIN" then
 		local missing = ns.Health.Missing()
 		if missing then
-			print(string.format("Gnomish Relay: this game version has no %s. The relay is off.", missing))
+			print(
+				string.format(
+					"Gnomish Relay: this game version has no %s. The relay is off. On the desktop, run gnomish-relay update.",
+					missing
+				)
+			)
 			return
 		end
 		if not ns.key then
@@ -199,7 +204,7 @@ events:SetScript("OnEvent", function(_, event, name)
 		C_Timer.NewTicker(1, ns.Transport.Tick)
 		C_Timer.After(BRIDGE_WAIT, function()
 			if not ns.Transport.Online() then
-				print("Gnomish Relay: bridge not running.")
+				print("Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart.")
 			end
 		end)
 	end

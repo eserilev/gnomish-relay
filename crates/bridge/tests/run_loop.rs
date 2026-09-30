@@ -255,6 +255,34 @@ fn a_future_strip_is_deleted_and_never_runs() {
 }
 
 #[test]
+fn the_body_counts_strips_with_a_bad_tag_until_a_good_strip_comes() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let wrong_key = b"another key, 32 bytes long......";
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        strip_png(wrong_key, "old key"),
+    )
+    .unwrap();
+
+    assert!(
+        step_until(&mut bridge, || slot_body(&f.addons)
+            .ends_with("GnomishRelay_SlotData.badTags = 1\n")),
+        "{}",
+        slot_body(&f.addons)
+    );
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        strip_png(KEY, "new key"),
+    )
+    .unwrap();
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("echo: new key")));
+    assert!(!slot_body(&f.addons).contains("badTags"));
+}
+
+#[test]
 fn an_outbox_frame_in_the_saved_variables_comes_back_as_an_echo() {
     let f = folders();
     let mut bridge = bridge(&f);

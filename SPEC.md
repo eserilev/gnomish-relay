@@ -122,6 +122,9 @@ So the popup never shows the label of the agent as the main text. Rules:
 - Control characters, Unicode bidi characters, and zero-width characters show as visible escapes, for example `<U+202E>`.
 - The label of the agent shows below the raw command, marked as "the agent says".
 - When the popup offers "Always allow" (6.6.5), one more line names the exact rule and its folder. The bridge makes the line, and the popup never cuts it.
+- A misclick must not allow. A new popup plays the ready-check sound, and its buttons take no click for 1 second: the player can be in the middle of a click in the game. **Reject** and **Always reject** sit at the left, and the allow buttons at the right, with a wide gap between.
+- When more requests wait, the popup says "1 of 3" at the top right. It shows the oldest request first.
+- The popup has the dark dialog border of the game. Its height follows the text, up to 600 pixels, so a long command never runs over the buttons. The text shows in the shipped mono font (13.2).
 
 Theorem S15 covers these rules.
 
@@ -154,7 +157,7 @@ The trust of "always allow" (6.6.5) rests on layers 2 to 4. It never rests on la
 - The addon keeps the text of each open message in its private table (`ns`), not only in `GnomishRelayDB`.
 - When the user sends a message, the addon signs it at once. It stores the signed frame and its time in `GnomishRelayDB`, next to the text.
 - After a `/reload`, the addon sends only frames with a valid tag. It never signs text that it reads back from `GnomishRelayDB`.
-- A stored frame or an outbox frame older than 270 seconds is too old for the bridge (S11 allows 300). The message then ends with "Not sent. Send it again.", and the user decides.
+- A stored frame or an outbox frame older than 270 seconds is too old for the bridge (S11 allows 300). The message then ends with "Not sent. Send it again.", and the user decides. While the bridge is offline (7.4), the text is "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart."
 - An outbox entry (7.5) is the same signed frame. The bridge checks the tag, the time, and the replay store for it (S2, S11, S7), as for a strip.
 - A permission answer carries a hash of the exact text that the popup showed: `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256, in hex. The bridge refuses an answer whose hash does not match its own text of the request.
 
@@ -654,6 +657,8 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - The addon sets the `screenshotFormat` CVar to `png` at login.
 - The addon hides the "Screen captured" text for its own screenshots through the `ActionStatus` frame. Normal screenshots still show it.
 - The bridge ignores screenshots with no valid strip. Those are the screenshots of the user.
+- The first strip ever prints one line: "<title>: the colored bar at the top left carries your messages to the desktop. It shows for half a second." The saved variables remember it, so the line shows once.
+- In combat, a strip waits for the end of the fight unless it carries a message or a control of the player (Stop, a permission answer, a delete of a rule). So a hello and a request for a list (sessions, folders, settings) wait. They still ride on a strip that goes anyway. A long fight can then pass the window of slots (7.3): the replies wait for the next strip, and none is lost.
 
 **Frame layout (bytes):**
 
@@ -757,7 +762,7 @@ A `/reload` resets the globals of all addons together, so no holder stays from a
 - While an app waits, it signs nothing, and no show counts. So its 40-second retry timer and its 3 shows wait too, and a wait never starts the outbox.
 - A screenshot event ends a strip only when the app holds the corner and has called `Screenshot()`. So `out=shot` and `out=fail` report only the shots of the app.
 - A screenshot of the player during our shot can still end our strip early, because an event has no owner. This costs at most one early end or one wrong `out=` value, and the next retry covers it. So the addon does not try to match events to shots.
-- After 30 seconds of waiting, the app shows one line: "<title>: screenshots are blocked by another addon.". The window shows "Screenshots blocked". The line shows again only after the corner was free between. 30 seconds is two times the longest honest wait, and far below the 270-second limit of a signed frame.
+- After 30 seconds of waiting, the app shows one line: "<title>: screenshots are blocked by another addon. Turn off the addons that take screenshots, then type /reload." The window shows "Screenshots blocked". The line shows again only after the corner was free between. 30 seconds is two times the longest honest wait, and far below the 270-second limit of a signed frame.
 - A blocked app keeps waiting. It does not use the outbox: a hostile holder stays across every `/reload`, so the outbox would ask for a reload for each message.
 - Each app hooks the "Screen captured" text, and each hook hides the text of the shots of its own app only. A second `Hide` does nothing.
 
@@ -806,6 +811,8 @@ GnomishRelay_SlotData = {proto = 1, now = 1790211081, replies = {
 {chat = "c1", id = 11, status = "done", text = "..."},
 }}
 ```
+
+**The key check.** A player with an old key sees no reply and no reason: the bridge refuses each strip for its tag. So the bridge counts the strips with a bad tag since the last good relay strip. While the count is not 0, `Inbox.lua` ends with one more line after the table: `GnomishRelay_SlotData.badTags = 2`. The line holds only the global and a decimal number, so no outside text reaches it, and S9 still covers the table. A message that the addon gives up on while the count is not 0 ends with "Not sent: the bridge does not know this key. On the desktop, run gnomish-relay setup, then type /reload." A bad tag has no app, so only the relay body counts it.
 
 `Live.lua` carries the progress and the permission requests (9.3, S20), and `Restore.lua` the restore bundle (7.6, S18).
 Later fields (the session and the denied rules) go into a file of their own, or need an approved change of S9. The notifications of section 10 ride in `Live.lua`, with the restatement of S20 (10.3).
@@ -858,13 +865,14 @@ The fuzz target `markdown` checks the same shape, escapes, and size bound on the
 
 **Poll schedule after a send:** the addon loads a slot at 5, 10, 16, 24, 34, 46, 60, 80, 100, 130, 160, 200, 240, and 300 seconds.
 Then it loads one every 60 seconds until the reply is done.
+While a run of the relay works (a `working` record), the relay loads one every 15 seconds. A permission popup waits for a poll, so it comes at most 15 seconds late, not 60. Activity shows "Next check in 12 s".
 With no message pending, it loads one slot every 10 minutes, for the status light. With notifications on and a terminal session open, it loads one every 3 minutes, and every 60 seconds while a terminal turn runs (10.4).
 A signal (7.4) makes the addon load a slot at once.
 
-**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). The polls for notifications cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
+**Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). A working run costs 4 slots a minute, so the slots of a UI session last about 4 hours of agent work, and "Reload soon" covers the rest. The polls for notifications cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
 The window never shows the slot count. `/relay diag` shows it.
-Below 20 free slots, the window shows "Reload soon" with a **Reload** button, and the next click on **Send** or on the window does the `/reload` first.
-`ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat, and never on a key press that the user did not aim at the window.
+Below 20 free slots, the window shows "Reload soon" with a **Reload** button. Only a click on **Reload** reloads. A reload from Enter took the game away for seconds with no warning, so Send never reloads.
+`ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat.
 The chat history is in the saved variables, so a `/reload` keeps it.
 
 ### 7.4 Signals
@@ -888,7 +896,7 @@ The addon checks a signal every 2 seconds with `PlaySoundFile` on a muted channe
 - Rule 5 in 7.2 makes each signal one-shot until the game restarts. After the message ids wrap past 200, a signal can already be valid. The addon treats an unexpected "valid" as unreliable and uses the poll schedule.
 - `presence` and `note` are counters. The bridge keeps 50 files ahead of the counter empty. The counters live in `state.json`. `presence` wraps after about 16 hours.
 - **Self-test:** at login, the addon plays `ctl/empty` and `ctl/valid`. If `ctl/empty` plays, or `ctl/valid` does not, signals are off for this session. The addon then uses slot polls only.
-- **Status light:** with presence signals, 90 seconds of silence means "stale" and 300 seconds means "down". Without them, the addon spends one slot every 10 minutes, and the limits are 12 and 22 minutes.
+- **Status light:** with presence signals, 90 seconds of silence means "stale" and 300 seconds means "down". Without them, the addon reads the `now` of each body that it loads. The bridge writes a body at least every 60 seconds. So a body older than 150 seconds at its poll means "offline", at once. A body 90 to 150 seconds old missed a heartbeat, and the light says "slow". A player who sends a message then learns within 5 seconds that the bridge stopped. With no body for 12 minutes, the light is offline too.
 
 Total file count for slots and signals: about 17,000.
 
@@ -897,7 +905,7 @@ Total file count for slots and signals: about 17,000.
 The addon uses the reload fallback when the strip gets no acknowledgment, the pool is empty, or the slots are missing.
 
 1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store. A frame counts only if the key of the app whose saved variables hold it signed it (9.7, decision 3).
-2. The addon asks the user to press a key. `ReloadUI` needs a hardware event, and the key catcher stays off in combat.
+2. The window shows "Press Reload to send 1 message." with a **Reload** button. `ReloadUI` needs a hardware event, and a click is one. The button does nothing in combat.
 3. WoW writes the saved variables file at reload.
 4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (checks the modification time every 250 ms).
 5. The bridge writes the reply into `GnomishRelay/Inbox.lua`. The main addon reads it at the next reload.
@@ -953,10 +961,10 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 
 **Self-test and health report.**
 
-- At login, the addon makes sure that each client function it needs exists (`Health.Required`). If one is missing, it shows one line, "Gnomish Relay: this game version has no <name>. The relay is off.", and starts nothing.
+- At login, the addon makes sure that each client function it needs exists (`Health.Required`). If one is missing, it shows one line, "Gnomish Relay: this game version has no <name>. The relay is off. On the desktop, run gnomish-relay update.", and starts nothing.
 - The first hello strip and the first poll test the two channels. `SCREENSHOT_SUCCEEDED` or `SCREENSHOT_FAILED` gives the result of each shot, and `LoadAddOn` gives the result of each slot.
 - Each strip carries the client build and the last result of each channel: `build=<number>`, `out=shot|fail`, and `in=slots|missing`.
-- When a channel starts to fail, the addon shows one line: "Gnomish Relay: screenshots are blocked." or "Gnomish Relay: slots are missing. Run gnomish-relay install with the game closed." The window shows the same state in the bridge light.
+- When a channel starts to fail, the addon shows one line: "Gnomish Relay: screenshots are blocked. Check the free disk space and the Screenshots folder, then type /reload." or "Gnomish Relay: slots are missing. Run gnomish-relay install with the game closed." The window shows the same state in the bridge light.
 - `/relay diag` shows the build and the last success of each channel. `gnomish-relay doctor` comes later.
 - Today each direction has one channel. A move to the next channel of the table comes with the second channel.
 
@@ -1543,7 +1551,7 @@ The script builds `timeways-story` and `timeways-pack` into `target/timeways`, s
 
 ### 9.9 Choose the folder of a chat
 
-A new chat starts in `default_cwd`. The folder in the chat header is a button. A click opens the folder browser in the center of the window (13.1). The browser shows a tree of the folders inside `allowed_roots`.
+A new chat starts in `default_cwd`, and the folder browser opens at once. The default folder often holds all the projects, and an agent there works on the wrong one, so the player picks the folder first. Escape keeps `default_cwd`. The folder in the chat header is a button. A click opens the folder browser in the center of the window (13.1). The browser shows a tree of the folders inside `allowed_roots`.
 
 **The request.** Each time the browser opens, the addon sends a `list=folders` record of the chat `folders`. The browser shows the last tree at once, and a small spinner turns until the new tree comes. The bridge walks the roots in a thread, off the main loop (`folder_walk.rs`), and answers with the tree (`folder_list.rs`).
 
@@ -1865,7 +1873,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - At each start, the bridge writes `Key.lua` again if it is missing, and the addon files again if their version differs. An addon app such as CurseForge can replace the folder, and a `/reload` then loads the files.
 - At each start, the bridge also writes the Timeways `Key.lua` again when it is missing or old, and only that file. It never makes a Timeways key: that is the job of setup.
 - With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay".
-- With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running."
+- With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart."
 - Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude needs a login. Run: claude"), not as the first reply in the game.
 - `gnomish-relay status` prints one line for each part, with the next step when it does not work: whether the bridge runs (the lock of 8.4), the time of the last strip that the bridge took (`last-strip` in the data folder), whether the config loads (with the TOML error and its line), the sandbox, and the default agent with its version or its login. It also says when the program of the default agent is not on the `PATH` of the login service. The logic is in `status.rs`, and `crates/bridge/tests/status.rs` tests it with the fake agents.
 - `gnomish-relay help`, `--help`, and `-h` print the usage on stdout and exit with success. An unknown command prints it as an error.
@@ -2024,18 +2032,21 @@ The window follows the classic Guild & Communities frame, and uses the built-in 
 The mockup is the reference for the layout.
 
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
+- **Size:** a grip at the bottom-right corner resizes the window, from 900 × 560 up to the size of the screen. The saved variables keep the size. The transcript, the input, and the Settings and Diag pages grow with the window. The chat column and the Activity column keep their width. The transcript draws again at the end of a resize, not during it.
+- **Bridge light:** at the right of the title bar, so every tab shows it: a dot and a label. "Checking the bridge" in grey until the first poll, "Bridge online" in green, "Bridge slow" in amber, and "Bridge offline" in red (7.4). A channel problem (7.8) or a version mismatch (7.7) shows here in red too.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
-- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. The last tiles are "Start a New Chat" and "Resume". A new chat starts in the default folder, and its center shows the empty transcript. Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**.
-- **Center:** a dropdown for the agent and the permission mode, the folder button, and the bridge light. The folder button shows a small folder icon, the folder of the chat, and a dropdown arrow. It turns gold on hover. A click opens the folder browser of 9.9 in place of the transcript, and the input stays. A second click, a choice, or Escape in the filter closes it. Below them, the transcript on a black background: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. The mouse wheel scrolls it, and a new entry scrolls it to the bottom.
+- **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. An orange "?" marks a chat whose permission popup waits for the player. The last tiles are "Start a New Chat" and "Resume". When the tiles do not fit in the column, the mouse wheel scrolls them, and a new chat scrolls to the end. A new chat opens the folder browser in the center (9.9). Escape closes it, and the chat keeps the default folder. Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**. The question is a dialog of the game (`StaticPopupDialogs`), so it has the border of the game, and Escape closes it.
+- **Center:** a dropdown for the agent and the permission mode, and the folder button. The folder button shows a small folder icon, the folder of the chat, and a dropdown arrow. It turns gold on hover. A click opens the folder browser of 9.9 in place of the transcript, and the input stays. A second click, a choice, or Escape in the filter closes it. Below them, the transcript on a black background: `[You]: text` and `[Claude]: text`. The text is white. Only the name has a color: the user in blue, each agent in its own color. A sent message with no final reply shows its delivery state in grey at its right: "Sending...", "Retry 2 of 3" at the second show of its strip (7.1.1), "Delivered" once a body holds its record, and "Needs reload" while it waits in the outbox (7.5). The state goes when the reply comes. The mouse wheel scrolls it, and a new entry scrolls it to the bottom. A new entry draws below the others, and the old entries stay as they are. The whole chat draws again only when the chat, the font size, or the width changes, or when the history drops its first entry.
 - **Replies:** a rendered reply (7.3.1) shows its blocks below the name.
   - Headings, paragraphs, list items, and quotes go into one SimpleHTML frame, with real sizes for `h1` to `h3`, and a bullet or the number before each item.
   - Code shows in a black box in the shipped mono font (13.2).
   - A table is a grid of font strings with a gold header row. A table with more than 8 columns, or too wide for the transcript, shows each row as a card: the first cell in gold, and each other cell below it with the name of its column.
   - If anything fails while a reply draws, it shows as plain text.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
-- **Input:** one empty line, with no label and no hint text. Enter sends. The limit is 3200 characters.
-- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details.
-- **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
+- **Errors:** an error comes from the relay, not from the agent. So it shows as a grey line `[Relay]: Not sent. Send it again.`, never under the name of the agent. Below it, a blue "Put the text back" link puts the text of its message back in the input, with the focus. Enter then sends it again. The link never sends by itself, so the player sees each text that goes out (6.6.1).
+- **Input:** one line, with no label. While it is empty and has no focus, it shows a grey hint: "Type a task. Enter sends." Enter sends, empties the line, and clears the focus, so the keys of the game work again. The limit is the room of one strip: a payload of 3200 bytes (7.1), less the other fields of the record and 440 bytes for the report. That leaves about 2600 bytes of text. With fewer than 400 bytes left, a small counter above the right end says "100 bytes left", and past the limit it says "5 bytes too many" in red.
+- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for you: approve in popup" in orange: the run makes no progress then. At the bottom, a grey line gives the time to the next poll: "Next check in 12 s". The cast bar and this line change at most 5 times a second.
+- **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. The window stays on screen with its tabs: the clamp of the window counts the tabs as part of it. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
   - **New Chats:** Agent, a dropdown of the agents in the settings list (13.4), and Level, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Max: <level> (set on the desktop)", the level of the chosen agent in the config.
   - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
@@ -2088,7 +2099,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 - `OnStatus` gets each record of a known message, also `working`. `OnOther` gets each record of no known message, and its result says whether the addon reports it as read (the session list of the relay).
 - `Control(chat, id, flags)` sends a record once, and starts a strip. `Riders` are records that go only with a strip that goes out anyway, for example the `d` records of the relay. A rider that started a strip would start one every second while the bridge is off. `d` is a coding flag (9.7, decision 6), so the deletes stay in `Transport.lua`.
 - `OnPoll(restore, live)` gets the other files of each slot. `Awaits` keeps the fast poll schedule while the app waits for a reply that is not a message.
-- `PollEvery` gives the seconds to the next poll while the app waits for something off the schedule, or nil. The default is nil, so Timeways does not change. The relay gives 5 while a desktop request waits (6.6.3).
+- `PollEvery` gives the seconds to the next poll while the app waits for something off the schedule, or nil. The default is nil, so Timeways does not change. The relay gives 5 while a desktop request waits (6.6.3), and 15 while a run works (7.3).
 - The title of the app starts each line of `Health.lua`, and `helloChat` is the chat of a hello.
 
 The folder also holds `JetBrainsMono-Regular.ttf`, the mono font of code boxes, with its license in `JetBrainsMono-OFL.txt` (SIL Open Font License 1.1). Setup installs both.
@@ -2102,7 +2113,7 @@ They also check the SHA code against both kinds of `bit` results: unsigned as in
 
 The folder also holds `Bindings.xml`, the key binding of 13.1. The game reads it from the folder by itself, so the TOC does not list it.
 
-**Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place of the window, and the agent and level of new chats. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
+**Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place and the size of the window, and the agent and level of new chats. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
 
 Still to come: the agent dropdown in the header, and the emblem texture.
 
@@ -2201,7 +2212,7 @@ The implementer and an advisor agent chose these (2026-09-26).
 8. **A settings list, not a new slot file.** It is one more list in its own chat, as `list=folders`. Some values hold tabs, so a line splits at its first tab only.
 9. **The addon asks for the list only when a tab opens and the list is old**, and at a click on the status line, because each ask costs a strip.
 10. **The Level dropdown has no `full-auto`.** The config caps every level anyway (S6), so this only keeps the page honest.
-11. **Own dropdowns.** A button and a list of choices, with no dropdown API of the client, so a client patch cannot break them.
+11. **Own dropdowns.** A button and a list of choices, with no dropdown API of the client, so a client patch cannot break them. An open list closes with its page and at a click outside it (`GLOBAL_MOUSE_DOWN`), as a menu of the game does.
 12. **The reply line setting does not stop the line of a desktop request**, the only notice of that request in the game.
 
 ## 14. Verification and tests

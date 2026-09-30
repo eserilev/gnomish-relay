@@ -26,11 +26,14 @@ return {
 		"PlaySound",
 		"ReloadUI",
 		"SOUNDKIT",
+		"SOUNDKIT.READY_CHECK",
 		"SOUNDKIT.TELL_MESSAGE",
 		"Screenshot",
 		"SetCVar",
 		"SetItemRef",
 		"SlashCmdList",
+		"StaticPopupDialogs",
+		"StaticPopup_Show",
 		"UIErrorsFrame",
 		"UIParent",
 		"UISpecialFrames",
@@ -1572,6 +1575,22 @@ return {
 		},
 	},
 	templates = {
+		DialogBorderDarkTemplate = {
+			base = "Frame",
+			names = {
+				"Bg",
+				"GetBorderColor",
+				"GetCenterColor",
+				"GetFrameLayoutTextureKit",
+				"GetFrameLayoutType",
+				"OnLoad",
+				"SetBlendMode",
+				"SetBorderBlendMode",
+				"SetBorderColor",
+				"SetCenterColor",
+				"SetVertexColor",
+			},
+		},
 		InputBoxTemplate = {
 			base = "EditBox",
 			names = {

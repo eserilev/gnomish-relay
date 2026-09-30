@@ -198,9 +198,10 @@ impl Game {
         self.strip(self.shots())
     }
 
-    /// Puts a body into every slot, as the bridge does.
+    /// Puts a body into every slot, as the bridge does, with the time of the game.
     fn publish(&self, replies: &[Reply]) {
-        let body = slot_body(App::Relay, 1_790_211_079, &prepare_replies(replies));
+        let now = u32::try_from(self.run("return time()").as_integer().unwrap()).unwrap();
+        let body = slot_body(App::Relay, now, &prepare_replies(replies));
         self.wow
             .set("body", self.lua.create_string(body).unwrap())
             .unwrap();
@@ -404,8 +405,14 @@ fn an_unacknowledged_message_goes_to_the_outbox_as_a_signed_frame() {
     }
 }
 
+fn banner(game: &Game) -> String {
+    game.run("return GnomishRelayBanner:IsShown() and GnomishRelayBannerText:GetText() or ''")
+        .as_string_lossy()
+        .unwrap()
+}
+
 #[test]
-fn a_send_with_few_slots_left_reloads_but_never_in_combat() {
+fn a_send_with_few_slots_left_never_reloads_and_the_banner_asks_for_a_reload() {
     let low = |wow: &Table| {
         let loaded: Table = wow.get("loaded").unwrap();
         for n in 1..=985 {
@@ -413,13 +420,21 @@ fn a_send_with_few_slots_left_reloads_but_never_in_combat() {
         }
     };
     let game = Game::start_with(low);
-    game.send("one");
-    assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 1);
-
-    let game = Game::start_with(low);
-    game.wow.set("combat", true).unwrap();
+    game.run("local ns = ... ns.Window.Open()");
     game.send("one");
     assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 0);
+    assert_eq!(banner(&game), "Reload soon");
+}
+
+#[test]
+fn a_message_in_the_outbox_asks_for_a_click_on_reload() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("anyone there?");
+    game.advance(130.0);
+    game.send("and a second one");
+    assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 0);
+    assert_eq!(banner(&game), "Press Reload to send 1 message.");
 }
 
 #[test]
@@ -538,6 +553,204 @@ fn the_window_shows_the_transcript_with_code_and_safe_pipes() {
 }
 
 #[test]
+fn a_new_entry_draws_below_the_old_ones_and_leaves_them_as_they_are() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("first");
+    let first = transcript(&game).remove(0).object;
+    let drawn_at: i64 = first.get("textAt").unwrap();
+    game.advance(1.0);
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        "ok",
+    )]);
+    game.advance(5.0);
+
+    let drawn = transcript(&game);
+    assert_eq!(
+        texts(&drawn),
+        ["|cff69ccf0[You]|r: first", "|cffff7d0a[Claude]|r: ok"]
+    );
+    assert_eq!(drawn[0].object, first);
+    assert_eq!(
+        first.get::<i64>("textAt").unwrap(),
+        drawn_at,
+        "no second draw"
+    );
+}
+
+fn delivery(game: &Game) -> Vec<String> {
+    let states = [
+        "Sending...",
+        "Retry 2 of 3",
+        "Retry 3 of 3",
+        "Delivered",
+        "Needs reload",
+    ];
+    texts(&transcript(game))
+        .into_iter()
+        .filter(|t| states.iter().any(|s| t.contains(s)))
+        .collect()
+}
+
+#[test]
+fn a_sent_message_shows_its_delivery_state_until_the_reply_comes() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("are you there?");
+    assert_eq!(delivery(&game), ["|cff9d9d9dSending...|r"]);
+
+    game.advance(50.0);
+    assert_eq!(delivery(&game), ["|cff9d9d9dRetry 2 of 3|r"]);
+
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(delivery(&game), ["|cff9d9d9dDelivered|r"]);
+
+    game.publish(&[reply(&game.chat_id(), id, Status::Done, "yes")]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(delivery(&game).is_empty());
+}
+
+#[test]
+fn a_message_in_the_outbox_shows_that_it_needs_a_reload() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("anyone?");
+    game.advance(130.0);
+    assert_eq!(delivery(&game), ["|cff9d9d9dNeeds reload|r"]);
+}
+
+fn tile_name(game: &Game, slot: usize) -> Option<String> {
+    game.run(&format!(
+        "local t = GnomishRelayTile{slot} return t and t:IsShown() and t.name:GetText() or nil"
+    ))
+    .as_string_lossy()
+}
+
+#[test]
+fn the_mouse_wheel_scrolls_a_chat_list_longer_than_the_column() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open() for _ = 1, 12 do ns.Window.NewChat() end");
+    assert_eq!(
+        tile_name(&game, 1).as_deref(),
+        Some("Chat 7"),
+        "a new chat scrolls to the end"
+    );
+    assert_eq!(tile_name(&game, 8).as_deref(), Some("|cff1eff00Resume|r"));
+    assert_eq!(tile_name(&game, 9), None, "8 tiles fit in the column");
+
+    game.run(
+        "for _ = 1, 10 do GnomishRelayChats:GetScript('OnMouseWheel')(GnomishRelayChats, 1) end",
+    );
+
+    assert_eq!(tile_name(&game, 1).as_deref(), Some("Chat 1"));
+    assert_eq!(tile_name(&game, 8).as_deref(), Some("Chat 8"));
+}
+
+#[test]
+fn the_side_tabs_count_as_part_of_the_window_when_it_is_kept_on_screen() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    let insets: Vec<f64> = game
+        .run("return GnomishRelayFrame.clampInsets")
+        .as_table()
+        .unwrap()
+        .sequence_values()
+        .map(Result::unwrap)
+        .collect();
+    let tab: Table = game.lua.globals().get("GnomishRelayTab1").unwrap();
+    let tab_width: f64 = tab.get("width").unwrap();
+    assert_eq!(insets, [0.0, tab_width, 0.0, 0.0]);
+}
+
+/// The label and the color of the dot of the bridge light in the title bar.
+fn bridge_light(game: &Game) -> (String, Vec<f64>) {
+    let text = game
+        .run("return GnomishRelayBridgeText:GetText()")
+        .as_string_lossy()
+        .unwrap();
+    let dot: Table = game.lua.globals().get("GnomishRelayBridgeDot").unwrap();
+    (text, dot.get("color").unwrap())
+}
+
+#[test]
+fn the_title_bar_shows_the_bridge_light_on_every_tab() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open() ns.Window.ShowTab('diag')");
+    assert_eq!(bridge_light(&game).0, "|cff9d9d9dChecking the bridge|r");
+
+    game.publish(&[]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(
+        bridge_light(&game),
+        ("|cff1eff00Bridge online|r".into(), vec![0.1, 1.0, 0.0])
+    );
+
+    game.advance(100.0);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(
+        bridge_light(&game),
+        ("|cffffb000Bridge slow|r".into(), vec![1.0, 0.7, 0.0])
+    );
+
+    game.advance(60.0);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(
+        bridge_light(&game),
+        ("|cffff2020Bridge offline|r".into(), vec![1.0, 0.1, 0.1])
+    );
+}
+
+fn size_of(game: &Game, name: &str) -> (i64, i64) {
+    let frame: Table = game.lua.globals().get(name).unwrap();
+    (frame.get("width").unwrap(), frame.get("height").unwrap())
+}
+
+#[test]
+fn the_grip_resizes_the_window_within_bounds_and_the_size_stays_after_a_reload() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    let bounds: Vec<i64> = game
+        .run("return GnomishRelayFrame.resizeBounds")
+        .as_table()
+        .unwrap()
+        .sequence_values()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(bounds[..2], [900, 560], "the first size is the least");
+
+    game.run(
+        "GnomishRelayFrame:SetSize(1200, 700) \
+         GnomishRelayResizeGrip:GetScript('OnMouseUp')(GnomishRelayResizeGrip)",
+    );
+    assert_eq!(size_of(&game, "GnomishRelayTranscript").0, 1200 - 900 + 456);
+
+    let game = game.reload();
+    game.run("local ns = ... ns.Window.Open()");
+    assert_eq!(size_of(&game, "GnomishRelayFrame"), (1200, 700));
+    assert_eq!(size_of(&game, "GnomishRelayTranscript").0, 756);
+}
+
+#[test]
+fn a_new_chat_opens_the_folder_browser_first() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+
+    game.run("GnomishRelayTile1:Click()");
+
+    assert!(
+        game.run("local ns = ... return ns.Browser.IsOpen()")
+            .as_boolean()
+            .unwrap()
+    );
+    assert_eq!(chat_count(&game), 1);
+}
+
+#[test]
 fn a_click_on_the_whisper_link_opens_that_chat() {
     let game = Game::start();
     game.send("hi");
@@ -625,6 +838,80 @@ fn a_message_too_long_for_a_strip_stays_in_the_box_and_starts_no_screenshots() {
 }
 
 #[test]
+fn enter_sends_and_gives_the_keys_back_to_the_game() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.run("GnomishRelayInput:SetFocus() GnomishRelayInput:SetText('run the tests')");
+
+    game.run("GnomishRelayInput:GetScript('OnEnterPressed')(GnomishRelayInput)");
+
+    assert!(first_message_id(&game) > 0);
+    assert!(
+        !game
+            .run("return GnomishRelayInput:HasFocus()")
+            .as_boolean()
+            .unwrap()
+    );
+    assert_eq!(
+        game.run("return GnomishRelayInput:GetText()")
+            .as_string_lossy()
+            .unwrap(),
+        ""
+    );
+}
+
+fn shown_text(game: &Game, name: &str) -> Option<String> {
+    game.run(&format!(
+        "return {name}:IsShown() and {name}:GetText() or nil"
+    ))
+    .as_string_lossy()
+}
+
+#[test]
+fn the_empty_input_shows_a_hint_until_it_has_the_focus_or_a_text() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    let hint = |game: &Game| shown_text(game, "GnomishRelayInputHint");
+    assert_eq!(hint(&game).as_deref(), Some("Type a task. Enter sends."));
+
+    game.run("GnomishRelayInput:SetFocus()");
+    assert_eq!(hint(&game), None);
+    game.run("GnomishRelayInput:ClearFocus()");
+    assert!(hint(&game).is_some());
+    game.run("GnomishRelayInput:SetText('x')");
+    assert_eq!(hint(&game), None);
+}
+
+#[test]
+fn the_input_counts_the_bytes_left_near_the_limit_of_one_strip() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open() ns.Window.NewChat()");
+    let room = game
+        .run("local ns = ... return ns.Transport.Room(ns.Window.SelectedChat())")
+        .as_integer()
+        .unwrap();
+    let count = |game: &Game, len: i64| {
+        game.run(&format!("GnomishRelayInput:SetText(('x'):rep({len}))"));
+        shown_text(game, "GnomishRelayInputCount")
+    };
+
+    assert_eq!(count(&game, 10), None);
+    assert_eq!(count(&game, room - 100).as_deref(), Some("100 bytes left"));
+    assert_eq!(
+        count(&game, room + 5).as_deref(),
+        Some("|cffff20205 bytes too many|r")
+    );
+    assert!(
+        game.run(&format!(
+            "local ns = ... return ns.Transport.Send(ns.Window.SelectedChat(), ('x'):rep({room})) ~= nil"
+        ))
+        .as_boolean()
+        .unwrap(),
+        "a text of exactly the room fits"
+    );
+}
+
+#[test]
 fn a_change_to_saved_data_after_a_send_does_not_change_the_strip() {
     let game = Game::start();
     game.send("the real task");
@@ -670,9 +957,31 @@ fn an_outbox_frame_that_the_bridge_never_takes_asks_to_be_sent_again() {
     game.send("stuck in the outbox");
     let game = game.reload();
     game.advance(300.0);
+    assert_eq!(last_entry(&game).get::<String>("text").unwrap(), BRIDGE_OFF);
+}
+
+#[test]
+fn a_message_that_was_not_sent_shows_a_relay_line_and_can_put_its_text_back() {
+    let game = Game::start();
+    game.send("stuck in the outbox");
+    let game = game.reload();
+    game.run("local ns = ... ns.Window.Open()");
+    game.advance(300.0);
+
+    let lines = texts(&transcript(&game));
     assert_eq!(
-        last_entry(&game).get::<String>("text").unwrap(),
-        "Not sent. Send it again."
+        lines[1],
+        format!("|cff9d9d9d[Relay]: {BRIDGE_OFF}|r"),
+        "{lines:?}"
+    );
+    assert_eq!(lines[2], "|cff69ccf0Put the text back|r");
+    game.run("GnomishRelayPutBack1:Click()");
+    let input: Table = game.lua.globals().get("GnomishRelayInput").unwrap();
+    assert_eq!(input.get::<String>("text").unwrap(), "stuck in the outbox");
+    assert!(
+        game.run("return GnomishRelayInput:HasFocus()")
+            .as_boolean()
+            .unwrap()
     );
 }
 
@@ -682,11 +991,67 @@ fn a_stored_frame_too_old_at_login_asks_to_be_sent_again() {
     game.send("sent before a long break");
     game.advance(1.0);
     let game = game.reload_after(300);
+    game.publish(&[]);
+    game.run("local ns = ... ns.Transport.Poll()");
     game.advance(2.0);
     assert_eq!(
         last_entry(&game).get::<String>("text").unwrap(),
         "Not sent. Send it again."
     );
+}
+
+const BRIDGE_OFF: &str =
+    "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart.";
+
+#[test]
+fn a_message_given_up_while_the_bridge_is_off_says_how_to_start_it() {
+    let game = Game::start();
+    game.send("nobody home");
+    game.advance(1.0);
+    let game = game.reload_after(300);
+    game.advance(2.0);
+    assert_eq!(last_entry(&game).get::<String>("text").unwrap(), BRIDGE_OFF);
+}
+
+#[test]
+fn a_message_given_up_while_the_bridge_sees_bad_tags_says_to_run_setup() {
+    let game = Game::start();
+    game.send("signed with an old key");
+    game.advance(1.0);
+    let game = game.reload_after(300);
+    let now = u32::try_from(game.run("return time()").as_integer().unwrap()).unwrap();
+    let body = bridge::slots::with_bad_tags(slot_body(App::Relay, now, &[]), App::Relay, 2);
+    game.wow
+        .set("body", game.lua.create_string(body).unwrap())
+        .unwrap();
+    game.run("local ns = ... ns.Transport.Poll()");
+    game.advance(2.0);
+    assert_eq!(
+        last_entry(&game).get::<String>("text").unwrap(),
+        "Not sent: the bridge does not know this key. \
+         On the desktop, run gnomish-relay setup, then type /reload."
+    );
+}
+
+fn online(game: &Game) -> bool {
+    game.run("local ns = ... return ns.Transport.Online()")
+        .as_boolean()
+        .unwrap()
+}
+
+#[test]
+fn a_body_older_than_150_seconds_at_its_poll_shows_the_bridge_offline() {
+    let game = Game::start();
+    game.publish(&[]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(online(&game));
+
+    game.advance(149.0);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(online(&game), "a body 149 s old is fresh");
+    game.advance(2.0);
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(!online(&game), "a body 151 s old means the bridge stopped");
 }
 
 #[test]
@@ -714,6 +1079,50 @@ fn with_no_message_open_the_addon_polls_every_ten_minutes() {
     assert_eq!(loaded_slots(&game), after_login);
     game.advance(20.0);
     assert_eq!(loaded_slots(&game), after_login + 1);
+}
+
+#[test]
+fn the_first_strip_ever_explains_the_colored_bar_once() {
+    let game = Game::start();
+    game.advance(3.0);
+    let explained = |game: &Game| {
+        game.printed()
+            .iter()
+            .filter(|l| l.contains("colored bar"))
+            .count()
+    };
+    assert_eq!(explained(&game), 1);
+
+    game.send("more strips");
+    game.advance(3.0);
+    let game = game.reload();
+    game.advance(3.0);
+    assert_eq!(explained(&game), 0, "the saved variables remember it");
+}
+
+#[test]
+fn a_list_request_waits_for_the_end_of_combat_but_a_message_does_not() {
+    let game = Game::start();
+    game.advance(5.0);
+    let shots = game.shots();
+    game.wow.set("combat", true).unwrap();
+
+    game.run("local ns = ... ns.Transport.ListSessions()");
+    game.advance(5.0);
+    assert_eq!(game.shots(), shots, "no strip in combat for a list");
+
+    game.send("fix it now");
+    game.advance(2.0);
+    assert_eq!(game.shots(), shots + 1, "a message goes at once");
+
+    game.wow.set("combat", false).unwrap();
+    game.advance(2.0);
+    assert!(
+        (shots + 1..=game.shots())
+            .flat_map(|n| game.strip(n))
+            .any(|r| flags(&r).contains(&"list".into())),
+        "the list goes after combat"
+    );
 }
 
 #[test]
@@ -1017,7 +1426,27 @@ fn a_desktop_wait_polls_every_five_seconds_and_stops_after_24_polls() {
         fast, 23,
         "24 polls in all while the request waits: {gaps:?}"
     );
-    assert_eq!(gaps[fast], 60, "then the normal schedule: {gaps:?}");
+    assert_eq!(gaps[fast], 15, "then the polls of a working run: {gaps:?}");
+}
+
+#[test]
+fn a_working_run_polls_every_fifteen_seconds_and_activity_shows_the_next_check() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("a long job");
+    game.advance(1.0);
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    game.advance(400.0);
+
+    let gaps = poll_gaps(&game, 120);
+
+    assert!(gaps.iter().all(|g| *g == 15), "{gaps:?}");
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.iter().any(|t| t.starts_with("Next check in ")),
+        "{texts:?}"
+    );
 }
 
 /// The records of the last strip, read by the bridge from its screenshot.
@@ -1100,6 +1529,174 @@ fn ask(game: &Game, text: &str) {
 }
 
 #[test]
+fn a_chat_that_waits_for_a_popup_answer_says_so_in_activity_and_on_its_tile() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("clean up");
+    game.advance(1.0);
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Working,
+        "",
+    )]);
+    ask(&game, "rm -rf build");
+
+    assert_eq!(tile_mark(&game), "|cffff9f40?|r");
+    assert_eq!(
+        game.run("return GnomishRelayCast.text:GetText()")
+            .as_string_lossy()
+            .unwrap(),
+        "|cffff9f40Waiting for you: approve in popup|r"
+    );
+
+    click_popup(&game, 1);
+    assert_eq!(tile_mark(&game), "...");
+}
+
+fn tile_mark(game: &Game) -> String {
+    game.run("return GnomishRelayTile1.mark:GetText()")
+        .as_string_lossy()
+        .unwrap()
+}
+
+/// A new popup takes no click in its first second, so the player waits it out first.
+fn click_popup(game: &Game, button: usize) {
+    game.advance(1.0);
+    game.run(&format!("GnomishRelayPopupButton{button}:Click()"));
+}
+
+#[test]
+fn a_new_popup_takes_no_click_in_its_first_second() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+
+    game.run("GnomishRelayPopupButton1:Click()");
+    assert!(
+        game.run("local ns = ... return ns.Transport.Request() ~= nil")
+            .as_boolean()
+            .unwrap()
+    );
+
+    game.advance(1.0);
+    game.run("GnomishRelayPopupButton1:Click()");
+    assert!(
+        game.run("local ns = ... return ns.Transport.Request() == nil")
+            .as_boolean()
+            .unwrap()
+    );
+}
+
+#[test]
+fn reject_sits_at_the_left_and_the_allow_buttons_at_the_right() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+
+    let point = |n: usize| {
+        game.run(&format!("return (GnomishRelayPopupButton{n}:GetPoint())"))
+            .as_string_lossy()
+            .unwrap()
+    };
+    assert_eq!(point(2), "BOTTOMLEFT", "the reject option");
+    assert_eq!(point(1), "BOTTOMRIGHT", "the allow option");
+}
+
+#[test]
+fn a_new_popup_plays_the_ready_check_sound_once() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+    game.run("local ns = ... ns.Popup.Refresh() ns.Popup.Refresh()");
+
+    let sounds: Vec<i64> = game.wow.get("sounds").unwrap();
+    assert_eq!(sounds.iter().filter(|s| **s == 8960).count(), 1);
+}
+
+#[test]
+fn a_popup_says_how_many_requests_wait() {
+    let game = Game::start();
+    game.send("clean up");
+    let first = request(&game, "rm -rf build");
+    let second = LiveRequest {
+        request: b"p9z8y".to_vec(),
+        ..request(&game, "rm -rf dist")
+    };
+    game.wow
+        .set(
+            "live",
+            game.lua.create_string(live(&[], &[first, second])).unwrap(),
+        )
+        .unwrap();
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(
+        shown_text(&game, "GnomishRelayPopupCount").as_deref(),
+        Some("1 of 2")
+    );
+    click_popup(&game, 1);
+    assert_eq!(shown_text(&game, "GnomishRelayPopupCount"), None);
+}
+
+fn popup_height(game: &Game) -> f64 {
+    let popup: Table = game.lua.globals().get("GnomishRelayPopup").unwrap();
+    popup.get("height").unwrap()
+}
+
+#[test]
+fn the_popup_grows_with_its_text_and_shows_the_command_in_the_mono_font() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+    let short = popup_height(&game);
+
+    let long: Vec<String> = (0..20).map(|n| format!("step {n}")).collect();
+    let file = live(
+        &[],
+        &[LiveRequest {
+            request: b"p9z8y".to_vec(),
+            ..request(&game, &long.join("\n"))
+        }],
+    );
+    game.wow
+        .set("live", game.lua.create_string(file).unwrap())
+        .unwrap();
+    click_popup(&game, 1);
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert!(
+        popup_height(&game) >= short + 19.0 * 14.0,
+        "{short} {}",
+        popup_height(&game)
+    );
+    let text: Table = game.lua.globals().get("GnomishRelayPopupText").unwrap();
+    assert_eq!(
+        text.get::<String>("font").unwrap(),
+        "Interface\\AddOns\\GnomishRelay\\JetBrainsMono-Regular.ttf"
+    );
+}
+
+#[test]
+fn the_popup_has_the_dialog_border_of_the_game() {
+    let game = Game::start();
+    game.send("clean up");
+    ask(&game, "rm -rf build");
+
+    let popup: Table = game.lua.globals().get("GnomishRelayPopup").unwrap();
+    let frames: Table = game.wow.get("frames").unwrap();
+    let border = frames
+        .sequence_values::<Table>()
+        .map(Result::unwrap)
+        .any(|f| {
+            f.get::<Option<String>>("template").unwrap().as_deref()
+                == Some("DialogBorderDarkTemplate")
+                && f.get::<Table>("parent").is_ok_and(|p| p == popup)
+        });
+    assert!(border);
+}
+
+#[test]
 fn a_permission_request_shows_the_honest_text_and_buttons_by_kind() {
     let game = Game::start();
     game.send("clean up");
@@ -1128,7 +1725,7 @@ fn a_click_sends_the_answer_with_the_hash_of_the_text_once() {
     let text = "rm -rf build\nthe agent says: clean the build";
     ask(&game, text);
     let shots = game.shots();
-    game.run("GnomishRelayPopupButton1:Click()");
+    click_popup(&game, 1);
     game.advance(5.0);
 
     let expected = format!("perm=p1a2b:o1:{}", text_hash(text.as_bytes()));
@@ -1219,7 +1816,7 @@ fn always_sends_the_hash_of_the_text_and_the_rule_line_and_whispers_the_rule() {
     ask_always(&game, text);
     let shots = game.shots();
 
-    game.run("GnomishRelayPopupButton2:Click()");
+    click_popup(&game, 2);
     game.advance(5.0);
 
     let shown = format!("{text}\n{RULE_LINE}");
@@ -1240,7 +1837,7 @@ fn allow_once_next_to_always_adds_no_rule_line() {
     ask_always(&game, text);
     let shots = game.shots();
 
-    game.run("GnomishRelayPopupButton1:Click()");
+    click_popup(&game, 1);
     game.advance(5.0);
 
     let expected = format!("perm=p1a2b:o1:{}", text_hash(text.as_bytes()));
@@ -1285,7 +1882,7 @@ fn the_bridge_takes_the_always_click_of_the_game() {
         .unwrap();
     game.run("local ns = ... ns.Transport.Poll()");
 
-    game.run("GnomishRelayPopupButton2:Click()");
+    click_popup(&game, 2);
     game.advance(1.0);
     relay.on_frame(&records_of_last_shot(&game, now), now);
 
@@ -1403,7 +2000,7 @@ fn an_always_click_marks_the_settings_list_old_so_the_next_tab_asks_again() {
     click(&game, "GnomishRelayTab1");
     game.send("test it");
     ask_always(&game, "cargo test");
-    game.run("GnomishRelayPopupButton2:Click()");
+    click_popup(&game, 2);
     game.advance(2.0);
     let before = game.shots();
 
@@ -1501,7 +2098,7 @@ fn a_client_without_a_required_function_turns_the_relay_off() {
     game.fire("PLAYER_LOGIN", ());
     assert!(
         game.printed().contains(
-            &"Gnomish Relay: this game version has no Screenshot. The relay is off.".into()
+            &"Gnomish Relay: this game version has no Screenshot. The relay is off. On the desktop, run gnomish-relay update.".into()
         ),
         "{:?}",
         game.printed()
@@ -1553,7 +2150,7 @@ fn blocked_screenshots_show_one_line_and_mark_the_window() {
     let blocked = game
         .printed()
         .iter()
-        .filter(|l| *l == "Gnomish Relay: screenshots are blocked.")
+        .filter(|l| *l == "Gnomish Relay: screenshots are blocked. Check the free disk space and the Screenshots folder, then type /reload.")
         .count();
     assert_eq!(blocked, 1);
     let problem: String = game
@@ -1578,16 +2175,14 @@ fn an_addon_with_no_key_asks_for_setup() {
     );
 }
 
+const SILENT_LINE: &str =
+    "Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart.";
+
 #[test]
 fn a_silent_bridge_shows_one_line_a_minute_after_login() {
     let game = Game::start();
     game.advance(59.0);
-    let silent = |game: &Game| {
-        game.printed()
-            .iter()
-            .filter(|l| *l == "Gnomish Relay: bridge not running.")
-            .count()
-    };
+    let silent = |game: &Game| game.printed().iter().filter(|l| *l == SILENT_LINE).count();
     assert_eq!(silent(&game), 0);
     game.advance(120.0);
     assert_eq!(silent(&game), 1);
@@ -1598,12 +2193,7 @@ fn a_bridge_that_answers_gets_no_line() {
     let game = Game::start();
     game.publish(&[]);
     game.advance(120.0);
-    assert!(
-        !game
-            .printed()
-            .iter()
-            .any(|l| l == "Gnomish Relay: bridge not running.")
-    );
+    assert!(!game.printed().iter().any(|l| l == SILENT_LINE));
 }
 
 #[test]
@@ -1644,6 +2234,22 @@ fn chat_count(game: &Game) -> usize {
     game.db().get::<Table>("chats").unwrap().raw_len()
 }
 
+/// The text of the open dialog of the game, or nil.
+fn dialog(game: &Game) -> Option<String> {
+    game.wow
+        .get::<Option<Table>>("dialog")
+        .unwrap()
+        .map(|d| d.get("text").unwrap())
+}
+
+fn press_in_dialog(game: &Game, button: &str) {
+    game.wow
+        .get::<Function>("PressInDialog")
+        .unwrap()
+        .call::<()>(button)
+        .unwrap();
+}
+
 #[test]
 fn a_right_click_and_delete_removes_the_chat_and_tells_the_bridge() {
     let game = Game::start();
@@ -1655,9 +2261,8 @@ fn a_right_click_and_delete_removes_the_chat_and_tells_the_bridge() {
     game.advance(5.0);
 
     right_click(&game, "GnomishRelayTile1");
-    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
-    assert!(confirm.get::<bool>("shown").unwrap());
-    game.run("GnomishRelayConfirmDelete:Click()");
+    assert_eq!(dialog(&game).as_deref(), Some("Delete \"Chat 1\"?"));
+    press_in_dialog(&game, "button1");
     game.advance(1.0);
 
     assert_eq!(chat_count(&game), 0);
@@ -1676,11 +2281,23 @@ fn cancel_keeps_the_chat() {
     game.send("hi");
 
     right_click(&game, "GnomishRelayTile1");
-    game.run("GnomishRelayConfirmCancel:Click()");
+    press_in_dialog(&game, "button2");
 
     assert_eq!(chat_count(&game), 1);
-    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
-    assert!(!confirm.get::<bool>("shown").unwrap());
+    assert_eq!(dialog(&game), None);
+}
+
+#[test]
+fn escape_closes_the_delete_question_and_keeps_the_chat() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+
+    right_click(&game, "GnomishRelayTile1");
+    press_in_dialog(&game, "escape");
+
+    assert_eq!(chat_count(&game), 1);
+    assert_eq!(dialog(&game), None);
 }
 
 #[test]
@@ -1690,8 +2307,7 @@ fn a_right_click_on_new_chat_asks_nothing() {
 
     right_click(&game, "GnomishRelayTile1");
 
-    let confirm: Table = game.lua.globals().get("GnomishRelayConfirm").unwrap();
-    assert!(!confirm.get::<bool>("shown").unwrap());
+    assert_eq!(dialog(&game), None);
 }
 
 #[test]
@@ -1897,9 +2513,11 @@ const TREE: &str = "~/Code\n0\t~/Code\t\n1\tPersonal\t\n1\tscratch\t\n2\tgnomish
 
 const NEW_FOLDER_ROW: &str = "|cff9fe39fNew folder|r";
 
+/// A new chat opens the folder browser. Escape closes it and keeps the default folder.
 fn click_new_chat(game: &Game) {
     game.run("local ns = ... ns.Window.Open()");
     game.run(&format!("GnomishRelayTile{}:Click()", chat_count(game) + 1));
+    game.run("GnomishRelayBrowserFilter:GetScript('OnEscapePressed')(GnomishRelayBrowserFilter)");
 }
 
 /// Clicks the folder button, and answers the folder list request with `tree`.
@@ -1951,11 +2569,13 @@ fn crumbs(game: &Game) -> Vec<String> {
         .collect()
 }
 
+/// The record of the message `text` in the newest strip that holds it.
 fn sent_by_chat(game: &Game, text: &[u8]) -> Record {
-    game.last_strip()
-        .into_iter()
+    (1..=game.shots())
+        .rev()
+        .flat_map(|n| game.strip(n))
         .find(|r| r.text == text)
-        .expect("the message in the last strip")
+        .expect("the message in a strip")
 }
 
 fn header_folder(game: &Game) -> String {
@@ -1973,19 +2593,13 @@ fn chat_field(game: &Game, chat: usize, field: &str) -> String {
 }
 
 #[test]
-fn new_chat_starts_in_the_default_folder_with_its_transcript_and_sends_no_request() {
+fn escape_in_the_browser_of_a_new_chat_keeps_the_default_folder_and_its_transcript() {
     let game = Game::start();
     game.advance(2.0);
-    let before = game.shots();
 
     click_new_chat(&game);
     game.advance(2.0);
 
-    let requests = (before + 1..=game.shots())
-        .flat_map(|n| game.strip(n))
-        .filter(|r| r.chat == b"folders")
-        .count();
-    assert_eq!(requests, 0, "no folder list request");
     assert!(!shown(&game, "GnomishRelayBrowser"));
     assert!(shown(&game, "GnomishRelayTranscript"));
     game.send("hi");
@@ -2576,7 +3190,11 @@ fn an_error_that_looks_rendered_shows_as_plain_text() {
 
     let drawn = transcript(&game);
     assert!(of_kind(&drawn, "SimpleHTML").is_empty());
-    assert!(texts(&drawn).last().unwrap().contains("||cffff0000fake"));
+    assert!(
+        texts(&drawn)
+            .iter()
+            .any(|t| t.starts_with("|cff9d9d9d[Relay]: ") && t.contains("||cffff0000fake"))
+    );
 }
 
 /// The settings list of a bridge with two agents, as the bridge writes it.
@@ -2699,6 +3317,32 @@ fn settings_asks_for_the_list_only_when_it_is_old_and_on_a_click_on_the_status()
     );
 }
 
+fn level_list_shown(game: &Game) -> bool {
+    game.run("return GnomishRelaySettingsLevelList:IsShown()")
+        .as_boolean()
+        .unwrap()
+}
+
+#[test]
+fn a_dropdown_list_closes_when_its_page_hides_and_at_a_click_outside() {
+    let game = Game::start();
+    open_tab(&game, SETTINGS);
+    game.run("GnomishRelaySettingsLevel:Click()");
+    assert!(level_list_shown(&game));
+
+    game.run("local ns = ... ns.Window.ShowTab('diag')");
+    open_tab(&game, SETTINGS);
+    assert!(!level_list_shown(&game), "the list closes with its page");
+
+    game.run("GnomishRelaySettingsLevel:Click()");
+    game.run("GnomishRelaySettingsLevelList.mouseOver = true");
+    game.fire("GLOBAL_MOUSE_DOWN", "LeftButton");
+    assert!(level_list_shown(&game), "a click in the list keeps it");
+    game.run("GnomishRelaySettingsLevelList.mouseOver = false");
+    game.fire("GLOBAL_MOUSE_DOWN", "LeftButton");
+    assert!(!level_list_shown(&game), "a click outside closes it");
+}
+
 #[test]
 fn the_status_line_shows_the_age_of_the_list_and_the_state_of_the_bridge() {
     let game = Game::start();
@@ -2718,7 +3362,8 @@ fn the_status_line_shows_the_age_of_the_list_and_the_state_of_the_bridge() {
     );
 
     game.advance(500.0);
-    game.run("local ns = ... ns.Window.Refresh()");
+    game.publish(&[reply("settings", 99, Status::Done, &settings_text(false))]);
+    game.run("local ns = ... ns.Transport.Poll() ns.Window.Refresh()");
     assert_eq!(
         text_of(&game, "GnomishRelaySettingsStatus.text:GetText()"),
         "|cffff9f40Online · 10m ago|r",
@@ -2756,9 +3401,9 @@ fn a_new_chat_takes_the_agent_and_level_that_settings_chose() {
     );
     click_new_chat(&game);
     game.send("hi");
-    game.advance(1.0);
+    game.advance(3.0);
 
-    let f = flags(&game.last_strip()[0]);
+    let f = flags(&sent_by_chat(&game, b"hi"));
     assert!(
         f.contains(&"agent=codex".into()) && f.contains(&"level=ask".into()),
         "{f:?}"
@@ -2772,9 +3417,9 @@ fn a_chosen_agent_that_the_bridge_no_longer_has_gives_the_default_agent() {
     open_settings_with_list(&game, false);
     click_new_chat(&game);
     game.send("hi");
-    game.advance(1.0);
+    game.advance(3.0);
 
-    let f = flags(&game.last_strip()[0]);
+    let f = flags(&sent_by_chat(&game, b"hi"));
     assert!(f.contains(&"agent=claude".into()), "{f:?}");
 }
 

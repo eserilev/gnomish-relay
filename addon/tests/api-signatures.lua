@@ -94,6 +94,12 @@ return {
 		Screenshot = {},
 	},
 	methods = {
+		["DurationTextBindingObjectAPI:SetEnabled"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "enabled", Type = "bool", Nilable = false },
+			},
+		},
 		["FrameAPICharacterModelBase:SetRotation"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
@@ -247,12 +253,34 @@ return {
 				{ Name = "buttons", Type = "ClickButton", Nilable = false, StrideIndex = 1 },
 			},
 		},
+		["SimpleButtonAPI:SetEnabled"] = {
+			IsProtectedFunction = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretArgumentsAddAspect = { Enum.SecretAspect.ButtonState },
+			Arguments = {
+				{ Name = "enabled", Type = "bool", Nilable = false, Default = false },
+			},
+		},
 		["SimpleButtonAPI:SetHighlightTexture"] = {
 			CheckAllowChangeParent = true,
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
 				{ Name = "asset", Type = "TextureAsset", Nilable = false },
 				{ Name = "blendMode", Type = "BlendMode", Nilable = true },
+			},
+		},
+		["SimpleButtonAPI:SetNormalTexture"] = {
+			CheckAllowChangeParent = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "asset", Type = "TextureAsset", Nilable = false },
+			},
+		},
+		["SimpleButtonAPI:SetPushedTexture"] = {
+			CheckAllowChangeParent = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "asset", Type = "TextureAsset", Nilable = false },
 			},
 		},
 		["SimpleButtonAPI:SetText"] = {
@@ -285,10 +313,23 @@ return {
 				{ Name = "text", Type = "cstring", Nilable = false },
 			},
 		},
+		["SimpleEditBoxAPI:HasFocus"] = {
+			ChecksForbiddenAspects = { { Argument = "self", Aspect = Enum.ForbiddenAspect.QueryFocus } },
+			Arguments = {},
+			Returns = {
+				{ Name = "hasFocus", Type = "bool", Nilable = false },
+			},
+		},
 		["SimpleEditBoxAPI:SetAutoFocus"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
 				{ Name = "autoFocus", Type = "bool", Nilable = false, Default = false },
+			},
+		},
+		["SimpleEditBoxAPI:SetEnabled"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "enabled", Type = "bool", Nilable = false, Default = false },
 			},
 		},
 		["SimpleEditBoxAPI:SetFocus"] = {
@@ -518,6 +559,16 @@ return {
 				{ Name = "alpha", Type = "SingleColorValue", Nilable = false },
 			},
 		},
+		["SimpleFrameAPI:SetClampRectInsets"] = {
+			IsProtectedFunction = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "left", Type = "uiUnit", Nilable = false },
+				{ Name = "right", Type = "uiUnit", Nilable = false },
+				{ Name = "top", Type = "uiUnit", Nilable = false },
+				{ Name = "bottom", Type = "uiUnit", Nilable = false },
+			},
+		},
 		["SimpleFrameAPI:SetClampedToScreen"] = {
 			IsProtectedFunction = true,
 			SecretArguments = "NotAllowed",
@@ -553,6 +604,21 @@ return {
 				{ Name = "movable", Type = "bool", Nilable = false },
 			},
 		},
+		["SimpleFrameAPI:SetResizable"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "resizable", Type = "bool", Nilable = false },
+			},
+		},
+		["SimpleFrameAPI:SetResizeBounds"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "minWidth", Type = "uiUnit", Nilable = false },
+				{ Name = "minHeight", Type = "uiUnit", Nilable = false },
+				{ Name = "maxWidth", Type = "uiUnit", Nilable = true },
+				{ Name = "maxHeight", Type = "uiUnit", Nilable = true },
+			},
+		},
 		["SimpleFrameAPI:SetScale"] = {
 			IsProtectedFunction = true,
 			SecretArguments = "AllowedWhenUntainted",
@@ -578,6 +644,14 @@ return {
 		["SimpleFrameAPI:Show"] = {
 			IsProtectedFunction = true,
 			Arguments = {},
+		},
+		["SimpleFrameAPI:StartSizing"] = {
+			IsProtectedFunction = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "resizePoint", Type = "FramePoint", Nilable = true },
+				{ Name = "alwaysStartFromMouse", Type = "bool", Nilable = false, Default = false },
+			},
 		},
 		["SimpleFrameAPI:StopMovingOrSizing"] = {
 			IsProtectedFunction = true,
@@ -714,6 +788,17 @@ return {
 				{ Name = "enable", Type = "bool", Nilable = false, Default = false },
 			},
 		},
+		["SimpleScriptRegionAPI:GetHeight"] = {
+			ConstSecretAccessor = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretWhenAnchoringSecret = true,
+			Arguments = {
+				{ Name = "ignoreRect", Type = "bool", Nilable = false, Default = false },
+			},
+			Returns = {
+				{ Name = "height", Type = "uiUnit", Nilable = false },
+			},
+		},
 		["SimpleScriptRegionAPI:GetWidth"] = {
 			ConstSecretAccessor = true,
 			SecretArguments = "AllowedWhenUntainted",
@@ -739,6 +824,20 @@ return {
 			},
 			Returns = {
 				{ Name = "success", Type = "bool", Nilable = false },
+			},
+		},
+		["SimpleScriptRegionAPI:IsMouseOver"] = {
+			ConstSecretAccessor = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretWhenAnchoringSecret = true,
+			Arguments = {
+				{ Name = "offsetTop", Type = "uiUnit", Nilable = false, Default = 0 },
+				{ Name = "offsetBottom", Type = "uiUnit", Nilable = false, Default = 0 },
+				{ Name = "offsetLeft", Type = "uiUnit", Nilable = false, Default = 0 },
+				{ Name = "offsetRight", Type = "uiUnit", Nilable = false, Default = 0 },
+			},
+			Returns = {
+				{ Name = "isMouseOver", Type = "bool", Nilable = false },
 			},
 		},
 		["SimpleScriptRegionAPI:IsShown"] = {
@@ -854,6 +953,12 @@ return {
 				{ Name = "offset", Type = "uiUnit", Nilable = false },
 			},
 		},
+		["SimpleSliderAPI:SetEnabled"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "enabled", Type = "bool", Nilable = false },
+			},
+		},
 		["SimpleSliderAPI:SetMinMaxValues"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
@@ -954,6 +1059,12 @@ return {
 			Payload = {
 				{ Name = "addOnName", Type = "cstring", Nilable = false },
 				{ Name = "containsBindings", Type = "bool", Nilable = false },
+			},
+		},
+		GLOBAL_MOUSE_DOWN = {
+			SynchronousEvent = true,
+			Payload = {
+				{ Name = "button", Type = "cstring", Nilable = false },
 			},
 		},
 		PLAYER_LOGIN = {

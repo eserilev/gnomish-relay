@@ -34,7 +34,7 @@ use crate::vectors::is_test_strip;
 use crate::versions::update_text;
 
 const TICK: Duration = Duration::from_millis(250);
-/// The addon calls the bridge offline after 12 minutes without a new body.
+/// The addon calls the bridge offline when the body it loads is older than 150 s.
 const HEARTBEAT: Duration = Duration::from_mins(1);
 /// The folder of the Timeways state, inside the data folder (SPEC.md 9.7, decision 4).
 pub const TIMEWAYS_DIR: &str = "timeways";
@@ -132,6 +132,9 @@ struct RelayLane {
     raises: RaiseGuard,
     /// The answer to a settings list, with the levels of the relay.
     settings: BridgeSettings,
+    /// Strips with a bad tag since the last good relay strip. The game shows a key
+    /// mismatch only through this count.
+    bad_tags: u32,
 }
 
 /// The Timeways app: its lane and its files. Its messages go to the story program, and
@@ -252,11 +255,15 @@ impl Bridge {
             Ok(routed) => routed,
             Err(reason) => {
                 log(&format!("strip rejected: {reason:?}"));
+                self.count_bad_tag(&reason);
                 return StripOutcome::Rejected(reason);
             }
         };
         match (app, &mut self.relay, &mut self.timeways) {
-            (App::Relay, Some(relay), _) => relay.take_records(&records, "strip"),
+            (App::Relay, Some(relay), _) => {
+                relay.bad_tags = 0;
+                relay.take_records(&records, "strip");
+            }
             (App::Timeways, _, Some(timeways)) => timeways.take_records(&records, "strip"),
             // `KeySet` routes to Timeways only with a Timeways key, and that key makes the lane.
             (App::Relay, None, _) | (App::Timeways, _, None) => {
@@ -303,6 +310,16 @@ fn deleted_line(outcome: &StripOutcome) -> Option<&'static str> {
     }
 }
 
+impl Bridge {
+    /// No key checks a bad tag, so the app is unknown. Only the relay has a way to show it.
+    fn count_bad_tag(&mut self, reason: &Rejected) {
+        if let (Rejected::BadTag, Some(relay)) = (reason, &mut self.relay) {
+            relay.bad_tags += 1;
+            relay.files.changed = true;
+        }
+    }
+}
+
 impl RelayLane {
     fn open(paths: &Paths, policy: Policy, agents: Agents) -> Result<RelayLane> {
         let walk = repo_walk(&policy, paths);
@@ -326,6 +343,7 @@ impl RelayLane {
             raiser: None,
             raises: RaiseGuard::default(),
             settings: BridgeSettings::default(),
+            bad_tags: 0,
         })
     }
 
@@ -610,7 +628,7 @@ impl RelayLane {
     /// A failed publish waits for the next heartbeat, so it does not log every tick.
     fn publish(&mut self, addons: &Path) {
         let files = Files {
-            body: self.relay.body(now()),
+            body: slots::with_bad_tags(self.relay.body(now()), App::Relay, self.bad_tags),
             restore: self.relay.restore_file(),
             live: self.relay.live_file(),
         };

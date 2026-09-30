@@ -157,7 +157,16 @@ function methods:Show()
 end
 
 function methods:Hide()
+	local was = self.shown
 	self.shown = false
+	if was and self.scripts.OnHide then
+		self.scripts.OnHide(self)
+	end
+end
+
+-- A test puts the mouse over an object with `mouseOver = true`.
+function methods:IsMouseOver()
+	return self.mouseOver == true
 end
 
 function methods:SetShown(shown)
@@ -231,6 +240,14 @@ function methods:GetPoint()
 	end
 end
 
+function methods:SetResizeBounds(minWidth, minHeight, maxWidth, maxHeight)
+	self.resizeBounds = { minWidth, minHeight, maxWidth, maxHeight }
+end
+
+function methods:SetClampRectInsets(left, right, top, bottom)
+	self.clampInsets = { left, right, top, bottom }
+end
+
 function methods:SetChecked(checked)
 	self.checked = checked and true or false
 end
@@ -250,14 +267,27 @@ function methods:SetText(text)
 	end
 end
 
--- One edit box at a time has the keyboard.
+local function RunScript(o, name)
+	if o and o.scripts[name] then
+		o.scripts[name](o)
+	end
+end
+
+-- One edit box at a time has the keyboard. A change of focus runs the focus scripts.
 function methods:SetFocus()
+	if wow.focus == self then
+		return
+	end
+	local old = wow.focus
 	wow.focus = self
+	RunScript(old, "OnEditFocusLost")
+	RunScript(self, "OnEditFocusGained")
 end
 
 function methods:ClearFocus()
 	if wow.focus == self then
 		wow.focus = nil
+		RunScript(self, "OnEditFocusLost")
 	end
 end
 
@@ -521,7 +551,7 @@ GameTooltip = New("GameTooltip", "GameTooltip")
 UIErrorsFrame = New("MessageFrame", "UIErrorsFrame")
 ActionStatus = New("Frame", "ActionStatus")
 UISpecialFrames = {}
-SOUNDKIT = { TELL_MESSAGE = 3081 }
+SOUNDKIT = { TELL_MESSAGE = 3081, READY_CHECK = 8960 }
 ChatFontNormal, GameFontNormal = {}, {}
 SlashCmdList = {}
 
@@ -626,6 +656,28 @@ function Screenshot()
 		C_Timer.After(0, Capture)
 	end
 	C_Timer.After(wow.shotDelay, Saved)
+end
+
+-- The dialogs of the game. One shows at a time: `wow.dialog` holds it.
+StaticPopupDialogs = {}
+
+function StaticPopup_Show(which, arg1, arg2, data)
+	local info = StaticPopupDialogs[which]
+	wow.dialog = { which = which, text = info.text:format(arg1, arg2), data = data, info = info }
+	return wow.dialog
+end
+
+-- `button` is "button1", "button2", or "escape", as the player presses it.
+function wow.PressInDialog(button)
+	local dialog = wow.dialog
+	wow.dialog = nil
+	if button == "button1" and dialog.info.OnAccept then
+		dialog.info.OnAccept(dialog, dialog.data)
+	elseif button == "button2" and dialog.info.OnCancel then
+		dialog.info.OnCancel(dialog, dialog.data)
+	elseif button == "escape" and not dialog.info.hideOnEscape then
+		wow.dialog = dialog
+	end
 end
 
 C_Timer = {}

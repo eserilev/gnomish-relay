@@ -5,14 +5,23 @@ local _, ns = ...
 local Window = {}
 ns.Window = Window
 
+-- The least size. The grip makes the window bigger, up to the size of the screen.
 local WIDTH, HEIGHT = 900, 560
+local GRIP = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-"
 local SIDE = 200
 local TILE_HEIGHT = 48
+local TAB_WIDTH = 74
 local STEP_ROWS = 14
+-- The cast bar text changes at most this often, in seconds.
+local CAST_UPDATE = 0.2
 local PICK_ROWS = 20
 local PICK_ROW_HEIGHT = 19
 local GREEN = "1eff00"
-local MAX_INPUT = 3000
+local ORANGE = "ff9f40"
+-- The text of a message is only part of a strip, so Room() is the real limit.
+local MAX_INPUT = 3200
+-- The input counts the bytes left only near the limit.
+local COUNT_FROM = 400
 local EMBLEM = "Interface\\Icons\\INV_Misc_Wrench_01"
 local FOLDER_ICON = "Interface\\Icons\\INV_Misc_Bag_10"
 local ARROW = "Interface\\ChatFrame\\UI-ChatIcon-ScrollDown-Up"
@@ -50,12 +59,17 @@ local function Select(chatId)
 	Window.Refresh()
 end
 
-local function Inset(parent, left, top, width, bottom)
-	local inset = CreateFrame("Frame", nil, parent, "InsetFrameTemplate")
+local function Inset(parent, left, top, width, bottom, name)
+	local inset = CreateFrame("Frame", name, parent, "InsetFrameTemplate")
 	inset:SetPoint("TOPLEFT", parent, "TOPLEFT", left, top)
 	inset:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", left, bottom)
 	inset:SetWidth(width)
 	return inset
+end
+
+-- The inset keeps `right` from the right edge of the window, so it grows with the window.
+local function Stretch(inset, right, top)
+	inset:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -right, top)
 end
 
 local function Label(parent, font, point, x, y)
@@ -120,7 +134,9 @@ local function ShowTile(index, chat, selected)
 		tile.name:SetText(ns.Relay.Plain(chat.name))
 		tile.agent:SetText(ns.Relay.AgentName(chat.agent))
 		local mark = ""
-		if chat.unread then
+		if ns.Transport.WaitsForAnswer(chat.id) then
+			mark = "|cff" .. ORANGE .. "?|r"
+		elseif chat.unread then
 			mark = "!"
 		elseif ns.Transport.Working(chat.id) then
 			mark = "..."
@@ -139,21 +155,55 @@ local function ShowTile(index, chat, selected)
 	tile:Show()
 end
 
+-- The column is 90 less than the window: 60 above it and 30 below.
+local function TileRows()
+	return math.floor((frame:GetHeight() - 90 - 12) / (TILE_HEIGHT + 4))
+end
+
+-- The column shows the tiles from `ui.tileOffset` on: the chats, New Chat, and Resume.
 local function RefreshTiles(current)
 	local chats = ns.Store.Chats()
 	local chatsTab = ui.tab == "chats" and not ui.picking
-	for i, chat in ipairs(chats) do
-		ShowTile(i, chat, chatsTab and current and chat.id == current.id)
-	end
-	ShowTile(#chats + 1, nil, false)
-	ShowResumeTile(#chats + 2)
-	for i = #chats + 3, #tiles do
-		tiles[i]:Hide()
+	local rows = TileRows()
+	ui.tileOffset = math.max(0, math.min(ui.tileOffset or 0, #chats + 2 - rows))
+	for slot = 1, math.max(rows, #tiles) do
+		local i = ui.tileOffset + slot
+		local chat = chats[i]
+		if slot > rows or i > #chats + 2 then
+			Tile(slot):Hide()
+		elseif chat then
+			ShowTile(slot, chat, chatsTab and current and chat.id == current.id)
+		elseif i == #chats + 1 then
+			ShowTile(slot, nil, false)
+		else
+			ShowResumeTile(slot)
+		end
 	end
 end
 
 local function Elapsed(seconds)
 	return string.format("%d:%02d", math.floor(seconds / 60), math.floor(seconds % 60))
+end
+
+-- Replies come only at a poll, so the player sees when the next one is.
+local function UpdateCast(chat)
+	local working = chat and ns.Transport.Working(chat.id)
+	ui.nextCheck:SetShown(working ~= nil)
+	if not working then
+		return
+	end
+	-- A run that waits for the player makes no progress, so the bar stands still.
+	if ns.Transport.WaitsForAnswer(chat.id) then
+		ui.cast:SetStatusBarColor(0.3, 0.3, 0.3)
+		ui.cast:SetValue(1)
+		ui.cast.text:SetText("|cff" .. ORANGE .. "Waiting for you: approve in popup|r")
+	else
+		local elapsed = GetTime() - working.since
+		ui.cast:SetStatusBarColor(1, 0.7, 0)
+		ui.cast:SetValue(elapsed % 10 / 10)
+		ui.cast.text:SetText("Tinkering " .. Elapsed(elapsed))
+	end
+	ui.nextCheck:SetText(string.format("Next check in %d s", math.ceil(ns.Transport.NextPollIn())))
 end
 
 local function RefreshActivity(chat)
@@ -168,6 +218,17 @@ local function RefreshActivity(chat)
 		row.text:SetText(step and ns.Relay.Plain(step) or "")
 		row:SetShown(step ~= nil)
 	end
+	UpdateCast(chat)
+end
+
+-- Only a click on Reload reloads. A reload from Enter took the game away with no warning.
+local function BannerText(waiting)
+	if waiting == 1 then
+		return "Press Reload to send 1 message."
+	elseif waiting > 1 then
+		return string.format("Press Reload to send %d messages.", waiting)
+	end
+	return "Reload soon"
 end
 
 local function RefreshStatus(chat)
@@ -183,21 +244,26 @@ local function RefreshStatus(chat)
 		ui.agent:SetText("")
 	end
 	ui.folderButton:SetShown(chat ~= nil)
-	local problem = ns.Transport.Problem()
-	if problem == "missing" then
-		ui.bridge:SetText("|cffff2020Slots missing|r")
-	elseif problem == "blocked" then
-		ui.bridge:SetText("|cffff2020Screenshots blocked|r")
-	elseif problem == "mismatch" then
-		ui.bridge:SetText("|cffff2020Update the bridge|r")
-	elseif ns.Transport.Online() then
-		ui.bridge:SetText("|cff1eff00Bridge online|r")
-	else
-		ui.bridge:SetText("|cff9d9d9dBridge offline|r")
-	end
-	local outbox = #ns.Store.db.outbox > 0
 	ui.banner:SetShown(ns.Transport.NeedsReload())
-	ui.bannerText:SetText(outbox and "Reload to send" or "Reload soon")
+	ui.bannerText:SetText(BannerText(#ns.Store.db.outbox))
+end
+
+-- The color of the text, the color of the dot, and the text of each state of the bridge.
+local LIGHTS = {
+	checking = { "9d9d9d", { 0.6, 0.6, 0.6 }, "Checking the bridge" },
+	online = { "1eff00", { 0.1, 1, 0 }, "Bridge online" },
+	slow = { "ffb000", { 1, 0.7, 0 }, "Bridge slow" },
+	offline = { "ff2020", { 1, 0.1, 0.1 }, "Bridge offline" },
+	missing = { "ff2020", { 1, 0.1, 0.1 }, "Slots missing" },
+	blocked = { "ff2020", { 1, 0.1, 0.1 }, "Screenshots blocked" },
+	mismatch = { "ff2020", { 1, 0.1, 0.1 }, "Update the bridge" },
+}
+
+-- The light is in the title bar, so every tab shows it.
+local function RefreshBridge()
+	local light = LIGHTS[ns.Transport.Problem() or ns.Transport.Bridge()]
+	ui.bridge:SetText(string.format("|cff%s%s|r", light[1], light[3]))
+	ui.bridgeDot:SetColorTexture(light[2][1], light[2][2], light[2][3], 1)
 end
 
 local function Age(seconds)
@@ -309,6 +375,7 @@ function Window.Refresh()
 		return
 	end
 	local chat = Selected()
+	RefreshBridge()
 	RefreshTiles(chat)
 	RefreshTabs()
 	RefreshPages()
@@ -350,10 +417,17 @@ function Window.ResetPosition()
 	end
 end
 
--- The chat starts in the default folder. The folder button changes it (SPEC.md 9.9).
+-- The default folder often holds all the projects, so a new chat asks for its folder
+-- first (SPEC.md 9.9). Escape keeps the default folder.
 function Window.NewChat()
 	local chat = ns.Store.NewChat()
-	Select(chat.id)
+	-- The new tile is at the end of the column. RefreshTiles clamps the offset.
+	ui.tileOffset = math.huge
+	MarkSelected(chat.id)
+	ui.tab = "chats"
+	ui.picking = false
+	ns.Browser.Open(chat)
+	Window.Refresh()
 end
 
 Window.SelectedChat = Selected
@@ -413,11 +487,14 @@ function Window.Send(text)
 		return false
 	end
 	Window.Refresh()
-	-- A click or Enter is a hardware event, the only time ReloadUI is allowed.
-	if ns.Transport.NeedsReload() and not InCombatLockdown() then
-		ReloadUI()
-	end
 	return true
+end
+
+function Window.PutBack(text)
+	if ui.input then
+		ui.input:SetText(text)
+		ui.input:SetFocus()
+	end
 end
 
 -- Rows of a picker: a click calls `choose` with the row that the button shows.
@@ -469,20 +546,50 @@ local function BuildFolderButton(x)
 	ui.folderButton = button
 end
 
+local function RefreshInputHelp()
+	local text = ui.input:GetText() or ""
+	ui.hint:SetShown(text == "" and not ui.input:HasFocus())
+	local chat = Selected()
+	local left = chat and ns.Transport.Room(chat) - #text
+	ui.count:SetShown(left ~= nil and left < COUNT_FROM)
+	if left and left < 0 then
+		ui.count:SetText(string.format("|cffff2020%d bytes too many|r", -left))
+	elseif left then
+		ui.count:SetText(string.format("%d bytes left", left))
+	end
+end
+
+local function BuildInputHelp()
+	ui.hint = ui.input:CreateFontString("GnomishRelayInputHint", "OVERLAY", "GameFontDisable")
+	ui.hint:SetPoint("LEFT", ui.input, "LEFT", 2, 0)
+	ui.hint:SetText("Type a task. Enter sends.")
+	ui.count = ui.input:CreateFontString("GnomishRelayInputCount", "OVERLAY", "GameFontDisableSmall")
+	ui.count:SetPoint("BOTTOMRIGHT", ui.input, "TOPRIGHT", 0, 2)
+	ui.count:Hide()
+	ui.input:SetScript("OnTextChanged", RefreshInputHelp)
+	ui.input:SetScript("OnEditFocusGained", RefreshInputHelp)
+	ui.input:SetScript("OnEditFocusLost", RefreshInputHelp)
+end
+
+-- The transcript is the center inset less 8 at each side and 6 at the top and bottom.
+local function TranscriptSize()
+	return frame:GetWidth() - 2 * SIDE - 28 - 16, frame:GetHeight() - 84 - 72 - 12
+end
+
 local function BuildCenter()
 	local left = SIDE + 14
 	local width = WIDTH - 2 * SIDE - 28
 
 	ui.agent = Label(frame, "GameFontNormal", "TOPLEFT", left, -64)
 	BuildFolderButton(left + 170)
-	ui.bridge = Label(frame, "GameFontNormalSmall", "TOPRIGHT", -SIDE - 14, -66)
 
 	local log = Inset(frame, left, -84, width, 72)
+	Stretch(log, left, -84)
 	ui.log = log
-	-- The inset is HEIGHT - 84 - 72 high, less 6 at the top and the bottom.
-	ns.Transcript.Build(log, width - 16, HEIGHT - 84 - 72 - 12)
+	ns.Transcript.Build(log, TranscriptSize())
 
 	ui.picker = Inset(frame, left, -84, width, 16)
+	Stretch(ui.picker, left, -84)
 	ui.pickNote = ui.picker:CreateFontString("GnomishRelayPickNote", "OVERLAY", "GameFontDisable")
 	ui.pickNote:SetPoint("TOPLEFT", ui.picker, "TOPLEFT", 12, -12)
 	ui.pickRows = PickRows(ui.picker, "GnomishRelayPick", width, Window.Resume)
@@ -495,10 +602,11 @@ local function BuildCenter()
 
 	ns.Browser.Build(frame, left, width, 72)
 
-	ui.banner = CreateFrame("Frame", nil, frame)
+	ui.banner = CreateFrame("Frame", "GnomishRelayBanner", frame)
 	ui.banner:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left, 44)
 	ui.banner:SetSize(width, 24)
-	ui.bannerText = Label(ui.banner, "GameFontNormal", "LEFT", 6, 0)
+	ui.bannerText = ui.banner:CreateFontString("GnomishRelayBannerText", "OVERLAY", "GameFontNormal")
+	ui.bannerText:SetPoint("LEFT", ui.banner, "LEFT", 6, 0)
 	local reload = CreateFrame("Button", nil, ui.banner, "UIPanelButtonTemplate")
 	reload:SetSize(90, 22)
 	reload:SetPoint("RIGHT", ui.banner, "RIGHT", 0, 0)
@@ -512,7 +620,8 @@ local function BuildCenter()
 
 	ui.input = CreateFrame("EditBox", "GnomishRelayInput", frame, "InputBoxTemplate")
 	ui.input:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left + 6, 16)
-	ui.input:SetSize(width - 6, 24)
+	ui.input:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 16)
+	ui.input:SetHeight(24)
 	ui.input:SetAutoFocus(false)
 	ui.input:SetMaxBytes(MAX_INPUT)
 	ui.input:SetFont(BODY_FONT, ns.Store.db.fontSize, "")
@@ -521,12 +630,15 @@ local function BuildCenter()
 		if text == "" then
 			self:ClearFocus()
 		elseif Window.Send(text) then
+			-- The game gets its keys back, so a move key after a send moves the player.
 			self:SetText("")
+			self:ClearFocus()
 		end
 	end)
 	ui.input:SetScript("OnEscapePressed", function(self)
 		self:ClearFocus()
 	end)
+	BuildInputHelp()
 end
 
 local function ShowStepTooltip(row)
@@ -538,12 +650,15 @@ local function ShowStepTooltip(row)
 end
 
 local function BuildActivity()
-	local panel = Inset(frame, WIDTH - SIDE - 6, -84, SIDE, 44)
+	local panel = CreateFrame("Frame", nil, frame, "InsetFrameTemplate")
+	panel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -84)
+	panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -6, 44)
+	panel:SetWidth(SIDE)
 	local title = Label(frame, "GameFontNormal", "TOPRIGHT", -SIDE + 60, -64)
 	title:SetText("Activity")
 	ui.activity = { panel, title }
 
-	ui.cast = CreateFrame("StatusBar", nil, panel)
+	ui.cast = CreateFrame("StatusBar", "GnomishRelayCast", panel)
 	ui.cast:SetPoint("TOPLEFT", panel, "TOPLEFT", 8, -8)
 	ui.cast:SetPoint("TOPRIGHT", panel, "TOPRIGHT", -8, -8)
 	ui.cast:SetHeight(16)
@@ -551,13 +666,12 @@ local function BuildActivity()
 	ui.cast:SetStatusBarColor(1, 0.7, 0)
 	ui.cast:SetMinMaxValues(0, 1)
 	ui.cast.text = Label(ui.cast, "GameFontHighlightSmall", "CENTER", 0, 0)
-	ui.cast:SetScript("OnUpdate", function(self)
-		local chat = Selected()
-		local working = chat and ns.Transport.Working(chat.id)
-		if working then
-			local elapsed = GetTime() - working.since
-			self:SetValue(elapsed % 10 / 10)
-			self.text:SetText("Tinkering " .. Elapsed(elapsed))
+	ui.nextCheck = Label(panel, "GameFontDisableSmall", "BOTTOMLEFT", 8, 8)
+	ui.cast:SetScript("OnUpdate", function(self, elapsed)
+		self.wait = (self.wait or 0) - elapsed
+		if self.wait <= 0 then
+			self.wait = CAST_UPDATE
+			UpdateCast(Selected())
 		end
 	end)
 	ui.cast:Hide()
@@ -591,37 +705,22 @@ local function BuildActivity()
 	ui.stop:Hide()
 end
 
-local function BuildConfirm()
-	ui.confirm = CreateFrame("Frame", "GnomishRelayConfirm", frame)
-	ui.confirm:SetFrameStrata("DIALOG")
-	ui.confirm:SetSize(320, 90)
-	ui.confirm:SetPoint("CENTER", frame, "CENTER", 0, 40)
-	ui.confirm:EnableMouse(true)
-	local background = ui.confirm:CreateTexture(nil, "BACKGROUND")
-	background:SetAllPoints()
-	background:SetColorTexture(0, 0, 0, 0.9)
-	ui.confirmText = Label(ui.confirm, "GameFontHighlight", "TOPLEFT", 12, -14)
-	ui.confirmText:SetWidth(296)
-	local delete = CreateFrame("Button", "GnomishRelayConfirmDelete", ui.confirm, "UIPanelButtonTemplate")
-	delete:SetSize(100, 22)
-	delete:SetPoint("BOTTOMLEFT", ui.confirm, "BOTTOMLEFT", 12, 12)
-	delete:SetText("Delete")
-	delete:SetScript("OnClick", function()
-		local chat = ns.Store.Chat(ui.confirm.chatId)
-		ui.confirm:Hide()
+-- The dialog of the game has a border, and Escape closes only the dialog.
+StaticPopupDialogs.GNOMISHRELAY_DELETE = {
+	text = "%s",
+	button1 = "Delete",
+	button2 = "Cancel",
+	OnAccept = function(_, chatId)
+		local chat = ns.Store.Chat(chatId)
 		if chat then
 			ns.Transport.Delete(chat)
 		end
-	end)
-	local cancel = CreateFrame("Button", "GnomishRelayConfirmCancel", ui.confirm, "UIPanelButtonTemplate")
-	cancel:SetSize(100, 22)
-	cancel:SetPoint("BOTTOMRIGHT", ui.confirm, "BOTTOMRIGHT", -12, 12)
-	cancel:SetText("Cancel")
-	cancel:SetScript("OnClick", function()
-		ui.confirm:Hide()
-	end)
-	ui.confirm:Hide()
-end
+	end,
+	timeout = 0,
+	whileDead = true,
+	hideOnEscape = true,
+	preferredIndex = 3,
+}
 
 -- A chat that still works gets Stop and Delete in one click: the bridge stops the run.
 function Window.AskDelete(chatId)
@@ -630,13 +729,11 @@ function Window.AskDelete(chatId)
 		return
 	end
 	local name = ns.Relay.Plain(chat.name)
+	local question = string.format('Delete "%s"?', name)
 	if ns.Transport.Working(chat.id) then
-		ui.confirmText:SetText(string.format('Stop and delete "%s"?', name))
-	else
-		ui.confirmText:SetText(string.format('Delete "%s"?', name))
+		question = string.format('Stop and delete "%s"?', name)
 	end
-	ui.confirm.chatId = chat.id
-	ui.confirm:Show()
+	StaticPopup_Show("GNOMISHRELAY_DELETE", question, nil, chat.id)
 end
 
 -- The saved variables keep the place, so the window opens where the player left it.
@@ -663,7 +760,7 @@ local function BuildTabs()
 	ui.tabs = {}
 	for i, tab in ipairs(TABS) do
 		local button = CreateFrame("Button", "GnomishRelayTab" .. i, frame)
-		button:SetSize(74, 28)
+		button:SetSize(TAB_WIDTH, 28)
 		button:SetPoint("TOPLEFT", frame, "TOPRIGHT", 0, -70 - (i - 1) * 32)
 		button.bg = button:CreateTexture(nil, "BACKGROUND")
 		button.bg:SetAllPoints()
@@ -683,19 +780,67 @@ local function BuildPages()
 	local width = WIDTH - SIDE - 20
 	ui.settings = Inset(frame, left, -60, width, 16)
 	ui.diag = Inset(frame, left, -60, width, 16)
+	Stretch(ui.settings, 6, -60)
+	Stretch(ui.diag, 6, -60)
 	ns.SettingsTab.Build(ui.settings)
 	ns.DiagTab.Build(ui.diag)
 	ui.settings:Hide()
 	ui.diag:Hide()
 end
 
+local function BuildBridgeLight()
+	ui.bridge = frame:CreateFontString("GnomishRelayBridgeText", "OVERLAY", "GameFontNormalSmall")
+	ui.bridge:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -30, -6)
+	ui.bridgeDot = frame:CreateTexture("GnomishRelayBridgeDot", "OVERLAY")
+	ui.bridgeDot:SetSize(8, 8)
+	ui.bridgeDot:SetPoint("RIGHT", ui.bridge, "LEFT", -4, 0)
+end
+
+local function SavedSize()
+	local saved = ns.Store.db.windowSize
+	if type(saved) ~= "table" or type(saved.width) ~= "number" or type(saved.height) ~= "number" then
+		return WIDTH, HEIGHT
+	end
+	return math.max(WIDTH, saved.width), math.max(HEIGHT, saved.height)
+end
+
+-- The transcript lays out its entries for one width, so a new size draws it again.
+local function EndSizing()
+	SavePosition()
+	ns.Store.db.windowSize = { width = frame:GetWidth(), height = frame:GetHeight() }
+	ns.Transcript.Resize(TranscriptSize())
+	Window.Refresh()
+end
+
+local function BuildGrip()
+	frame:SetResizable(true)
+	frame:SetResizeBounds(
+		WIDTH,
+		HEIGHT,
+		math.max(WIDTH, UIParent:GetWidth() - TAB_WIDTH),
+		math.max(HEIGHT, UIParent:GetHeight())
+	)
+	local grip = CreateFrame("Button", "GnomishRelayResizeGrip", frame)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
+	grip:SetNormalTexture(GRIP .. "Up")
+	grip:SetHighlightTexture(GRIP .. "Highlight")
+	grip:SetPushedTexture(GRIP .. "Down")
+	grip:SetScript("OnMouseDown", function()
+		frame:StartSizing("BOTTOMRIGHT")
+	end)
+	grip:SetScript("OnMouseUp", EndSizing)
+end
+
 local function Build()
 	frame = CreateFrame("Frame", "GnomishRelayFrame", UIParent, "PortraitFrameTemplate")
-	frame:SetSize(WIDTH, HEIGHT)
+	frame:SetSize(SavedSize())
 	PlaceFrame()
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
 	frame:SetClampedToScreen(true)
+	-- The side tabs hang out of the right edge, and the clamp keeps them on screen too.
+	frame:SetClampRectInsets(0, TAB_WIDTH, 0, 0)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", frame.StartMoving)
 	frame:SetScript("OnDragStop", SavePosition)
@@ -710,13 +855,19 @@ local function Build()
 		portrait:SetTexture(EMBLEM)
 	end
 
-	ui.chats = Inset(frame, 6, -60, SIDE, 30)
+	BuildBridgeLight()
+	BuildGrip()
+	ui.chats = Inset(frame, 6, -60, SIDE, 30, "GnomishRelayChats")
+	ui.chats:EnableMouseWheel(true)
+	ui.chats:SetScript("OnMouseWheel", function(_, delta)
+		ui.tileOffset = (ui.tileOffset or 0) - delta
+		Window.Refresh()
+	end)
 	BuildCenter()
 	BuildActivity()
-	BuildConfirm()
 	BuildTabs()
 	BuildPages()
-	ui.chatParts = { ui.agent, ui.folderButton, ui.bridge, ui.activity[1], ui.activity[2] }
+	ui.chatParts = { ui.agent, ui.folderButton, ui.activity[1], ui.activity[2] }
 	frame:Hide()
 end
 

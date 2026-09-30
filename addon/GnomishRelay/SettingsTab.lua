@@ -17,7 +17,7 @@ local FONT_MIN, FONT_MAX = 12, 20
 -- A list older than this shows its age in orange.
 local STALE_AFTER = 600
 
-local ui = {}
+local ui = { dropdowns = {} }
 
 local function Label(parent, font, x, y)
 	local text = parent:CreateFontString(nil, "OVERLAY", font)
@@ -55,7 +55,29 @@ local function Dropdown(name, y, width, onPick)
 		list:Hide()
 		onPick(value)
 	end
+	table.insert(ui.dropdowns, button)
 	return button
+end
+
+-- An open list closes with its page and at a click outside it, as a menu of the game does.
+local function CloseLists(keepUnderMouse)
+	for _, dropdown in ipairs(ui.dropdowns) do
+		local underMouse = dropdown.list:IsMouseOver() or dropdown:IsMouseOver()
+		if not (keepUnderMouse and underMouse) then
+			dropdown.list:Hide()
+		end
+	end
+end
+
+local function WatchClicks()
+	ui.page:HookScript("OnHide", function()
+		CloseLists(false)
+	end)
+	local clicks = CreateFrame("Frame")
+	clicks:RegisterEvent("GLOBAL_MOUSE_DOWN")
+	clicks:SetScript("OnEvent", function()
+		CloseLists(true)
+	end)
 end
 
 local function Choice(dropdown, i)
@@ -285,4 +307,5 @@ function SettingsTab.Build(page)
 	BuildAppearance()
 	ns.RulesGroup.Build(page, -40 - 2 * ROW - 14 - 28 - 4 * ROW - 10)
 	BuildStatus()
+	WatchClicks()
 end

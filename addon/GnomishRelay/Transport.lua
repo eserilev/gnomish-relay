@@ -33,6 +33,8 @@ local DESKTOP_HOW = { dialog = true, command = true }
 local RAISE_LEVELS = { ["auto-edit"] = true, ["full-auto"] = true }
 local DESKTOP_POLL = 5
 local DESKTOP_POLLS = 24
+-- A popup waits for the next poll, so a working run polls often. It costs 4 slots a minute.
+local WORKING_POLL = 15
 -- Enough to whisper once per request across a /reload, and small enough to stay small.
 local WHISPERED = 16
 
@@ -56,9 +58,13 @@ Transport.Tick = Messages.Tick
 Transport.Poll = Messages.Poll
 Transport.SlotsLeft = Messages.SlotsLeft
 Transport.Online = Messages.Online
+Transport.Bridge = Messages.Bridge
 Transport.NeedsReload = Messages.NeedsReload
 Transport.Problem = Messages.Problem
 Transport.Stats = Messages.Stats
+Transport.NextPollIn = Messages.NextPollIn
+Transport.Delivery = Messages.Delivery
+Transport.Room = Messages.Room
 Transport.Send = Messages.Send
 
 function Transport.Working(chatId)
@@ -99,7 +105,7 @@ end
 
 local function List(chat, flags)
 	state.listing[chat] = Messages.NewId()
-	Messages.Control(chat, state.listing[chat], flags)
+	Messages.ControlLater(chat, state.listing[chat], flags)
 	Messages.StartPolls()
 end
 
@@ -354,6 +360,9 @@ local function PollEvery()
 			return DESKTOP_POLL
 		end
 	end
+	if next(state.working) then
+		return WORKING_POLL
+	end
 end
 
 -- Progress goes to the run in progress of its chat. Requests wait for an answer.
@@ -397,6 +406,26 @@ function Transport.Request()
 			return r
 		end
 	end
+end
+
+function Transport.RequestCount()
+	local count = 0
+	for _, r in ipairs(state.requests) do
+		if not state.answered[r.request] then
+			count = count + 1
+		end
+	end
+	return count
+end
+
+-- True while a popup of the chat waits for the player.
+function Transport.WaitsForAnswer(chatId)
+	for _, r in ipairs(state.requests) do
+		if r.chat == chatId and not state.answered[r.request] then
+			return true
+		end
+	end
+	return false
 end
 
 -- The hash tells the bridge which text the user saw (SPEC.md 9.3).
