@@ -63,12 +63,16 @@ pub fn autostart(dirs: &Dirs) -> Result<()> {
 /// the agents that the shell finds.
 fn write_systemd_unit(dirs: &Dirs, exe: &Path) -> Result<()> {
     let path_var = std::env::var("PATH").unwrap_or_default();
+    let xdg: Vec<(&str, String)> = install::XDG_VARS
+        .iter()
+        .filter_map(|name| Some((*name, std::env::var(name).ok()?)))
+        .collect();
     let dir = systemd_dir(dirs)?;
     std::fs::create_dir_all(&dir)?;
     write_atomic(
         &dir,
         SYSTEMD_UNIT,
-        install::systemd_unit(exe, &path_var).as_bytes(),
+        install::systemd_unit(exe, &path_var, &xdg).as_bytes(),
     )?;
     command("systemctl", &["--user", "daemon-reload"])
 }
