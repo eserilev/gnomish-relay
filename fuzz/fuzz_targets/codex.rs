@@ -3,7 +3,8 @@
 #![no_main]
 
 use bridge::codex::{
-    Event, approval_call, last_exchange, read_event, read_request, read_threads, unwrap_shell,
+    Change, Event, approval_call, last_exchange, read_event, read_request, read_threads,
+    unwrap_shell,
 };
 use libfuzzer_sys::fuzz_target;
 
@@ -27,7 +28,7 @@ fuzz_target!(|data: &[u8]| {
         "item/commandExecution/requestApproval",
         "item/fileChange/requestApproval",
     ] {
-        let request = read_request(method, &message, &["src/a.rs".to_owned()]);
+        let request = read_request(method, &message, &[Change::at("src/a.rs")]);
         assert!(
             request
                 .text
@@ -39,7 +40,7 @@ fuzz_target!(|data: &[u8]| {
         let _ = approval_call(
             method,
             &message,
-            &["a.rs".to_owned()],
+            &[Change::at("a.rs")],
             std::path::Path::new("/w"),
         );
     }

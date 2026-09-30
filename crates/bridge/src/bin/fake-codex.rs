@@ -58,7 +58,8 @@ fn ask(method: &str, params: &Value) -> String {
 }
 
 /// Plays one turn and returns its final text, or `None` when the turn ends another way.
-/// One approval for the gate: `arg` is the command, or the path of a change.
+/// One approval for the gate: `arg` is the command, the path of a change, or the
+/// target of a move of `README.md`.
 fn gate_turn(script: &str, arg: &str) -> String {
     if script == "command" {
         let decision = ask(
@@ -67,9 +68,14 @@ fn gate_turn(script: &str, arg: &str) -> String {
         );
         return format!("command {decision}");
     }
+    let change = if script == "move" {
+        json!({ "path": "README.md", "kind": { "type": "update", "move_path": arg }, "diff": "" })
+    } else {
+        json!({ "path": arg })
+    };
     notify(
         "item/started",
-        &json!({ "threadId": "t1", "turnId": "u1", "item": { "type": "fileChange", "id": "f1", "changes": [{ "path": arg }] } }),
+        &json!({ "threadId": "t1", "turnId": "u1", "item": { "type": "fileChange", "id": "f1", "changes": [change] } }),
     );
     let decision = ask(
         "item/fileChange/requestApproval",
@@ -83,7 +89,7 @@ fn turn(script: &str, text: &str, state: &str, arg: &str) -> Option<String> {
         return Some(answer);
     }
     match script {
-        "command" | "change" => Some(gate_turn(script, arg)),
+        "command" | "change" | "move" => Some(gate_turn(script, arg)),
         "hang" => loop {
             std::thread::park();
         },

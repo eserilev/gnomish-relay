@@ -259,7 +259,7 @@ pub enum Event {
     Started {
         item: String,
         step: String,
-        paths: Vec<String>,
+        paths: Vec<Change>,
     },
     /// The final text of one agent message.
     Said(String),
@@ -292,14 +292,14 @@ fn read_started(item: &Value) -> Event {
         },
         Some("fileChange") => {
             let changes = item.get("changes").and_then(Value::as_array);
-            let paths: Vec<String> = changes
+            let paths: Vec<Change> = changes
                 .into_iter()
                 .flatten()
-                .filter_map(|c| text_at(c, "/path").map(str::to_owned))
+                .filter_map(read_change)
                 .collect();
             Event::Started {
                 item: id,
-                step: step(&format!("edit {}", paths.join(", "))),
+                step: step(&format!("edit {}", shown(&paths))),
                 paths,
             }
         }
@@ -321,6 +321,45 @@ fn read_started(item: &Value) -> Event {
     }
 }
 
+/// One path of a patch. Codex writes the move target too, so the gate checks both.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Change {
+    pub path: String,
+    pub moved_to: Option<String>,
+}
+
+impl Change {
+    pub fn at(path: &str) -> Self {
+        Self {
+            path: path.to_owned(),
+            moved_to: None,
+        }
+    }
+
+    fn written(&self) -> impl Iterator<Item = &String> {
+        std::iter::once(&self.path).chain(&self.moved_to)
+    }
+
+    fn shown(&self) -> String {
+        match &self.moved_to {
+            Some(target) => format!("{} -> {target}", self.path),
+            None => self.path.clone(),
+        }
+    }
+}
+
+fn read_change(change: &Value) -> Option<Change> {
+    Some(Change {
+        path: text_at(change, "/path")?.to_owned(),
+        moved_to: text_at(change, "/kind/move_path").map(str::to_owned),
+    })
+}
+
+fn shown(changes: &[Change]) -> String {
+    let texts: Vec<String> = changes.iter().map(Change::shown).collect();
+    texts.join(", ")
+}
+
 fn step(line: &str) -> String {
     let line: String = line.split_whitespace().collect::<Vec<_>>().join(" ");
     cut(&line, MAX_STEP).to_owned()
@@ -339,7 +378,7 @@ fn read_ending(turn: &Value) -> Result<(), String> {
 
 /// The classifier input of an approval request. A request with no command and no path
 /// is unknown, for example a network approval.
-pub fn approval_call(method: &str, params: &Value, paths: &[String], cwd: &Path) -> Call {
+pub fn approval_call(method: &str, params: &Value, paths: &[Change], cwd: &Path) -> Call {
     let request = read_request(method, params, paths);
     let (text, title) = (request.text, request.title);
     let cwd = text_at(params, "/cwd").map_or_else(|| cwd.to_owned(), PathBuf::from);
@@ -353,7 +392,7 @@ pub fn approval_call(method: &str, params: &Value, paths: &[String], cwd: &Path)
     let root = text_at(params, "/grantRoot").map(|root| cwd.join(root));
     let writes: Vec<PathBuf> = root
         .into_iter()
-        .chain(paths.iter().map(|p| cwd.join(p)))
+        .chain(paths.iter().flat_map(Change::written).map(|p| cwd.join(p)))
         .collect();
     if writes.is_empty() {
         return Call::unknown(text, title);
@@ -372,7 +411,7 @@ pub struct Request {
 
 /// The popup shows the raw command, or the paths of the change, first (SPEC.md 6.4).
 /// A change that asks for a whole folder shows that folder.
-pub fn read_request(method: &str, params: &Value, paths: &[String]) -> Request {
+pub fn read_request(method: &str, params: &Value, paths: &[Change]) -> Request {
     let reason = text_at(params, "/reason").unwrap_or("");
     let (raw, default_title) = match method {
         "item/commandExecution/requestApproval" => (
@@ -381,7 +420,7 @@ pub fn read_request(method: &str, params: &Value, paths: &[String]) -> Request {
         ),
         _ => match text_at(params, "/grantRoot") {
             Some(root) => (format!("write anything in {root}"), "change files"),
-            None => (paths.join(", "), "change files"),
+            None => (shown(paths), "change files"),
         },
     };
     let title = if reason.is_empty() {
@@ -418,7 +457,7 @@ struct Connection {
     running: Option<(String, String)>,
     refused: Vec<String>,
     /// The paths of each file change, by item id, for its approval question.
-    changes: HashMap<String, Vec<String>>,
+    changes: HashMap<String, Vec<Change>>,
     said: Vec<String>,
     ended: Option<Result<(), String>>,
     /// The wall of the agent process and its proxy (SPEC.md 6.6.4), after the process.
