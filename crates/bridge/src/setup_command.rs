@@ -185,16 +185,16 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
             .is_some_and(|addons| addons.join(install::ADDON).exists()),
         timeways,
     };
-    let relay = match setup::relay_choice(&found) {
-        setup::RelayChoice::Decided(relay) => relay,
-        setup::RelayChoice::Ask => ask_relay()?,
-    };
+    // Every question comes before the first file, so a stop at a question leaves nothing
+    // half done.
+    let answers = ask_all(&found, existing.as_ref())?;
+    let relay = answers.relay;
     // The key addons and the slots first: they need nothing else, and a later step can fail.
     let game_files = setup_files(dirs, addons, relay, timeways, args.keys)?;
-    let config = setup_config(dirs, wow, existing.as_ref(), relay, timeways, args.roots)?;
+    let config = setup_config(dirs, wow, existing.as_ref(), &answers, timeways, args.roots)?;
     print_setup(dirs, &config, relay);
     let config = if timeways == setup::Timeways::On {
-        let config = setup_story_model(dirs, config);
+        let config = setup_story_model(dirs, config, answers.local_model);
         if let Some(line) = story_line(&config) {
             println!("{line}");
         }
@@ -332,6 +332,50 @@ fn timeways_lines(
     lines
 }
 
+/// The answers to the yes or no questions of setup. Setup asks no path question.
+struct Answers {
+    relay: setup::Relay,
+    /// The harnesses with no ACP mode that the player added.
+    harnesses: Vec<&'static str>,
+    local_model: LocalModel,
+}
+
+/// Whether setup installs a free local model for Timeways (SPEC.md 11.6).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum LocalModel {
+    Install,
+    Skip,
+}
+
+fn ask_all(found: &setup::Found, existing: Option<&(String, Config)>) -> Result<Answers> {
+    let relay = match setup::relay_choice(found) {
+        setup::RelayChoice::Decided(relay) => relay,
+        setup::RelayChoice::Ask => ask_relay()?,
+    };
+    // Under WSL, a Windows agent on the PATH runs outside every wall (SPEC.md 11.5).
+    let path_var = wsl::path_var();
+    let lacks_relay = existing.is_none_or(|(_, c)| c.relay.is_none());
+    let harnesses = if relay == setup::Relay::On && lacks_relay {
+        choose_harnesses(&path_var)?
+    } else {
+        Vec::new()
+    };
+    let has_model = existing.is_some_and(|(_, config)| story_has_model(config));
+    let no_model = found.timeways == setup::Timeways::On
+        && !has_model
+        && model_setup::find_models(&path_var).is_empty();
+    let local_model = if no_model {
+        ask_local_model()
+    } else {
+        LocalModel::Skip
+    };
+    Ok(Answers {
+        relay,
+        harnesses,
+        local_model,
+    })
+}
+
 /// A player who came for Timeways says no, so no is the answer with no terminal.
 fn ask_relay() -> Result<setup::Relay> {
     let answer = ask(
@@ -351,7 +395,7 @@ fn setup_config(
     dirs: &Dirs,
     wow: Option<&Path>,
     existing: Option<&(String, Config)>,
-    relay: setup::Relay,
+    answers: &Answers,
     timeways: setup::Timeways,
     roots_given: Option<&str>,
 ) -> Result<Config> {
@@ -360,14 +404,10 @@ fn setup_config(
     let lacks_relay = existing.is_none_or(|(_, c)| c.relay.is_none());
     let lacks_story = existing.is_none_or(|(_, c)| c.story.is_none());
     let agents = install::find_agents(&path_var);
-    let roots = if relay == setup::Relay::On && lacks_relay {
+    let roots = if answers.relay == setup::Relay::On && lacks_relay {
         Some(choose_roots(&dirs.home, roots_given)?)
     } else {
         None
-    };
-    let harnesses = match roots {
-        Some(_) => choose_harnesses(&path_var)?,
-        None => Vec::new(),
     };
     let wants_story = timeways == setup::Timeways::On && lacks_story;
     // A local model is also for the agents: the relay part opens its port.
@@ -383,7 +423,7 @@ fn setup_config(
         wow: wow.filter(|wow| old_wow != Some(*wow)),
         relay: roots.as_deref().map(|roots| RelayPart {
             agents: &agents,
-            harnesses: &harnesses,
+            harnesses: &answers.harnesses,
             roots,
             local_ports: &local_ports,
         }),
@@ -496,15 +536,18 @@ fn said_yes(answer: &str) -> bool {
     answer.is_empty() || answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes")
 }
 
-/// A: the first model that the player has. C: with none, the offer of a free local
-/// model (SPEC.md 11.6). A failed step prints one line, and setup goes on.
-fn setup_story_model(dirs: &Dirs, config: Config) -> Config {
+/// A: the first model that the player has. C: with none, the free local model on a yes
+/// (SPEC.md 11.6). A failed step prints one line, and setup goes on.
+fn setup_story_model(dirs: &Dirs, config: Config, local_model: LocalModel) -> Config {
     if story_has_model(&config) {
         return config;
     }
     let models = model_setup::find_models(&wsl::path_var());
     let Some(found) = models.first() else {
-        return offer_local_model(dirs, config);
+        return match local_model {
+            LocalModel::Install => install_free_model(dirs, config),
+            LocalModel::Skip => config,
+        };
     };
     match setup::write_story_model(&dirs.config, found, &dirs.home) {
         Ok(new) => new,
@@ -520,16 +563,15 @@ fn sentence_of(error: &anyhow::Error) -> String {
 }
 
 /// Never a download of 2 GB with no yes, so no terminal means no.
-fn offer_local_model(dirs: &Dirs, config: Config) -> Config {
-    let os = ollama_install::Os::this();
+fn ask_local_model() -> LocalModel {
     println!("{NO_MODEL}");
     if !stdin_is_terminal() {
         println!("{LATER_IN_A_TERMINAL}");
-        return config;
+        return LocalModel::Skip;
     }
     println!(
         "Setup can install Ollama with its official installer: {}",
-        ollama_install::installer(os).shown
+        ollama_install::installer(ollama_install::Os::this()).shown
     );
     let answer = match read_answer(OFFER) {
         Ok(answer) => answer.unwrap_or_default(),
@@ -537,9 +579,13 @@ fn offer_local_model(dirs: &Dirs, config: Config) -> Config {
     };
     if !said_yes(&answer) {
         println!("{LATER}");
-        return config;
+        return LocalModel::Skip;
     }
-    match install_local_model(dirs, os) {
+    LocalModel::Install
+}
+
+fn install_free_model(dirs: &Dirs, config: Config) -> Config {
+    match install_local_model(dirs, ollama_install::Os::this()) {
         Ok(new) => new,
         Err(e) => {
             println!(

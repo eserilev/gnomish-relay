@@ -389,6 +389,42 @@ fn a_setup_after_the_first_start_of_wow_adds_the_game_to_the_config() {
     assert!(game.join("Interface/AddOns/GnomishRelay_Key").is_dir());
 }
 
+/// A setup that stopped at a question after the keys and before `config.toml`.
+#[cfg(target_os = "linux")]
+#[test]
+fn the_next_setup_completes_a_config_folder_with_only_the_keys() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = tempfile::tempdir().unwrap();
+    let game = home.path().join("wow");
+    std::fs::create_dir_all(&game).unwrap();
+    let config_dir = home.path().join("config/gnomish-relay");
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::set_permissions(&config_dir, std::fs::Permissions::from_mode(0o700)).unwrap();
+    for (file, key) in [("strip.key", "ab"), ("timeways.key", "cd")] {
+        std::fs::write(config_dir.join(file), key.repeat(32)).unwrap();
+        std::fs::set_permissions(
+            config_dir.join(file),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+    }
+
+    let out = setup_in(home.path(), &["--wow", &game.to_string_lossy()]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        config_of(home.path()).contains("allowed_roots = []\n"),
+        "{}",
+        config_of(home.path())
+    );
+    let strip_key = std::fs::read_to_string(config_dir.join("strip.key")).unwrap();
+    assert_eq!(strip_key, "ab".repeat(32), "the key stays");
+    let key_addon =
+        std::fs::read_to_string(game.join("Interface/AddOns/GnomishRelay_Key/Key.lua")).unwrap();
+    assert!(key_addon.contains(&"ab".repeat(32)), "{key_addon}");
+}
+
 #[cfg(target_os = "linux")]
 #[test]
 fn a_second_setup_keeps_the_wow_folder_of_the_config() {
