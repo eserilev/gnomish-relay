@@ -11,6 +11,8 @@ local WIDTH = 320
 local ROW_WIDTH = WIDTH - 24
 local LINE = 14
 local PREVIEW = 60
+-- A repo can be 64 bytes. A cut keeps the state and the age on the one line of the head.
+local REPO_BYTES = 24
 local TOAST_TEXT = 150
 local TOAST_SECONDS = 8
 local DEFAULT_ANGLE = 200
@@ -128,7 +130,7 @@ local function ShowRow(row, n, y)
 			color,
 			ns.Notices.Agent(n),
 			GOLD,
-			n.repo,
+			ns.Notices.Cut(n.repo, REPO_BYTES),
 			StateText(n),
 			GREY,
 			Ago(ns.Notices.Age(n))

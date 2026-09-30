@@ -641,6 +641,21 @@ fn a_row_shows_the_repo_the_state_the_age_and_folds_its_full_text() {
 }
 
 #[test]
+fn a_row_cuts_a_long_repo_so_the_state_and_the_age_still_show() {
+    let game = Game::start();
+    let repo = "gnomish-relay-experiments-2024-q3-and-more";
+    game.publish_and_poll(0, 1, &[finished(1, repo, 240)]);
+    game.click("GnomishRelayBell");
+
+    let head = game.run("return GnomishRelayNotice1.head:GetText()");
+    let head = head.as_string().unwrap().to_str().unwrap().to_owned();
+
+    assert!(head.contains("gnomish-relay-experiment..."), "{head}");
+    assert!(!head.contains(repo), "{head}");
+    assert!(head.contains("Finished · 4 min"), "{head}");
+}
+
+#[test]
 fn a_drag_moves_the_bell_along_the_edge_and_a_reload_keeps_its_angle() {
     let game = Game::start();
     game.publish_and_poll(1, 1, &[waiting(1)]);
