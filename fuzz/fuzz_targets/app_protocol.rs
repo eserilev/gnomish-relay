@@ -79,6 +79,9 @@ fuzz_target!(|data: &[u8]| {
                     "the note is the bridge's own"
                 );
             }
+            if let Body::DraftAnswer { draft: Some(draft) } = &answer.body {
+                assert!(draft.steps.len() <= 6, "a draft has at most 6 steps");
+            }
             if let Some(reply) = reply_text(&answer, Some("note")) {
                 check_reply(&reply);
             }

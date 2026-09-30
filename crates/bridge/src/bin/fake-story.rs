@@ -162,17 +162,28 @@ fn on_reply_line(script: &str, line: &Value) {
             let id = line["id"].as_u64().unwrap_or_default();
             (0..20).for_each(|n| answer_to(&json!(id + 1000 + n), &json!("for nobody")));
         }
+        "wrong-id" if line["type"] == "draft_asked" => {
+            let id = line["id"].as_u64().unwrap_or_default();
+            send(&json!({ "type": "draft_answer", "id": id + 1, "draft": null }));
+            draft(line);
+        }
         "wrong-id" => {
             let id = line["id"].as_u64().unwrap_or_default();
             answer_to(&json!(id + 1), &json!("wrong id"));
             answer(line, &format!("story: {}", question(line)));
         }
+        "wrong-type" if line["type"] == "draft_asked" => {
+            answer(line, "wrong type");
+            draft(line);
+        }
         "wrong-type" => {
             send(
                 &json!({ "type": "talk_answer", "id": line["id"], "npc": "n", "text": "wrong type" }),
             );
+            send(&json!({ "type": "draft_answer", "id": line["id"], "draft": null }));
             answer(line, &format!("story: {}", question(line)));
         }
+        "no-draft" => send(&json!({ "type": "draft_answer", "id": line["id"], "draft": null })),
         "null-text" => answer_to(&line["id"], &Value::Null),
         "twice" => {
             answer(line, "first");
@@ -200,6 +211,7 @@ fn on_reply_line(script: &str, line: &Value) {
         "too-long" => too_long(line),
         _ if line["type"] == "journal_asked" => journal(line),
         _ if line["type"] == "talk_asked" => talk(script, line),
+        _ if line["type"] == "draft_asked" => draft(line),
         _ => answer(line, &format!("story: {}", question(line))),
     }
 }
@@ -261,6 +273,19 @@ fn talk(script: &str, line: &Value) {
     send(&reply);
 }
 
+/// A quest of one step from the idea. The `|` bytes show the escape of the bridge.
+fn draft(line: &Value) {
+    let idea = line["idea"].as_str().unwrap_or_default();
+    send(&json!({
+        "type": "draft_answer", "id": line["id"],
+        "draft": {
+            "title": format!("Draft: {idea}"),
+            "text": "A quest |of your own.",
+            "steps": [{ "goal": "Collect 5 pelts", "target": "Gray |Wolf" }],
+        },
+    }));
+}
+
 /// Stops at the end of its input, as the protocol asks: the bridge is gone.
 fn main() {
     let script = std::env::args().nth(1).unwrap_or_default();
@@ -292,7 +317,7 @@ fn main() {
             Some("model_failed") if script == "model" => answer_to(&asked["id"], &Value::Null),
             Some("model_answered") if script == "model" => answer_to(&asked["id"], &line["text"]),
             Some("model_failed" | "model_answered") => {}
-            Some("lore_asked" | "journal_asked" | "talk_asked") => {
+            Some("lore_asked" | "journal_asked" | "talk_asked" | "draft_asked") => {
                 on_any_line(&script);
                 asked = line.clone();
                 on_reply_line(&script, &line);

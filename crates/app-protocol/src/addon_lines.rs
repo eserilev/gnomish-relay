@@ -1,5 +1,6 @@
 //! The lines of a batch from the Timeways addon (SPEC.md 9.8). The addon is untrusted.
-//! Three types have a fixed shape. Any other type is a game event: a checked JSON object
+//! The character line and the lines that ask have a fixed shape. Any other type is a
+//! game event: a checked JSON object
 //! that goes on to the story program, which checks its fields for itself. So a new event
 //! of Timeways needs no change here. No I/O here.
 
@@ -20,8 +21,9 @@ const MAX_CHARACTER: usize = 48;
 const MAX_QUESTION: usize = 1024;
 const MAX_NPC: usize = 64;
 const MAX_TALK: usize = 255;
+const MAX_IDEA: usize = 255;
 
-/// The lines with a fixed shape: the character, and the two lines that get a reply.
+/// The lines with a fixed shape: the character, and the lines that get a reply.
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "type", rename_all = "snake_case", deny_unknown_fields)]
 pub enum Known {
@@ -39,13 +41,16 @@ pub enum Known {
     },
     /// The player talks to an NPC.
     TalkAsked { at: u64, npc: String, text: String },
+    /// The player asks for a quest of their own.
+    DraftAsked { at: u64, idea: String },
 }
 
-const KNOWN: [&str; 4] = [
+const KNOWN: [&str; 5] = [
     "character_entered",
     "lore_asked",
     "journal_asked",
     "talk_asked",
+    "draft_asked",
 ];
 
 #[derive(Clone, Debug, PartialEq)]
@@ -68,6 +73,7 @@ impl AddonLine {
             AddonLine::Known(Known::LoreAsked { .. }) => Some(Asked::Lore),
             AddonLine::Known(Known::JournalAsked { .. }) => Some(Asked::Journal),
             AddonLine::Known(Known::TalkAsked { .. }) => Some(Asked::Talk),
+            AddonLine::Known(Known::DraftAsked { .. }) => Some(Asked::Draft),
             AddonLine::Known(Known::CharacterEntered { .. }) | AddonLine::Event(_) => None,
         }
     }
@@ -158,6 +164,7 @@ fn read_known(line: &str) -> Result<Known, BadLine> {
         {
             Err(BadLine::Text)
         }
+        Known::DraftAsked { idea, .. } if !is_short(idea, MAX_IDEA) => Err(BadLine::Text),
         _ => Ok(known),
     }
 }
@@ -423,6 +430,53 @@ mod tests {
         assert!(batch(&[CHARACTER, EVENT, &talk]).is_ok());
         assert_eq!(batch(&[&talk, EVENT]), Err(Refused::Order));
         assert_eq!(batch(&[&talk, QUESTION]), Err(Refused::Order));
+    }
+
+    fn draft(idea: &str) -> String {
+        serde_json::json!({ "type": "draft_asked", "at": 1, "idea": idea }).to_string()
+    }
+
+    #[test]
+    fn draft_asked_is_a_line_with_a_reply_and_keeps_its_shape() {
+        let line = read_addon_line(&draft("Bring wolf pelts to Goldshire")).unwrap();
+
+        assert_eq!(line.asked(), Some(Asked::Draft));
+        assert_eq!(
+            forwarded(&draft("Bring wolf pelts to Goldshire")),
+            serde_json::json!({
+                "type": "draft_asked", "at": 1, "idea": "Bring wolf pelts to Goldshire", "id": 7
+            })
+        );
+    }
+
+    #[test]
+    fn a_draft_asked_with_a_missing_or_an_unknown_field_is_refused() {
+        let bad = [
+            r#"{"type":"draft_asked","at":1}"#,
+            r#"{"type":"draft_asked","idea":"x"}"#,
+            r#"{"type":"draft_asked","at":1,"idea":"x","steps":3}"#,
+            r#"{"type":"draft_asked","at":1,"idea":7}"#,
+        ];
+        for line in bad {
+            assert_eq!(read_addon_line(line), Err(BadLine::Shape), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_draft_idea_of_255_bytes_passes_and_more_or_a_control_character_is_refused() {
+        assert!(read_addon_line(&draft(&"é".repeat(127))).is_ok());
+        assert!(read_addon_line(&draft(&"i".repeat(255))).is_ok());
+        for bad in [draft(&"i".repeat(256)), draft("two\nlines")] {
+            assert_eq!(read_addon_line(&bad), Err(BadLine::Text), "{bad}");
+        }
+    }
+
+    #[test]
+    fn draft_asked_is_last_in_its_batch_like_the_other_reply_lines() {
+        let draft = draft("Bring wolf pelts");
+        assert!(batch(&[CHARACTER, EVENT, &draft]).is_ok());
+        assert_eq!(batch(&[&draft, EVENT]), Err(Refused::Order));
+        assert_eq!(batch(&[&draft, QUESTION]), Err(Refused::Order));
     }
 
     #[test]
