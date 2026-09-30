@@ -26,7 +26,9 @@ Notices.FINISHED = {
 }
 
 local state = {
-	-- The notices of the last live file that pass the filter, newest first.
+	-- The valid notices of the last live file, oldest first.
+	all = {},
+	-- The ones of `all` that pass the filter, newest first.
 	list = {},
 	busy = 0,
 	open = 0,
@@ -256,21 +258,24 @@ local function Cleared(n)
 	return n.id <= ns.Store.db.noticesCleared
 end
 
+-- The notices that pass the filter, newest first.
+local function Filtered()
+	local list = {}
+	for _, n in ipairs(state.all) do
+		if Passes(n) and not Cleared(n) then
+			table.insert(list, 1, n)
+		end
+	end
+	return list
+end
+
 -- A notice that the filter hides is marked as shown too, so a new setting never alerts old work.
-local function Place(n, bodyNow, list, new)
-	local seen = WasShown(n.id)
-	if not seen then
-		MarkShown(n.id)
+local function IsNew(n)
+	if WasShown(n.id) then
+		return false
 	end
-	if not Passes(n) then
-		return
-	end
-	n.age = math.max(0, (bodyNow or n.at) - n.at)
-	n.seenAt = GetTime()
-	table.insert(list, 1, n)
-	if not seen then
-		table.insert(new, n)
-	end
+	MarkShown(n.id)
+	return Passes(n) and not Cleared(n)
 end
 
 -- `notices` is the table of the live file, and `bodyNow` the `now` of the body in the
@@ -279,16 +284,28 @@ function Notices.Apply(notices, bodyNow)
 	local t = type(notices) == "table" and notices or {}
 	state.busy = tonumber(t.busy) or 0
 	state.open = tonumber(t.open) or 0
-	local list, new = {}, {}
+	state.all = {}
+	local new = {}
 	for _, n in ipairs(type(t.list) == "table" and t.list or {}) do
-		if Valid(n) and not Cleared(n) then
-			Place(n, bodyNow, list, new)
+		if Valid(n) then
+			n.age = math.max(0, (bodyNow or n.at) - n.at)
+			n.seenAt = GetTime()
+			table.insert(state.all, n)
+			if IsNew(n) then
+				table.insert(new, n)
+			end
 		end
 	end
-	state.list = list
+	state.list = Filtered()
 	if Notices.On() and #new > 0 then
 		Alert(new)
 	end
+	Notices.OnChange()
+end
+
+-- A new Finished work setting changes the list at once, with no alert.
+function Notices.Refilter()
+	state.list = Filtered()
 	Notices.OnChange()
 end
 

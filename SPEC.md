@@ -1748,7 +1748,7 @@ notices = {busy = 1, open = 2, list = {
 - The addon learns that a session is open only at a poll, so the first notification of an evening can wait up to 10 minutes.
 - Notifications off stops the faster polls, so it is also a way to save slots.
 
-**The list.** The addon keeps the notices of the last live file that pass the filter, less the ones that the user cleared. So an answered notice leaves the list at the next poll: the bridge took it away (10.3). The filter: a `finished` or `failed` notice with a `took` below the setting shows nowhere, not in the list and not in the chat. `took` = 0 passes every setting but Never. `waiting` always passes.
+**The list.** The addon keeps the notices of the last live file that pass the filter, less the ones that the user cleared. So an answered notice leaves the list at the next poll: the bridge took it away (10.3). The filter: a `finished` or `failed` notice with a `took` below the setting shows nowhere, not in the list and not in the chat. `took` = 0 passes every setting but Never. `waiting` always passes. A change of the Finished work setting filters the list at once, with no line and no sound.
 
 **New notices.** A notice is new when its id is not in the last 64 ids that the addon saw. The addon also counts a notice that the filter hid as seen, so a lower Finished work setting never alerts old work: such a notice shows in the list, with no line and no sound. The saved variables keep these ids, so a `/reload` shows nothing twice. For the new notices of one poll:
 

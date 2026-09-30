@@ -647,6 +647,28 @@ fn the_finished_work_dropdown_sets_the_filter() {
 }
 
 #[test]
+fn a_new_finished_setting_filters_the_list_at_once_with_no_alert() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open() ns.Window.ShowTab('settings')");
+    with_hooks(&game, "on");
+    game.run("local ns = ... ns.SettingsTab.Refresh()");
+    game.set("ns.Store.db.notifyFinished = 'always'");
+    game.publish_and_poll(0, 1, &[finished(1, "quick", 30)]);
+    assert!(game.shown("GnomishRelayBell"));
+
+    game.click("GnomishRelaySettingsFinished");
+    game.click("GnomishRelaySettingsFinishedChoice3");
+    assert_eq!(game.list_len(), 0);
+    assert!(!game.shown("GnomishRelayBell"));
+
+    game.click("GnomishRelaySettingsFinished");
+    game.click("GnomishRelaySettingsFinishedChoice1");
+    assert_eq!(game.list_len(), 1);
+    assert_eq!(game.lines_with("quick").len(), 1, "no second line");
+    assert_eq!(game.sounds(), [WHISPER_SOUND], "no second sound");
+}
+
+#[test]
 fn diag_shows_the_hooks_the_sessions_and_the_last_notification_after_hooks_install() {
     let game = Game::start();
     with_hooks(&game, "on");
