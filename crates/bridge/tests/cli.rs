@@ -49,6 +49,19 @@ fn in_home(home: &std::path::Path, args: &[&str]) -> Output {
         .unwrap()
 }
 
+/// The config folder that `in_home` gives the command: macOS has no XDG folders.
+#[cfg(unix)]
+fn config_dir_in(home: &std::path::Path) -> std::path::PathBuf {
+    use bridge::dirs::{Dirs, Os};
+    let var = |name: &str| match name {
+        "HOME" => Some(home.to_owned()),
+        "XDG_CONFIG_HOME" => Some(home.join("config")),
+        "XDG_DATA_HOME" => Some(home.join("data")),
+        _ => None,
+    };
+    Dirs::of(Os::this(), &var).unwrap().config
+}
+
 #[cfg(unix)]
 fn stdout(out: &Output) -> String {
     String::from_utf8(out.stdout.clone()).unwrap()
@@ -143,7 +156,7 @@ fn status_in_a_fresh_home_says_the_bridge_is_stopped() {
 #[test]
 fn restart_and_run_with_only_the_keys_say_that_setup_did_not_finish() {
     let home = tempfile::tempdir().unwrap();
-    let config_dir = home.path().join("config/gnomish-relay");
+    let config_dir = config_dir_in(home.path());
     std::fs::create_dir_all(&config_dir).unwrap();
     std::fs::write(config_dir.join("strip.key"), "ab".repeat(32)).unwrap();
 
@@ -166,7 +179,7 @@ fn restart_and_run_with_only_the_keys_say_that_setup_did_not_finish() {
 fn restart_with_a_config_that_does_not_parse_keeps_the_error_with_its_line() {
     use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
-    let config_dir = home.path().join("config/gnomish-relay");
+    let config_dir = config_dir_in(home.path());
     std::fs::create_dir_all(&config_dir).unwrap();
     let file = config_dir.join("config.toml");
     std::fs::write(&file, "allowed_rots = []\n").unwrap();
