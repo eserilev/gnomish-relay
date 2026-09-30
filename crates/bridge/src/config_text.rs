@@ -18,7 +18,7 @@ pub struct RelayPart<'a> {
     pub local_ports: &'a [u16],
 }
 
-fn quote(text: &str) -> String {
+pub fn quote(text: &str) -> String {
     format!("\"{}\"", text.replace('\\', "\\\\").replace('"', "\\\""))
 }
 

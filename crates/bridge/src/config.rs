@@ -585,6 +585,15 @@ fn check_claude_modes(name: &str, modes: &BTreeMap<Permission, String>) -> Resul
     Ok(())
 }
 
+/// `~/code` reads better in the config than the full path.
+pub fn with_tilde(path: &Path, home: &Path) -> String {
+    match path.strip_prefix(home) {
+        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
+        Ok(rest) => format!("~/{}", rest.display()),
+        Err(_) => path.display().to_string(),
+    }
+}
+
 pub fn expand(path: &str, home: &Path) -> Result<PathBuf> {
     let path = match path.strip_prefix("~/") {
         Some(rest) => home.join(rest),

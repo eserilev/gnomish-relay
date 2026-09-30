@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 
 use crate::check_agent;
-use crate::config::{self, Config, RelayConfig};
+use crate::config::{self, Config, RelayConfig, with_tilde};
 use crate::config_text::RelayPart;
 use crate::dirs::Dirs;
 use crate::hooks_install;
@@ -74,15 +74,6 @@ fn read_answer(prompt: &str) -> Result<Option<String>> {
     let mut answer = String::new();
     std::io::stdin().lock().read_line(&mut answer)?;
     Ok(Some(answer.trim().to_owned()))
-}
-
-/// `~/code` reads better in the config than the full path.
-fn with_tilde(path: &Path, home: &Path) -> String {
-    match path.strip_prefix(home) {
-        Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Ok(rest) => format!("~/{}", rest.display()),
-        Err(_) => path.display().to_string(),
-    }
 }
 
 /// The roots of `--roots`, else the folders of code projects that setup finds. Setup
