@@ -30,6 +30,15 @@ const PRIVATE_FOLDERS: [&str; 4] = ["/run", "/tmp", "/var/tmp", "/dev/shm"];
 const SOCKET_DEPTH: usize = 3;
 /// A home folder with more entries in its top levels gets no more of the scan.
 const MAX_SCAN: usize = 200_000;
+/// Container tools keep a socket deeper, for example `~/.lima/default/sock/docker.sock`.
+const SOCKET_HOMES: [&str; 5] = [
+    ".lima",
+    ".colima",
+    ".docker",
+    ".rd",
+    ".local/share/containers",
+];
+const SOCKET_HOME_DEPTH: usize = 4;
 
 /// The model hosts of Claude (measured on Claude Code 2.1.283 on 2026-09-27). The second
 /// one refreshes a login.
@@ -349,32 +358,63 @@ fn listen(
     Err(std::io::ErrorKind::Unsupported.into())
 }
 
-/// Each socket file in the top levels of the home folder. The walk does not follow links.
+/// Each socket file in the top levels of the home folder, and deeper in the folders of
+/// container tools. The walk does not follow links.
 pub fn scan_sockets(home: &Path) -> Vec<PathBuf> {
-    let mut found = Vec::new();
-    let mut seen = 0;
-    let mut folders = vec![(home.to_path_buf(), 0)];
-    while let Some((folder, depth)) = folders.pop() {
-        let Ok(entries) = std::fs::read_dir(&folder) else {
-            continue;
-        };
-        for entry in entries.flatten() {
-            seen += 1;
-            if seen > MAX_SCAN {
-                return found;
-            }
-            let Ok(kind) = entry.file_type() else {
+    let scan = scan_with_limit(home, MAX_SCAN);
+    if scan.cut {
+        crate::run::log(&format!(
+            "the scan for sockets stopped after {MAX_SCAN} entries of {}: a socket after them stays reachable",
+            home.display()
+        ));
+    }
+    scan.found
+}
+
+#[derive(Default)]
+struct SocketScan {
+    found: Vec<PathBuf>,
+    seen: usize,
+    /// The scan stopped at its limit.
+    cut: bool,
+}
+
+/// The container tools come first, so a big folder elsewhere cannot use up the limit.
+fn scan_with_limit(home: &Path, limit: usize) -> SocketScan {
+    let mut scan = SocketScan::default();
+    for name in SOCKET_HOMES {
+        scan.walk(&home.join(name), SOCKET_HOME_DEPTH, limit);
+    }
+    scan.walk(home, SOCKET_DEPTH, limit);
+    scan.found.sort();
+    scan.found.dedup();
+    scan
+}
+
+impl SocketScan {
+    fn walk(&mut self, top: &Path, max_depth: usize, limit: usize) {
+        let mut folders = vec![(top.to_path_buf(), 0)];
+        while let Some((folder, depth)) = folders.pop() {
+            let Ok(entries) = std::fs::read_dir(&folder) else {
                 continue;
             };
-            if is_socket(kind) {
-                found.push(entry.path());
-            } else if kind.is_dir() && depth + 1 < SOCKET_DEPTH {
-                folders.push((entry.path(), depth + 1));
+            for entry in entries.flatten() {
+                self.seen += 1;
+                if self.seen > limit {
+                    self.cut = true;
+                    return;
+                }
+                let Ok(kind) = entry.file_type() else {
+                    continue;
+                };
+                if is_socket(kind) {
+                    self.found.push(entry.path());
+                } else if kind.is_dir() && depth + 1 < max_depth {
+                    folders.push((entry.path(), depth + 1));
+                }
             }
         }
     }
-    found.sort();
-    found
 }
 
 #[cfg(unix)]
@@ -818,6 +858,32 @@ mod tests {
         let found = scan_sockets(home.path());
 
         assert_eq!(found, vec![near.join("docker.sock")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_scan_looks_deeper_into_the_folders_of_container_tools() {
+        let home = tempfile::tempdir().unwrap();
+        let lima = home.path().join(".lima/default/sock");
+        std::fs::create_dir_all(&lima).unwrap();
+        let _a = std::os::unix::net::UnixListener::bind(lima.join("docker.sock")).unwrap();
+
+        let found = scan_sockets(home.path());
+
+        assert_eq!(found, vec![lima.join("docker.sock")]);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_scan_that_hits_its_limit_says_so() {
+        let home = tempfile::tempdir().unwrap();
+        for n in 0..5 {
+            std::fs::write(home.path().join(format!("f{n}")), "x").unwrap();
+        }
+
+        let scan = scan_with_limit(home.path(), 3);
+
+        assert!(scan.cut);
     }
 
     #[test]
