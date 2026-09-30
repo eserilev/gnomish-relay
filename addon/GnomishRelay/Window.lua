@@ -8,6 +8,7 @@ ns.Window = Window
 local WIDTH, HEIGHT = 900, 560
 local SIDE = 200
 local TILE_HEIGHT = 48
+local TAB_WIDTH = 74
 local STEP_ROWS = 14
 -- The cast bar text changes at most this often, in seconds.
 local CAST_UPDATE = 0.2
@@ -737,7 +738,7 @@ local function BuildTabs()
 	ui.tabs = {}
 	for i, tab in ipairs(TABS) do
 		local button = CreateFrame("Button", "GnomishRelayTab" .. i, frame)
-		button:SetSize(74, 28)
+		button:SetSize(TAB_WIDTH, 28)
 		button:SetPoint("TOPLEFT", frame, "TOPRIGHT", 0, -70 - (i - 1) * 32)
 		button.bg = button:CreateTexture(nil, "BACKGROUND")
 		button.bg:SetAllPoints()
@@ -770,6 +771,8 @@ local function Build()
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
 	frame:SetClampedToScreen(true)
+	-- The side tabs hang out of the right edge, and the clamp keeps them on screen too.
+	frame:SetClampRectInsets(0, TAB_WIDTH, 0, 0)
 	frame:RegisterForDrag("LeftButton")
 	frame:SetScript("OnDragStart", frame.StartMoving)
 	frame:SetScript("OnDragStop", SavePosition)

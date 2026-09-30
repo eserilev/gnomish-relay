@@ -525,6 +525,16 @@ return {
 				{ Name = "alpha", Type = "SingleColorValue", Nilable = false },
 			},
 		},
+		["SimpleFrameAPI:SetClampRectInsets"] = {
+			IsProtectedFunction = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "left", Type = "uiUnit", Nilable = false },
+				{ Name = "right", Type = "uiUnit", Nilable = false },
+				{ Name = "top", Type = "uiUnit", Nilable = false },
+				{ Name = "bottom", Type = "uiUnit", Nilable = false },
+			},
+		},
 		["SimpleFrameAPI:SetClampedToScreen"] = {
 			IsProtectedFunction = true,
 			SecretArguments = "NotAllowed",

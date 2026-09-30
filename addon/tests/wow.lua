@@ -231,6 +231,10 @@ function methods:GetPoint()
 	end
 end
 
+function methods:SetClampRectInsets(left, right, top, bottom)
+	self.clampInsets = { left, right, top, bottom }
+end
+
 function methods:SetChecked(checked)
 	self.checked = checked and true or false
 end

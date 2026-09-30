@@ -652,6 +652,22 @@ fn the_mouse_wheel_scrolls_a_chat_list_longer_than_the_column() {
 }
 
 #[test]
+fn the_side_tabs_count_as_part_of_the_window_when_it_is_kept_on_screen() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    let insets: Vec<f64> = game
+        .run("return GnomishRelayFrame.clampInsets")
+        .as_table()
+        .unwrap()
+        .sequence_values()
+        .map(Result::unwrap)
+        .collect();
+    let tab: Table = game.lua.globals().get("GnomishRelayTab1").unwrap();
+    let tab_width: f64 = tab.get("width").unwrap();
+    assert_eq!(insets, [0.0, tab_width, 0.0, 0.0]);
+}
+
+#[test]
 fn a_click_on_the_whisper_link_opens_that_chat() {
     let game = Game::start();
     game.send("hi");
