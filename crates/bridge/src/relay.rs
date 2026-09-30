@@ -15,10 +15,11 @@ use protocol::slot::Status;
 
 use serde::{Deserialize, Serialize};
 
+use crate::accounts::Accounts;
 use crate::activity::{self, Activity};
 use crate::agent::{Choice, SessionId, SessionInfo};
 use crate::always_rules::RuleLine;
-use crate::config::{Permission, Policy};
+use crate::config::{DEFAULT_MAX_PARALLEL_RUNS, Permission, Policy};
 use crate::desktop::Notice;
 use crate::flags::{self, ListKind, TransportFlags};
 use crate::folder_list::folder_reply;
@@ -28,9 +29,10 @@ use crate::history::{ChatLog, History, Speaker};
 pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
 use crate::new_folder::{NewFolderError, is_folder_name};
-use crate::reply::render_reply;
+use crate::reply::{render_reply, with_usage};
 use crate::settings_list::{BridgeSettings, HookLine, settings_reply};
 use crate::state::State;
+use crate::usage::Usage;
 
 const BAD_FOLDER: &str =
     "That folder isn't allowed. Pick another one, or add it to allowed_roots in config.toml.";
@@ -179,11 +181,18 @@ pub struct Relay {
     policy: Policy,
     lane: Lane,
     queues: BTreeMap<ChatId, ChatQueue>,
-    jobs: BTreeMap<(ChatId, MessageId), Job>,
+    jobs: BTreeMap<(ChatId, MessageId), Queued>,
+    /// Chats with a run in progress, also a list.
     running: BTreeSet<ChatId>,
+    /// Chats with a run of an agent in progress. Only these count for the limit.
+    agent_runs: BTreeSet<ChatId>,
+    max_runs: usize,
+    /// The number of the next message that the relay takes (SPEC.md 8.2).
+    arrivals: u64,
     history: History,
     /// The new token after a saved-data wipe, until it reports `restored`.
     restore_for: Option<String>,
+    accounts: Accounts,
     sessions: Vec<AgentSession>,
     /// Chats whose run in progress got a Stop. The bridge signals each run.
     cancels: Vec<ChatId>,
@@ -197,6 +206,19 @@ pub struct Relay {
     activity: Activity,
     /// The tags of the frames that came, with the time of their first sight.
     frames: Vec<(u32, FrameTag)>,
+}
+
+/// A waiting message, with its place in the order of arrival across all chats.
+struct Queued {
+    arrival: u64,
+    job: Job,
+}
+
+impl Work {
+    /// A list is short, so it never waits for the limit on parallel runs (SPEC.md 8.2).
+    fn is_agent_run(&self) -> bool {
+        matches!(self, Work::Prompt | Work::Attach { .. })
+    }
 }
 
 /// The tag of a signed frame (SPEC.md 6.3). Two frames with the same tag are one frame.
@@ -264,8 +286,12 @@ impl Relay {
             queues: BTreeMap::new(),
             jobs: BTreeMap::new(),
             running: BTreeSet::new(),
+            agent_runs: BTreeSet::new(),
+            max_runs: DEFAULT_MAX_PARALLEL_RUNS,
+            arrivals: 0,
             history: History::default(),
             restore_for: None,
+            accounts: Accounts::default(),
             sessions: Vec::new(),
             cancels: Vec::new(),
             rule_removals: Vec::new(),
@@ -275,6 +301,10 @@ impl Relay {
             activity: Activity::default(),
             frames: Vec::new(),
         }
+    }
+
+    pub fn set_max_runs(&mut self, max_runs: usize) {
+        self.max_runs = max_runs;
     }
 
     pub fn client_build(&self) -> Option<&str> {
@@ -289,8 +319,21 @@ impl Relay {
         self.lane.next_slot()
     }
 
-    pub fn reset_window(&mut self) {
-        self.lane.reset_window();
+    pub fn next_slots(&self) -> Vec<usize> {
+        self.lane.next_slots()
+    }
+
+    /// `token` is the token in the saved variables file that changed.
+    pub fn reset_window(&mut self, token: Option<&str>) {
+        self.lane.reset_window(token);
+    }
+
+    /// The saved variables file of `account` holds `token`. A new token in a folder that
+    /// held another one is a wipe, so the older token retires (SPEC.md 7.6). Returns it.
+    pub fn saw_saved_token(&mut self, account: &str, token: &str) -> Option<String> {
+        let old = self.accounts.replaced_token(account, token)?;
+        self.lane.retire(&old);
+        Some(old)
     }
 
     pub fn unread(&self) -> usize {
@@ -340,12 +383,12 @@ impl Relay {
         self.take_restore_report(token, flags);
     }
 
-    /// A hello from a new token after a saved-data wipe starts a restore. The
-    /// `restored` flag of that token ends it, and the older tokens retire (SPEC.md 7.6).
+    /// A hello from a new token starts a restore, and its `restored` flag ends it. A
+    /// second account sends the same hello, so only the saved variables retire a token
+    /// (SPEC.md 7.6).
     fn take_restore_report(&mut self, token: &str, flags: &TransportFlags) {
         if flags.restored && self.restore_for.as_deref() == Some(token) {
             self.restore_for = None;
-            self.lane.retire_all_but(token);
             return;
         }
         if !flags.hello || self.lane.knows_token(token) {
@@ -540,7 +583,7 @@ impl Relay {
         // Jobs wait under their chat and id. A second token with the same pair waits
         // until the first job leaves, or it overwrites the first job.
         let waiting = self.jobs.get(&(chat.clone(), MessageId(r.id)));
-        if waiting.is_some_and(|job| job.token.as_bytes() != r.token) {
+        if waiting.is_some_and(|queued| queued.job.token.as_bytes() != r.token) {
             return Err(Outcome::Refused);
         }
         self.lane.admit(&r.token, r.id, now).map_err(|e| match e {
@@ -565,7 +608,10 @@ impl Relay {
             Status::Working,
             String::new(),
         );
-        self.jobs.insert((job.chat.clone(), job.id), job);
+        let arrival = self.arrivals;
+        self.arrivals += 1;
+        self.jobs
+            .insert((job.chat.clone(), job.id), Queued { arrival, job });
         Outcome::Accepted
     }
 
@@ -578,7 +624,9 @@ impl Relay {
             return;
         };
         for id in queue.ids {
-            if let Some(job) = self.jobs.remove(&(chat.clone(), MessageId(id))) {
+            let id = MessageId(id);
+            self.activity.end(chat, id);
+            if let Some(Queued { job, .. }) = self.jobs.remove(&(chat.clone(), id)) {
                 self.set_record(&job.token, chat, job.id, Status::Error, STOPPED.into());
             }
         }
@@ -599,16 +647,36 @@ impl Relay {
         self.deleted.contains(chat)
     }
 
-    /// The oldest waiting message of a chat that has no run in progress.
-    pub fn next_job(&mut self) -> Option<Job> {
-        let chat = self
+    /// The first waiting message of each chat with no run in progress, oldest first.
+    fn heads(&self) -> Vec<&Queued> {
+        let mut heads: Vec<&Queued> = self
             .queues
             .iter()
-            .find(|(chat, q)| !q.ids.is_empty() && !self.running.contains(*chat))?
-            .0
-            .clone();
-        let id = self.queues.get_mut(&chat)?.ids.remove(0);
-        let mut job = self.jobs.remove(&(chat.clone(), MessageId(id)))?;
+            .filter(|(chat, _)| !self.running.contains(*chat))
+            .filter_map(|(chat, q)| self.jobs.get(&(chat.clone(), MessageId(*q.ids.first()?))))
+            .collect();
+        heads.sort_by_key(|queued| queued.arrival);
+        heads
+    }
+
+    fn at_limit(&self) -> bool {
+        self.agent_runs.len() >= self.max_runs
+    }
+
+    /// The oldest message that can start now: a list always, a run below the limit.
+    pub fn next_job(&mut self) -> Option<Job> {
+        let at_limit = self.at_limit();
+        let next = self
+            .heads()
+            .into_iter()
+            .find(|queued| !at_limit || !queued.job.work.is_agent_run())?;
+        let (chat, id) = (next.job.chat.clone(), next.job.id);
+        self.queues.get_mut(&chat)?.ids.remove(0);
+        let Queued { mut job, .. } = self.jobs.remove(&(chat.clone(), id))?;
+        self.activity.end(&chat, id);
+        if job.work.is_agent_run() {
+            self.agent_runs.insert(chat.clone());
+        }
         if job.session == Session::Resume {
             job.resume = self
                 .sessions
@@ -618,6 +686,33 @@ impl Relay {
         }
         self.running.insert(chat);
         Some(job)
+    }
+
+    /// Each message that waits for the limit, and not for its own chat, says so in the
+    /// game. Returns true when a line changed.
+    pub fn show_waiting(&mut self) -> bool {
+        if !self.at_limit() {
+            return false;
+        }
+        let waiting: Vec<(ChatId, MessageId)> = self
+            .heads()
+            .into_iter()
+            .filter(|queued| queued.job.work.is_agent_run())
+            .map(|queued| (queued.job.chat.clone(), queued.job.id))
+            .collect();
+        let running = self.agent_runs.len();
+        let mut changed = false;
+        for (ahead, (chat, id)) in waiting.iter().enumerate() {
+            changed |= self
+                .activity
+                .wait(chat, *id, activity::waiting_line(running, ahead));
+        }
+        changed
+    }
+
+    fn end_run(&mut self, chat: &ChatId) {
+        self.running.remove(chat);
+        self.agent_runs.remove(chat);
     }
 
     pub fn take_rule_removals(&mut self) -> Vec<String> {
@@ -709,16 +804,30 @@ impl Relay {
     }
 
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
+        self.finish_with_usage(job, result, None);
+    }
+
+    /// A done reply with a report of the agent shows its usage line (SPEC.md 9.10).
+    pub fn finish_with_usage(
+        &mut self,
+        job: &Job,
+        result: Result<String, String>,
+        usage: Option<&Usage>,
+    ) {
         self.activity.end(&job.chat, job.id);
-        self.running.remove(&job.chat);
+        self.end_run(&job.chat);
         if self.is_deleted(&job.chat) {
             return;
         }
         let (status, text) = match result {
-            Ok(text) => (
-                Status::Done,
-                render_reply(&job.work, &with_level_note(job, text)),
-            ),
+            Ok(text) => {
+                let rendered = render_reply(&job.work, &with_level_note(job, text));
+                let text = match usage {
+                    Some(usage) => with_usage(&rendered, usage),
+                    None => rendered,
+                };
+                (Status::Done, text)
+            }
             Err(text) => (Status::Error, text),
         };
         self.set_record(&job.token, &job.chat, job.id, status, text);
@@ -733,7 +842,7 @@ impl Relay {
         now: u32,
     ) {
         self.activity.end(&job.chat, job.id);
-        self.running.remove(&job.chat);
+        self.end_run(&job.chat);
         let found = match found {
             Ok(found) => found,
             Err(e) => {
@@ -798,7 +907,7 @@ impl Relay {
     /// Answers a folder list with the folder tree (SPEC.md 9.9).
     pub fn finish_folders(&mut self, job: &Job, snapshot: &Snapshot) {
         self.activity.end(&job.chat, job.id);
-        self.running.remove(&job.chat);
+        self.end_run(&job.chat);
         let text = folder_reply(&self.policy.folders, snapshot);
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
@@ -811,7 +920,7 @@ impl Relay {
         rules: &[RuleLine],
         hooks: &[HookLine],
     ) {
-        self.running.remove(&job.chat);
+        self.end_run(&job.chat);
         let text = settings_reply(settings, &self.policy, rules, hooks);
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
@@ -844,17 +953,18 @@ impl Relay {
             restore_for: self.restore_for.clone(),
             sessions: self.sessions.clone(),
             frames: self.frames.clone(),
+            accounts: self.accounts.clone(),
         }
     }
 
+    /// Oldest first, so a restart keeps the order of arrival.
     fn waiting_jobs(&self) -> Vec<Job> {
-        let mut waiting = Vec::new();
-        for (chat, queue) in &self.queues {
-            for id in &queue.ids {
-                waiting.extend(self.jobs.get(&(chat.clone(), MessageId(*id))).cloned());
-            }
-        }
+        let mut waiting: Vec<&Queued> = self.jobs.values().collect();
+        waiting.sort_by_key(|queued| queued.arrival);
         waiting
+            .into_iter()
+            .map(|queued| queued.job.clone())
+            .collect()
     }
 
     /// A run that was in progress at the stop ends as an error. It never runs again:
@@ -864,6 +974,7 @@ impl Relay {
         relay.lane = Lane::from_state(App::Relay, state.lane);
         relay.history = state.history;
         relay.restore_for = state.restore_for;
+        relay.accounts = state.accounts;
         relay.sessions = state.sessions;
         relay.frames = state.frames;
         for job in state.waiting {
@@ -872,7 +983,11 @@ impl Relay {
                 .entry(job.chat.clone())
                 .or_insert(ChatQueue { ids: Vec::new() });
             queue.ids.push(job.id.0);
-            relay.jobs.insert((job.chat.clone(), job.id), job);
+            let arrival = relay.arrivals;
+            relay.arrivals += 1;
+            relay
+                .jobs
+                .insert((job.chat.clone(), job.id), Queued { arrival, job });
         }
         let jobs = &relay.jobs;
         let ended = relay
@@ -977,6 +1092,164 @@ mod tests {
         assert_eq!(jobs.len(), 1);
         assert_eq!(jobs[0].agent, "codex");
         assert_eq!(jobs[0].session, Session::New);
+    }
+
+    fn limited(max_runs: usize) -> Relay {
+        let mut relay = relay();
+        relay.set_max_runs(max_runs);
+        relay
+    }
+
+    fn live(relay: &Relay) -> String {
+        String::from_utf8(relay.live_file(&no_notices())).unwrap()
+    }
+
+    fn ids(jobs: &[Job]) -> Vec<MessageId> {
+        jobs.iter().map(|j| j.id).collect()
+    }
+
+    #[test]
+    fn a_message_over_the_parallel_limit_waits_until_a_run_ends() {
+        let mut relay = limited(2);
+        relay.on_frame(
+            &[
+                record("c1", 1, "", "a"),
+                record("c2", 2, "", "b"),
+                record("c3", 3, "", "c"),
+            ],
+            NOW,
+        );
+        let first = relay.next_job().unwrap();
+        relay.next_job().unwrap();
+
+        assert!(relay.next_job().is_none());
+        relay.finish(&first, Ok(String::new()));
+        assert_eq!(relay.next_job().unwrap().id, MessageId(3));
+    }
+
+    #[test]
+    fn the_default_limit_is_three_parallel_runs() {
+        let mut relay = relay();
+        let frame: Vec<Record> = (1..=4)
+            .map(|id| record(&format!("c{id}"), id, "", "x"))
+            .collect();
+        relay.on_frame(&frame, NOW);
+
+        let started = (0..4).filter_map(|_| relay.next_job()).count();
+
+        assert_eq!(started, 3);
+    }
+
+    #[test]
+    fn waiting_messages_start_in_arrival_order_across_chats() {
+        let mut relay = limited(1);
+        relay.on_frame(&[record("c9", 1, "", "first")], NOW);
+        relay.on_frame(&[record("c5", 2, "", "second")], NOW);
+        relay.on_frame(&[record("c1", 3, "", "third")], NOW);
+
+        let jobs = run_all(&mut relay);
+
+        assert_eq!(ids(&jobs), [MessageId(1), MessageId(2), MessageId(3)]);
+    }
+
+    #[test]
+    fn a_list_never_waits_for_the_parallel_limit() {
+        let mut relay = limited(1);
+        relay.on_frame(
+            &[record("c1", 1, "", "busy"), record("c2", 2, "", "waits")],
+            NOW,
+        );
+        relay.next_job().unwrap();
+        relay.on_frame(&[record("settings", 3, "list=settings", "")], NOW);
+
+        let next = relay.next_job().unwrap();
+
+        assert_eq!(next.work, Work::ListSettings);
+        assert!(relay.next_job().is_none());
+    }
+
+    #[test]
+    fn a_message_that_waits_for_the_limit_shows_the_running_chats_and_those_ahead() {
+        let mut relay = limited(2);
+        let frame: Vec<Record> = (1..=4)
+            .map(|id| record(&format!("c{id}"), id, "", "x"))
+            .collect();
+        relay.on_frame(&frame, NOW);
+        relay.next_job().unwrap();
+        relay.next_job().unwrap();
+        assert!(relay.next_job().is_none());
+
+        let changed = relay.show_waiting();
+
+        assert!(changed);
+        let live = live(&relay);
+        assert!(
+            live.contains(r#"id = 3, lines = {"Waiting: 2 other chats are running", }"#),
+            "{live}"
+        );
+        assert!(
+            live.contains(
+                r#"id = 4, lines = {"Waiting: 2 other chats are running, 1 ahead of this one", }"#
+            ),
+            "{live}"
+        );
+        assert!(!relay.show_waiting());
+    }
+
+    #[test]
+    fn the_waiting_line_goes_when_the_message_starts() {
+        let mut relay = limited(1);
+        relay.on_frame(&[record("c1", 1, "", "a"), record("c2", 2, "", "b")], NOW);
+        let first = relay.next_job().unwrap();
+        relay.show_waiting();
+        relay.finish(&first, Ok(String::new()));
+
+        let second = relay.next_job().unwrap();
+        relay.begin(&second);
+
+        let live = live(&relay);
+        assert!(!live.contains("Waiting:"), "{live}");
+        assert!(live.contains(r#"lines = {"Level: auto-edit", }"#), "{live}");
+    }
+
+    #[test]
+    fn a_message_that_waits_only_for_its_own_chat_shows_no_waiting_line() {
+        let mut relay = limited(1);
+        relay.on_frame(&[record("c1", 1, "", "a"), record("c1", 2, "", "b")], NOW);
+        relay.next_job().unwrap();
+
+        relay.show_waiting();
+
+        assert!(!live(&relay).contains("Waiting:"));
+    }
+
+    #[test]
+    fn stop_ends_a_message_that_waits_for_the_limit_and_its_line() {
+        let mut relay = limited(1);
+        relay.on_frame(&[record("c1", 1, "", "a"), record("c2", 2, "", "b")], NOW);
+        relay.next_job().unwrap();
+        relay.show_waiting();
+
+        relay.on_frame(&[record("c2", 0, "stop", "")], NOW);
+
+        assert!(!live(&relay).contains("Waiting:"));
+        assert!(body(&relay).contains(r#"id = 2, status = "error", text = "Stopped.""#));
+    }
+
+    #[test]
+    fn the_arrival_order_survives_a_restart() {
+        let mut relay = limited(1);
+        relay.on_frame(&[record("c1", 1, "", "running")], NOW);
+        relay.next_job().unwrap();
+        relay.on_frame(&[record("c9", 2, "", "first")], NOW);
+        relay.on_frame(&[record("c5", 3, "", "second")], NOW);
+
+        let mut restarted = restart(&relay);
+        restarted.set_max_runs(1);
+        restarted.on_frame(&[record("c0", 4, "", "third")], NOW);
+        let jobs = run_all(&mut restarted);
+
+        assert_eq!(ids(&jobs), [MessageId(2), MessageId(3), MessageId(4)]);
     }
 
     #[test]
@@ -1097,7 +1370,7 @@ mod tests {
     fn a_reload_starts_the_slot_window_at_one() {
         let mut relay = relay();
         relay.on_frame(&[record("relay", 0, "h;next=57", "")], NOW);
-        relay.reset_window();
+        relay.reset_window(Some("tok"));
         assert_eq!(relay.next_slot(), 1);
     }
 
@@ -1177,20 +1450,88 @@ mod tests {
     }
 
     #[test]
-    fn the_restored_flag_ends_the_restore_and_retires_the_old_token() {
+    fn the_restored_flag_ends_the_restore_and_retires_no_token() {
         let mut relay = wiped();
-        relay.on_frame(&[record("c1", 2, "", "still running")], NOW);
-        let job = relay.next_job().unwrap();
 
         relay.on_frame(
             &[from_token("new", record("relay", 0, "h;restored", ""))],
             NOW,
         );
-        relay.finish(&job, Ok("late".into()));
 
         assert!(restore_text(&relay).contains("token = \"\""));
+        assert!(body(&relay).contains("echo: before the wipe"));
+    }
+
+    #[test]
+    fn a_new_token_in_the_file_of_the_same_account_retires_the_old_token() {
+        let mut relay = wiped();
+        relay.saw_saved_token("ACCOUNT1", "tok");
+        relay.on_frame(&[record("c1", 2, "", "still running")], NOW);
+        let job = relay.next_job().unwrap();
+
+        let retired = relay.saw_saved_token("ACCOUNT1", "new");
+        relay.finish(&job, Ok("late".into()));
+
+        assert_eq!(retired.as_deref(), Some("tok"));
         assert!(!body(&relay).contains("echo: before the wipe"));
         assert!(!body(&relay).contains("late"));
+    }
+
+    #[test]
+    fn a_token_in_the_file_of_another_account_retires_nothing() {
+        let mut relay = wiped();
+        relay.saw_saved_token("ACCOUNT1", "tok");
+
+        let retired = relay.saw_saved_token("ACCOUNT2", "new");
+
+        assert_eq!(retired, None);
+        assert!(body(&relay).contains("echo: before the wipe"));
+    }
+
+    #[test]
+    fn the_same_token_in_a_file_again_retires_nothing() {
+        let mut relay = wiped();
+        relay.saw_saved_token("ACCOUNT1", "tok");
+
+        let retired = relay.saw_saved_token("ACCOUNT1", "tok");
+
+        assert_eq!(retired, None);
+        assert!(body(&relay).contains("echo: before the wipe"));
+    }
+
+    #[test]
+    fn two_accounts_that_play_at_once_both_keep_their_replies() {
+        let mut relay = relay();
+        relay.on_frame(&[record("relay", 0, "h;next=40", "")], NOW);
+        relay.on_frame(
+            &[from_token("two", record("relay", 0, "h;next=5", ""))],
+            NOW,
+        );
+        relay.saw_saved_token("ACCOUNT1", "tok");
+        relay.saw_saved_token("ACCOUNT2", "two");
+        relay.on_frame(
+            &[from_token("two", record("relay", 0, "h;restored", ""))],
+            NOW,
+        );
+
+        relay.on_frame(&[record("c1", 1, "", "from one")], NOW);
+        relay.on_frame(&[from_token("two", record("c2", 2, "", "from two"))], NOW);
+        run_all(&mut relay);
+
+        assert!(body(&relay).contains("echo: from one"));
+        assert!(body(&relay).contains("echo: from two"));
+        assert_eq!(relay.next_slots(), [5, 40]);
+    }
+
+    #[test]
+    fn the_account_of_each_token_survives_a_restart() {
+        let mut relay = wiped();
+        relay.saw_saved_token("ACCOUNT1", "tok");
+
+        let mut restarted = restart(&relay);
+        let retired = restarted.saw_saved_token("ACCOUNT1", "new");
+
+        assert_eq!(retired.as_deref(), Some("tok"));
     }
 
     #[test]
@@ -1937,6 +2278,38 @@ mod tests {
         let outcomes = relay.on_frame(&[record_in("../../new", "c1", 1, "n;mkdir=1", "hi")], NOW);
         assert_eq!(outcomes, [Outcome::BadFolder]);
         assert!(body(&relay).contains("That folder isn't allowed"));
+    }
+
+    #[test]
+    fn a_done_reply_with_a_report_shows_its_usage_line() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+        let usage = Usage {
+            input: 1234,
+            cached: 0,
+            output: 350,
+            cost_usd: Some(0.04),
+        };
+
+        relay.finish_with_usage(&job, Ok("Done.".into()), Some(&usage));
+
+        assert!(
+            body(&relay).contains(r#"text = "\027M1\010u\0311.2k in \194\183 350 out \194\183 $0.04\010p\031Done.\010""#),
+            "{}",
+            body(&relay)
+        );
+    }
+
+    #[test]
+    fn an_error_reply_shows_no_usage_line() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+
+        relay.finish_with_usage(&job, Err("Stopped.".into()), Some(&Usage::default()));
+
+        assert!(body(&relay).contains(r#"status = "error", text = "Stopped.""#));
     }
 
     #[test]

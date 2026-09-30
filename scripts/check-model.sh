@@ -67,8 +67,8 @@ verify() {
 # The first run downloads the evaluator of Quint. Parallel first runs break each other's download.
 quint run models/transport.qnt --max-samples=1 --max-steps=1 > /dev/null
 
-transport_properties="runsOnce noLostReply restoreSafe noStuckMessage bodyBounded"
-transport_witnesses="neverFull neverRestored neverTwoAnswers neverOutboxReply"
+transport_properties="runsOnce noLostReply restoreSafe noStuckMessage bodyBounded liveTokenStays"
+transport_witnesses="neverFull neverRestored neverTwoAnswers neverOutboxReply neverRetired"
 corner_properties="oneStrip ownEvents retryPaused blockedInTime fairWait"
 corner_witnesses="neverTurn neverWarned neverOutbox neverBoth neverRetry"
 

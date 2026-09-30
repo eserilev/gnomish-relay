@@ -44,6 +44,16 @@ fn completed(status: &str) {
     );
 }
 
+/// One `thread/tokenUsage/updated`, as codex-cli 0.157.0 sends it after a model call.
+/// Each list is the input, the cached input, and the output.
+fn used(total: &[u64; 3], last: &[u64; 3]) {
+    let breakdown = |t: &[u64; 3]| json!({ "inputTokens": t[0], "cachedInputTokens": t[1], "outputTokens": t[2], "reasoningOutputTokens": 0, "totalTokens": t[0] + t[2] });
+    notify(
+        "thread/tokenUsage/updated",
+        &json!({ "threadId": "t1", "turnId": "u1", "tokenUsage": { "total": breakdown(total), "last": breakdown(last), "modelContextWindow": 200_000 } }),
+    );
+}
+
 /// Asks the bridge a question and returns its decision.
 fn ask(method: &str, params: &Value) -> String {
     send(&json!({ "method": method, "id": 90, "params": params }));
@@ -157,6 +167,12 @@ fn turn(script: &str, text: &str, state: &str, arg: &str) -> Option<String> {
             None
         }
         "tmpdir" => Some(std::env::var("TMPDIR").unwrap_or_default()),
+        "usage" => {
+            // A resumed thread: 10000 in, 8000 cached, and 500 out before this turn.
+            used(&[13000, 10000, 700], &[3000, 2000, 200]);
+            used(&[17000, 13500, 850], &[4000, 3500, 150]);
+            Some("used".into())
+        }
         _ => {
             let secret = if std::env::var_os("CARGO_MANIFEST_DIR").is_some() {
                 "leaked"

@@ -66,8 +66,13 @@ impl Timeways {
         self.lane.addon_version()
     }
 
-    pub fn reset_window(&mut self) {
-        self.lane.reset_window();
+    /// `token` is the token in the saved variables file that changed.
+    pub fn reset_window(&mut self, token: Option<&str>) {
+        self.lane.reset_window(token);
+    }
+
+    pub fn next_slots(&self) -> Vec<usize> {
+        self.lane.next_slots()
     }
 
     pub fn unread(&self) -> usize {

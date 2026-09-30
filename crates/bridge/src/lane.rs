@@ -14,6 +14,8 @@ use crate::versions::update_text;
 
 /// More tokens than this means many wipes. The oldest ones then go.
 const MAX_TOKENS: usize = 16;
+/// Two accounts can play at once, and a wiped token keeps its window until it retires.
+const MAX_WINDOWS: usize = 3;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ChatId(String);
@@ -50,13 +52,23 @@ pub enum NotAdmitted {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Default)]
 #[serde(default)]
 pub struct LaneState {
+    /// The newest window. An older bridge kept only this one.
     pub next_slot: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub windows: Vec<Window>,
     /// The replay store, oldest first.
     pub seen: Vec<(String, u32)>,
     pub records: Vec<SavedRecord>,
     pub tokens: Vec<String>,
     pub retired: Vec<String>,
     pub client_build: Option<String>,
+}
+
+/// The slot window of one token: the next slot that its addon loads (SPEC.md 7.3).
+#[derive(Serialize, Deserialize, Debug, PartialEq, Eq, Clone)]
+pub struct Window {
+    pub token: String,
+    pub next: usize,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
@@ -119,7 +131,10 @@ pub struct Lane {
     limiter: RateLimiter,
     /// Every record the addon has not read, newest last.
     records: Vec<Entry>,
-    next_slot: usize,
+    /// The window of each token with a report, newest report first.
+    windows: Vec<Window>,
+    /// The window before any report, as an older state file kept it.
+    first_window: usize,
     /// The tokens that sent a hello, oldest first.
     tokens: Vec<String>,
     /// Tokens of wiped saved data. Their records never go into the body again.
@@ -143,7 +158,8 @@ impl Lane {
             seen: new_seen(),
             limiter: RateLimiter { times: Vec::new() },
             records: Vec::new(),
-            next_slot: 1,
+            windows: Vec::new(),
+            first_window: 1,
             tokens: Vec::new(),
             retired: Vec::new(),
             client_build: None,
@@ -159,8 +175,29 @@ impl Lane {
         self.addon_version
     }
 
+    /// The window of the newest report.
     pub fn next_slot(&self) -> usize {
-        self.next_slot
+        self.windows.first().map_or(self.first_window, |w| w.next)
+    }
+
+    /// The start of each window that a publish writes.
+    pub fn next_slots(&self) -> Vec<usize> {
+        if self.windows.is_empty() {
+            return vec![self.first_window];
+        }
+        self.windows.iter().map(|w| w.next).collect()
+    }
+
+    fn move_window(&mut self, token: &str, next: usize) {
+        self.windows.retain(|w| w.token != token);
+        self.windows.insert(
+            0,
+            Window {
+                token: token.to_owned(),
+                next,
+            },
+        );
+        self.windows.truncate(MAX_WINDOWS);
     }
 
     /// The reply to each message while the addon reports a version out of range. With no
@@ -170,9 +207,15 @@ impl Lane {
         update_text(self.app, version_fit(self.app, reported))
     }
 
-    /// A `/reload` frees every slot, so the next body starts at slot 1 (SPEC.md 7.3).
-    pub fn reset_window(&mut self) {
-        self.next_slot = 1;
+    /// A `/reload` frees every slot of that game, so its next body starts at slot 1
+    /// (SPEC.md 7.3). With no token, the file names no game, so every window starts there.
+    pub fn reset_window(&mut self, token: Option<&str>) {
+        let Some(token) = token else {
+            self.first_window = 1;
+            self.windows.iter_mut().for_each(|w| w.next = 1);
+            return;
+        };
+        self.move_window(token, 1);
     }
 
     /// The records that the addon has not read. The body holds all of them.
@@ -183,7 +226,7 @@ impl Lane {
     /// The transport part of the report on the first record of a frame (SPEC.md 7.1.1).
     pub fn take_report(&mut self, token: &str, flags: &TransportFlags) {
         if let Some(next) = flags.next {
-            self.next_slot = next.max(1);
+            self.move_window(token, next.max(1));
         }
         self.records.retain(|e| {
             let read = e.token == token && flags.read.contains(&e.id.0);
@@ -211,13 +254,15 @@ impl Lane {
         keep_last(&mut self.tokens, MAX_TOKENS);
     }
 
-    /// After a saved-data wipe, only the new token stays. The records of the others
-    /// leave the body.
-    pub fn retire_all_but(&mut self, token: &str) {
-        let old = std::mem::replace(&mut self.tokens, vec![token.to_owned()]);
-        self.retired.extend(old.into_iter().filter(|t| t != token));
-        keep_last(&mut self.retired, MAX_TOKENS);
-        self.records.retain(|e| e.token == token);
+    /// A token of wiped saved data: its records and its window go (SPEC.md 7.6).
+    pub fn retire(&mut self, token: &str) {
+        self.tokens.retain(|t| t != token);
+        self.windows.retain(|w| w.token != token);
+        self.records.retain(|e| e.token != token);
+        if !self.retired.iter().any(|t| t == token) {
+            self.retired.push(token.to_owned());
+            keep_last(&mut self.retired, MAX_TOKENS);
+        }
     }
 
     /// Marks the message as seen, or says why not.
@@ -285,7 +330,8 @@ impl Lane {
     /// The rate limiter is not in the state: a restart gives a fresh minute.
     pub fn to_state(&self) -> LaneState {
         LaneState {
-            next_slot: self.next_slot,
+            next_slot: self.next_slot(),
+            windows: self.windows.clone(),
             seen: self
                 .seen
                 .entries
@@ -301,7 +347,8 @@ impl Lane {
 
     pub fn from_state(app: App, state: LaneState) -> Lane {
         let mut lane = Lane::new(app);
-        lane.next_slot = state.next_slot.max(1);
+        lane.first_window = state.next_slot.max(1);
+        lane.windows = state.windows;
         lane.seen.entries = state
             .seen
             .into_iter()
@@ -363,10 +410,7 @@ mod tests {
         }
         assert_eq!(lane.admit(b"tok", 99, NOW), Err(NotAdmitted::Refused));
         let read: Vec<String> = (0..30).map(|id| id.to_string()).collect();
-        lane.take_report(
-            "tok",
-            &flags::transport(format!("read={}", read.join(",")).as_bytes()),
-        );
+        report(&mut lane, "tok", &format!("read={}", read.join(",")));
         assert_eq!(lane.admit(b"tok", 99, NOW), Ok(()));
     }
 
@@ -376,11 +420,90 @@ mod tests {
         lane.add_token("old");
         lane.add_token("new");
         lane.set_record("old", &chat(), MessageId(1), Status::Done, "a".into());
-        lane.retire_all_but("new");
+        lane.set_record("new", &chat(), MessageId(3), Status::Done, "c".into());
+
+        lane.retire("old");
         lane.set_record("old", &chat(), MessageId(2), Status::Done, "b".into());
-        assert_eq!(lane.unread(), 0);
+
+        assert_eq!(lane.unread(), 1);
         assert!(lane.knows_token("new"));
         assert!(!lane.knows_token("old"));
+    }
+
+    fn report(lane: &mut Lane, token: &str, flags: &str) {
+        lane.take_report(token, &flags::transport(flags.as_bytes()));
+    }
+
+    #[test]
+    fn each_token_moves_only_its_own_window() {
+        let mut lane = Lane::new(App::Relay);
+
+        report(&mut lane, "one", "next=50");
+        report(&mut lane, "two", "next=3");
+
+        assert_eq!(lane.next_slots(), [3, 50]);
+        assert_eq!(lane.next_slot(), 3);
+    }
+
+    #[test]
+    fn a_lane_keeps_the_windows_of_the_three_newest_tokens() {
+        let mut lane = Lane::new(App::Relay);
+
+        for (token, next) in [("a", 10), ("b", 20), ("c", 30), ("d", 40), ("b", 21)] {
+            report(&mut lane, token, &format!("next={next}"));
+        }
+
+        assert_eq!(lane.next_slots(), [21, 40, 30]);
+    }
+
+    #[test]
+    fn a_reload_of_one_account_moves_only_the_window_of_its_token() {
+        let mut lane = Lane::new(App::Relay);
+        report(&mut lane, "one", "next=50");
+        report(&mut lane, "two", "next=3");
+
+        lane.reset_window(Some("one"));
+
+        assert_eq!(lane.next_slots(), [1, 3]);
+    }
+
+    #[test]
+    fn a_saved_file_with_no_token_moves_every_window_to_the_first_slot() {
+        let mut lane = Lane::new(App::Relay);
+        report(&mut lane, "one", "next=50");
+        report(&mut lane, "two", "next=3");
+
+        lane.reset_window(None);
+
+        assert_eq!(lane.next_slots(), [1, 1]);
+    }
+
+    #[test]
+    fn a_retired_token_loses_its_window() {
+        let mut lane = Lane::new(App::Relay);
+        report(&mut lane, "one", "next=50");
+        report(&mut lane, "two", "next=3");
+
+        lane.retire("two");
+
+        assert_eq!(lane.next_slots(), [50]);
+    }
+
+    #[test]
+    fn a_lane_with_no_report_starts_at_the_first_slot() {
+        assert_eq!(Lane::new(App::Relay).next_slots(), [1]);
+    }
+
+    #[test]
+    fn an_older_state_with_one_window_keeps_it() {
+        let state = LaneState {
+            next_slot: 57,
+            ..LaneState::default()
+        };
+
+        let lane = Lane::from_state(App::Relay, state);
+
+        assert_eq!(lane.next_slots(), [57]);
     }
 
     #[test]
@@ -407,5 +530,6 @@ mod tests {
             state
         );
         assert_eq!(state.next_slot, 9);
+        assert_eq!(state.windows[0].next, 9);
     }
 }

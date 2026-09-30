@@ -3,6 +3,7 @@
 // The library exists for the binary and its tests, not for other crates.
 #![allow(clippy::missing_errors_doc, clippy::must_use_candidate)]
 
+pub mod accounts;
 pub mod acp;
 pub mod action_input;
 pub mod activity;
@@ -23,6 +24,7 @@ pub mod config;
 pub mod config_edit;
 pub mod config_text;
 pub mod connect_line;
+pub mod daily_usage;
 pub mod desktop;
 pub mod dialog;
 pub mod dirs;
@@ -89,5 +91,6 @@ pub mod terminal_sessions;
 pub mod timeways;
 pub mod turn;
 pub mod update;
+pub mod usage;
 pub mod vectors;
 pub mod versions;

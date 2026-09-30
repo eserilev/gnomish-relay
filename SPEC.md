@@ -867,6 +867,7 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 
 - The addon reports `next` in every strip. When it nears the end of the window without a strip to send, it sends a hello with `next`.
 - At a hello, or when the saved variables file changes (a `/reload`), the bridge starts the window at the reported slot, or at slot 1.
+- Each token has its own window, because two WoW accounts on one computer can play at once (7.6), and each game loads slots from its own place. The bridge keeps the windows of the 3 tokens with the newest reports, and each publish writes all of them. A strip moves only the window of its token. A changed saved variables file moves only the window of the token in that file. A file with no token moves every window to slot 1.
 - A slot outside the window holds an older body. The addon never loads a slot past the window of its last strip. In a long fight, the polls stop there, and they go on after the hello at the end of the fight.
 - A slot of an earlier UI session can still hold an older body. The addon skips a body whose `now` is older than the `now` of the last body that it applied, with its live file and its restore bundle. An older body would bring back old `working` records, an old live file, and an old clock.
 - A skipped body loses no reply: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
@@ -922,6 +923,7 @@ The rendered text goes into the normal `text` field, so S9, S18, and S20 do not 
 | `c` | One line of a code fence (```` ``` ```` or `~~~`). A tab becomes 4 spaces. | text |
 | `t` | Table row. The delimiter row (`\|---\|`) shows nothing. | `1` for the row above a delimiter row, else `0`, then one field per cell |
 | `r` | Rule (`---`, `***`, `___`) | none |
+| `u` | The usage of the run (9.10): one grey line below the reply. Only the bridge writes it, as the first block after the marker, so a cut never drops it. | the line, for example `1.2k in · 350 out · $0.04` |
 
 **Text rules:**
 
@@ -993,9 +995,17 @@ The saved variables also carry the `read` and `restored` state, so the bridge re
 The beta client sometimes wipes addon saved data. The addon then makes a new token.
 When a hello comes from an unknown token, and the bridge already knows another token, the bridge writes a restore bundle for the new token.
 The bundle goes into `Restore.lua` in each slot of the window, next to the body. So the body keeps its own 1 MiB bound (S12).
-The bundle stays in each publish until a strip from that token has the `restored` flag.
+The bundle stays in each publish until a strip from that token has the `restored` flag. The flag ends the restore, and retires no token.
 The addon applies a bundle only one time. It merges the chats by chat id, so a second copy of the bundle changes nothing.
-After the `restored` flag, the bridge retires the older tokens and takes their records out of the slot body. A run of a retired token that ends later goes only into the history.
+
+**Two accounts, or a wipe.** Two WoW accounts on one computer have two tokens too, and they can play at once. A hello from the second account looks the same as a hello after a wipe: a strip carries only the token. The account shows only in the saved variables. WoW keeps them for each account in `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua`, and the file holds the token (`["token"]`, one tab deep). So the bridge decides with the account folder:
+
+- The bridge keeps the account folder of each token that it read in a saved variables file, in `state.json`.
+- **The rule:** a new token in the file of a folder that held another token is a wipe. The older token of that folder retires: its records leave the slot body, and its window goes (7.3). A run of a retired token that ends later goes only into the history.
+- A token in another folder is another account. Tokens of two folders never retire each other.
+- WoW writes the file only at a `/reload`, a logout, or an exit. So after a wipe, the old token retires at the next `/reload` or logout of that account, not at once. Until then, its records stay in the body. They are the records that nobody read before the wipe, so they are few.
+- A token that the bridge never saw in a file never retires. A second account before its first `/reload` or logout is such a token.
+- The restore does not wait for the file: a player after a wipe wants the chats back now. So the first hello of a second account also gets a restore, and that account shows the chats of the first one as a copy. It is the same person on the same computer. Both accounts can then send to such a chat, and each account sees only its own messages and their replies.
 
 The bundle holds the 16 chats with the latest activity, and the last 10 messages of each (S18).
 Each message is cut to 500 bytes, at a character boundary. The file is at most 512 KiB (S19).
@@ -1112,13 +1122,23 @@ Planned, not built: a crate `agents/` for the `Agent` trait and the backends of 
 Each chat has a FIFO queue. A second message to a busy chat waits. It never replaces the first.
 (`wow-claude` keeps one queued job per chat, so a second message replaces the first. Do not copy this.)
 
+**The limit on parallel runs.** Each agent run costs memory, CPU, and money, so at most `max_parallel_runs` runs are active at a time (12, default 3).
+
+- A run is a message or an attach (9.6) with a run in progress. A list of sessions, folders, or settings never counts and never waits: it is short and starts no turn of an agent.
+- A message over the limit waits in the queue of its chat. When a run ends, the message that came first starts next, across all chats. The bridge numbers each message when it takes it, and `state.json` keeps the number with the waiting message, so a restart keeps the order.
+- A message that waits for the limit, and not for an earlier message of its own chat, shows one progress line of the bridge: "Waiting: 3 other chats are running", with ", 1 ahead of this one" when older messages wait too. Only the bridge writes a line that starts with "Waiting:": `Activity::step` puts "agent: " in front of such a line of an agent, as for "Level:" (9.3).
+- The addon shows the line on the cast bar of the Activity column, grey and still, as for a popup that waits (13.1), and not as a step row.
+- Stop ends a waiting message as before, and its line goes.
+- A lower `max_parallel_runs` in the config takes effect at the next start of the bridge. Runs in progress then go on, and new runs wait until fewer than the new limit are active.
+
 ### 8.3 State
 
 The bridge keeps its state in JSON files in the data folder of the OS:
 
-- `state.json`: the replay store, the unread records, the waiting messages, the slot window, the tokens, and the restore history (7.6).
+- `state.json`: the replay store, the unread records, the waiting messages, the slot window of each token, the tokens, the account folder of each token, and the restore history (7.6).
 - `timeways/state.json`: the lane of Timeways (9.7), only with a Timeways key. Later also agent session IDs per chat, the folder of each session, and signal counters.
 - `timeways/story/`: the folder of the story program (9.8). Only the story program writes there, and the bridge never reads it.
+- `usage.json`: the tokens and the cost of each of the last 31 days (9.10).
 - Planned, not built: `transcripts.json`, with every prompt and reply of each chat: 200 messages per chat, 4000 characters each. Today `state.json` keeps only the short history of the restore bundle (7.6).
 
 Rules:
@@ -1395,7 +1415,7 @@ Rules:
 
 - ACP: one agent process per run. ACP agents have no sandbox, so each of their calls asks at most (6.6.4).
 - `claude`, `codex`, and `command`: one process per run. For `command`, the process is the sandbox, with the harness and every program that it starts.
-- `max_parallel_runs` counts active runs, not processes.
+- `max_parallel_runs` counts active runs, not processes (8.2).
 - If an ACP process stops, the bridge starts it again and resumes the open sessions. If a session cannot resume, the bridge reports an error for that chat.
 - Stop for `command` kills the whole process group at once, with no grace: a harness has no cancel channel. On Linux the sandbox has its own process ids, so every program of the harness ends with it.
 - The bridge declares ACP client capabilities `fs` and `terminal` as false in v1. The agent uses its own tools.
@@ -1701,6 +1721,37 @@ parent \t name \t mark
 
 **The browser** is in 13.1.
 
+### 9.10 Cost and usage
+
+Agents cost money, and a player in the game cannot see a bill. So the bridge records the tokens of each run, and its cost when the agent gives it (asked for by the user on 2026-09-29).
+
+**What each agent reports.** Checked against Claude Code 2.1.285 and codex-cli 0.157.0 (`codex app-server generate-json-schema`).
+
+| Agent | Where | Tokens | Cost |
+|---|---|---|---|
+| `claude` | The `result` message at the end of the turn: `usage` and `total_cost_usd`. | In: `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`. Out: `output_tokens`. Cached: `cache_read_input_tokens`. | `total_cost_usd` |
+| `codex` | The `thread/tokenUsage/updated` notification, after each model call of the turn. `tokenUsage.total` counts the whole thread, and `tokenUsage.last` the last call. | The turn is the newest `total` less the `total` before the first call of the turn (the first `total` less its `last`). In: `inputTokens`, which holds the cached ones. Out: `outputTokens`. Cached: `cachedInputTokens`. | none |
+| `acp`, `command`, `echo` | none | none | none |
+
+- A run with no report records nothing and shows nothing. So does an attach (9.6): it calls no model.
+- A number that is missing, negative, or not a number counts as 0. A cost that is not a finite number of at least 0 counts as no cost.
+
+**In the game.** A `done` reply with a report carries the line of block `u` (7.3.1), for example "1.2k in · 350 out · $0.04". Codex gives no cost, so its line is "1.2k in · 350 out". The addon shows the line in grey below the reply, and never in the whisper line.
+
+- A count below 1000 shows as it is. Up to 999,999 it shows in thousands with one decimal ("1.2k", and "12k" from 10,000). From a million it shows in millions ("1.2M").
+- A cost shows with two decimals ("$0.04"). A cost above 0 and below one cent shows as "<$0.01".
+- An error reply shows no line, but its report still counts for the day.
+
+**The total for today.** The bridge adds each report to the total of its day, in `usage.json` in the data folder, with mode 0600. A day is the UTC date, because the bridge has no time zone database. The file keeps the last 31 days. A damaged file logs one line and starts a new one: the total only informs, and a lost total never runs a message twice.
+
+- The settings list (13.4) carries the total for today, and the cap when the config sets one. The Settings tab shows "Today (UTC): 12k in · 4.1k out · $1.20", and " · limit $5.00" with a cap.
+
+**The daily cap.** `daily_cost_cap_usd` in the config (12) is off by default. When the cost of today reaches the cap, a new message does not start its agent. Its reply is the error "Not started: today's agent cost reached your $5.00 limit. It resets at 00:00 UTC, or raise daily_cost_cap_usd in config.toml on your desktop."
+
+- The check comes when the message would start. A run in progress goes on past the cap: a stop in the middle of a task leaves half-changed files.
+- Only a cost counts. Codex reports no cost, so its runs never raise the total. The cap still stops a Codex message when the cost of other agents reached it.
+- A list and an attach never call a model, so the cap never stops them.
+
 ## 10. Notifications from terminal sessions
 
 **Status: built (2026-09-29).** The pure parts in `protocol` with their proofs: `notice.rs` (S40), `sessions.rs` (S41), and the notices of `live.rs` (S20 restated). In the bridge: the `hook` subcommand (`hook.rs`, `hook_input.rs`), the spool folder (`spool.rs`), the session table (`terminal_sessions.rs`), and `hooks install` (`hooks_merge.rs`, `hooks_install.rs`). In the addon: `Notices.lua`, `NoticeFrames.lua`, and the Settings and Diag parts. The fuzz targets `hook_input`, `notice_file`, and `hooks_merge`, and `crates/bridge/tests/notices_e2e.rs`. The build checked the design against Claude Code 2.1.285 and codex-cli 0.157.0 (2026-09-29), and changed the lines that real use showed wrong. Each change says "Changed in the build" and why.
@@ -1997,7 +2048,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -2029,7 +2080,7 @@ local_model = "llama3.2"
 - A model name has no space and does not start with `-`, because `claude_model` goes into an argument of `claude`.
 - The model route takes nothing from `[agents.*]`: `model = "claude"` always runs `claude` from `PATH`, with the environment allowlist of 6.2 and no `env` list (9.7, decision 10).
 
-**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `[agents]`, `[allow]`, and `[sandbox]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
+**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[agents]`, `[allow]`, and `[sandbox]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
 
 ```toml
 [wow]
@@ -2074,7 +2125,8 @@ agent_network = "open"         # "strict": the agent reaches only its model host
 - Hosts that a user can add: `nodejs.org` (headers for native modules of npm), `proxy.golang.org` and `sum.golang.org` (Go modules).
 - Only the desktop changes `config.toml` (6.6.2), so no message from the game adds a host.
 
-The other keys below come with their features. Two keys are planned and not in the config yet: `max_parallel_runs` (8.2) and `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses them, so the example leaves them out. A test loads this example, so the example and the loader never differ.
+The other keys below come with their features. One key is planned and not in the config yet: `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses it, so the example leaves it out. A test loads this example, so the example and the loader never differ.
+`max_parallel_runs` is 1 to 16 (8.2). `daily_cost_cap_usd` is a number of US dollars above 0 and at most 10000 (9.10). With no key, there is no cap.
 Each root must exist. The bridge resolves links in it at start. `default_cwd` must be inside a root.
 
 ```toml
@@ -2082,6 +2134,8 @@ default_cwd = "~/Documents/Code"
 allowed_roots = ["~/Documents/Code"]
 timeout_minutes = 30
 permission_timeout_minutes = 10
+max_parallel_runs = 3         # runs over the limit wait for their turn (8.2)
+daily_cost_cap_usd = 5.0      # optional; no new run after $5 of agent cost in a UTC day (9.10)
 default_agent = "claude"
 
 [wow]
@@ -2129,6 +2183,7 @@ The mockup is the reference for the layout.
   - Headings, paragraphs, list items, and quotes go into one SimpleHTML frame, with real sizes for `h1` to `h3`, and a bullet or the number before each item.
   - Code shows in a black box in the shipped mono font (13.2).
   - A table is a grid of font strings with a gold header row. A table with more than 8 columns, or too wide for the transcript, shows each row as a card: the first cell in gold, and each other cell below it with the name of its column.
+  - The usage line (9.10) shows in grey below the last block.
   - If anything fails while a reply draws, it shows as plain text.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Summary first** (asked for by the user on 2026-09-29). A long reply shows only its summary, with a blue "Show more" link below it. The link opens the whole reply in place, and "Show less" closes it again.
@@ -2164,7 +2219,7 @@ The mockup is the reference for the layout.
   - **One list for all chats.** The tasks do not depend on the chat, because the agent runs each one in the folder of the chat. So one list is one place to edit, and a new chat has the buttons at once. A list per chat asks the player to set up each chat again.
   - At most 6 buttons. When the names do not fit in the row, all buttons take the same width and cut their names. A button with no message does not show.
   - The row uses the room of the "Reload soon" banner, so the transcript keeps its height. The banner is more urgent: while it shows, the row does not. The row also hides while the byte counter of the input shows, and with the input (the Resume picker). With no button, there is no row.
-- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for your approval" in orange: the run makes no progress then. At the bottom, a grey line gives the time to the next poll: "Checking again in 12s". The cast bar and this line change at most 5 times a second.
+- **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for your approval" in orange: the run makes no progress then. While the message waits for the limit on parallel runs (8.2), the cast bar stands still in grey and shows the waiting line of the bridge, for example "Waiting: 3 other chats are running". At the bottom, a grey line gives the time to the next poll: "Checking again in 12s". The cast bar and this line change at most 5 times a second.
 - **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. The window stays on screen with its tabs: the clamp of the window counts the tabs as part of it. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
   - **New chats:** Agent, a dropdown of the agents in the settings list (13.4), and Permissions, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Up to <level> (set on your desktop)", the level of the chosen agent in the config.
@@ -2172,11 +2227,12 @@ The mockup is the reference for the layout.
   - **The editor of the quick actions:** one row for each button: its name, its message, **Move up**, **Move down**, and **Remove**. Enter or a click elsewhere saves a changed field, and Escape puts the old text back. An empty name or message keeps the old one. Below the rows: **Add** (a new row "New action", up to 6), **Reset** (the defaults), and **Done** (back to the page). The editor closes with the page.
   - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the banners, the bell, and the faster polls of 10.4, and greys the other two rows. Finished tasks, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Banner (default on).
   - **Always allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
-  - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "Not loaded yet". A click asks for a new list.
-- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, and the sandbox. With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
+  - At the bottom left, the usage of today (9.10): "Today (UTC): 12k in · 4.1k out · $1.20", with " · limit $5.00" when the config sets a cap. With no usage today, the line is empty.
+  - At the bottom right, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "Not loaded yet". A click asks for a new list.
+- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, the limit on parallel runs, and the sandbox. With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
 - **Key binding:** `Bindings.xml` adds "Toggle window" and "Search chat" under "Gnomish Relay" in the Key Bindings menu of the game. They call the globals `GnomishRelay_Toggle` and `GnomishRelay_Search`. "Search chat" opens the window on its chat, and opens the search. Neither has a default key.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
-- **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A notification of a terminal session gets its own line with a bell (10.4).
+- **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. The usage line (9.10) never shows there. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A notification of a terminal session gets its own line with a bell (10.4).
 - **Permission requests** use the separate popup of 6.4, never the window. A desktop request has no popup: an Activity row and one whisper line (6.6.3).
 
 ### 13.2 Code
@@ -2312,6 +2368,9 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 | `default_agent` | The name of the default agent. |
 | `agent` | `name \t kind \t level`: one line for each agent. The level is the level of the config now, so a raise on the desktop (9.3) shows at the next list. |
 | `timeout_minutes`, `permission_timeout_minutes` | The two timeouts. |
+| `max_parallel_runs` | The limit on parallel runs (8.2). |
+| `usage_today` | The tokens and the cost of today, as the usage line of 9.10 shows them. Only after the first report of the day. |
+| `daily_cost_cap_usd` | The cap, with two decimals. Only when the config sets one. |
 | `story_model` | Only with `[story]`: `none`, `claude`, `claude <model>`, or `local <model>`. The address of a local model stays on the desktop. |
 | `story_budget_window_minutes` | Only with `[story]`. |
 | `rule` | `id \t folder \t pattern \t days`: one "Always allow" rule (6.6.5), with the days since its last use. |
@@ -2439,6 +2498,7 @@ The model checker checks these properties:
 - A publish never loses a reply that the addon has not read.
 - After a saved-data wipe, the restore never duplicates or drops a chat.
 - Each sent message ends with a reply or an error, also across `/reload`.
+- The token of the addon never retires. An old token retires only when the saved variables file shows the new token (7.6).
 
 Write the model before the bridge state machine. The Rust state machine follows the model.
 
@@ -2618,6 +2678,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 14. **Done: a deeper API gate.** `scripts/wow-api.sh` checks that each WoW name exists and is not deprecated, and that each registered event exists. It also writes `addon/tests/api-signatures.lua`: the arguments, the returns, the payload, and the secret and restriction flags of each used function, widget method, and event, from the generated API docs of the client. A new secret flag breaks an addon, even when the name stays the same, so any change fails CI and the nightly job (7.8). The script takes the addon folders and the output paths as arguments, so the Timeways repo and the tank addon repo can run it too.
 15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 8, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. Step 8 is setup for two apps (9.7, decision 15) and the version range of each app (7.7, S30). **Next:** a loopback in the real game, when Timeways ships an addon build.
 16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Done:** the agent process behind the proxy on Linux (6.6.4, "The agent process behind the proxy"), `local_ports`, and one sandbox for each run. S33 to S35 are proved. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
+17. **Done: limits and accounts.** The limit on parallel runs, with a waiting line in the game (8.2). Two WoW accounts on one computer, told apart from a wipe by the account folder of each token, with a slot window for each token (7.3, 7.6). The tokens and the cost of each run, the total of each day, and the daily cost cap (9.10). **Next:** a test in the real game with two accounts, and a live run of Claude and Codex that checks the usage line.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
@@ -2635,7 +2696,6 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 - What does `permissions.<profile>.filesystem.deny_read` of Codex take, so that Codex can hide the `deny` and `desktop` paths (6.6.4)?
 - Not planned now (voice, 13.3): does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
 - Not planned now (voice, 13.3): can the bridge take a global push-to-talk hotkey on Wayland through the GlobalShortcuts portal?
-- Two WoW accounts on one computer have two tokens. A hello from the second account starts a restore, and its `restored` flag retires the first token. How does the bridge tell two accounts from a saved-data wipe?
 - Not planned now: can font files replace the `.wav` signals? The slot polls of 7.3 work without signals.
 - How fast is HMAC-SHA256 in WoW Lua for a 3200-byte strip?
 - Does Gemini CLI have hooks for notifications?

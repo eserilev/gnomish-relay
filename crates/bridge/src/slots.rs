@@ -108,6 +108,15 @@ pub fn publish_reply(addons: &Path, reply: Reply, next: usize, now: u32) -> Resu
     publish(addons, App::Relay, &files, next)
 }
 
+/// Writes the window of each game (SPEC.md 7.3). A slot of two windows holds the same
+/// bytes, so its second write is skipped.
+pub fn publish_windows(addons: &Path, app: App, files: &Files, windows: &[usize]) -> Result<()> {
+    for next in windows {
+        publish(addons, app, files, *next)?;
+    }
+    Ok(())
+}
+
 pub fn publish(addons: &Path, app: App, files: &Files, next: usize) -> Result<()> {
     let first = next.clamp(1, SLOTS);
     let last = (first + SLOT_WINDOW - 1).min(SLOTS);
@@ -191,6 +200,22 @@ mod tests {
         assert!(!inbox(4).contains("said by hand"));
         assert!(inbox(5).contains("said by hand"));
         assert!(inbox(5 + SLOT_WINDOW - 1).contains("said by hand"));
+    }
+
+    #[test]
+    fn a_publish_writes_the_window_of_each_game() {
+        let addons = tempfile::tempdir().unwrap();
+        install(addons.path(), App::Relay, &files(b"")).unwrap();
+
+        publish_windows(addons.path(), App::Relay, &files(b"both"), &[500, 3]).unwrap();
+
+        let inbox = |n| {
+            let dir = addons.path().join(slot_name(App::Relay, n));
+            fs::read_to_string(dir.join(BODY_FILE)).unwrap()
+        };
+        assert!(inbox(3).contains("both"));
+        assert!(inbox(500).contains("both"));
+        assert!(!inbox(100).contains("both"));
     }
 
     #[test]

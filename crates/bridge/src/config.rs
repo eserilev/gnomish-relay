@@ -121,6 +121,10 @@ pub struct RelayConfig {
     pub agents: BTreeMap<String, AgentSpec>,
     pub timeout: Duration,
     pub permission_timeout: Duration,
+    /// Messages over this limit wait for their turn (SPEC.md 8.2).
+    pub max_parallel_runs: usize,
+    /// At this cost in a UTC day, no new run starts (SPEC.md 9.10).
+    pub daily_cost_cap_usd: Option<f64>,
     /// Commands that run from the game with no question (SPEC.md 12).
     pub allow: AllowTable,
     /// The hosts that commands reach through the proxy of the sandbox (SPEC.md 6.6.4).
@@ -204,6 +208,8 @@ struct File {
     default_agent: Option<String>,
     timeout_minutes: Option<u64>,
     permission_timeout_minutes: Option<u64>,
+    max_parallel_runs: Option<usize>,
+    daily_cost_cap_usd: Option<f64>,
     wow: Wow,
     agents: Option<BTreeMap<String, Agent>>,
     allow: Option<AllowFile>,
@@ -422,6 +428,9 @@ struct Agent {
 const DEFAULT_TIMEOUT_MINUTES: u64 = 30;
 const MAX_TIMEOUT_MINUTES: u64 = 240;
 const DEFAULT_PERMISSION_MINUTES: u64 = 10;
+pub const DEFAULT_MAX_PARALLEL_RUNS: usize = 3;
+const MAX_PARALLEL_RUNS: usize = 16;
+const MAX_COST_CAP: f64 = 10_000.0;
 const MAX_PERMISSION_MINUTES: u64 = 60;
 
 fn minutes(value: Option<u64>, default: u64, max: u64, key: &str) -> Result<Duration> {
@@ -430,6 +439,17 @@ fn minutes(value: Option<u64>, default: u64, max: u64, key: &str) -> Result<Dura
         bail!("{key} must be 1 to {max}");
     }
     Ok(Duration::from_mins(minutes))
+}
+
+/// A cap above 0 and at most `MAX_COST_CAP` dollars. A NaN fails the range too.
+fn cost_cap(cap: Option<f64>) -> Result<Option<f64>> {
+    let Some(cap) = cap else {
+        return Ok(None);
+    };
+    if !(cap > 0.0 && cap <= MAX_COST_CAP) {
+        bail!("daily_cost_cap_usd must be above 0 and at most {MAX_COST_CAP}");
+    }
+    Ok(Some(cap))
 }
 
 fn is_env_name(name: &str) -> bool {
@@ -591,6 +611,8 @@ fn no_relay_keys(file: &File) -> Result<()> {
             "permission_timeout_minutes",
             file.permission_timeout_minutes.is_some(),
         ),
+        ("max_parallel_runs", file.max_parallel_runs.is_some()),
+        ("daily_cost_cap_usd", file.daily_cost_cap_usd.is_some()),
         ("[agents]", file.agents.is_some()),
         ("[allow]", file.allow.is_some()),
         ("[sandbox]", file.sandbox.is_some()),
@@ -634,6 +656,11 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         MAX_PERMISSION_MINUTES,
         "permission_timeout_minutes",
     )?;
+    let max_parallel_runs = file.max_parallel_runs.unwrap_or(DEFAULT_MAX_PARALLEL_RUNS);
+    if !(1..=MAX_PARALLEL_RUNS).contains(&max_parallel_runs) {
+        bail!("max_parallel_runs must be 1 to {MAX_PARALLEL_RUNS}");
+    }
+    let daily_cost_cap_usd = cost_cap(file.daily_cost_cap_usd)?;
     let default_agent = file
         .default_agent
         .context("allowed_roots needs default_agent")?;
@@ -665,6 +692,8 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         agents,
         timeout,
         permission_timeout,
+        max_parallel_runs,
+        daily_cost_cap_usd,
         allow,
         hosts,
         local_ports,
@@ -1161,6 +1190,68 @@ mod tests {
         );
         assert!(home.parse(&with(0)).is_err());
         assert!(home.parse(&with(241)).is_err());
+    }
+
+    #[test]
+    fn max_parallel_runs_is_three_by_default_and_one_to_sixteen() {
+        let home = Home::new();
+        let with = |runs: u64| {
+            GOOD.replace(
+                "default_agent",
+                &format!("max_parallel_runs = {runs}\ndefault_agent"),
+            )
+        };
+        let runs = |text: &str| home.parse(text).unwrap().relay.unwrap().max_parallel_runs;
+
+        assert_eq!(runs(GOOD), 3);
+        assert_eq!(runs(&with(1)), 1);
+        assert_eq!(runs(&with(16)), 16);
+        assert!(home.parse(&with(0)).is_err());
+        assert!(home.parse(&with(17)).is_err());
+    }
+
+    #[test]
+    fn the_daily_cost_cap_is_off_by_default_and_a_positive_number_of_dollars() {
+        let home = Home::new();
+        let with = |cap: &str| {
+            GOOD.replace(
+                "default_agent",
+                &format!("daily_cost_cap_usd = {cap}\ndefault_agent"),
+            )
+        };
+        let cap = |text: &str| home.parse(text).unwrap().relay.unwrap().daily_cost_cap_usd;
+
+        assert_eq!(cap(GOOD), None);
+        assert_eq!(cap(&with("5.5")), Some(5.5));
+        assert_eq!(cap(&with("5")), Some(5.0));
+        assert_eq!(cap(&with("10000")), Some(10000.0));
+        for bad in ["0", "-1.0", "10000.5", "nan", "inf", "\"5\""] {
+            assert!(home.parse(&with(bad)).is_err(), "{bad}");
+        }
+    }
+
+    #[test]
+    fn daily_cost_cap_usd_needs_allowed_roots() {
+        let home = Home::new();
+
+        let error = home
+            .parse("daily_cost_cap_usd = 2.0\n[wow]\npath = \"~/wow\"\n")
+            .err()
+            .unwrap();
+
+        assert_eq!(error.to_string(), "daily_cost_cap_usd needs allowed_roots");
+    }
+
+    #[test]
+    fn max_parallel_runs_needs_allowed_roots() {
+        let home = Home::new();
+
+        let error = home
+            .parse("max_parallel_runs = 2\n[wow]\npath = \"~/wow\"\n")
+            .err()
+            .unwrap();
+
+        assert_eq!(error.to_string(), "max_parallel_runs needs allowed_roots");
     }
 
     #[test]

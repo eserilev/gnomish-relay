@@ -87,9 +87,15 @@ The fixes, chosen on 2026-09-24, are in SPEC 7.1.1, 7.3, 7.5, and 7.6:
   the body forever.
 - After `/reload`, the addon shows the strip again for every open message.
 
-`scripts/check-model.sh` checks all four properties and `bodyBounded` (the body keeps
-the S12 limit). It also checks four witnesses: states such as a full body and a
-confirmed restore, which the simulator must reach. A witness that is never reached
+A second WoW account sends the same hello as an addon after a wipe, so the `restored`
+flag of its token retired the token of the first account (fixed on 2026-09-29, SPEC 7.6).
+Now the flag only ends the restore. An old token retires when the saved variables file
+of its account shows a new token. The property `liveTokenStays` checks that the token of
+the addon never retires, and the witness `neverRetired` shows that a retire still happens.
+
+`scripts/check-model.sh` checks all four properties, `bodyBounded` (the body keeps
+the S12 limit), and `liveTokenStays`. It also checks five witnesses: states such as a
+full body and a confirmed restore, which the simulator must reach. A witness that is never reached
 means that the properties pass only because the hard states never happen.
 
 ### Item 21: reply blocks

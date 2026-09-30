@@ -14,6 +14,7 @@ use bridge::acp::AcpAgent;
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy};
+use bridge::daily_usage;
 use bridge::desktop::{Approvals, Prompt, Verdict};
 use bridge::folder_path::path_bytes;
 use bridge::gate::Gate;
@@ -24,7 +25,8 @@ use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
 use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
-use bridge::slots::{BODY_FILE, LIVE_FILE, slot_name};
+use bridge::slots::{BODY_FILE, LIVE_FILE, RESTORE_FILE, slot_name};
+use bridge::usage::Usage;
 use bridge::vectors::TEST_KEY;
 use common::{install_window, screenshot_png, signed_frame, strip_rows};
 use protocol::apps::App;
@@ -336,6 +338,7 @@ impl Agent for Counting {
         Run {
             reply: Ok(format!("echo: {}", job.text)),
             session: None,
+            usage: None,
         }
     }
 }
@@ -503,6 +506,7 @@ impl Agent for Held {
         Run {
             reply: Ok("let go".into()),
             session: None,
+            usage: None,
         }
     }
 }
@@ -529,6 +533,187 @@ fn a_run_shows_its_level_as_its_first_progress_line() {
     assert!(shown, "{}", live_text(&f.addons));
 }
 
+#[test]
+fn a_message_over_the_parallel_limit_waits_and_says_so_in_the_game() {
+    let f = folders();
+    let release = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let mut bridge = bridge_with(&f, Arc::new(Held(release.clone()))).with_max_runs(1);
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "", "first"),
+    )
+    .unwrap();
+    assert!(step_until(&mut bridge, || live_text(&f.addons)
+        .contains("Level: auto-edit")));
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        chat_strip("c2", 8, "", "second"),
+    )
+    .unwrap();
+    let waits = step_until(&mut bridge, || {
+        live_text(&f.addons).contains(r#"id = 8, lines = {"Waiting: 1 other chat is running", }"#)
+    });
+    release.store(true, Ordering::SeqCst);
+
+    assert!(waits, "{}", live_text(&f.addons));
+    assert!(step_until(&mut bridge, || {
+        slot_body(&f.addons).contains("id = 8, status = \"done\"")
+    }));
+}
+
+/// The saved variables of one WoW account, as WoW writes them at a `/reload`. A rewrite
+/// gets a later time, so the watcher sees it also within the same second.
+fn write_account(f: &Dirs, account: &str, token: &str, later_secs: u64) {
+    let dir = f.accounts.join(account).join("SavedVariables");
+    fs::create_dir_all(&dir).unwrap();
+    let file = dir.join("GnomishRelay.lua");
+    let text = format!("GnomishRelayDB = {{\n\t[\"token\"] = \"{token}\",\n}}\n");
+    fs::write(&file, text).unwrap();
+    let time = std::time::SystemTime::now() + Duration::from_secs(later_secs);
+    fs::File::options()
+        .write(true)
+        .open(&file)
+        .unwrap()
+        .set_modified(time)
+        .unwrap();
+}
+
+fn account_strip(token: &str, chat: &str, id: u32, flags: &str, text: &str) -> Vec<u8> {
+    let payload = format!("{token}\x1f{chat}\x1f{id}\x1f\x1f{flags}\x1f\x1f{text}");
+    screenshot_png(&strip_rows(&signed_frame(now(), payload.as_bytes(), KEY)))
+}
+
+fn slot_file(addons: &Path, n: usize, file: &str) -> String {
+    fs::read_to_string(addons.join(slot_name(App::Relay, n)).join(file)).unwrap_or_default()
+}
+
+/// Two accounts, each with a finished reply that it has not read yet. The second window
+/// starts at slot 31.
+fn two_accounts_with_replies() -> (Dirs, Bridge) {
+    let f = folders();
+    for n in 31..=60 {
+        fs::create_dir(f.addons.join(slot_name(App::Relay, n))).unwrap();
+    }
+    write_account(&f, "ACCOUNT1", "one", 0);
+    write_account(&f, "ACCOUNT2", "two", 0);
+    let mut bridge = bridge(&f);
+    let strips = [
+        account_strip("one", "relay", 0, "h;next=1", ""),
+        account_strip("two", "relay", 0, "h;next=31", ""),
+        account_strip("one", "c1", 7, "", "from one"),
+        account_strip("two", "c2", 8, "", "from two"),
+    ];
+    for (n, strip) in strips.iter().enumerate() {
+        fs::write(f.screenshots.join(format!("WoWScrnShot_{n}.png")), strip).unwrap();
+        bridge.step();
+    }
+    assert!(step_until(&mut bridge, || both_replies(&f, 1) && both_replies(&f, 31)));
+    (f, bridge)
+}
+
+fn both_replies(f: &Dirs, slot: usize) -> bool {
+    let body = slot_file(&f.addons, slot, BODY_FILE);
+    body.contains("echo: from one") && body.contains("echo: from two")
+}
+
+#[test]
+fn two_accounts_that_play_at_once_both_get_their_replies_in_their_windows() {
+    let (f, mut bridge) = two_accounts_with_replies();
+
+    write_account(&f, "ACCOUNT2", "two", 60);
+    bridge.step();
+
+    assert!(both_replies(&f, 1));
+}
+
+#[test]
+fn a_wipe_in_one_account_restores_its_chats_and_retires_only_its_old_token() {
+    let (f, mut bridge) = two_accounts_with_replies();
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_9.png"),
+        account_strip("fresh", "relay", 0, "h;next=1", ""),
+    )
+    .unwrap();
+    let restored = step_until(&mut bridge, || {
+        slot_file(&f.addons, 1, RESTORE_FILE).contains("token = \"fresh\"")
+    });
+    write_account(&f, "ACCOUNT1", "fresh", 60);
+    let retired = step_until(&mut bridge, || {
+        !slot_file(&f.addons, 1, BODY_FILE).contains("echo: from one")
+    });
+
+    assert!(restored);
+    assert!(retired);
+    assert!(slot_file(&f.addons, 1, BODY_FILE).contains("echo: from two"));
+    assert!(slot_file(&f.addons, 31, BODY_FILE).contains("echo: from two"));
+}
+
+/// An agent whose every run costs 50 cents, and counts its runs.
+struct Costly(AtomicUsize);
+
+impl Agent for Costly {
+    fn run(&self, job: &Job, _control: &Control) -> Run {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Run {
+            reply: Ok(format!("paid: {}", job.text)),
+            session: None,
+            usage: Some(Usage {
+                input: 1234,
+                cached: 0,
+                output: 350,
+                cost_usd: Some(0.5),
+            }),
+        }
+    }
+}
+
+#[test]
+fn a_reply_shows_the_usage_of_its_run_and_the_day_counts_it() {
+    let f = folders();
+    let mut bridge = bridge_with(&f, Arc::new(Costly(AtomicUsize::new(0))));
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "", "work"),
+    )
+    .unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&f.addons).contains(
+        "\\027M1\\010u\\0311.2k in \\194\\183 350 out \\194\\183 $0.50\\010"
+    )));
+    let days = fs::read_to_string(f.state.join(daily_usage::FILE)).unwrap();
+    assert!(days.contains(&daily_usage::day_of(now())), "{days}");
+    assert!(days.contains("\"cost_usd\":0.5"), "{days}");
+}
+
+#[test]
+fn at_the_daily_cap_a_new_message_does_not_start_and_says_why() {
+    let f = folders();
+    let agent = Arc::new(Costly(AtomicUsize::new(0)));
+    let mut bridge = bridge_with(&f, agent.clone()).with_cost_cap(Some(0.5));
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "", "first"),
+    )
+    .unwrap();
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("id = 7, status = \"done\"")));
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        chat_strip("c1", 8, "", "second"),
+    )
+    .unwrap();
+
+    assert!(step_until(&mut bridge, || {
+        slot_body(&f.addons)
+        .contains("id = 8, status = \"error\", text = \"Not started: today's agent cost reached your $0.50 limit.")
+    }));
+    assert_eq!(agent.0.load(Ordering::SeqCst), 1);
+}
+
 /// An agent with saved sessions, or one whose list fails.
 struct Sessions(Result<Vec<bridge::agent::SessionInfo>, String>);
 
@@ -537,6 +722,7 @@ impl Agent for Sessions {
         Run {
             reply: Ok(String::new()),
             session: None,
+            usage: None,
         }
     }
 
@@ -591,6 +777,7 @@ impl Agent for LevelOf {
         Run {
             reply: Ok(format!("ran at {}", job.permission.word())),
             session: None,
+            usage: None,
         }
     }
 }

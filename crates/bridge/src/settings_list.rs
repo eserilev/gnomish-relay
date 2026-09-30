@@ -17,6 +17,7 @@ use crate::folder_path::{is_inside_folder, native_folder, path_bytes, path_parts
 use crate::hooks_install::{self, HookFiles, HookState};
 use crate::hooks_merge::agent_word;
 use crate::model::ModelChoice;
+use crate::usage::Usage;
 
 /// The two quotes of the Lua literal, and the cut line after a newline.
 const RESERVED: usize = 2 + 4 + CUT.len();
@@ -33,6 +34,10 @@ pub struct BridgeSettings {
     pub kinds: Vec<(String, String)>,
     pub timeout_minutes: u64,
     pub permission_timeout_minutes: u64,
+    pub max_parallel_runs: usize,
+    pub daily_cost_cap_usd: Option<f64>,
+    /// The tokens and the cost of today. The bridge sets it before each reply.
+    pub usage_today: Option<Usage>,
     pub story: Option<StorySettings>,
     pub allow: Vec<String>,
     /// A folder of `[allow.folders]` and one of its patterns.
@@ -109,6 +114,9 @@ impl BridgeSettings {
                 .collect(),
             timeout_minutes: relay.timeout.as_secs() / 60,
             permission_timeout_minutes: relay.permission_timeout.as_secs() / 60,
+            max_parallel_runs: relay.max_parallel_runs,
+            daily_cost_cap_usd: relay.daily_cost_cap_usd,
+            usage_today: None,
             story: story.map(|s| StorySettings {
                 model: model_word(&s.model.choice),
                 budget_window_minutes: s.model.budget_window_minutes,
@@ -158,6 +166,14 @@ impl BridgeSettings {
         lines.push(one("timeout_minutes", &self.timeout_minutes.to_string()));
         let permission = self.permission_timeout_minutes.to_string();
         lines.push(one("permission_timeout_minutes", &permission));
+        let runs = self.max_parallel_runs.to_string();
+        lines.push(one("max_parallel_runs", &runs));
+        if let Some(today) = &self.usage_today {
+            lines.push(one("usage_today", &today.line()));
+        }
+        if let Some(cap) = self.daily_cost_cap_usd {
+            lines.push(one("daily_cost_cap_usd", &format!("{cap:.2}")));
+        }
         if let Some(story) = &self.story {
             lines.push(one("story_model", &story.model));
             let window = story.budget_window_minutes.to_string();
@@ -254,6 +270,9 @@ mod tests {
             kinds: vec![("claude".into(), "claude".into())],
             timeout_minutes: 30,
             permission_timeout_minutes: 10,
+            max_parallel_runs: 3,
+            daily_cost_cap_usd: None,
+            usage_today: None,
             story: None,
             allow: vec!["cargo test".into()],
             allow_folders: vec![("~/Code/app".into(), "npm test".into())],
@@ -268,7 +287,7 @@ mod tests {
         let reply = settings_reply(&settings(), &policy(), &[], &hooks);
         assert!(
             reply.contains(
-                "permission_timeout_minutes\t10\nhook\tclaude\ton\nhook\tcodex\tmoved\nallow\t"
+                "permission_timeout_minutes\t10\nmax_parallel_runs\t3\nhook\tclaude\ton\nhook\tcodex\tmoved\nallow\t"
             ),
             "{reply}"
         );
@@ -297,8 +316,30 @@ mod tests {
             reply,
             "version\t0.1.0\nsandbox\tbwrap\ndefault_cwd\t~/Code\nallowed_root\t~/Code\n\
              default_agent\tclaude\nagent\tclaude\tclaude\tauto-edit\nagent\tcodex\t\task\n\
-             timeout_minutes\t30\npermission_timeout_minutes\t10\nallow\tcargo test\n\
+             timeout_minutes\t30\npermission_timeout_minutes\t10\nmax_parallel_runs\t3\nallow\tcargo test\n\
              allow_folder\t~/Code/app\tnpm test"
+        );
+    }
+
+    #[test]
+    fn the_usage_of_today_and_the_cap_follow_the_limit_on_parallel_runs() {
+        let mut with_usage = settings();
+        with_usage.usage_today = Some(Usage {
+            input: 12_000,
+            cached: 0,
+            output: 4100,
+            cost_usd: Some(1.2),
+        });
+        with_usage.daily_cost_cap_usd = Some(5.0);
+
+        let reply = settings_reply(&with_usage, &policy(), &[], &[]);
+
+        assert!(
+            reply.contains(
+                "max_parallel_runs\t3\nusage_today\t12k in · 4.1k out · $1.20\n\
+                 daily_cost_cap_usd\t5.00\nallow\t"
+            ),
+            "{reply}"
         );
     }
 
@@ -312,7 +353,7 @@ mod tests {
         }];
         let reply = settings_reply(&settings(), &policy(), &rules, &[]);
         assert!(
-            reply.contains("permission_timeout_minutes\t10\nrule\ta1b2\tCode/app\tcargo test *\t3\nallow\tcargo test"),
+            reply.contains("permission_timeout_minutes\t10\nmax_parallel_runs\t3\nrule\ta1b2\tCode/app\tcargo test *\t3\nallow\tcargo test"),
             "{reply}"
         );
     }

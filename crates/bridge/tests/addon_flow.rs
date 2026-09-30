@@ -1382,6 +1382,44 @@ fn show_progress(game: &Game, lines: &[&[u8]]) {
 }
 
 #[test]
+fn a_message_that_waits_for_other_chats_shows_it_on_a_still_grey_cast_bar() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("build it");
+    game.advance(1.0);
+
+    show_progress(&game, &[b"Waiting: 3 other chats are running"]);
+
+    assert_eq!(
+        text_of(&game, "GnomishRelayCast.text:GetText()"),
+        "|cff9d9d9dWaiting: 3 other chats are running|r"
+    );
+    let rows = texts_of(&game, "FontString");
+    assert!(
+        !rows.contains(&"Waiting: 3 other chats are running".to_owned()),
+        "{rows:?}"
+    );
+}
+
+#[test]
+fn an_agent_line_like_a_waiting_line_after_the_first_line_stays_a_step() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("build it");
+    game.advance(1.0);
+
+    show_progress(&game, &[b"Level: ask", b"Waiting: 1 other chat is running"]);
+
+    let cast = text_of(&game, "GnomishRelayCast.text:GetText()");
+    assert!(cast.starts_with("Tinkering"), "{cast}");
+    let rows = texts_of(&game, "FontString");
+    assert!(
+        rows.contains(&"Waiting: 1 other chat is running".to_owned()),
+        "{rows:?}"
+    );
+}
+
+#[test]
 fn the_header_shows_the_level_that_the_bridge_used_not_the_one_the_chat_asked_for() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
@@ -3352,6 +3390,49 @@ fn a_long_transcript_scrolls_to_the_newest_entry_and_the_wheel_scrolls_up() {
 }
 
 #[test]
+fn a_reply_shows_its_usage_line_in_grey_below_the_blocks_and_not_in_the_whisper() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("go");
+    game.advance(1.0);
+
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        "\x1bM1\nu\x1f1.2k in · 350 out · $0.04\np\x1fAll done.\n",
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    let usage = lines
+        .iter()
+        .position(|t| t == "|cff9d9d9d1.2k in · 350 out · $0.04|r");
+    assert!(usage.is_some(), "{lines:?}");
+    assert_eq!(whispers_with(&game, "All done."), 1);
+    assert_eq!(whispers_with(&game, "350 out"), 0);
+}
+
+#[test]
+fn a_reply_with_no_usage_line_shows_none() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("go");
+    game.advance(1.0);
+
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        "\x1bM1\np\x1fAll done.\n",
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    assert!(!lines.iter().any(|t| t.contains(" out")), "{lines:?}");
+}
+
+#[test]
 fn an_error_that_looks_rendered_shows_as_plain_text() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
@@ -3387,6 +3468,9 @@ fn settings_text(story: bool) -> String {
         ],
         timeout_minutes: 30,
         permission_timeout_minutes: 10,
+        max_parallel_runs: 3,
+        daily_cost_cap_usd: None,
+        usage_today: None,
         story: story.then(|| StorySettings {
             model: "claude haiku".into(),
             budget_window_minutes: 20,
@@ -3444,6 +3528,38 @@ fn shown_by_name(game: &Game, name: &str) -> bool {
     game.run(&format!("return {name}:IsVisible()"))
         .as_boolean()
         .unwrap()
+}
+
+fn settings_with_extra_lines(game: &Game, extra: &str) {
+    open_tab(game, SETTINGS);
+    game.advance(2.0);
+    let text = format!("{}{extra}", settings_text(false));
+    game.publish(&[reply("settings", 99, Status::Done, &text)]);
+    game.run("local ns = ... ns.Transport.Poll()");
+}
+
+#[test]
+fn settings_shows_the_usage_of_today_and_the_cap() {
+    let game = Game::start();
+
+    settings_with_extra_lines(
+        &game,
+        "\nusage_today\t12k in · 4.1k out · $1.20\ndaily_cost_cap_usd\t5.00",
+    );
+
+    assert_eq!(
+        text_of(&game, "GnomishRelaySettingsUsage:GetText()"),
+        "|cff8d8778Today (UTC): 12k in · 4.1k out · $1.20 · limit $5.00|r"
+    );
+}
+
+#[test]
+fn settings_shows_no_usage_line_before_the_first_run_of_the_day() {
+    let game = Game::start();
+
+    settings_with_extra_lines(&game, "\ndaily_cost_cap_usd\t5.00");
+
+    assert_eq!(text_of(&game, "GnomishRelaySettingsUsage:GetText()"), "");
 }
 
 #[test]
@@ -3758,6 +3874,7 @@ fn diag_shows_the_bridge_values_timeways_versions_and_the_transport_lines() {
         "Commands|cargo test",
         "|npm test  in ~/Code/lighthouse",
         "Timeout|30 min · approvals 10 min",
+        "Running chats|up to 3",
         "Model|claude haiku",
         "Budget|10 calls / 20 min",
         "|Desktop app 0.1.0 · protocol 1",

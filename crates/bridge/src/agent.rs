@@ -20,6 +20,7 @@ use crate::gate::Gate;
 use crate::harness::CommandAgent;
 use crate::raise::Raised;
 use crate::relay::{ChatId, Job, MessageId};
+use crate::usage::Usage;
 
 /// The slot body cuts a reply at 32 KiB anyway.
 pub const MAX_REPLY: usize = 256 * 1024;
@@ -193,6 +194,8 @@ pub struct Run {
     /// The agent session, so the next message of the chat can resume it. A failed
     /// run can have one too.
     pub session: Option<SessionId>,
+    /// The tokens and the cost of the run, when the agent reports them (SPEC.md 9.10).
+    pub usage: Option<Usage>,
 }
 
 /// One session of an agent, from `session/list`.
@@ -238,6 +241,7 @@ impl Agent for Echo {
         Run {
             reply: Ok(format!("{NO_AGENT}\n\necho: {}", job.text)),
             session: None,
+            usage: None,
         }
     }
 }

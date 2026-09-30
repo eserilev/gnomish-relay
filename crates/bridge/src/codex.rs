@@ -21,6 +21,7 @@ use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::process::{self, AgentProcess, cut};
 use crate::relay::{Job, Open, Work};
 use crate::turn::{STOPPED, Turn};
+use crate::usage::{Usage, tokens_at};
 
 const METHOD_NOT_FOUND: i64 = -32601;
 const CHECK_TIME: Duration = Duration::from_secs(30);
@@ -88,17 +89,19 @@ pub fn unwrap_shell(command: &str) -> String {
 impl Agent for CodexAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         let mut session = None;
+        let mut usage = None;
         let reply = match &job.work {
             Work::Attach { session: id, open } => {
                 self.attach(job, id.as_str(), *open, &mut session)
             }
             Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
-                self.prompt(job, control, &mut session)
+                self.prompt(job, control, &mut session, &mut usage)
             }
         };
         Run {
             reply,
             session: session.map(SessionId::from),
+            usage,
         }
     }
 
@@ -120,6 +123,7 @@ impl CodexAgent {
         job: &Job,
         control: &Control,
         session: &mut Option<String>,
+        usage: &mut Option<Usage>,
     ) -> Result<String, String> {
         let mut codex = Connection::start(self, &job.cwd, control.clone())?;
         codex.permission = job.permission;
@@ -127,7 +131,9 @@ impl CodexAgent {
         codex.initialize()?;
         let (thread, note) = codex.open_thread(&job.cwd, job.resume_id(), job.permission)?;
         *session = Some(thread.clone());
-        let reply = codex.turn(&thread, &job.text)?;
+        let reply = codex.turn(&thread, &job.text);
+        *usage = codex.usage();
+        let reply = reply?;
         let notes: Vec<&str> = note.into_iter().chain(self.wall.notice()).collect();
         let after = codex.made_notice(self.wall.home.as_deref());
         Ok(with_notes(reply, &notes, after))
@@ -266,6 +272,11 @@ pub enum Event {
     Said(String),
     /// The end of the turn: the reply, or an error text.
     Ended(Result<(), String>),
+    /// The tokens of the thread so far, and of its last model call.
+    Used {
+        total: Usage,
+        last: Usage,
+    },
     Other,
 }
 
@@ -276,7 +287,22 @@ pub fn read_event(method: &str, params: &Value) -> Event {
             Event::Said(text_at(params, "/item/text").unwrap_or("").to_owned())
         }
         "turn/completed" => Event::Ended(read_ending(params.get("turn").unwrap_or(&Value::Null))),
+        "thread/tokenUsage/updated" => Event::Used {
+            total: read_tokens(params, "/tokenUsage/total"),
+            last: read_tokens(params, "/tokenUsage/last"),
+        },
         _ => Event::Other,
+    }
+}
+
+/// `inputTokens` holds the cached ones. Codex gives no cost.
+fn read_tokens(params: &Value, pointer: &str) -> Usage {
+    let breakdown = params.pointer(pointer).unwrap_or(&Value::Null);
+    Usage {
+        input: tokens_at(breakdown, "/inputTokens"),
+        cached: tokens_at(breakdown, "/cachedInputTokens"),
+        output: tokens_at(breakdown, "/outputTokens"),
+        cost_usd: None,
     }
 }
 
@@ -461,6 +487,8 @@ struct Connection {
     changes: HashMap<String, Vec<Change>>,
     said: Vec<String>,
     ended: Option<Result<(), String>>,
+    /// The tokens of the thread before this turn, and the newest total (SPEC.md 9.10).
+    used: Option<(Usage, Usage)>,
     /// The wall of the agent process and its proxy (SPEC.md 6.6.4), after the process.
     wall: Option<RunWall>,
     /// The private temp folder of the run. It goes away with the run.
@@ -491,6 +519,7 @@ impl Connection {
             changes: HashMap::new(),
             said: Vec::new(),
             ended: None,
+            used: None,
             wall,
             _temp: temp,
         })
@@ -556,6 +585,12 @@ impl Connection {
         }
         self.ended.take().unwrap_or(Ok(()))?;
         Ok(self.reply())
+    }
+
+    /// The total counts the whole thread, so the turn is the newest total less the
+    /// total before its first model call.
+    fn usage(&self) -> Option<Usage> {
+        self.used.map(|(before, total)| total.since(before))
     }
 
     fn reply(&self) -> String {
@@ -630,6 +665,12 @@ impl Connection {
             }
             Event::Said(text) => self.said.push(text),
             Event::Ended(ending) => self.ended = Some(ending),
+            Event::Used { total, last } => {
+                let before = self
+                    .used
+                    .map_or_else(|| total.since(last), |(before, _)| before);
+                self.used = Some((before, total));
+            }
             Event::Other => {}
         }
     }

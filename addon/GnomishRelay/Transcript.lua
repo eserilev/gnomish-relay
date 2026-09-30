@@ -411,18 +411,26 @@ local function Summary(blocks)
 	return { blocks[1], blocks[2] }
 end
 
+local function DrawUsage(text, y)
+	local usage = ns.Blocks.Usage(text)
+	if not usage then
+		return y
+	end
+	return TextLine(string.format("|cff%s%s|r", GREY, ns.Relay.Plain(usage)), PAD, y, width - PAD)
+end
+
 local function DrawRendered(entry, prefix, y)
 	y = TextLine(prefix, 0, y, width - PIN_WIDTH)
 	local blocks = ns.Blocks.Parse(entry.text)
 	if not IsLong(blocks) then
-		return DrawBlocks(blocks, PAD, y + 2)
+		return DrawUsage(entry.text, DrawBlocks(blocks, PAD, y + 2))
 	end
 	local isOpen = opened[entry] == true
 	y = DrawBlocks(isOpen and blocks or Summary(blocks), PAD, y + 2)
 	DrawLink(isOpen and "Show less" or "Show more", function()
 		Transcript.Toggle(entry)
 	end, PAD, y)
-	return y + 18
+	return DrawUsage(entry.text, y + 18)
 end
 
 local function SetPinText(button, entry)

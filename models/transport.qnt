@@ -49,8 +49,11 @@ module transport {
     chats: Set[str],
     restore: Restore,
     restoreActive: bool,
-    // Tokens from before a wipe. Their records leave the body once the restore is in.
+    // Tokens from before a wipe. Their records leave the body once the saved variables
+    // file shows the new token (SPEC 7.6).
     retired: Set[int],
+    // The token that the bridge last read in the saved variables file of the account.
+    savedToken: int,
   }
 
   // The saved variables file on disk: WoW writes it at `/reload`.
@@ -94,7 +97,7 @@ module transport {
   pure def live(b: Bridge): List[Reply] = b.records.select(r => not(b.retired.contains(r.key.token)))
 
   // A final reply leaves the body once the addon has read it. A confirmed restore
-  // ends the bundle and retires every older token.
+  // ends the bundle. It retires no token: a second account also confirms a restore.
   pure def takeReport(b: Bridge, r: Report): Bridge = {
     val readKeys = r.read.map(id => { token: r.token, id: id })
     val confirmed = r.restored and b.restoreActive and b.restore.token == r.token
@@ -102,9 +105,15 @@ module transport {
       ...b,
       records: b.records.select(x => not(x.status == Done and readKeys.contains(x.key))),
       restoreActive: b.restoreActive and not(confirmed),
-      retired: if (confirmed) b.tokens.exclude(Set(r.token)) else b.retired,
     }
   }
+
+  // A new token in the saved variables file of the account that held another token is
+  // a wipe. The older token retires.
+  pure def takeSavedToken(b: Bridge, t: int): Bridge =
+    if (t == -1) b
+    else if (b.savedToken != -1 and b.savedToken != t) { ...b, retired: b.retired.union(Set(b.savedToken)), savedToken: t }
+    else { ...b, savedToken: t }
 
   // The bridge takes a message, and drops a duplicate. With a full body it refuses
   // the message and does not mark it seen, so the addon sends it again later.
@@ -135,7 +144,7 @@ module transport {
     },
     bridge' = {
       tokens: Set(1), seen: Set(), queue: List(), runs: Map(), records: List(),
-      chats: Set(), restore: NO_RESTORE, restoreActive: false, retired: Set(),
+      chats: Set(), restore: NO_RESTORE, restoreActive: false, retired: Set(), savedToken: -1,
     },
     body' = List(),
     bundle' = NO_RESTORE,
@@ -235,6 +244,12 @@ module transport {
     }
   }
 
+  // The bridge reads the token in the saved variables file after WoW wrote it.
+  action readSavedToken = all {
+    publish(takeSavedToken(bridge, disk.report.token)),
+    addon' = addon, disk' = disk, wipes' = wipes,
+  }
+
   // The bridge reads the outbox in the saved variables file.
   action readOutbox = {
     nondet k = disk.outbox.oneOf()
@@ -283,6 +298,7 @@ module transport {
     wipe,
     decodeStrip,
     readOutbox,
+    readSavedToken,
     hello,
     runAgent,
   }
@@ -319,7 +335,10 @@ module transport {
   // The fixes keep S12: a body never holds more than BODY_CAP records.
   val bodyBounded = body.length() <= BODY_CAP
 
-  val allProperties = runsOnce and noLostReply and restoreSafe and noStuckMessage and bodyBounded
+  // 5. The token of the addon never retires, so its replies never leave the body unread.
+  val liveTokenStays = not(bridge.retired.contains(addon.token))
+
+  val allProperties = runsOnce and noLostReply and restoreSafe and noStuckMessage and bodyBounded and liveTokenStays
 
   // ---------- witnesses ----------
   // Each one must fail: it names a state that the simulator must reach. If a witness
@@ -333,4 +352,6 @@ module transport {
   val neverTwoAnswers = addon.answered.size() < 2
   // A message went through the outbox and got its reply.
   val neverOutboxReply = not(disk.outbox.exists(k => k.token == addon.token and addon.answered.contains(k.id)))
+  // The saved variables file showed the new token after a wipe, so the old token retired.
+  val neverRetired = bridge.retired.size() == 0
 }

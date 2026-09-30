@@ -54,6 +54,7 @@ impl Agent for AcpAgent {
         Run {
             reply,
             session: session.map(SessionId::from),
+            usage: None,
         }
     }
 
