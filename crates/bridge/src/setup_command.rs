@@ -13,6 +13,7 @@ use crate::hooks_install;
 use crate::install;
 use crate::model::ModelChoice;
 use crate::model_setup;
+use crate::relay_addon::{self, RelayAddon};
 use crate::service;
 use crate::setup::{self, KeyChoice};
 use crate::status::{self, SandboxFound};
@@ -204,8 +205,9 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         config: dirs.config.clone(),
         addons,
     };
-    // The addon and the slots first: they need nothing else, and a later step can fail.
+    // The key addons and the slots first: they need nothing else, and a later step can fail.
     let changed = setup::install_files(&folders, relay, args.keys)?;
+    let addon = (relay == setup::Relay::On).then(|| relay_addon::find(&folders.addons));
     let config = setup_config(dirs, &wow, existing.as_ref(), relay, timeways, args.roots)?;
     print_setup(dirs, &config, relay, timeways);
     if wants_timeways_install(args.timeways, timeways, &config) {
@@ -219,11 +221,11 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
             ),
         }
     }
-    println!("{}", last_line(&changed, relay, args.keys));
     // Setup changes no settings of an agent: they belong to the user (SPEC.md 10.5).
     if relay == setup::Relay::On {
         println!("{}", hooks_install::SETUP_HINT);
     }
+    println!("{}", final_line(&changed, relay, args.keys, addon));
     Ok(())
 }
 
@@ -429,9 +431,22 @@ fn story_line(config: &Config) -> String {
     }
 }
 
+/// A missing or unfit relay addon comes last, so it is also the last line of the
+/// installers (SPEC.md 11.3).
+fn final_line(
+    changed: &setup::Changed,
+    relay: setup::Relay,
+    keys: KeyChoice,
+    addon: Option<RelayAddon>,
+) -> &'static str {
+    addon
+        .and_then(relay_addon::next_step)
+        .unwrap_or_else(|| last_line(changed, relay, keys))
+}
+
 /// WoW finds a new addon folder only at launch, and a new key only after a `/reload`.
 fn last_line(changed: &setup::Changed, relay: setup::Relay, keys: KeyChoice) -> &'static str {
-    let parts = [changed.relay_addon.as_ref(), changed.timeways_key.as_ref()];
+    let parts = [changed.relay_key.as_ref(), changed.timeways_key.as_ref()];
     if changed.new_slots || parts.contains(&Some(&install::Installed::New)) {
         return match relay {
             setup::Relay::On => "All set. Restart WoW, then type /relay",
@@ -624,10 +639,10 @@ mod tests {
         );
     }
 
-    fn changed(new_slots: bool, relay_addon: Option<install::Installed>) -> setup::Changed {
+    fn changed(new_slots: bool, relay_key: Option<install::Installed>) -> setup::Changed {
         setup::Changed {
             new_slots,
-            relay_addon,
+            relay_key,
             timeways_key: None,
         }
     }
@@ -660,6 +675,45 @@ mod tests {
         };
         assert_eq!(
             last_line(&new_timeways_key, setup::Relay::Off, keep),
+            "All set. Restart WoW to load the addon"
+        );
+    }
+
+    #[test]
+    fn a_missing_relay_addon_replaces_the_last_line_with_the_curseforge_link() {
+        let new = changed(true, Some(install::Installed::New));
+
+        let line = final_line(
+            &new,
+            setup::Relay::On,
+            KeyChoice::Keep,
+            Some(RelayAddon::Missing),
+        );
+
+        assert_eq!(
+            line,
+            "Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW."
+        );
+    }
+
+    #[test]
+    fn an_old_relay_addon_is_updated_in_the_curseforge_app_and_a_fit_one_is_all_set() {
+        use protocol::version::VersionFit;
+        let new = changed(true, Some(install::Installed::New));
+        let (on, keep) = (setup::Relay::On, KeyChoice::Keep);
+        let old = Some(RelayAddon::Installed(VersionFit::TooOld));
+        let fit = Some(RelayAddon::Installed(VersionFit::Supported));
+
+        assert_eq!(
+            final_line(&new, on, keep, old),
+            "Update Gnomish Relay in the CurseForge app, then restart WoW."
+        );
+        assert_eq!(
+            final_line(&new, on, keep, fit),
+            "All set. Restart WoW, then type /relay"
+        );
+        assert_eq!(
+            final_line(&new, setup::Relay::Off, keep, None),
             "All set. Restart WoW to load the addon"
         );
     }
