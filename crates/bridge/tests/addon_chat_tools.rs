@@ -588,6 +588,17 @@ fn the_editor_changes_moves_and_removes_a_quick_action_and_the_suggestions_follo
 }
 
 #[test]
+fn the_editor_has_no_box_for_the_name_that_no_screen_shows() {
+    let game = Game::start();
+
+    open_quick_editor(&game);
+
+    assert!(game.shown("GnomishRelayQuickEditMessage1"));
+    let gone = game.run("return GnomishRelayQuickEditName1 == nil");
+    assert_eq!(gone.as_boolean(), Some(true));
+}
+
+#[test]
 fn move_up_keeps_a_message_that_is_still_being_typed() {
     let game = Game::start();
     open_quick_editor(&game);

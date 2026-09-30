@@ -6,7 +6,6 @@ local QuickActions = {}
 ns.QuickActions = QuickActions
 
 QuickActions.MOST = 6
-QuickActions.NAME_BYTES = 24
 QuickActions.MESSAGE_BYTES = 1000
 
 -- A name shows nowhere now. It keeps the saved list in the format of 0.3.0.
@@ -104,23 +103,13 @@ function QuickActions.Move(i, step)
 	list[i], list[j] = list[j], list[i]
 end
 
--- An empty text keeps the old one. Returns whether the field changed.
-local function SetField(i, field, text)
-	local action = QuickActions.List()[i]
-	text = strtrim(text or "")
-	if not action or text == "" then
-		return false
-	end
-	action[field] = text
-	return true
-end
-
-function QuickActions.Rename(i, name)
-	return SetField(i, "name", name)
-end
-
+-- An empty text keeps the old one.
 function QuickActions.SetMessage(i, message)
-	return SetField(i, "message", message)
+	local action = QuickActions.List()[i]
+	message = strtrim(message or "")
+	if action and message ~= "" then
+		action.message = message
+	end
 end
 
 -- The actions that an empty chat suggests: those with a message.
