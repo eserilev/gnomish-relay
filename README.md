@@ -42,6 +42,25 @@ CurseForge updates only the `GnomishRelay` folder. Your key and the addon files 
 desktop app are in folders of their own (`GnomishRelay_Key`, `GnomishRelay_S0001`, and
 so on), so an update keeps them. Leave them on in the AddOns list.
 
+### Windows: the Linux sandbox
+
+On Windows, the installer asks: "Protect your computer with the Linux sandbox?" Say yes
+(the default). The desktop app then runs in WSL2, Windows' built-in Linux, and each
+command of Claude runs in the same sandbox as on Linux. WoW stays on Windows.
+
+- The first time, the installer turns on WSL2 and installs Ubuntu. Windows asks for
+  admin rights once, and then you restart. The installer goes on by itself after you
+  sign in. Ubuntu asks you to pick a Linux user name and password.
+- It installs the sandbox (`bubblewrap`) and Claude Code in Ubuntu, and opens Claude
+  once so you can log in. For Codex, install it in Ubuntu, then run `gnomish-relay setup` there.
+- Your projects go in Ubuntu, for example `~/code`. Projects on `C:` work too, but they're
+  much slower. In the game, the folder list shows Linux paths.
+- The desktop app starts when you sign in to Windows. To check it, open Ubuntu from the
+  Start menu and run `gnomish-relay status`. Run every `gnomish-relay` command there.
+- Approvals show as a Windows message box, as without WSL2.
+- To keep the Windows desktop app instead, where every command asks in the game, add
+  `--no-wsl` to the install line.
+
 ## Timeways
 
 Timeways is a story addon that also uses the desktop app.
@@ -119,16 +138,18 @@ The sandbox for commands depends on your OS (`SPEC.md` 6.6.4):
 |---|---|---|
 | Linux | Each command runs in a `bwrap` sandbox. Install `bubblewrap`. | The sandbox of Codex |
 | macOS | Each command runs in a Seatbelt sandbox (`sandbox-exec`). | The sandbox of Codex |
-| Windows | No sandbox. Every command asks in the game, even one in the allow table. | The Windows sandbox of Codex |
+| Windows with WSL2 (the default) | Each command runs in a `bwrap` sandbox, as on Linux. | The sandbox of Codex |
+| Windows with `--no-wsl` | No sandbox. Every command asks in the game, even one in the allow table. | The Windows sandbox of Codex |
 
 - The desktop app's sandbox lets a command write only to the chat folder and a temp folder.
   It hides `~/.ssh`, the app's own keys, and the other credential folders.
   It lets a command reach only the allowed package hosts.
-- On Linux without a working `bwrap`, it acts as on Windows: every command asks.
+- On Linux without a working `bwrap`, it acts as on Windows with `--no-wsl`: every command asks.
 - The sandbox of Codex lets a command read the whole disk, `~/.ssh` too. It gives a command no network.
 - Other ACP agents run their commands themselves, with no sandbox. Each of their tool calls asks at most.
-- On Windows, use Codex for commands that run without asking, or run Claude and the desktop app under WSL2.
-  Under WSL2, the desktop app uses `bwrap`, as on Linux.
+- Under WSL2, the sandbox also hides the credential folders of your Windows home, such
+  as `C:\Users\<you>\.ssh`, and no agent can change a file on your Windows drives
+  outside its chat folder.
 
 ## Notifications
 
