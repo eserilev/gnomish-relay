@@ -176,3 +176,64 @@ fn setup_for_timeways_before_its_addon_writes_its_key_addon_and_ends_with_the_cu
         "no relay with no terminal"
     );
 }
+
+/// Setup with the relay in a fresh home, with no agent and no terminal.
+#[cfg(target_os = "linux")]
+fn relay_setup(home: &std::path::Path) -> (Output, String) {
+    std::fs::create_dir_all(home.join("wow/Interface/AddOns")).unwrap();
+    let empty = home.join("empty");
+    std::fs::create_dir(&empty).unwrap();
+    let out = Command::new(env!("CARGO_BIN_EXE_gnomish-relay"))
+        .arg("setup")
+        .arg(home.join("wow"))
+        .arg("--relay")
+        .env_clear()
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("PATH", &empty)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+    let config =
+        std::fs::read_to_string(home.join("config/gnomish-relay/config.toml")).unwrap_or_default();
+    (out, config)
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn setup_trusts_the_code_folders_it_finds_and_asks_no_folder_question() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(home.path().join("code/app/.git")).unwrap();
+
+    let (out, config) = relay_setup(home.path());
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        config.contains("allowed_roots = [\"~/code\"]\n"),
+        "{config}"
+    );
+    assert!(
+        stdout
+            .contains("\nAgents can work in ~/code. To add another folder, pick it in the game.\n"),
+        "{stdout}"
+    );
+    assert!(!stdout.contains("Folders"), "{stdout}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn setup_with_no_code_folder_trusts_no_folder_and_says_to_pick_one_in_the_game() {
+    let home = tempfile::tempdir().unwrap();
+
+    let (out, config) = relay_setup(home.path());
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(config.contains("allowed_roots = []\n"), "{config}");
+    assert!(
+        stdout.contains("\nPick a project folder in the game to get started.\n"),
+        "{stdout}"
+    );
+}

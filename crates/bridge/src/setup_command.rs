@@ -85,21 +85,28 @@ fn with_tilde(path: &Path, home: &Path) -> String {
     }
 }
 
-/// The folders of code projects that setup finds, or the home folder.
+/// The roots of `--roots`, else the folders of code projects that setup finds. Setup
+/// asks no folder question: the game adds a folder with a click on the desktop (SPEC.md 9.12).
 fn choose_roots(home: &Path, given: Option<&str>) -> Result<Vec<String>> {
-    let found: Vec<String> = install::suggest_roots(home)
-        .iter()
-        .map(|p| with_tilde(p, home))
-        .collect();
-    let answer = match given {
-        Some(list) => list.to_owned(),
-        // No default of the home folder: it holds ~/.ssh and the browser profiles.
-        None => ask(
-            "Folders the agents can work in (separate them with commas)",
-            &found.join(", "),
-        )?,
-    };
-    roots_in(&answer, home)
+    match given {
+        Some(list) => roots_in(list, home),
+        None => Ok(install::suggest_roots(home)
+            .iter()
+            .map(|p| with_tilde(p, home))
+            .collect()),
+    }
+}
+
+/// Where agents work, and how the player adds a folder.
+fn roots_line(roots: &[PathBuf], home: &Path) -> String {
+    if roots.is_empty() {
+        return "Pick a project folder in the game to get started.".into();
+    }
+    let shown: Vec<String> = roots.iter().map(|r| with_tilde(r, home)).collect();
+    format!(
+        "Agents can work in {}. To add another folder, pick it in the game.",
+        shown.join(", ")
+    )
 }
 
 /// Each root must be a folder that exists.
@@ -351,18 +358,17 @@ fn setup_config(
     let lacks_story = existing.is_none_or(|(_, c)| c.story.is_none());
     let agents = install::find_agents(&path_var);
     let roots = if relay == setup::Relay::On && lacks_relay {
-        choose_roots(&dirs.home, roots_given)?
+        Some(choose_roots(&dirs.home, roots_given)?)
     } else {
-        Vec::new()
+        None
     };
-    let harnesses = if roots.is_empty() {
-        Vec::new()
-    } else {
-        choose_harnesses(&path_var)?
+    let harnesses = match roots {
+        Some(_) => choose_harnesses(&path_var)?,
+        None => Vec::new(),
     };
     let wants_story = timeways == setup::Timeways::On && lacks_story;
     // A local model is also for the agents: the relay part opens its port.
-    let models = if wants_story || !roots.is_empty() {
+    let models = if wants_story || roots.is_some() {
         model_setup::find_models(&path_var)
     } else {
         Vec::new()
@@ -371,10 +377,10 @@ fn setup_config(
     let new_agents = setup::new_agents(&agents, existing.map(|(_, config)| config));
     let parts = setup::ConfigParts {
         wow,
-        relay: (!roots.is_empty()).then_some(RelayPart {
+        relay: roots.as_deref().map(|roots| RelayPart {
             agents: &agents,
             harnesses: &harnesses,
-            roots: &roots,
+            roots,
             local_ports: &local_ports,
         }),
         new_agents: &new_agents,
@@ -419,12 +425,30 @@ fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay) {
             }
             let config_file = dirs.config.join(config::FILE);
             println!("{}", setup::level_line(relay_config, &config_file));
+            println!(
+                "{}",
+                roots_line(&shown_roots(relay_config), &real_home(dirs))
+            );
         }
         None if relay == setup::Relay::Off => {
             println!("Coding agents: off. To turn them on, run gnomish-relay setup --relay");
         }
         None => {}
     }
+}
+
+/// The roots are resolved, so the home folder that they start with is resolved too.
+fn real_home(dirs: &Dirs) -> PathBuf {
+    dirs.home
+        .canonicalize()
+        .unwrap_or_else(|_| dirs.home.clone())
+}
+
+fn shown_roots(config: &RelayConfig) -> Vec<PathBuf> {
+    let roots = config.policy.folders.roots.iter();
+    roots
+        .map(|r| PathBuf::from(String::from_utf8_lossy(r).into_owned()))
+        .collect()
 }
 
 /// The agent and the sandbox, which setup checks by starting them.
@@ -834,6 +858,36 @@ mod tests {
         assert_eq!(with_tilde(Path::new("/home/x/code"), home), "~/code");
         assert_eq!(with_tilde(home, home), "~");
         assert_eq!(with_tilde(Path::new("/srv/code"), home), "/srv/code");
+    }
+
+    #[test]
+    fn setup_takes_the_code_folders_that_it_finds_as_the_roots() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("code/app/.git")).unwrap();
+
+        assert_eq!(choose_roots(home.path(), None).unwrap(), ["~/code"]);
+    }
+
+    #[test]
+    fn setup_with_no_code_folder_takes_no_root() {
+        let home = tempfile::tempdir().unwrap();
+
+        assert!(choose_roots(home.path(), None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn the_roots_line_names_each_root_or_says_to_pick_a_folder_in_the_game() {
+        let home = Path::new("/home/x");
+        let roots = [PathBuf::from("/home/x/code"), PathBuf::from("/srv/work")];
+
+        assert_eq!(
+            roots_line(&roots, home),
+            "Agents can work in ~/code, /srv/work. To add another folder, pick it in the game."
+        );
+        assert_eq!(
+            roots_line(&[], home),
+            "Pick a project folder in the game to get started."
+        );
     }
 
     #[test]
