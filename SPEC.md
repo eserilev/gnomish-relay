@@ -1799,7 +1799,7 @@ notices = {busy = 1, open = 2, list = {
 
 **After an install**, the command prints "Restart the <agents> sessions that run now.", with the agents that it changed. Both load hooks only at the start of a session.
 
-**`hooks status`** shows for each agent: on, off, or on with a path that does not exist (a moved binary). It also shows `disableAllHooks` in the Claude settings, and a Codex config that turns hooks off. The settings list (13.4) carries the same state, so Diag shows it. It reads the files at each list, because `hooks install` can run while the bridge runs.
+**`hooks status`** shows for each agent: on, off, or on with a path that does not exist (a moved binary). It also shows `disableAllHooks` in the Claude settings, and a Codex config that turns hooks off. The settings list (13.4) carries the same state, so Diag shows it. It reads the files at each list, because `hooks install` can run while the bridge runs. The service of the bridge lacks the variables of a shell rc file, such as `CLAUDE_CONFIG_DIR` and `CODEX_HOME`. So each `hooks` command saves the two folders that it used in `<data>/hook-folders.json`, and the bridge reads the files there. With no such file, the bridge takes its own variables.
 
 `setup` prints its hint only when it sets up the relay: the notices ride in the live file of the relay.
 

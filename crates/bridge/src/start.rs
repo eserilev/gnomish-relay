@@ -10,7 +10,7 @@ use crate::desktop::Prompt;
 use crate::dirs::Dirs;
 use crate::fs_safe::make_private_dir;
 use crate::gate::{Gate, Places};
-use crate::hooks_install::HookFiles;
+use crate::hooks_install::files_for_bridge;
 use crate::install;
 use crate::lock;
 use crate::raise::Raiser;
@@ -90,7 +90,7 @@ pub fn start_relay(
     let mut settings = BridgeSettings::from_config(&relay, story, Some(&dirs.home), sandbox);
     settings.rules.store = gate.always.clone();
     let var = |name: &str| std::env::var_os(name).map(std::path::PathBuf::from);
-    settings.hooks = HookFiles::both(&dirs.home, &var);
+    settings.hooks = files_for_bridge(&dirs.home, &dirs.data, &var);
     Ok((relay.policy, agents, raiser, settings))
 }
 

@@ -8,9 +8,11 @@ use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
 use crate::dirs::{Dirs, EnvVar, claude_dir, codex_dir};
+use crate::fs_safe::{make_private_dir, write_private};
 use crate::hooks_merge::{self, our_programs};
 use crate::program::find_program;
 use crate::spool::Source;
@@ -29,7 +31,10 @@ pub struct HookFiles {
 
 impl HookFiles {
     pub fn claude(home: &Path, var: EnvVar) -> HookFiles {
-        let dir = claude_dir(home, var);
+        HookFiles::claude_in(&claude_dir(home, var))
+    }
+
+    fn claude_in(dir: &Path) -> HookFiles {
         HookFiles {
             source: Source::Claude,
             hooks: dir.join("settings.json"),
@@ -38,7 +43,10 @@ impl HookFiles {
     }
 
     pub fn codex(home: &Path, var: EnvVar) -> HookFiles {
-        let dir = codex_dir(home, var);
+        HookFiles::codex_in(&codex_dir(home, var))
+    }
+
+    fn codex_in(dir: &Path) -> HookFiles {
         HookFiles {
             source: Source::Codex,
             hooks: dir.join("hooks.json"),
@@ -49,6 +57,46 @@ impl HookFiles {
     pub fn both(home: &Path, var: EnvVar) -> Vec<HookFiles> {
         vec![HookFiles::claude(home, var), HookFiles::codex(home, var)]
     }
+}
+
+/// The service of the bridge lacks the variables of a shell rc file, such as
+/// `CLAUDE_CONFIG_DIR`. So each `hooks` command saves its folders for the bridge.
+const SAVED_FOLDERS: &str = "hook-folders.json";
+
+#[derive(Serialize, Deserialize)]
+struct SavedFolders {
+    claude: PathBuf,
+    codex: PathBuf,
+}
+
+fn folder_of(files: &HookFiles) -> PathBuf {
+    files
+        .hooks
+        .parent()
+        .map(Path::to_path_buf)
+        .unwrap_or_default()
+}
+
+fn save_folders(data: &Path, all: &[HookFiles]) -> Result<()> {
+    let folder = |source| all.iter().find(|f| f.source == source).map(folder_of);
+    let (Some(claude), Some(codex)) = (folder(Source::Claude), folder(Source::Codex)) else {
+        return Ok(());
+    };
+    make_private_dir(data)?;
+    let text = serde_json::to_string(&SavedFolders { claude, codex })?;
+    write_private(data, SAVED_FOLDERS, &text)
+}
+
+/// The files that the last `hooks` command used, else the ones of `var`.
+pub fn files_for_bridge(home: &Path, data: &Path, var: EnvVar) -> Vec<HookFiles> {
+    let saved = fs::read(data.join(SAVED_FOLDERS)).ok();
+    let Some(saved) = saved.and_then(|b| serde_json::from_slice::<SavedFolders>(&b).ok()) else {
+        return HookFiles::both(home, var);
+    };
+    vec![
+        HookFiles::claude_in(&saved.claude),
+        HookFiles::codex_in(&saved.codex),
+    ]
 }
 
 pub fn agent_name(source: Source) -> &'static str {
@@ -367,6 +415,7 @@ pub fn status_command(all: &[HookFiles], out: &mut dyn Write) -> Result<()> {
 pub fn command(dirs: &Dirs, action: &str, flags: &[&str], out: &mut dyn Write) -> Result<()> {
     let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
     let all = HookFiles::both(&dirs.home, &var);
+    save_folders(&dirs.data, &all)?;
     let path = std::env::var_os("PATH").unwrap_or_default();
     match action {
         "install" => install_command(flags, all, &std::env::current_exe()?, &path, out),
@@ -634,6 +683,37 @@ mod tests {
 
         home.write(".codex/config.toml", "[features]\nhooks = false\n");
         assert_eq!(state(&home.codex()), HookState::Disabled);
+    }
+
+    #[test]
+    fn the_bridge_reads_the_folders_that_the_last_hooks_command_used() {
+        let home = home();
+        let data = home.dir.path().join("data");
+        let moved =
+            |name: &str| (name == "CLAUDE_CONFIG_DIR").then(|| PathBuf::from("/cfg/claude"));
+        save_folders(&data, &HookFiles::both(home.dir.path(), &moved)).unwrap();
+
+        let files = files_for_bridge(home.dir.path(), &data, &no_env);
+
+        assert_eq!(files[0].hooks, PathBuf::from("/cfg/claude/settings.json"));
+        assert_eq!(files[1].hooks, home.dir.path().join(".codex/hooks.json"));
+        assert_eq!(
+            files[1].codex_config,
+            Some(home.dir.path().join(".codex/config.toml"))
+        );
+    }
+
+    #[test]
+    fn with_no_saved_folders_the_bridge_takes_its_own_env() {
+        let home = home();
+        let data = home.dir.path().join("data");
+
+        let files = files_for_bridge(home.dir.path(), &data, &no_env);
+
+        assert_eq!(
+            files[0].hooks,
+            home.dir.path().join(".claude/settings.json")
+        );
     }
 
     #[test]
