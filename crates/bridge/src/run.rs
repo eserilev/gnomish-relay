@@ -20,7 +20,7 @@ use protocol::version::version_fit;
 
 use crate::action_input::resolve;
 use crate::folder_walk::{self, Snapshot, Walk};
-use crate::new_folder::make_folder;
+use crate::new_folder::{make_folder, real_chat_folder};
 use crate::relay::{ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
@@ -380,14 +380,20 @@ impl RelayLane {
             self.relay.begin(&job);
             self.files.changed = true;
         }
-        if let Err(refused) = self.make_new_folder(&job) {
-            let run = Run {
-                reply: Err(refused),
-                session: None,
-            };
-            let _ = finished.send(Finished::Run(job, run));
-            return;
-        }
+        let real = self
+            .make_new_folder(&job)
+            .and_then(|()| real_chat_folder(&self.walk, Path::new(&job.cwd)));
+        let job = match real {
+            Ok(cwd) => Job { cwd, ..job },
+            Err(refused) => {
+                let run = Run {
+                    reply: Err(refused),
+                    session: None,
+                };
+                let _ = finished.send(Finished::Run(job, run));
+                return;
+            }
+        };
         let raise = self.raise_for(&job);
         thread::spawn(move || {
             let mut job = job;

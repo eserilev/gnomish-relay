@@ -92,7 +92,7 @@ So the bridge bounds what any message from the game can do (6.6).
 7. The bridge never writes, renames, or deletes through a symbolic link. It opens files with `O_NOFOLLOW` (Unix) or checks the reparse point (Windows).
 8. The bridge deletes only the screenshots that it decoded as valid strips. It never deletes other screenshots.
 9. The bridge limits sizes: an image before decoding (4096 × 4096 px), a hook message (64 KB), a reply record (32 KB), a slot body (S12), and each chat queue (20 messages).
-10. The bridge resolves symbolic links in a chat folder with `canonicalize`, then checks `allowed_roots` again on the result.
+10. The bridge resolves symbolic links in a chat folder with `canonicalize`, then checks `allowed_roots` again on the result. The relay checks only the text of the folder when the message comes. So at the start of each run, after a new folder is made (9.9), the bridge resolves the folder once and passes only the real path on, to the agent, the gate, and the sandbox. A folder that is missing, or a link that leaves every root, ends the run with an error, and nothing runs.
 17. The proved resolver (S5) splits paths only at `/`. On Windows, the bridge first turns each `\` of a game folder into `/`, so each `..` counts. It refuses a game folder with `:`, which starts a drive or names a stream. Roots lose the `\\?\` prefix of `canonicalize`.
 11. The bridge never starts a process through a shell. It passes the command as an argument list.
 12. The bridge gives each agent process only an allowlist of environment variables (`PATH`, `HOME`, `LANG`, `TERM`, and the variables in the agent config). All others, for example API keys of other tools, stay out.

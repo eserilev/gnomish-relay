@@ -56,11 +56,13 @@ fn folders() -> Dirs {
     }
 }
 
+/// A run starts only in a folder that exists inside a root (SPEC.md 6.2, rule 10).
 fn policy() -> Policy {
+    let base = path_bytes(&std::env::temp_dir().canonicalize().unwrap());
     Policy {
         folders: Folders {
-            roots: vec![b"/home/x".to_vec()],
-            base: b"/home/x".to_vec(),
+            roots: vec![base.clone()],
+            base,
         },
         agents: [("claude".to_owned(), Permission::AutoEdit)].into(),
         default_agent: "claude".into(),
@@ -434,7 +436,12 @@ fn a_list_request_comes_back_with_the_sessions_of_the_agents() {
     let f = folders();
     let found = vec![bridge::agent::SessionInfo {
         id: "a1".into(),
-        cwd: "/home/x/app".into(),
+        cwd: std::env::temp_dir()
+            .canonicalize()
+            .unwrap()
+            .join("app")
+            .to_string_lossy()
+            .into_owned(),
         title: "Fix bugs".into(),
         updated: now() - 7200,
     }];
@@ -649,6 +656,27 @@ fn the_first_message_in_a_new_folder_makes_it_and_runs_in_it() {
     assert!(step_until(&mut bridge, || slot_body(&addons).contains("echo: hello")));
 
     assert!(root.join("Code/fresh").is_dir());
+}
+
+/// The relay checks the text of the folder. Only the start of the run sees the link.
+#[cfg(unix)]
+#[test]
+fn a_chat_folder_that_is_a_link_out_of_the_roots_never_runs() {
+    let f = folders();
+    let (mut bridge, root) = bridge_in_temp(&f);
+    let outside = tempfile::tempdir().unwrap();
+    std::os::unix::fs::symlink(outside.path(), root.join("app")).unwrap();
+    let payload = b"tok\x1fc1\x1f9\x1fapp\x1f\x1f\x1fhello";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), payload, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_6.png"), png).unwrap();
+
+    let addons = f.addons.clone();
+    let ended = step_until(&mut bridge, || {
+        slot_body(&addons).contains("outside the allowed roots")
+    });
+
+    assert!(ended, "{}", slot_body(&f.addons));
+    assert!(!slot_body(&f.addons).contains("echo: hello"));
 }
 
 #[test]
