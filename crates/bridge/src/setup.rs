@@ -277,15 +277,12 @@ pub fn write_story_model(dir: &Path, model: &FoundModel, home: &Path) -> Result<
 
 /// The level that the config gives the default agent, and how to change it. The
 /// config is the ceiling of every chat (S6), so the player needs to see it.
-pub fn level_line(relay: &config::RelayConfig, config_file: &Path) -> String {
+/// No "change it" part: the game picks only `ask` or `auto-edit`, and a player never edits
+/// a config file to change a setting.
+pub fn level_line(relay: &config::RelayConfig) -> String {
     let name = &relay.policy.default_agent;
     let level = relay.policy.agents.get(name).copied().unwrap_or_default();
-    format!(
-        "Permissions: {}. {} To change it, edit permission in {}",
-        level.word(),
-        level.meaning(),
-        config_file.display()
-    )
+    format!("Permissions: {}. {}", level.word(), level.meaning())
 }
 
 #[cfg(test)]
@@ -393,20 +390,19 @@ mod tests {
              [agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\npermission = \"{permission}\"\n"
         );
         let config = config::parse(&text, home.path()).unwrap();
-        level_line(config.require_relay().unwrap(), Path::new("/c/config.toml"))
+        level_line(config.require_relay().unwrap())
     }
 
     #[test]
-    fn setup_says_the_level_of_the_default_agent_and_where_to_change_it() {
+    fn setup_says_what_the_permissions_of_the_default_agent_do() {
         assert_eq!(
             level_line_of("auto-edit"),
-            "Permissions: auto-edit. It edits files in the chat folder without asking. Claude Code \
-             also runs commands in the sandbox without asking. Risky commands, and the commands of \
-             other agents, ask in the game first. To change it, edit permission in /c/config.toml"
+            "Permissions: auto-edit. Agents edit files and run commands in the sandbox on their \
+             own, and ask you before anything risky."
         );
-        assert!(
-            level_line_of("ask")
-                .starts_with("Permissions: ask. It asks in the game before each edit")
+        assert_eq!(
+            level_line_of("ask"),
+            "Permissions: ask. Agents ask you before each edit and each command."
         );
     }
 }

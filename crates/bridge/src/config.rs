@@ -57,13 +57,12 @@ impl Permission {
     /// What the level lets an agent do in a chat from the game (SPEC.md 9.3).
     pub fn meaning(self) -> &'static str {
         match self {
-            Permission::Ask => "It asks in the game before each edit and each command.",
+            Permission::Ask => "Agents ask you before each edit and each command.",
             Permission::AutoEdit => {
-                "It edits files in the chat folder without asking. Claude Code also runs commands \
-                 in the sandbox without asking. Risky commands, and the commands of other agents, \
-                 ask in the game first."
+                "Agents edit files and run commands in the sandbox on their own, and ask you \
+                 before anything risky."
             }
-            Permission::FullAuto => "It edits files and runs commands without asking.",
+            Permission::FullAuto => "Agents edit files and run commands on their own.",
         }
     }
 

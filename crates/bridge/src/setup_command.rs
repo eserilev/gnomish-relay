@@ -467,8 +467,7 @@ fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay) {
             for line in relay_lines(dirs, relay_config) {
                 println!("{line}");
             }
-            let config_file = dirs.config.join(config::FILE);
-            println!("{}", setup::level_line(relay_config, &config_file));
+            println!("{}", setup::level_line(relay_config));
             println!(
                 "{}",
                 roots_line(&shown_roots(relay_config), &real_home(dirs))
