@@ -92,6 +92,9 @@ pub struct CommandSandbox {
     pub proxy: Option<ProxySettings>,
     /// With no overlay, a download of cargo or rustup fails on the read-only home folder.
     pub overlay: Overlay,
+    /// The private files of the game. Each run denies them as it denies the folders of
+    /// the bridge.
+    pub game: Vec<PathBuf>,
     /// The notice of no sandbox shows once for each start of the bridge.
     told: Arc<AtomicBool>,
 }
@@ -104,8 +107,15 @@ impl CommandSandbox {
             home,
             proxy: None,
             overlay: Overlay::Missing,
+            game: Vec::new(),
             told: Arc::new(AtomicBool::new(false)),
         }
+    }
+
+    #[must_use]
+    pub fn with_game(mut self, paths: Vec<PathBuf>) -> CommandSandbox {
+        self.game = paths;
+        self
     }
 
     #[must_use]
@@ -328,8 +338,10 @@ pub fn prepare_shaped(
 ) -> Result<RunWalls, String> {
     let chat = resolve(chat).ok_or("The chat folder is missing.")?;
     let (temp, temp_path) = make_temp()?;
-    let deny: Vec<PathBuf> = [guarded.config_dir, guarded.data_dir]
-        .iter()
+    let bridge = [guarded.config_dir, guarded.data_dir];
+    let deny: Vec<PathBuf> = bridge
+        .into_iter()
+        .chain(sandbox.game.iter().map(PathBuf::as_path))
         .map(|d| resolve(d).unwrap_or_else(|| d.to_path_buf()))
         .collect();
     let policy = policy_of(&chat, &temp_path, &deny);
@@ -1415,6 +1427,27 @@ mod tests {
         std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o700)).unwrap();
         let error = result.err().unwrap();
         assert!(error.contains(&git.display().to_string()), "{error}");
+    }
+
+    #[test]
+    fn the_walls_hide_the_private_files_of_the_game() {
+        let h = folders();
+        let game = h.home.join("Games/wow");
+        let key = game.join("Interface/AddOns/GnomishRelay/Key.lua");
+        let accounts = game.join("WTF/Account");
+        std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(&accounts).unwrap();
+        std::fs::write(&key, "key").unwrap();
+        let sandbox = sandbox(&h, Sandbox::Seatbelt).with_game(vec![key.clone(), accounts.clone()]);
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+
+        let run = prepare(&sandbox, &guarded, &h.chat, "t").unwrap();
+
+        assert!(run.walls.hidden.contains(&key));
+        assert!(run.walls.hidden.contains(&accounts));
     }
 
     /// A socket at a path works across namespaces, for example the one of Docker.

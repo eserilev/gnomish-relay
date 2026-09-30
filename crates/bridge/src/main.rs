@@ -8,6 +8,7 @@ use bridge::agent::Agents;
 #[cfg(unix)]
 use bridge::agent_wall;
 use bridge::always_rules::{self, AlwaysRules};
+use bridge::app_files::private_game_paths;
 use bridge::command_sandbox;
 use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
 use bridge::config_text::RelayPart;
@@ -676,7 +677,9 @@ fn start_relay(
         data_dir: &paths.state,
         home: &home_dir()?,
     };
-    let gate = Gate::new(&relay, &places, Prompt::Dialog);
+    let mut gate = Gate::new(&relay, &places, Prompt::Dialog);
+    let private = private_game_paths(&paths.addons, &paths.accounts, &paths.screenshots);
+    gate.sandbox = gate.sandbox.with_game(private);
     gate.approvals.clear();
     let sandbox = gate.sandbox.summary();
     println!("commands from the game run in: {sandbox}");

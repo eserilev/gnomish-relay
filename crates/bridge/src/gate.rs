@@ -230,8 +230,12 @@ impl Gate {
     }
 
     fn policy(&self, chat: &Path) -> Policy {
-        let deny =
-            [&self.config_dir, &self.data_dir].map(|d| resolve(d).unwrap_or_else(|| d.clone()));
+        let bridge = [&self.config_dir, &self.data_dir];
+        let deny: Vec<PathBuf> = bridge
+            .into_iter()
+            .chain(&self.sandbox.game)
+            .map(|d| resolve(d).unwrap_or_else(|| d.clone()))
+            .collect();
         let rules = self.allow.rules_for(chat);
         action_input::policy(&self.roots, chat, &deny, &rules)
     }
@@ -573,6 +577,24 @@ mod tests {
     }
 
     const SHORT: std::time::Duration = std::time::Duration::from_millis(200);
+
+    #[test]
+    fn a_read_of_the_key_file_of_the_addon_is_refused_at_every_level() {
+        let mut s = setup();
+        let key = s.home.join("WoW/Interface/AddOns/GnomishRelay/Key.lua");
+        std::fs::create_dir_all(key.parent().unwrap()).unwrap();
+        std::fs::write(&key, "key").unwrap();
+        s.gate.sandbox = CommandSandbox::none().with_game(vec![key.clone()]);
+
+        for level in LEVELS {
+            let refusal = check(&s, &read(key.clone()), level, SHORT).unwrap_err();
+
+            assert!(
+                refusal.reason().contains("config or data folder"),
+                "{refusal:?}"
+            );
+        }
+    }
 
     #[test]
     fn a_read_of_the_strip_key_is_refused_at_every_level() {
