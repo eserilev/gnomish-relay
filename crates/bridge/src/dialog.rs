@@ -10,7 +10,7 @@ use crate::program::find_program;
 /// A dialog gives up by itself after this, in case the bridge stops first.
 const BACKSTOP_SECONDS: u64 = 60 * 60;
 const TITLE: &str = "Gnomish Relay";
-const SUMMARY: &str = "Gnomish Relay: approve?";
+const SUMMARY: &str = "Gnomish Relay needs your approval";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {

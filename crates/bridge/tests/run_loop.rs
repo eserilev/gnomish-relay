@@ -762,7 +762,7 @@ fn a_chat_folder_that_is_a_link_out_of_the_roots_never_runs() {
 
     let addons = f.addons.clone();
     let ended = step_until(&mut bridge, || {
-        slot_body(&addons).contains("outside the allowed roots")
+        slot_body(&addons).contains("outside allowed_roots")
     });
 
     assert!(ended, "{}", slot_body(&f.addons));
@@ -778,8 +778,9 @@ fn a_new_folder_whose_parent_is_missing_ends_as_an_error_and_makes_nothing() {
     fs::write(f.screenshots.join("WoWScrnShot_5.png"), png).unwrap();
 
     let addons = f.addons.clone();
-    assert!(step_until(&mut bridge, || slot_body(&addons)
-        .contains("Folder not made: its parent is missing.")));
+    assert!(step_until(&mut bridge, || slot_body(&addons).contains(
+        "Couldn't create the folder: the folder it goes in is gone."
+    )));
 
     assert!(!root.join("none").exists());
     assert!(!slot_body(&f.addons).contains("echo: hello"));

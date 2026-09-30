@@ -6,7 +6,7 @@ use crate::process::cut;
 
 const ESC: char = '\u{1b}';
 const BEL: char = '\u{7}';
-pub const LONG_OUTPUT: &str = "(The output was too long for the game. This is its end.)";
+pub const LONG_OUTPUT: &str = "(The reply was too long for the game, so this is only its end.)";
 
 /// The text of `raw` with no escape sequence and no control character but a newline and a
 /// tab. A line keeps only the text after its last CR, as a terminal shows a progress bar.

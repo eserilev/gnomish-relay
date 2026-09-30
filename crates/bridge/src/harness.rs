@@ -32,7 +32,7 @@ const PROMPT_FILE: &str = "prompt.txt";
 /// A harness that prints more than this for one message is broken or hostile.
 const MAX_OUTPUT: u64 = 16 * 1024 * 1024;
 const CHECK_TIME: Duration = Duration::from_secs(30);
-pub const NO_OUTPUT: &str = "(The agent gave no output.)";
+pub const NO_OUTPUT: &str = "(The agent didn't reply.)";
 
 pub struct CommandAgent {
     pub name: String,
@@ -72,9 +72,7 @@ impl CommandAgent {
 impl Agent for CommandAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         let reply = match &job.work {
-            Work::Attach { .. } => {
-                Err("This agent keeps no sessions that the bridge can open.".into())
-            }
+            Work::Attach { .. } => Err("This agent has no sessions to resume.".into()),
             Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
                 self.prompt(job, control)
             }
@@ -89,7 +87,7 @@ impl Agent for CommandAgent {
 
 /// The note for the first reply at a level that writes.
 pub fn free_commands_note(name: &str) -> String {
-    format!("({name} runs its own commands with no question, inside the sandbox.)")
+    format!("({name} runs its own commands without asking, inside the sandbox.)")
 }
 
 impl CommandAgent {

@@ -36,7 +36,8 @@ const GIT_FOLDER_GUARDED: [&str; 4] = ["config", "hooks", COMMONDIR, "config.wor
 const COMMONDIR: &str = "commondir";
 /// Git reads a `commondir` of `.` as no `commondir`: the folder is its own repository.
 const COMMONDIR_STAND_IN: &str = ".\n";
-pub const NO_SANDBOX: &str = "(No sandbox on this computer: every command asks in the game.)";
+pub const NO_SANDBOX: &str =
+    "(This computer has no sandbox, so every command asks in the game first.)";
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// The Unix socket of the proxy, in the temp folder of the run.
 const PROXY_SOCKET: &str = ".gnomish-relay-proxy";

@@ -21,8 +21,7 @@ use crate::story_sandbox::{self, Sandbox};
 pub const EXEC_FLAG: &str = "--exec";
 /// Where the agent finds the socket of its proxy inside the wall. `/run` is private there.
 pub const INNER_SOCKET: &str = "/run/gnomish-relay/agent.sock";
-pub const NO_WALL: &str =
-    "(No network wall for the agent on this computer: it has the full network.)";
+pub const NO_WALL: &str = "(The agent has full network access: this computer can't limit it.)";
 /// These hold the sockets of the desktop, the ssh agent, and Docker.
 const PRIVATE_FOLDERS: [&str; 4] = ["/run", "/tmp", "/var/tmp", "/dev/shm"];
 /// The folders under the home folder that the scan for sockets looks into.

@@ -180,7 +180,7 @@ fn a_read_of_the_strip_key_is_denied_at_every_level() {
     for level in LEVELS {
         let reply = call(&home, "Read", &json!({ "file_path": key }), level);
         assert!(
-            reply.starts_with("deny: It touches the config or data folder"),
+            reply.starts_with("deny: It touches the settings or data folder"),
             "{reply}"
         );
     }
@@ -208,7 +208,10 @@ fn a_read_of_an_ssh_key_from_the_game_asks_on_the_desktop_and_sends_no_game_requ
         Permission::FullAuto,
         |_| None,
     );
-    assert!(reply.starts_with("deny: Denied on the desktop."), "{reply}");
+    assert!(
+        reply.starts_with("deny: Denied on your desktop."),
+        "{reply}"
+    );
     assert!(desktop.join().unwrap().contains("id_rsa"));
     assert!(questions.is_empty(), "the game gets no request to answer");
 }
@@ -249,7 +252,7 @@ fn a_write_outside_the_chat_folder_asks_on_the_desktop_and_times_out_as_refused(
         Permission::FullAuto,
     );
     assert!(
-        reply.starts_with("deny: No answer on the desktop."),
+        reply.starts_with("deny: No answer on your desktop."),
         "{reply}"
     );
     assert!(home.gate.approvals.list().is_empty(), "the request closes");
@@ -260,7 +263,7 @@ fn an_unknown_tool_asks_on_the_desktop() {
     let home = home("");
     let reply = call(&home, "mcp__web__fetch", &json!({}), Permission::FullAuto);
     assert!(
-        reply.starts_with("deny: No answer on the desktop."),
+        reply.starts_with("deny: No answer on your desktop."),
         "{reply}"
     );
 }
@@ -517,7 +520,7 @@ fn a_glob_that_leaves_its_folder_asks_on_the_desktop() {
         Permission::FullAuto,
     );
     assert!(
-        outside.starts_with("deny: No answer on the desktop."),
+        outside.starts_with("deny: No answer on your desktop."),
         "{outside}"
     );
 }
@@ -535,7 +538,7 @@ fn a_search_path_with_a_tilde_or_spaces_is_the_path_that_claude_code_reads() {
             Permission::FullAuto,
         );
         assert!(
-            reply.starts_with("deny: No answer on the desktop."),
+            reply.starts_with("deny: No answer on your desktop."),
             "{path}: {reply}"
         );
     }
@@ -561,7 +564,7 @@ fn a_read_of_a_path_with_a_tilde_resolves_in_the_home_folder() {
     );
 
     assert!(
-        reply.starts_with("deny: No answer on the desktop."),
+        reply.starts_with("deny: No answer on your desktop."),
         "{reply}"
     );
 }
@@ -587,11 +590,11 @@ fn a_grep_of_a_folder_that_holds_a_credential_file_asks_on_the_desktop() {
     );
 
     assert!(
-        whole.starts_with("deny: No answer on the desktop."),
+        whole.starts_with("deny: No answer on your desktop."),
         "{whole}"
     );
     assert!(
-        globbed.starts_with("deny: No answer on the desktop."),
+        globbed.starts_with("deny: No answer on your desktop."),
         "{globbed}"
     );
 }
@@ -644,7 +647,7 @@ fn a_tool_that_ran_with_no_hook_stops_the_run() {
         .unwrap_err();
     assert_eq!(
         error,
-        "A tool ran with no check by the bridge, so the run stopped."
+        "Stopped: a tool ran without a check from Gnomish Relay."
     );
 }
 
@@ -715,6 +718,6 @@ fn a_command_that_ran_outside_the_wrapper_stops_the_run() {
 
     assert_eq!(
         reply,
-        Err("A command ran outside the sandbox, so the run stopped.".into())
+        Err("Stopped: a command ran outside the sandbox.".into())
     );
 }

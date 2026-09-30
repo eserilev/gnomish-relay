@@ -89,7 +89,7 @@ fn the_agent_line_of_the_echo_agent_says_how_to_set_up_an_agent() {
 
     let line = status::agent_line(config.relay.as_ref().unwrap(), &computer.gate(&config));
 
-    assert!(line.starts_with("Agent: none. No agent set up."), "{line}");
+    assert!(line.starts_with("Agent: none. No agent yet."), "{line}");
 }
 
 impl Computer {

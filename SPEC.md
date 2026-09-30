@@ -200,7 +200,7 @@ There are four answers, in this order from strict to open:
   - Tools of the session only run with no question: `ToolSearch`, `TodoWrite`, `EnterPlanMode`, `ExitPlanMode`, and `AskUserQuestion`. They change nothing outside the session, and a question for each would make Claude unusable.
   - Every other tool is unknown: `WebFetch`, `WebSearch`, `Task` and other subagents, MCP tools (`mcp__*`), and any new tool.
   - Checked live on Claude Code 2.1.282: the hook fires for a `Read` in `acceptEdits` mode. It also fires when `--settings` holds `disableAllHooks: true` and an allow rule for `Read`, so neither the settings of the user nor an allow rule skips it. A `hook_callback` answer that Claude Code cannot read lets the tool run, so the bridge only ever sends a well-formed answer.
-  - A second line: the bridge tracks the id of each tool call that the hook answered. A `tool_result` with no error for any other id means that a tool ran with no check. The run then stops at once with "A tool ran with no check by the bridge, so the run stopped.". That call already ran. A result with an error does not count, because a call with bad input fails before the hook.
+  - A second line: the bridge tracks the id of each tool call that the hook answered. A `tool_result` with no error for any other id means that a tool ran with no check. The run then stops at once with "Stopped: a tool ran without a check from Gnomish Relay.". That call already ran. A result with an error does not count, because a call with bad input fails before the hook.
   - `can_use_tool` still works. A call that the hook allowed gets `allow`. Any other call goes through the gate.
   - The Bash tool of Claude keeps its folder between calls. A relative redirect after a `cd` in an earlier call resolves from that folder, and the classifier resolves it from the chat folder. The sandbox (6.6.4) is the wall for this case.
 - **Codex (`kind = "codex"`): every command and every file change.** The thread runs with `approvalPolicy: "untrusted"` at every level. In codex-cli 0.157.0 that asks before every command that no `allow` rule of Codex covers, and before every patch, in both sandboxes (`core/src/exec_policy.rs`, `core/src/safety.rs`). The bridge classifies the script inside `<shell> -lc '<script>'`. What still runs with no request, and so without the classifier:
@@ -215,7 +215,7 @@ There are four answers, in this order from strict to open:
 
 **Desktop approval.** The bridge runs in the background with no window. So it shows a dialog of the OS with Approve and Deny, and the command line is the fallback:
 
-- The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15), and the wait in minutes (`permission_timeout_minutes`). The dialog ends with "It waits <n> minutes for an answer. After that, the agent does not get it.", and `gnomish-relay approve` shows the minutes left of each request.
+- The bridge writes each open request to `approvals/<id>.json` in the data folder (12), with mode 0600. The id is 12 random hex digits. The file holds the agent, the folder, the time, and the popup text (S15), and the wait in minutes (`permission_timeout_minutes`). The dialog ends with "No answer in <n> minutes counts as Deny.", and `gnomish-relay approve` shows the minutes left of each request.
 - Not yet: the reason for the desktop, for example "It reads ~/.ssh, outside the chat folder". The classifier (6.6.3) gives a verdict with no reason, so a reason needs a second, proved function beside it. The in-game line is built in `Core.lua` from the `Desktop:` line, so the minutes in the game need a change of that line and of the addon.
 - `gnomish-relay approve` lists the open requests. `gnomish-relay approve <id>` allows one, and `gnomish-relay deny <id>` refuses one. Each writes an answer file next to the request, with `create_new`, so it never follows a link. A request has at most one answer.
 - The bridge checks for the answer every 100 ms, up to `permission_timeout_minutes`. No answer refuses the call. The bridge then deletes the files. At start it deletes the files of an old bridge.
@@ -234,7 +234,7 @@ There are four answers, in this order from strict to open:
 | macOS | `osascript` with `display dialog`, buttons Deny and Approve, `default button "Deny"`, `cancel button "Deny"` | the output holds `button returned:Approve` and not `gave up:true` |
 | Windows | PowerShell `MessageBox` with Yes and No, `Button2` (No) as the default, `DefaultDesktopOnly` so that it is on top. The text starts with "Yes = Approve, No = Deny." | the output is `Yes` |
 
-- The text of the dialog is "An agent from the game asks to:", the popup text of S15 (the full raw command or path, then "the agent says"), and then "Agent: <name>. Folder: <folder>. Request <id>.". It never shows only text that the agent chose.
+- The text of the dialog is "An agent in WoW wants to:", the popup text of S15 (the full raw command or path, then "the agent says"), and then the lines "Agent: <name>", "Folder: <folder>", and "Request: <id>". It never shows only text that the agent chose.
 - The text goes in an argument or an environment variable, never into a script. A notice server shows the body as markup, so the bridge escapes `&`, `<`, and `>` for notify-send. Else `<b>` or an S15 escape such as `<U+202E>` hides text. zenity gets `--no-markup`. The markup escape is bridge code, not proved, so a named test covers it.
 - Deny is the default button everywhere, so Enter never approves. A closed, dismissed, or timed-out dialog, and any output that is not the Approve answer, is Deny.
 - The dialog runs in its own thread. Every 100 ms it checks whether its request still waits. When the request has an answer from the command line, or the gate closed it (the timeout, Stop, or a new message, 9.3), the thread stops the dialog. It sends SIGTERM through `kill` first, because notify-send then closes its notice, and a kill after 0.5 s.
@@ -318,7 +318,7 @@ It covers shell commands. The file tools of Claude run outside it, so the classi
 - At the start of each run, the bridge makes the private temp folder (`gnomish-relay-run-<random>`, mode 0700, under the temp folder of the OS) and writes the walls of the run to `<data>/sandbox/<name>.json`: the tool, the writable paths, and the hidden paths that exist. `GNOMISH_RELAY_SANDBOX` names the file, and `TMPDIR` is the temp folder. Both go away at the end of the run.
 - The wrapper never runs a command outside the sandbox. With no walls, or with a tool that does not start, the command fails with exit status 126.
 - The command gets only the variables of the allowlist of 6.2 rule 12, `TMPDIR`, and the variables of the proxy and of the caches ("Network: the proxy"). The `env` list of the entry, for example `ANTHROPIC_API_KEY`, stays with the agent.
-- The wrapper leaves a mark in the temp folder. If a Bash call ran and the mark is missing, Claude Code ignored the prefix, and the run stops at once with "A command ran outside the sandbox, so the run stopped.".
+- The wrapper leaves a mark in the temp folder. If a Bash call ran and the mark is missing, Claude Code ignored the prefix, and the run stops at once with "Stopped: a command ran outside the sandbox.".
 - The bridge refuses a run when the bridge program is inside the chat folder, because a command could change it: "The bridge program <path> is inside the chat folder, so a command could change it. Install it somewhere else, for example ~/.local/bin."
 - The flags of a game run: `--setting-sources ""`, so the settings of the user and of the project do not apply; `--strict-mcp-config`, so no MCP server starts; and `--settings` with `sandbox.enabled: false` and `env.CLAUDE_CODE_SHELL_PREFIX`. A project from the web can hold a `.claude/settings.json` with hooks, or with an `env` that clears the prefix, so no project setting applies. The model and the other settings of the user do not apply either: the `command` of the entry can add `--model`.
 - The own sandbox of Claude Code stays off. Checked on 2.1.283: the keys are `sandbox.enabled`, `sandbox.failIfUnavailable`, and `sandbox.allowUnsandboxedCommands`. With `failIfUnavailable`, Claude Code refuses to start on a Linux with no `socat` ("sandbox required but unavailable: ... socat not installed"), and on macOS its Seatbelt and the Seatbelt of the bridge would nest, which is reported to fail. The sandbox of the bridge covers the same commands.
@@ -476,7 +476,7 @@ An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts i
 - A socket file outside the top 3 levels of the home folder, a listed local port, and a startup file that is not on the list.
 - The agent can still write the walls file of its run in `<data>/sandbox/`. That is true of the command sandbox too.
 
-*With no working `bwrap`,* the agent runs with no wall, the log line at start says so, and the first reply carries "(No network wall for the agent on this computer: it has the full network.)" (decided by the user).
+*With no working `bwrap`,* the agent runs with no wall, the log line at start says so, and the first reply carries "(The agent has full network access: this computer can't limit it.)" (decided by the user).
 
 *macOS* (decided by the user: a spike first). The spike on the macOS runner of CI on 2026-09-27: inside a Seatbelt profile that denies the network, `sandbox-exec` fails with "sandbox_apply: Operation not permitted" (the test `seatbelt_cannot_start_inside_a_seatbelt_wall`). A Seatbelt wall on the agent would break the command sandbox of the bridge and the sandbox of Codex, so the agent has no wall on macOS, and the first reply carries the notice of no wall. If that test ever fails, nesting works, and macOS can get a wall.
 
@@ -534,7 +534,7 @@ What each backend and OS enforces:
 
 - Every command asks in the game, at every level, also a command of the allow table (`gate::without_sandbox`).
 - File edits inside the chat folder still work.
-- The first reply of Claude after the start of the bridge begins with "(No sandbox on this computer: every command asks in the game.)". The bridge writes the tool of the sandbox to its log at start. A notice in the chat header waits for new slot fields.
+- The first reply of Claude after the start of the bridge begins with "(This computer has no sandbox, so every command asks in the game first.)". The bridge writes the tool of the sandbox to its log at start. A notice in the chat header waits for new slot fields.
 - With no sandbox, the popup offers no "Always allow" (6.6.5): every command asks anyway, so a rule does nothing. The second warning step of the earlier plan went.
 - At start the bridge runs `bwrap --version` inside a sandbox of the same kind. A `bwrap` that is missing, or that cannot make namespaces, counts as no sandbox.
 
@@ -615,7 +615,7 @@ The goal is one click for the common case, with a bounded worst case. Any game c
 - The bridge adds the rules to `rules.json` and allows the call. A rule that exists already gives no second row.
 - Every other open request that the new rules now cover runs, so the user does not click twice. A run that waits for the game reads the rules about every 100 ms. When they cover its call, the call runs, and the run tells the bridge to take its popup away.
 - On the click, the addon prints one whisper line: `[Claude] whispers: [chat] Always allowed now: cargo test * in Code/Personal/gnomish-relay. Click to manage your rules.` A click on the line opens Settings. The addon marks the settings list as old, so the next open of Settings asks for a new one.
-- The desktop shows a plain notice: "Rule added: <line>. Remove it in the Settings tab of the game, or run: gnomish-relay rules". There is no Undo button: a notice cannot hold a button on all three OSes, and the whisper line has none.
+- The desktop shows a plain notice: "Always allowed now: <line>. To remove it, use Settings in the game or run gnomish-relay rules.". There is no Undo button: a notice cannot hold a button on all three OSes, and the whisper line has none.
 - A rule that the bridge cannot write leaves a log line. The call still runs, because the user allowed it.
 
 **The store.** The rules live in `rules.json` in the data folder (12), never in `config.toml`: the game never writes the config (6.6.2). The data folder is a `deny` path, so the agent never reads or writes the file (6.6.3). The file has mode 0600, and the bridge writes it with an atomic rename. Each row has an id (4 hex digits), the folder, its scope (`tree` for the folder and every folder inside it, `exact` for a root or the home folder), the words, the time it was added, and the day of its last use.
@@ -730,7 +730,7 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 | `list=settings` | Asks for the settings list of the bridge (13.4). The record is a message of the chat `settings`, and the reply is the list. |
 | `mkdir=1` | The folder of the record is a new folder. The bridge makes its last part before the run (9.9). Only a record with `n` makes it. Any other `mkdir=` value is ignored. |
 | `attach=<session>` | The first message of a resumed chat. It has no text. The session must be in the last list (9.6). |
-| `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop." |
+| `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "That agent isn't in config.toml. Pick another one in Settings, or add it on your desktop." |
 | `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
 | `perm=<request>:<option>` | The answer to a permission request (9.3). |
 | `read=<id>,<id>` | The final replies in the last body that the addon has shown. The bridge then takes them out of the slot body (7.3). A lost strip loses nothing: the next strip names them again. |
@@ -1092,7 +1092,7 @@ Each run of the `claude` backend starts `claude -p` with the mode of the level, 
 Each run of the `codex` backend starts `codex app-server`, opens a thread with the sandbox and the approval policy of the level, starts one turn, and stops the process at the end of the turn.
 Each run of the `command` backend starts the harness inside the sandbox of the run, gives it the message, and takes its output as the reply.
 
-- **Resume.** The bridge keeps the agent session of each chat in `state.json`, with its agent and its folder. The next message of the chat resumes it, unless the message has the `n` flag, or the agent or the folder changed. The client uses `session/resume` if the agent offers it, else `session/load`. The history that `session/load` replays stays out of the reply. If neither works, the run opens a new session, and the reply starts with "(New session: the agent could not resume the old one.)".
+- **Resume.** The bridge keeps the agent session of each chat in `state.json`, with its agent and its folder. The next message of the chat resumes it, unless the message has the `n` flag, or the agent or the folder changed. The client uses `session/resume` if the agent offers it, else `session/load`. The history that `session/load` replays stays out of the reply. If neither works, the run opens a new session, and the reply starts with "(Started a new session: the old one couldn't be resumed.)".
 - **Later: continue a terminal session.** A new chat can take the session of a Claude or other agent session that runs in a terminal. The bridge lists the recent sessions of each agent (`session/list`, where the agent offers it), and the chat resumes the one you pick. The terminal window does not show the game messages live: no agent lets another program type into its open window. `claude --resume` shows them later.
 - **Stop.** Stop in the game ends the waiting messages of the chat, and signals the run in progress. The client sends `session/cancel` (`claude`: an `interrupt` control request, `codex`: `turn/interrupt`), answers every open permission request with "cancelled" (`claude`: a deny, `codex`: `cancel`), and waits 10 seconds for the agent to end the turn. Then it kills the process. The reply is "Stopped.", and the session stays for the next message. A Stop before the prompt ends the run at once.
 
@@ -1174,7 +1174,7 @@ The agent process is untrusted:
 - `turn/start` sends the prompt as one `text` input. `item/started` of a `commandExecution`, `fileChange`, `mcpToolCall`, or `webSearch` becomes a progress line. The text of the last `agentMessage` of `item/completed` is the reply. `turn/completed` ends the turn: `completed` is a reply, `interrupted` is "Stopped.", and `failed` is an error with the message of Codex.
 - `item/commandExecution/requestApproval` and `item/fileChange/requestApproval` go through the gate (6.6.3). The bridge answers every other request of the server with "method not found".
 - Codex keeps its login and its threads in `CODEX_HOME`, else `~/.codex`. `HOME` passes, so the default works. A user who sets `CODEX_HOME` or `OPENAI_API_KEY` adds it to the `env` list of the entry.
-- `check-agent` runs `codex --version` and `codex login status`, with no model call. It fails with "Codex needs a login." when the status command fails.
+- `check-agent` runs `codex --version` and `codex login status`, with no model call. It fails with "Codex isn't logged in. Run codex login." when the status command fails.
 - The entry has no `modes` table. Config load refuses one.
 - The same limits as ACP apply, through `process.rs` and `turn.rs`.
 
@@ -1206,7 +1206,7 @@ env = ["OPENAI_API_KEY"]
 
 - **Resume.** `resume` lists the arguments for a chat that goes on: the chat ran with this agent in this folder before, and the message has no `n` flag. They go at the end, or before a `--`. The chat keeps a mark as its session, not an id. With no `resume`, each message is a fresh run. The home folder of the harness goes away after each run (below), so only a harness that keeps its history in the chat folder can go on. Of the presets, that is aider. A flag such as `--continue` takes the newest session of the harness, so two chats in one folder share it.
 - **The output.** Each line of stdout and stderr becomes a progress line (9.3), through `Activity::step`, so the guards for "Level:" and "Desktop:" apply. All of stdout is the reply, as Markdown. The bridge takes out escape sequences and control characters, keeps the text after the last CR of a line, as a terminal shows a progress bar, and sets `NO_COLOR=1` and `TERM=dumb`. A reply over 256 KiB keeps its end, from the start of a line, after the note "(The output was too long for the game. This is its end.)": a harness prints its answer last. More than 16 MiB of stdout stops the run with "The agent wrote more output than the limit, so the run stopped.".
-- **The end.** Exit status 0 is the reply. Any other status is the error "The agent failed (exit status <n>): <the last line of stderr>". No output is "(The agent gave no output.)". The run timeout, Stop, and the output limit kill the whole process group (9.4).
+- **The end.** Exit status 0 is the reply. Any other status is the error "The agent failed (exit status <n>): <the last line of stderr>". No output is "(The agent didn't reply.)". The run timeout, Stop, and the output limit kill the whole process group (9.4).
 - **The sandbox.** The walls of 6.6.4, around the harness and every program that it starts: writes only in the chat folder and the temp folder of the run, the `deny` and `desktop` paths hidden, private `/tmp`, `/run`, and `/var/tmp`, the `.git` entries pinned, and on Linux its own network, processes, and `/proc`. On Linux: `bwrap <the walls> --chdir <chat> --unshare-all --die-with-parent --new-session -- <gnomish-relay> --sandbox-forward <proxy socket> <local ports> --exec <harness> <arguments>`. On macOS: `sandbox-exec -p <profile> -- <harness> <arguments>`. No holder: the harness is the one process tree of the run.
   - **The network.** One proxy for each run, with the rules of the agent (6.6.4, "Two kinds of scrutiny"), because the bridge cannot tell the harness from its commands. With `agent_network = "open"`, any public host. With `"strict"`, the model hosts of the preset, `agent_hosts`, and the hosts of the sandbox (the default hosts and `allow_hosts`). The ports of `local_ports` work as for every agent. On macOS the profile denies the keychain, so a harness there takes its key from `env`.
   - **The home folder.** On Linux the harness sees a copy-on-write view of the home folder (`--overlay-src`, as for cargo in "The downloads of cargo and rustup"), before the binds of the chat folder, with the hidden paths covered after it. So its sessions, caches, and a refreshed login work during the run, and go away with it. No write reaches the real home folder, so no startup file, MCP server, or hook of a harness can wait for a terminal session of the user. The view needs `bwrap` with `--overlay`, a temp folder outside the home folder, and a home folder outside `/tmp`, `/var/tmp`, and `/run`. Else, and on macOS, the home folder is read-only, and a harness that must write there fails. A mount under the home folder, such as a FUSE folder, shows empty in the view.
@@ -1229,9 +1229,9 @@ modes = { ask = "default" }
 ```
 
 Then run `gnomish-relay check-agent gemini`. It starts the agent, opens one session in `default_cwd`, and shows the name, the version, whether it resumes sessions, and its mode ids. It fails if a mode in `modes` does not exist.
-For `kind = "claude"`, `check-agent` runs `claude --version` and `claude auth status --json`, with no model call. It fails with "Claude Code needs a login." when `loggedIn` is not true.
-The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop."
-`kind = "echo"` answers with the message, for a test of the path through the game with no agent. Setup writes it only when it finds no agent, so the answer starts with the next step: "No agent set up. Install claude or codex, then run: gnomish-relay setup".
+For `kind = "claude"`, `check-agent` runs `claude --version` and `claude auth status --json`, with no model call. It fails with "Claude Code isn't logged in. Run claude and log in." when `loggedIn` is not true.
+The addon sends `agent=gemini` for a chat that uses it. An agent with no entry gets "That agent isn't in config.toml. Pick another one in Settings, or add it on your desktop."
+`kind = "echo"` answers with the message, for a test of the path through the game with no agent. Setup writes it only when it finds no agent, so the answer starts with the next step: "No agent yet. Install Claude Code or Codex, then run gnomish-relay setup."
 
 ### 9.3 Permissions
 
@@ -1255,7 +1255,7 @@ Each agent in the config has one permission level:
 
 - At `ask`, only a call that only reads runs with no question. A write inside the chat folder, and a command in the allow table, ask in the game. A tool of the session (6.6.3) counts as a read.
 - For an ACP agent that picks its questions (6.6.3), `ask` and `allow` both ask in the game, at every level.
-- A refusal names its reason to the agent: "It touches the config folder of Gnomish Relay, which the agent never reaches.", "Denied on the desktop.", "No answer on the desktop.", "Denied in the game.", "No answer from the game.", "The player sent a new message.", or "Not allowed from the game." when nobody in the game listens.
+- A refusal names its reason to the agent: "It touches the settings or data folder of Gnomish Relay, which agents can't reach.", "Denied on your desktop.", "No answer on your desktop.", "Denied in the game.", "No answer from the game.", "The player sent a new message.", or "Not allowed from the game." when nobody in the game listens.
 - The game gets Allow and Deny for a game question. A desktop question shows only a notice in the game (6.6.3).
 
 **Raise the level** (asked for by the user, decided with an advisor on 2026-09-26). A chat that asks for more than the config allows, for example `auto-edit` with `permission = "ask"`, gets one desktop dialog. The code is in `crates/bridge/src/raise.rs` and `config_edit.rs`.
@@ -1306,7 +1306,7 @@ Rules:
 - The line stays first while the agent adds steps. `Activity` keeps it and the last 4 lines of the agent, so the proved writer of S20 still gets at most 5 lines, and S9 and S20 do not change.
 - Only the bridge writes a line that starts with "Level:". `Activity::step` is the one place where agent lines come in, and it puts "agent: " in front of such a line.
 - The addon takes the level only from the first line of the progress of a working message, and only when that line is one of the exact texts of the bridge. It keeps the level with the chat, in the saved variables. The header then shows it, for example "Claude · ask (config)". Before the first run, the header shows the level that the chat asks for.
-- A lowered run also starts its reply with "(Ran at ask: the config allows at most ask.)", because a short run can end before the addon loads a slot. The addon does not read this note: after rendering, an agent can write the same text.
+- A lowered run also starts its reply with "(Ran at ask, the most that config.toml allows.)", because a short run can end before the addon loads a slot. The addon does not read this note: after rendering, an agent can write the same text.
 - The run timeout stops while the run waits for a permission answer. A separate `permission_timeout_minutes` applies (default 10). After it, the bridge answers "cancelled".
 - If the game closes or reloads, open requests stay in the next publish until they time out.
 - Stop ends an open request as "cancelled", and the run as "Stopped.".
@@ -1334,7 +1334,7 @@ Rules:
 - Stop for `command` kills the whole process group at once, with no grace: a harness has no cancel channel. On Linux the sandbox has its own process ids, so every program of the harness ends with it.
 - The bridge declares ACP client capabilities `fs` and `terminal` as false in v1. The agent uses its own tools.
 - `process.rs` starts every agent process: never through a shell, with the allowlist of 6.2 rule 12, a limit of 8 MiB on each line, and the last 2 KiB of stderr for an error. `turn.rs` holds the run timeout, Stop with its 10-second grace, and the wait for an answer from the game. ACP, `claude`, and `codex` share them.
-- If an agent needs a login, the bridge reports it in the game with the next step. For Claude, a failed run whose error names a login (for example "Please run /login", which is a command inside Claude) ends with "Claude needs a new login. On the desktop, run: claude". The bridge never handles credentials.
+- If an agent needs a login, the bridge reports it in the game with the next step. For Claude, a failed run whose error names a login (for example "Please run /login", which is a command inside Claude) ends with "Claude needs you to log in again. On your desktop, run claude and log in." The bridge never handles credentials.
 - The bridge removes `CLAUDECODE` from the environment of each child process. It sets `GNOMISH_RELAY_JOB=1` (section 10).
 
 ### 9.5 Sessions and folders
@@ -1611,10 +1611,10 @@ parent \t name \t mark
 **A new folder.** The first message of a chat in a new folder has the flag `mkdir=1` next to `n`. The folder of the record is the new folder. The bridge makes it before the run starts, so a chat that never sends leaves no empty folder.
 
 - The bridge takes `mkdir=1` only with `n`. On any other message, the flag does nothing.
-- The relay refuses a new folder whose record folder is absolute, or whose last part fails the name rules. The reply is "Folder not made: bad name.". The folder check of 6.2 rule 1 comes first, as for every message.
+- The relay refuses a new folder whose record folder is absolute, or whose last part fails the name rules. The reply is "Couldn't create the folder: the name can't contain / or \. Pick another name." The folder check of 6.2 rule 1 comes first, as for every message.
 - When the run starts, the bridge makes only the last part, with `create_dir`, never `create_dir_all`. The parent must exist. The bridge resolves the parent with `canonicalize` and checks the roots again, so a link in the path cannot lead out (6.2, rule 10). The new folder must get `allow` from the classifier, as in the walk, so a folder inside a `deny` folder or a `desktop` path is never made.
 - A folder that is already there is fine: a run after a bridge restart asks again. A file with the name is an error.
-- An error ends the message with a reply that starts "Folder not made:", and the run never starts. Each refusal has its own reason.
+- An error ends the message with a reply that starts "Couldn't create", and the run never starts. Each refusal has its own reason.
 
 **Decisions.** The implementer and the coordinator chose these (2026-09-26). The advisor agent did not answer in time, so the coordinator gave the defaults.
 
@@ -1670,13 +1670,13 @@ The hook is a subcommand of the one binary: `gnomish-relay hook claude` and `gno
 |---|---|---|---|
 | Claude Code | `SessionStart`, matcher `startup\|resume\|clear` | `session-start` | none |
 | Claude Code | `UserPromptSubmit` | `turn-start` | none (the prompt never leaves the terminal) |
-| Claude Code | `Stop` | `finished` | `last_assistant_message`, or "Turn done." when it is empty (a turn that ends on a tool call) |
+| Claude Code | `Stop` | `finished` | `last_assistant_message`, or "Done." when it is empty (a turn that ends on a tool call) |
 | Claude Code | `StopFailure` | `failed` | `error_details`, else the error code in `error` |
 | Claude Code | `Notification`, matcher `permission_prompt\|elicitation_dialog\|elicitation_url_dialog\|worker_permission_prompt` | `waiting` | `message` |
 | Claude Code | `SessionEnd` | `session-end` | none |
 | Codex | `SessionStart`, matcher `startup\|resume\|clear` | `session-start` | none |
 | Codex | `UserPromptSubmit` | `turn-start` | none |
-| Codex | `Stop` | `finished` | `last_assistant_message`, or "Turn done." |
+| Codex | `Stop` | `finished` | `last_assistant_message`, or "Done." |
 | Codex | `PermissionRequest` | `waiting` | the command in `tool_input.command` (a string or its words), else `tool_name` |
 | Codex | `SessionEnd` | `session-end` | none |
 

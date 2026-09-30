@@ -399,7 +399,7 @@ fn text_of<'a>(value: &'a Value, key: &str) -> Option<&'a str> {
 
 /// The last exchange of a session file for an attach, read from its end.
 pub fn read_last_exchange(path: &Path) -> Result<String, String> {
-    let text = read_end(path, ATTACH_READ).map_err(|e| format!("Cannot read the session: {e}"))?;
+    let text = read_end(path, ATTACH_READ).map_err(|e| format!("Can't read the session: {e}"))?;
     Ok(last_exchange(&text))
 }
 
@@ -563,12 +563,12 @@ fn texts_of(entry: &Value) -> Vec<&str> {
 /// and returns the new session id.
 pub fn fork(path: &Path, id: &str) -> Result<String, String> {
     let size = fs::metadata(path)
-        .map_err(|e| format!("Cannot read the session: {e}"))?
+        .map_err(|e| format!("Can't read the session: {e}"))?
         .len();
     if size > MAX_FORK {
         return Err("The session is too big to copy.".into());
     }
-    let text = read_start(path, MAX_FORK).map_err(|e| format!("Cannot read the session: {e}"))?;
+    let text = read_start(path, MAX_FORK).map_err(|e| format!("Can't read the session: {e}"))?;
     let folder = path.parent().ok_or("The session has no folder.")?;
     let title = read_info(&text, &text, || sidecar_title(&folder.join(id))).map(|i| i.title);
     let new_id = new_uuid()?;
@@ -792,9 +792,9 @@ fn write_new_file(path: &Path, bytes: &[u8]) -> Result<(), String> {
     }
     let mut file = options
         .open(path)
-        .map_err(|e| format!("Cannot copy the session: {e}"))?;
+        .map_err(|e| format!("Can't copy the session: {e}"))?;
     file.write_all(bytes)
-        .map_err(|e| format!("Cannot copy the session: {e}"))
+        .map_err(|e| format!("Can't copy the session: {e}"))
 }
 
 /// A random UUID of version 4.

@@ -41,8 +41,8 @@ const SESSION_TOOLS: [&str; 5] = [
     "AskUserQuestion",
 ];
 pub const NO_TOOLS: &str = "The story program gets no tools.";
-const UNCHECKED: &str = "A tool ran with no check by the bridge, so the run stopped.";
-const UNWRAPPED: &str = "A command ran outside the sandbox, so the run stopped.";
+const UNCHECKED: &str = "Stopped: a tool ran without a check from Gnomish Relay.";
+const UNWRAPPED: &str = "Stopped: a command ran outside the sandbox.";
 const CHECK_TIME: Duration = Duration::from_secs(30);
 /// Claude Code runs a tool when the hook times out, so the bridge answers first.
 const HOOK_MARGIN: Duration = Duration::from_mins(5);
@@ -65,7 +65,7 @@ pub struct ClaudeAgent {
 /// Claude says "Please run /login", which is a command inside Claude, not in the game.
 fn with_login_step(error: String) -> String {
     if install::needs_login(&error) {
-        return "Claude needs a new login. On the desktop, run: claude".into();
+        return "Claude needs you to log in again. On your desktop, run claude and log in.".into();
     }
     error
 }
@@ -272,7 +272,7 @@ impl ClaudeAgent {
             CHECK_TIME,
         )?;
         if !logged_in(&status.stdout) {
-            return Err("Claude Code needs a login.".into());
+            return Err("Claude Code isn't logged in. Run claude and log in.".into());
         }
         Ok(Report {
             name: "Claude Code".into(),
@@ -871,7 +871,7 @@ impl Stream {
     fn hook(&mut self, request: Option<&Request>) -> Result<(), Refusal> {
         let Some(request) = request else {
             return Err(Refusal::ByRule(
-                "The bridge cannot read this tool call.".into(),
+                "Gnomish Relay can't read this tool call.".into(),
             ));
         };
         let result = self.check(request);

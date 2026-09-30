@@ -401,19 +401,17 @@ fn read_pending(path: &Path) -> Option<Pending> {
 pub fn dialog_text(pending: &Pending) -> String {
     let text = match pending.kind {
         Kind::ToolCall => format!(
-            "An agent from the game asks to:\n{}\n\nAgent: {}. Folder: {}. Request {}.",
+            "An agent in WoW wants to:\n{}\n\nAgent: {}\nFolder: {}\nRequest: {}",
             pending.text, pending.agent, pending.folder, pending.id
         ),
         Kind::Raise => format!(
-            "{}\n\nConfig: {}. Request {}.",
+            "{}\n\nConfig: {}\nRequest: {}",
             pending.text, pending.folder, pending.id
         ),
     };
     match pending.wait_minutes {
         0 => text,
-        minutes => format!(
-            "{text}\nIt waits {minutes} minutes for an answer. After that, the agent does not get it."
-        ),
+        minutes => format!("{text}\nNo answer in {minutes} minutes counts as Deny."),
     }
 }
 
@@ -598,9 +596,9 @@ mod tests {
         };
         assert_eq!(
             dialog_text(&pending),
-            "An agent from the game asks to:\ncat ~/.ssh/id_rsa\nthe agent says: Bash\n\n\
-             Agent: claude. Folder: /w/app. Request a1b2c3d4e5f6.\n\
-             It waits 10 minutes for an answer. After that, the agent does not get it."
+            "An agent in WoW wants to:\ncat ~/.ssh/id_rsa\nthe agent says: Bash\n\n\
+             Agent: claude\nFolder: /w/app\nRequest: a1b2c3d4e5f6\n\
+             No answer in 10 minutes counts as Deny."
         );
     }
 

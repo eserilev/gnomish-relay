@@ -114,7 +114,7 @@ fn a_saved_thread_resumes() {
 fn a_thread_that_cannot_resume_starts_again_and_the_reply_says_so() {
     let (reply, session) = resume("noresume");
     let reply = reply.unwrap();
-    assert!(reply.starts_with("(New session:"), "{reply}");
+    assert!(reply.starts_with("(Started a new session:"), "{reply}");
     assert_eq!(session, Some("t1".into()));
 }
 
