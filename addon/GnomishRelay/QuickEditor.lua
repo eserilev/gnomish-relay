@@ -35,6 +35,17 @@ local function Save(box)
 	ns.Window.Refresh()
 end
 
+-- A click on a button leaves the focus in the box, and Changed() then draws over the text.
+local function SaveFocused()
+	for _, row in ipairs(ui.rows) do
+		for _, box in ipairs({ row.name, row.message }) do
+			if box:HasFocus() then
+				box:ClearFocus()
+			end
+		end
+	end
+end
+
 local function NewBox(name, parent, row, field, bytes)
 	local box = CreateFrame("EditBox", name, parent, "InputBoxTemplate")
 	box:SetHeight(22)
@@ -67,16 +78,19 @@ local function BuildRow(i)
 	row:SetPoint("TOPRIGHT", ui.frame, "TOPRIGHT", -20, -44 - (i - 1) * ROW_HEIGHT)
 	row:SetHeight(ROW_HEIGHT)
 	local remove = NewButton(prefix .. "Remove" .. i, row, "Remove", BUTTON_WIDTH, function()
+		SaveFocused()
 		ns.QuickActions.Remove(i)
 		Changed()
 	end)
 	remove:SetPoint("RIGHT", row, "RIGHT", 0, 0)
 	local down = NewButton(prefix .. "Down" .. i, row, "Move down", BUTTON_WIDTH, function()
+		SaveFocused()
 		ns.QuickActions.Move(i, 1)
 		Changed()
 	end)
 	down:SetPoint("RIGHT", remove, "LEFT", -4, 0)
 	local up = NewButton(prefix .. "Up" .. i, row, "Move up", BUTTON_WIDTH, function()
+		SaveFocused()
 		ns.QuickActions.Move(i, -1)
 		Changed()
 	end)
@@ -125,6 +139,7 @@ end
 local function BuildButtons()
 	local y = -44 - ns.QuickActions.MOST * ROW_HEIGHT - 8
 	ui.add = NewButton("GnomishRelayQuickEditAdd", ui.frame, "Add", 90, function()
+		SaveFocused()
 		local i = ns.QuickActions.Add()
 		Changed()
 		if i then
@@ -133,6 +148,7 @@ local function BuildButtons()
 	end)
 	ui.add:SetPoint("TOPLEFT", ui.frame, "TOPLEFT", 26, y)
 	local reset = NewButton("GnomishRelayQuickEditReset", ui.frame, "Reset", 90, function()
+		SaveFocused()
 		ns.QuickActions.Reset()
 		Changed()
 	end)

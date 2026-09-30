@@ -505,6 +505,22 @@ fn the_editor_renames_moves_and_removes_a_quick_action_and_the_row_follows() {
 }
 
 #[test]
+fn move_up_keeps_a_name_that_is_still_being_typed() {
+    let game = Game::start();
+    open_quick_editor(&game);
+    game.run("GnomishRelayQuickEditName2:SetFocus() GnomishRelayQuickEditName2:SetText('Fix')");
+
+    game.click("GnomishRelayQuickEditUp2");
+
+    let name = game.text("local ns = ... return ns.QuickActions.List()[1].name");
+    assert_eq!(name, "Fix");
+    assert_eq!(
+        game.text("return GnomishRelayQuickEditName1:GetText()"),
+        "Fix"
+    );
+}
+
+#[test]
 fn a_changed_message_saves_when_its_box_loses_the_focus() {
     let game = Game::start();
     open_quick_editor(&game);
