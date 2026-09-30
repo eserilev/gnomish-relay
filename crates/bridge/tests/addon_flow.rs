@@ -3414,6 +3414,36 @@ fn a_reply_shows_its_usage_line_in_grey_below_the_blocks_and_not_in_the_whisper(
 }
 
 #[test]
+fn a_long_reply_shown_as_its_summary_keeps_its_usage_line() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("go");
+    game.advance(1.0);
+    let mut body = String::from("\x1bM1\nu\x1f1.2k in · 350 out · $0.04\np\x1fThe summary.\n");
+    for i in 0..10 {
+        body.push_str(&format!("p\x1fDetail {i}.\n"));
+    }
+
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        &body,
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    assert!(lines.iter().any(|t| t.contains("Show more")), "{lines:?}");
+    assert!(!lines.iter().any(|t| t.contains("Detail 9")), "{lines:?}");
+    assert!(
+        lines
+            .iter()
+            .any(|t| t == "|cff9d9d9d1.2k in · 350 out · $0.04|r"),
+        "{lines:?}"
+    );
+}
+
+#[test]
 fn a_reply_with_no_usage_line_shows_none() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
