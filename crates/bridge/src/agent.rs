@@ -113,6 +113,8 @@ pub enum Event {
     Desktop(Notice),
     /// The open game question of the run needs no answer any more (SPEC.md 6.6.5).
     Withdrawn,
+    /// The output of a command of the agent, for the test line (SPEC.md 9.11).
+    CommandOutput(String),
     /// The end of a raise of the level in the config (SPEC.md 9.3). `level` is the
     /// level of the run after it.
     Raised {

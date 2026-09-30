@@ -317,7 +317,10 @@ mod tests {
             .map(|(_, _, event)| match event {
                 Event::Desktop(notice) => notice.line(),
                 Event::Question(_) => "a game request".into(),
-                Event::Progress(_) | Event::Raised { .. } | Event::Withdrawn => String::new(),
+                Event::Progress(_)
+                | Event::Raised { .. }
+                | Event::Withdrawn
+                | Event::CommandOutput(_) => String::new(),
             })
             .collect();
         assert_eq!(lines.len(), 2, "{lines:?}");

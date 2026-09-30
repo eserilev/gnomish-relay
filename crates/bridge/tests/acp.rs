@@ -273,9 +273,11 @@ fn each_tool_call_becomes_a_progress_line() {
         .into_iter()
         .filter_map(|e| match e {
             Event::Progress(line) => Some(line),
-            Event::Question(_) | Event::Desktop(_) | Event::Raised { .. } | Event::Withdrawn => {
-                None
-            }
+            Event::Question(_)
+            | Event::Desktop(_)
+            | Event::Raised { .. }
+            | Event::Withdrawn
+            | Event::CommandOutput(_) => None,
         })
         .collect();
     assert_eq!(lines, ["edit src/main.rs", "$ cargo test"]);

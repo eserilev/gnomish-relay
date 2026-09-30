@@ -409,6 +409,7 @@ local function RefreshChats(chat)
 	ui.pinned:SetShown(not ui.picking)
 	ui.searchButton:SetShown(not ui.picking)
 	ns.Pins.Refresh()
+	ns.GitBar.Refresh(not ui.picking and not browsing and chat or nil)
 end
 
 function Window.Refresh()
@@ -428,6 +429,7 @@ function Window.Refresh()
 		end
 		ns.Browser.Show(false)
 		RefreshInputRow()
+		ns.GitBar.Refresh(nil)
 	end
 end
 
@@ -637,6 +639,7 @@ local function BuildCenter()
 	Stretch(log, left, -84)
 	ui.log = log
 	ns.Transcript.Build(log, TranscriptSize())
+	ns.GitBar.Build(frame, left, -34)
 
 	ui.picker = Inset(frame, left, -84, width, 16)
 	Stretch(ui.picker, left, -84)

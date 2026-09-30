@@ -9,11 +9,13 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
 use crate::accounts::Accounts;
+use crate::chat_branch::ChatWorktree;
 use crate::fs_safe::write_private;
 use crate::history::History;
-use crate::lane::LaneState;
+use crate::lane::{ChatId, LaneState};
 pub use crate::lane::{SavedRecord, SavedStatus};
 use crate::relay::{AgentSession, FrameTag, Job};
+use crate::run_changes::RunChanges;
 
 const FILE: &str = "state.json";
 /// 1000 seen ids and 30 records of 32 KiB fit in far less.
@@ -38,6 +40,14 @@ pub struct State {
     /// The token of each account folder (SPEC.md 7.6).
     #[serde(skip_serializing_if = "Accounts::is_empty")]
     pub accounts: Accounts,
+    /// The chats that asked for an own branch, with their names (SPEC.md 9.11).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub own_branch: Vec<(ChatId, String)>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub worktrees: Vec<ChatWorktree>,
+    /// The last runs with a change summary, for Commit and Revert.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<RunChanges>,
 }
 
 /// `None` when there is no state yet. A damaged file is an error, not a fresh start:

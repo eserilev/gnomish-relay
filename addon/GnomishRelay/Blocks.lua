@@ -98,6 +98,49 @@ function Blocks.Parse(text)
 	return blocks
 end
 
+local function Count(field)
+	return tonumber(field) or 0
+end
+
+-- The blocks of the bridge have upper-case kinds (SPEC.md 7.3.1, 9.11).
+local GIT_BLOCKS = {
+	B = function(git, p)
+		git.branch = { name = p[2] or "", own = p[3] == "1", start = p[4] or "" }
+	end,
+	G = function(git, p)
+		git.summary = { files = Count(p[2]), added = Count(p[3]), removed = Count(p[4]) }
+	end,
+	F = function(git, p)
+		table.insert(git.files, { path = p[2] or "", added = tonumber(p[3]), removed = tonumber(p[4]), kind = p[5] })
+	end,
+	M = function(git, p)
+		git.more = Count(p[2])
+	end,
+	T = function(git, p)
+		git.tests = { passed = Count(p[2]), failed = Count(p[3]), skipped = Count(p[4]) }
+	end,
+	C = function(git, p)
+		git.ci = { passed = Count(p[2]), failed = Count(p[3]), running = Count(p[4]), names = p[5] or "" }
+	end,
+}
+
+-- The blocks of the bridge in a reply, or nil when it has none. A cut last line is left out.
+function Blocks.Git(text)
+	if not Blocks.IsRendered(text) then
+		return nil
+	end
+	local git, found = { files = {} }, false
+	for line in text:sub(#MARKER + 1):gmatch("([^\n]*)\n") do
+		local parts = Split(line)
+		local read = GIT_BLOCKS[parts[1]]
+		if read then
+			read(git, parts)
+			found = true
+		end
+	end
+	return found and git or nil
+end
+
 -- Words with no codes and no escapes: the caller escapes them for where they go.
 local function Words(text, html)
 	text = WithoutCodes(text):gsub("\1", "|")

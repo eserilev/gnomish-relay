@@ -52,9 +52,11 @@ const FILES: &[&str] = &[
     "QuickActions.lua",
     "QuickBar.lua",
     "QuickEditor.lua",
+    "Changes.lua",
     "Transcript.lua",
     "Folders.lua",
     "Browser.lua",
+    "GitBar.lua",
     "BridgeSettings.lua",
     "RulesGroup.lua",
     "SettingsTab.lua",
@@ -3509,6 +3511,7 @@ fn settings_text(story: bool) -> String {
         allow_folders: vec![("~/Code/lighthouse".into(), "npm test".into())],
         rules: bridge::always_rules::RuleList::default(),
         hooks: Vec::new(),
+        ci_checks: bridge::ci_checks::CiChecks::Off,
     };
     let policy = Policy {
         folders: Folders {

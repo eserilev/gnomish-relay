@@ -235,6 +235,7 @@ There are four answers, in this order from strict to open:
 | Windows | PowerShell `MessageBox` with Yes and No, `Button2` (No) as the default, `DefaultDesktopOnly` so that it is on top. The text starts with "Yes = Approve, No = Deny." | the output is `Yes` |
 
 - The text of the dialog is "An agent in WoW wants to:", the popup text of S15 (the full raw command or path, then "the agent says"), and then the lines "Agent: <name>", "Folder: <folder>", and "Request: <id>". It never shows only text that the agent chose.
+- A merge request of Merge (9.11) has its own text: "A chat from WoW asks to merge <branch> into <start branch> in <folder>. Approve only if you just clicked Merge in WoW.", then "Request: <id>". Every name in it comes from git, not from the game.
 - The text goes in an argument or an environment variable, never into a script. A notice server shows the body as markup, so the bridge escapes `&`, `<`, and `>` for notify-send. Else `<b>` or an S15 escape such as `<U+202E>` hides text. zenity gets `--no-markup`. The markup escape is bridge code, not proved, so a named test covers it.
 - Deny is the default button everywhere, so Enter never approves. A closed, dismissed, or timed-out dialog, and any output that is not the Approve answer, is Deny.
 - The dialog runs in its own thread. Every 100 ms it checks whether its request still waits. When the request has an answer from the command line, or the gate closed it (the timeout, Stop, or a new message, 9.3), the thread stops the dialog. It sends SIGTERM through `kill` first, because notify-send then closes its notice, and a kill after 0.5 s.
@@ -654,6 +655,25 @@ The goal is one click for the common case, with a bounded worst case. Any game c
 - Unit tests in the bridge (`always_rules.rs`, `always_offer.rs`, `gate.rs`, `activity.rs`, `settings_list.rs`, `flags.rs`, `relay.rs`): the folder of a rule (a root and the home folder cover only themselves), expiry and the daily write, the full list, a duplicate rule, the answer to the other open requests, the level and backend checks of the offer, the 48-byte line, and the settings lines.
 - Fake-game tests in `addon_flow.rs`: the popup shows the rule line and the three buttons; an Always click sends the hash of the text and the line, and whispers the rule; the bridge takes it; an Always answer that another addon forges with the hash of the text alone counts for nothing; the whisper line opens Settings; Settings lists the rules, and a remove sends the id, asks for a new list, and greys the row. With the fake agents (`claude_gate.rs`, `codex.rs`): an Always click adds the rule, and the next same command runs with no question; with no sandbox, and for Codex, the popup has no Always. In `gate.rs`: at `ask` the popup has no Always and a rule does not apply; a `git push`, an `rm -rf`, and `npx` get no Always; a rule that another popup adds ends an open question.
 
+#### 6.6.6 Git actions from the game
+
+Asked for by the user on 2026-09-29, designed by the implementer. Section 9.11 has the features. The game can commit, revert, merge, and discard the work of a chat, and ask for the CI checks of its branch. Any game click can come from another addon (6.6.1), so each action gets the level of what it can do at worst. The bridge runs git itself, on the host, never the agent.
+
+| Action | From the game | Why this level |
+|---|---|---|
+| Own branch (`branch=1`) | The flag of a message | It makes a folder next to the repository and a branch, as `mkdir=1` makes a folder (9.9). Nothing runs in it that a message cannot start anyway. |
+| Commit | One click, at every level | It writes only the git folder of the chat folder: new objects, the index, and the checked-out branch. Hooks and `core.fsmonitor` are off, so no code of the chat folder runs. `git reset` undoes it. At `ask`, the click is the answer that a `git commit` command asks for. |
+| Revert | One click after a confirm in the game | It writes only the files that the run changed, in the chat folder, and only while they still hold what the run left. A write in the chat folder is what an "Allow once" click gives. The bridge logs the tree of the run, so `git restore --source=<tree>` brings the files back. |
+| Discard | One click after a confirm in the game | It removes the own copy of the chat and its branch. Both are the work of the chat. The bridge logs the last commit, so `git branch <name> <commit>` brings the branch back. |
+| Merge | Approve on the desktop | It writes outside the chat folder: the branch that the chat started from, and the folder that has it checked out. The code of the agent then runs on the host with no sandbox, for example at the next build. 6.6.3 makes every write outside the chat folder `desktop`, so a merge is `desktop` too. |
+| Checks | One click, only with `[git] ci_checks = true` | It only reads GitHub, with the login of the user (9.11, "CI checks"). |
+
+- Each action is a message of its chat, with the flag `git=<action>` (7.1.1). So it goes through the replay store (S7), the rate limit, and the queue of the chat: it waits for a run of the chat to end, and a replayed strip never repeats it.
+- The confirm in the game stops a misclick, not another addon. The level of each action already holds when another addon clicks.
+- Commit and Revert name a run by its message id. The bridge acts only on its own record of that run (9.11), never on text from the game or the agent. The commit message is the only text from the game, and it goes to git as one argument.
+- git on the host trusts `.git/config` and the hooks. The sandbox hides them from commands, and the classifier makes every file tool write to `.git` `desktop` (6.6.3, 6.6.4). So they hold what the user put there. The bridge still turns off the hooks (`core.hooksPath` names an empty folder, and `--no-verify`) and `core.fsmonitor`, because a hook of the user can run code of the chat folder, for example a lint config that the agent wrote.
+- Limit: a filter driver that the user set up, such as Git LFS, runs at `git add`. The chat folder can only pick a driver of the user in `.gitattributes`, not define one.
+
 ## 7. Transport
 
 WoW addons run in a sandbox. An addon cannot open a network socket.
@@ -724,7 +744,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 
 #### 7.1.1 Flags
 
-The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `list=settings`, `mkdir=1`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
+The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `list=settings`, `mkdir=1`, `branch=1`, `git=`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
 
 | Flag | Meaning |
 |---|---|
@@ -735,6 +755,8 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 | `list=folders` | Asks for the folder tree of the browser (9.9). The record is a message of the chat `folders`, and the reply is the tree. Any other `list=` value is ignored. |
 | `list=settings` | Asks for the settings list of the bridge (13.4). The record is a message of the chat `settings`, and the reply is the list. |
 | `mkdir=1` | The folder of the record is a new folder. The bridge makes its last part before the run (9.9). Only a record with `n` makes it. Any other `mkdir=` value is ignored. |
+| `branch=1` | The chat works on its own branch, in its own copy of the repository (9.11). The addon sends it with every message of such a chat. Any other `branch=` value is ignored. |
+| `git=<action>` | A git action of the player on the chat (9.11, 6.6.6): `commit:<id>` and `revert:<id>` name the message of a run with a change summary, and `merge`, `discard`, and `checks` act on the chat. The text of a `commit:` message is the commit message. Any other value makes the message an error reply: "The desktop app doesn't know that action. Update it: run gnomish-relay update." |
 | `attach=<session>` | The first message of a resumed chat. It has no text. The session must be in the last list (9.6). |
 | `agent=<name>` | The agent for a new chat. The config must have an `[agents.<name>]` entry, or the message ends with "That agent isn't in config.toml. Pick another one in Settings, or add it on your desktop." |
 | `level=<level>` | The mode of the chat: `ask`, `auto-edit`, or `full-auto`. The run gets the lower of this level and the level of the agent in the config (S6). An unknown word counts as `ask`. |
@@ -908,7 +930,7 @@ Later fields (the session and the denied rules) go into a file of their own, or 
 Agent replies are Markdown. The game cannot parse Markdown safely, so the bridge renders it with `render_markdown` in `protocol` (`markdown.rs` and `inline.rs`).
 The rendered text goes into the normal `text` field, so S9, S18, and S20 do not change.
 
-- The bridge renders only the text of a `done` reply. Errors, lists, and user messages stay plain.
+- The bridge renders only the text of a `done` reply. Errors, lists, and user messages stay plain, except an error with blocks of the bridge (below).
 - An attach reply (9.6) is `prompt\nanswer`. The bridge renders only the answer.
 - The history of the bridge keeps the rendered text, so a restore shows the same blocks as the live reply.
 
@@ -934,6 +956,19 @@ The rendered text goes into the normal `text` field, so S9, S18, and S20 do not 
 - The renderer writes the only `|c` and `|r` codes. Colors never nest, and each one closes in its own field.
 - A mark with no closing mark is text. So are `*` between spaces and `_` inside a word.
 - The output is at most 16 times the input plus 4 bytes (S25). A bold text with many `*_*_` switches costs 12 bytes for each input byte, so a bound of 10 is false.
+
+**Blocks of the bridge** (9.11). The bridge adds blocks of its own right after the marker and the usage line `u`, before the blocks of the renderer, so a cut of a long reply never takes them. Their kinds are upper-case letters, which the renderer never writes, and the renderer drops every `\n` and `US` of the agent. So no agent text can make one. Each field loses its control characters, and every `|` is doubled (S10). They go only into the body, never into the history of a restore (7.6).
+
+| Kind | Block | Fields |
+|---|---|---|
+| `B` | The branch of the chat folder | the branch (empty for a detached `HEAD`), `1` for an own branch else `0`, the start branch |
+| `G` | The change summary of the run | files, lines added, lines removed |
+| `F` | One changed file | the path, lines added, lines removed (both empty for a binary file), `A` for a new file, `D` for a removed one, else `M` |
+| `M` | The files that do not show | their count |
+| `T` | The test line | passed, failed, skipped |
+| `C` | The CI line | passed, failed, running, the names of at most two failed checks, divided by `, ` |
+
+A reply with bridge blocks and no text of the agent is the marker and the bridge blocks alone. An error reply with bridge blocks is rendered too: the marker, the bridge blocks, and the error text as a paragraph through the renderer, so its bytes get the same escapes. The addon then shows the error line and the blocks (13.1). An error text can hold text of the agent, for example the error of a Claude turn, so the bridge removes each ESC byte from every other error text. Only the bridge then starts an error with the marker.
 
 **Cuts.** The body cuts a text at 32 KB (S12) and the restore at 500 bytes (S18). A cut text has no last `\n`. The addon still shows its last line, without color codes, and without a half code, a half entity, or a half character at its end.
 
@@ -1752,6 +1787,109 @@ Agents cost money, and a player in the game cannot see a bill. So the bridge rec
 - Only a cost counts. Codex reports no cost, so its runs never raise the total. The cap still stops a Codex message when the cost of other agents reached it.
 - A list and an attach never call a model, so the cap never stops them.
 
+### 9.11 Git in a chat
+
+Asked for by the user on 2026-09-29, designed by the implementer. Three parts: a chat can work on its own branch in its own copy of the repository, each run ends with a summary of its changes with Commit and Revert, and the summary shows the tests and the CI checks. The trust level of each action is in 6.6.6. The code is in `git_host.rs` (git on the host), `chat_branch.rs` and `chat_merge.rs` (the own branch), `run_git.rs` (git around a run), `run_changes.rs` and `run_actions.rs` (the change summary, Commit, and Revert), `git_blocks.rs` (the blocks of 7.3.1), `git_actions.rs` (the actions from the game), `test_summary.rs`, and `ci_checks.rs`.
+
+**Git on the host.** The bridge runs `git` with no shell, in the folder of the chat, with `-c core.hooksPath=<an empty folder>`, `-c core.fsmonitor=false`, and `-c core.untrackedCache=false`, and with `GIT_TERMINAL_PROMPT=0`, `GIT_OPTIONAL_LOCKS=0`, `GIT_LITERAL_PATHSPECS=1`, and `GIT_EDITOR=true`. A commit also gets `--no-verify`. A diff uses `diff-tree`, which runs no `textconv` or external diff. The empty folder lies in a private temp folder of the bridge. A git that is missing or older than 2.38 gives no summary and no own branch, and the log says why. (2.38 brings `merge-tree --write-tree`.)
+
+#### Own branch
+
+Today two chats in one repository edit the same files at the same time. With **Own branch**, a chat works in a linked worktree of the repository, on a branch of its own.
+
+**The choice** is per chat, at New chat. The chat header shows a check box "Own branch" while the chat has no message and its folder is a repository or a folder inside one (the `g` mark of 9.9). It is on when another chat with a message already has the same folder, else off. Why not always on: a worktree is a full checkout, and the build folders (`target`, `node_modules`) are not shared, so the first build there starts from nothing. One chat in a repository gains nothing for that cost. Why not always off: two chats in one folder is the case that breaks, and the default turns on exactly then. The chat keeps the choice, and every message of the chat carries `branch=1` (7.1.1).
+
+**The worktree** comes at the first run of the chat, not at the click, so a chat that never sends leaves nothing. In a folder outside a repository, `branch=1` does nothing, and the chat works in its folder.
+
+- The bridge asks git for the top of the repository of the chat folder, the branch that its `HEAD` names (the start branch), and the commit of `HEAD` (the start commit). A repository with no commit refuses the run: "This repo has no commits yet, so the chat can't have its own branch. Make a first commit, or start a chat without Own branch." A detached `HEAD` has no start branch: the chat works, and Merge says that it has no branch to merge into.
+- The branch is `gnomish/<name>`. `<name>` is the chat name in lower case, with each run of other characters than `a-z` and `0-9` as one `-`, at most 40 bytes, and `chat` when nothing is left. A name that a branch or a folder already has gets `-2`, `-3`, and so on.
+- The folder is `<the folder above the repository>/.gnomish-worktrees/<repository name>/<name>`. Why there: outside the tree of the repository, so the workspace of cargo or npm, `rg`, an IDE, and the sandbox walk of a chat in the repository never see a second copy inside it; next to it, so it is inside `allowed_roots` whenever the repository is not a root itself; and hidden, so the folder browser skips it (9.9). When the folder above is outside every root, the run stops: "Couldn't give this chat its own branch: the folder above <repo> isn't in allowed_roots. Add it in config.toml, or start a chat without Own branch."
+- The bridge runs `git worktree add -b <branch> <folder> <start commit>`. That is the only change in the `.git` of the repository: the branch, and the git folder of the worktree under `.git/worktrees/`. The bridge adds no other file there.
+- The chat folder of the run is the worktree, or its subfolder when the chat folder is a subfolder of the repository. It passes 6.2 rule 10 again, and every rule that names the chat folder takes it: the classifier (6.6.3), the sandbox and its walk (6.6.4), the "Always allow" rules (6.6.5), and the session of the agent (9.5).
+- `state.json` keeps the worktree of each chat: the chat, the top of the repository, the worktree, the chat folder, the branch, the start branch, and the start commit. A later run uses it. When the worktree folder is gone, the bridge forgets it, and the run makes a new one.
+
+**Git inside the sandbox.** The git folder of the worktree lies under `<repository>/.git/worktrees/`, outside the chat folder. The sandbox keeps each path outside the chat folder read-only, so a command reads the history and the diffs of the branch, but cannot commit, merge, or move a branch. That also keeps the `commondir`, `config`, and hooks of the repository out of reach. The **Commit** button commits (below). The `.git` file of the worktree is a `.git` entry of the chat folder, so the sandbox pins it read-only (6.6.4). A file tool write to the git folder is outside the chat folder and has a `.git` part, so it is `desktop` (6.6.3). A chat in the repository itself walks `.git/worktrees/<name>/` as a git folder, with the guards of 6.6.4: its real `commondir` exists, so it is pinned and never removed.
+
+**Merge** (Approve on the desktop, 6.6.6). The branch bar of the chat (13.1) has **Merge** when the chat has its own branch:
+
+1. The chat copy must hold no change that is not committed: "Commit or revert this chat's changes first, then press Merge."
+2. `git merge-tree --write-tree` of the start branch and the chat branch tests the merge and changes no folder. A branch that the start branch already holds gives "Nothing to merge: main already has this chat's work."
+3. **A conflict** stops the merge before any change outside the chat folder. The bridge then merges the start branch into the chat branch, in the chat copy, and leaves the conflicts there. The reply: "Can't merge yet: main also changed a.rs and b.rs. I started the merge in this chat's copy. Ask the agent to fix the conflicts, then press Commit and Merge again." The agent cannot run `git merge` itself (the git folder is read-only in the sandbox), so the bridge starts it. The commit of the agent's fix ends that merge.
+4. Else the bridge opens a desktop request of its own kind (`merge`, 6.6.3), with fixed text and the names from git: "A chat from WoW asks to merge gnomish/fix-tests into main in ~/Code/app. Approve only if you just clicked Merge in WoW." The game shows the notice of 6.6.3. Deny, no answer, or Stop ends it with "Not merged."
+5. On Approve: when a folder has the start branch checked out (`git worktree list`), the bridge runs `git merge --no-edit <branch>` there: a fast-forward, or a merge commit. When git stops, for example for changes in that folder that the merge would overwrite, the bridge runs `git merge --abort` when a merge started, and the reply is "Couldn't merge in <folder>: <the first line of git>". When no folder has it checked out, the bridge moves the branch itself: to the chat commit for a fast-forward, else to a merge commit of the tree of step 2 (`commit-tree` and `update-ref` with the old commit, so a change meanwhile fails).
+6. The reply: "Merged gnomish/fix-tests into main." The chat keeps its branch, so it can go on.
+
+**Discard** (a confirm in the game, 6.6.6): "Discard this chat's branch? This deletes gnomish/fix-tests and its folder." Then `git worktree remove --force` and `git branch -D`. The bridge logs the last commit of the branch, and the reply is "Discarded gnomish/fix-tests. To get it back, on your desktop run: git branch gnomish/fix-tests a1b2c3d". The chat keeps the choice, so its next message makes a new copy from the start branch.
+
+**A deleted chat** (the `d` flag, 7.1.1) removes its worktree when the worktree holds no change that is not committed, and deletes its branch when the start branch already holds it. A worktree with changes stays, and so does a branch with commits that the start branch lacks. The log names each one that stays. Why: Delete in the game does not warn about lost work, and another addon can send it. The bridge cleans up in a thread of its own, after `state.json` forgot the worktree, so a stop of the bridge in between leaves the folder; `git worktree remove` removes it by hand.
+
+#### The change summary
+
+At the end of each run in a repository, the reply shows what the run changed, in a compact block under the reply (13.1): "3 files changed +40 −2", one row for each file with its counts, and **Commit** and **Revert**.
+
+**The snapshot.** At the start and at the end of each run, the bridge records the state of the chat folder as a git tree, with no change to the index, the branches, or the stash of the user:
+
+- It copies the index of the worktree into a private temp folder, and runs `git add -A` and `git write-tree` with `GIT_INDEX_FILE` set to the copy. The copy keeps the file times of the index, so git reads only the changed files. The tree holds every tracked and untracked file, but no ignored one.
+- git writes the new blobs and trees into the object store of the repository, as `git stash create` does. No ref names them, so `git gc` removes them after its prune time (two weeks by default). That is the only write into `.git`.
+- The record also holds the commit of `HEAD` at both ends.
+
+**The files** come from `git diff-tree -r --numstat --no-renames` between the two trees, so a new untracked file counts, and so does a file that the user changed before the run only when the run changed it again. A binary file shows no counts. A run with no change has no block. At most 12 files show, and a last row says "and 5 more".
+
+**Commit** (one click, 6.6.6). A click shows a small dialog with the commit message, and **Commit** and **Cancel**. The message starts as the first line of the message that started the run, at most 72 bytes. Why this text: it is the player's own words for the task, it costs no second model call, and it needs no change to the prompt of every run. The player can change it. The bridge then commits exactly the files of that summary, with their content at the click: `git add -A -- <files>` and `git commit --only -- <files>`. Why not `git add -A`: in a chat folder that the player shares with the chat, it would put the player's own earlier work into a commit with the message of the chat. While a merge of step 3 of Merge waits in the chat copy, the commit takes every change, and it ends the merge. The reply: "Committed 3 files as a1b2c3d on gnomish/fix-tests." An empty message gets "Commit needs a message." git errors come back as "Couldn't commit: <the first line of git>", for example when git has no name and email yet.
+
+**Revert** (a confirm in the game, 6.6.6): "Revert the changes of this reply? This puts back 3 files as they were before it." Only the changes of this run go:
+
+- The bridge refuses when `HEAD` moved during the run ("The agent made a commit in this run, so Revert can't undo it.") or after it ("These changes are committed now, so Revert can't undo them.").
+- It takes a third snapshot now. When any file of the run changed after the run, it refuses and changes nothing: "Revert would also undo later changes to a.rs. Nothing changed." So the user's work, before or after the run, never goes.
+- A file that the run changed or removed comes back from the start tree with `git restore --source=<start tree> --worktree`, which leaves the index alone. A file that the run made goes, without a follow of links, and so does each folder above it that is empty then, up to the chat folder.
+- The log keeps the end tree: `git restore --source=<tree> -- <file>` brings a file back. The reply: "Reverted 3 files."
+
+**The record** of each run with a summary lives in `state.json`: the chat, the message id, both trees, both commits, the top of the repository, and the files. The bridge keeps the last 32. An action on an older one gets "This change summary is too old. Nothing changed." A second Commit or Revert of one summary gets "This change summary is already committed." or "…already reverted.".
+
+**Limits.** A change that the player makes in the chat folder during the run counts as a change of the run. A file name that is not UTF-8 shows with `?`, and Commit and Revert refuse its summary.
+
+#### Test and CI status
+
+**Tests.** The bridge reads the output of the commands of a run for the summary lines of test tools, and shows the last one under the reply, below a change summary: "Tests: 412 passed, 2 failed". It needs no repository. It reads the results of the Bash tool of Claude and the `aggregatedOutput` of each command of Codex. An ACP agent and a `command` harness send no command output, so they get no test line. The lines that count (in `test_summary.rs`):
+
+| Tool | Line |
+|---|---|
+| `cargo test` | `test result: ok. 12 passed; 0 failed; 1 ignored; …`, added up over the crates of one command |
+| `cargo nextest` | `Summary [ 1.2s] 412 tests run: 410 passed, 2 failed, 3 skipped` |
+| jest (npm, pnpm, yarn) | `Tests: 2 failed, 410 passed, 412 total` |
+| vitest | `Tests  2 failed \| 410 passed (412)` |
+| mocha | `412 passing`, `2 failing` |
+| `node --test` | `# pass 410`, `# fail 2` |
+| pytest | `==== 2 failed, 410 passed, 3 skipped in 1.2s ====` |
+| `go test` | each `--- PASS:` and `--- FAIL:` line, else each `ok` and `FAIL` line of a package |
+
+- The last command with such a line wins, so a fix and a second test run show the second result.
+- The agent writes this output, so the line is a report of what the commands printed, not a proof. An agent can print any line.
+
+**CI checks.** With `[git] ci_checks = true` (12), the bridge shows the CI checks of the pull request of the chat branch: "CI: 5 passed, 1 failed (lint), 2 running".
+
+- It runs `gh pr view <branch> --json statusCheckRollup` in the chat folder, at the end of each run in a repository, and when the player clicks **Checks** in the branch bar (13.1). The reply of Checks is the same line, or "No pull request for gnomish/fix-tests yet.".
+- `gh` runs on the host, as a program of the bridge, never inside the sandbox and never by the agent. It gets no shell, a timeout of 20 seconds, and only `PATH`, `HOME`, the `XDG_*` folders, the variables of the session bus (for the keyring), and `GH_TOKEN`, `GITHUB_TOKEN`, `GH_HOST`, and `GH_CONFIG_DIR` when they are set, with `GH_PROMPT_DISABLED=1`, `GH_NO_UPDATE_NOTIFIER=1`, and `NO_COLOR=1`. It only reads.
+- A check counts as passed for `SUCCESS`, `NEUTRAL`, and `SKIPPED`; as running while it is not `COMPLETED`, or `PENDING` or `EXPECTED`; and as failed otherwise. The names of the first two failed checks show. Each name loses its control characters, and every `|` is doubled (S10).
+- **Why an opt-in.** It is the only network call of the bridge with a login of the user, and a game message from any addon can start it. A user who does not use GitHub, or does not want the bridge to reach it, turns nothing off.
+- With `ci_checks` off, Checks gets "Checks are off. To turn them on, set ci_checks = true under [git] in config.toml." and nothing runs.
+- With no `gh`, or with `gh` not logged in, Checks gets "Checks need the GitHub CLI. On your desktop, install gh and run gh auth login." A run just has no CI line, and the log says why once.
+
+#### In the game
+
+The bridge adds its own blocks to a reply (7.3.1): the branch of the chat folder, the change summary, the test line, and the CI line. The addon draws them under the reply, and the actions go back as messages with `git=` (7.1.1). A run that ends as an error, for example "Stopped.", gets the blocks too: an error with changes needs Revert most.
+
+**Decisions.** The implementer chose these (2026-09-29):
+
+1. **A worktree, not a clone or a copy.** It shares the objects of the repository, so it costs only the checkout, and a merge needs no fetch.
+2. **Next to the repository, hidden.** Inside the repository, cargo takes the copy for a member of its workspace, and every walk of the repository reads it twice. In the data folder of the bridge, the copy is inside a `deny` path (6.6.3). Anywhere else, it is outside `allowed_roots`.
+3. **The agent cannot commit in its own copy.** A writable git folder of the worktree would also make the object store and the branches of the repository writable, so a command could move `main` with no merge and no desktop approval. The button costs one click.
+4. **Bridge blocks, not Markdown.** The renderer drops every control byte of the agent, so a line that starts with a block kind of the bridge (7.3.1) can come only from the bridge. So an agent cannot draw a fake summary with fake buttons.
+5. **A snapshot as a tree, not `git stash`.** `git stash create` leaves out untracked files, and `git stash push` changes the folder. A tree of a copied index holds both and changes nothing.
+6. **The files of the summary, not all files, for Commit.** See Commit.
+7. **The message of the player, not of the agent.** See Commit.
+8. **Revert refuses rather than merges.** A three-way merge of a revert with later changes can lose work of the user. A refusal loses nothing.
+
 ## 10. Notifications from terminal sessions
 
 **Status: built (2026-09-29).** The pure parts in `protocol` with their proofs: `notice.rs` (S40), `sessions.rs` (S41), and the notices of `live.rs` (S20 restated). In the bridge: the `hook` subcommand (`hook.rs`, `hook_input.rs`), the spool folder (`spool.rs`), the session table (`terminal_sessions.rs`), and `hooks install` (`hooks_merge.rs`, `hooks_install.rs`). In the addon: `Notices.lua`, `NoticeFrames.lua`, and the Settings and Diag parts. The fuzz targets `hook_input`, `notice_file`, and `hooks_merge`, and `crates/bridge/tests/notices_e2e.rs`. The build checked the design against Claude Code 2.1.285 and codex-cli 0.157.0 (2026-09-29), and changed the lines that real use showed wrong. Each change says "Changed in the build" and why.
@@ -2048,7 +2186,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, `[git]` with `ci_checks`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -2080,7 +2218,7 @@ local_model = "llama3.2"
 - A model name has no space and does not start with `-`, because `claude_model` goes into an argument of `claude`.
 - The model route takes nothing from `[agents.*]`: `model = "claude"` always runs `claude` from `PATH`, with the environment allowlist of 6.2 and no `env` list (9.7, decision 10).
 
-**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[agents]`, `[allow]`, and `[sandbox]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
+**A config with no relay part.** `allowed_roots` alone turns the relay on. With `allowed_roots`, `default_agent` and its `[agents.<name>]` entry are needed, as before. With no `allowed_roots`, each of `default_agent`, `default_cwd`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[agents]`, `[allow]`, `[sandbox]`, and `[git]` is an error ("<key> needs allowed_roots"), so a typo never leaves a relay half set up. A player with only Timeways gets this config from setup (9.7, decision 15):
 
 ```toml
 [wow]
@@ -2124,6 +2262,16 @@ agent_network = "open"         # "strict": the agent reaches only its model host
 - `local_ports` (6.6.4, "`local_ports`") lists ports of the loopback of this computer, for example a database or a dev server. 2375, 2376 (Docker), 9222 (the debugger of a browser), and 3128 (the forwarder of the sandbox) are errors.
 - Hosts that a user can add: `nodejs.org` (headers for native modules of npm), `proxy.golang.org` and `sum.golang.org` (Go modules).
 - Only the desktop changes `config.toml` (6.6.2), so no message from the game adds a host.
+
+**Git** (9.11):
+
+```toml
+[git]
+ci_checks = true   # show the CI checks of the pull request of a chat branch, through gh
+```
+
+- `ci_checks` is `false` by default: it is the only network call of the bridge with a login of the user (9.11, "CI checks"). With no relay part, `[git]` is an error ("[git] needs allowed_roots").
+- Own branch, the change summary, and the test line need no key. They work in every repository.
 
 The other keys below come with their features. One key is planned and not in the config yet: `max_messages_per_minute` (6.2, rule 4). Today the bridge refuses it, so the example leaves it out. A test loads this example, so the example and the loader never differ.
 `max_parallel_runs` is 1 to 16 (8.2). `daily_cost_cap_usd` is a number of US dollars above 0 and at most 10000 (9.10). With no key, there is no cap.
@@ -2183,7 +2331,8 @@ The mockup is the reference for the layout.
   - Headings, paragraphs, list items, and quotes go into one SimpleHTML frame, with real sizes for `h1` to `h3`, and a bullet or the number before each item.
   - Code shows in a black box in the shipped mono font (13.2).
   - A table is a grid of font strings with a gold header row. A table with more than 8 columns, or too wide for the transcript, shows each row as a card: the first cell in gold, and each other cell below it with the name of its column.
-  - The usage line (9.10) shows in grey below the last block.
+  - The usage line (9.10) shows in grey at the bottom of the reply.
+  - Under a reply, from top to bottom: its blocks, "Show more" or "Show less", the change block, the test line, the CI line (9.11), and the usage line. A closed and an open long reply keep this order. The Pin link stays at the right end of the name line.
   - If anything fails while a reply draws, it shows as plain text.
   - User messages, errors, and replies from before 7.3.1 stay plain text.
 - **Summary first** (asked for by the user on 2026-09-29). A long reply shows only its summary, with a blue "Show more" link below it. The link opens the whole reply in place, and "Show less" closes it again.
@@ -2234,6 +2383,13 @@ The mockup is the reference for the layout.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
 - **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. The usage line (9.10) never shows there. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A notification of a terminal session gets its own line with a bell (10.4).
 - **Permission requests** use the separate popup of 6.4, never the window. A desktop request has no popup: an Activity row and one whisper line (6.6.3).
+- **Git** (9.11). The addon takes the branch of a chat from the `B` block of its last reply.
+  - **Own branch:** a check box at the right end of the row above the chat header, while the chat has no message and its folder is a repository or a folder inside one (the `git` mark of the tree). It starts on when another chat with a message has the same folder. Its tooltip: "Work on a separate branch in a separate copy, so other chats don't touch these files."
+  - **The branch bar:** after the first reply in a repository, the same place shows the branch in grey, and small buttons: **Merge** and **Discard** for an own branch, and **Checks** for any branch. Discard asks first, in a dialog of the game: "Discard this chat's branch? This deletes gnomish/fix-tests and its folder." with **Discard** and **Cancel**. The header row has Search and Pinned at its right end, so the box and the bar take the row above it. The bar hides while the folder browser, Resume, Settings, or Diag shows.
+  - **The change block** under a reply or an error: a gold line "3 files changed", then `+40 −2` in green and red, and **Commit** and **Revert** at its right. Below, one row for each file: the path in grey, then its counts, or "new" and "removed". Then "Tests: 412 passed, 2 failed" and "CI: 5 passed, 1 failed (lint)", with each number that failed in red.
+  - **Commit** opens a small dialog with the dark border of the game, above the center of the screen, with a gold title "Commit changes", the message in an edit box, and **Commit** and **Cancel**. Enter commits, and Escape cancels. An empty message greys **Commit**, and Enter then sends nothing. **Revert** asks first: "Revert the changes of this reply? This puts back 3 files as they were before it." with **Revert** and **Cancel**.
+  - A click sends a message of the chat, so it shows in the transcript as `[You]: Commit "fix the retry test"`, `[You]: Revert`, `[You]: Merge`, `[You]: Discard`, or `[You]: Checks`, with its delivery state. The answer is a grey line `[Relay]: Committed 3 files as a1b2c3d on gnomish/fix-tests.`, with no whisper and no Resend. While a Commit or a Revert is on its way, the block says "Sending..." in place of its buttons. After an answer with no error, it says "Committed" or "Reverted" in grey. After an error, the buttons come back.
+  - The addon draws the blocks of the bridge only for a reply or an error that has them. An error that looks rendered with no block of the bridge stays plain text, as before.
 
 ### 13.2 Code
 
@@ -2255,12 +2411,14 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Messages.lua` (shared) | The send queue, the signed outbox, retries and give-up, the hello, the report flags (`next`, `read`, `restored`, and the health flags), and the slot poll with the replies. It follows `models/transport.qnt`. It keeps the token and the message ids. An app sets its hooks: the store of its messages, the fields of a record, and the calls for each reply. |
 | `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, the folder tree request, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
 | `Notices.lua` | The notifications of terminal sessions (10.4): the list, the filter, the chat line, the sound, Clear, and the faster polls. |
-| `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
+| `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. It also reads the blocks of the bridge (9.11). |
 | `Pins.lua` | The pinned replies of 13.1: the Pinned button and its list. |
 | `Search.lua` | The search bar of 13.1 and its matches. |
 | `QuickActions.lua` | The list of quick actions (13.1) in the saved variables: the defaults and the edits. |
 | `QuickBar.lua` | The row of quick action buttons above the input. |
 | `QuickEditor.lua` | The editor of the quick actions in the Settings tab. |
+| `Changes.lua` | The blocks of the bridge under a reply (9.11): the change block, the test and CI lines, and the Commit and Revert dialogs. |
+| `GitBar.lua` | The Own branch box and the branch bar of the chat header (9.11), with the Discard dialog. |
 | `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks, and the summary of a long reply. |
 | `Folders.lua` | The folder tree of 9.9: the parser, the relative folders, the filter, the recent folders, and the name rules. |
 | `Browser.lua` | The folder browser of 9.9 in the center of the window. |
@@ -2650,6 +2808,7 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 - The wall of the agent with the real `bwrap` (`crates/bridge/tests/agent_wall.rs`), for `fake-claude`, `fake-codex`, and `fake-acp-agent`: a direct connection fails, a public host through the proxy works, a host that is not on the list gets `403` in `strict` mode, a name that leads to this computer gets `403`, a listed local port works and another port of this computer stays closed, a server of the agent answers on the loopback of its wall, `/proc/<pid of the bridge>` does not exist, a socket in the home folder and one under `/tmp` are out of reach, a startup file cannot change and a new one gets the notice, a grandchild of the agent ends with the wall, and the socket of the agent proxy lies in the data folder and goes away with the run. A command of `fake-claude` runs in the command sandbox of the run, reaches the command proxy, gets `403` for a public host that is not a package host, and does not see the socket of the agent proxy. Live tests marked `#[ignore]` run the real `claude` in its wall in both modes, with a Bash call in the command sandbox, and a model call of Timeways in the strict wall. On macOS, a test checks that Seatbelt cannot start inside a Seatbelt wall.
 - One sandbox for each run with the real `bwrap` (`crates/bridge/tests/command_sandbox.rs` and `launch.rs`): a server that one command starts in the background answers a later command and nothing outside, a background process ends with the run, a command has no capabilities and cannot unmount a hidden path or remount `/`, `cd ..` does not leave the walls, with no holder a command does not start, and when the wrapper goes away the group of its command stops.
 - The proxy with no sandbox (`proxy.rs`): an allowed host gets a tunnel to exactly the address that the check passed, a name with one public and one private address is refused, and each IPv6 form of a private IPv4 address is refused. A plain HTTP request gets `405`, a port other than 443 and 80 gets `403`, a head that is too long or never ends gets `400`, and a connection over the limit gets `503`.
+- Git in a chat (9.11), with the real `git` in temp folders (`chat_branch.rs`, `run_changes.rs`, `git_actions.rs`, and `crates/bridge/tests/git_chat.rs`): an own branch makes one worktree next to the repository and nothing else in `.git`; a second chat gets another branch; a run in the worktree reaches the agent with the worktree as its folder; a folder above the repository outside the roots refuses the run; a hook of the repository never runs at a commit, a snapshot, or a worktree; a snapshot leaves the index, the branches, and the stash as they were; the summary counts new, changed, and removed files and leaves out the files of the user from before the run; Commit commits only the files of its summary; Revert brings back only the files of the run, keeps the earlier work of the user, and refuses after a later change or a commit; Merge asks on the desktop, fast-forwards, makes a merge commit, and on a conflict changes nothing outside the chat copy and starts the merge in it; Discard removes the worktree and the branch; a deleted chat keeps a worktree with changes. The test lines of each tool have unit tests, and `ci_checks.rs` runs a fake `gh`.
 - Claude with the real sandbox (`claude_gate.rs`): the scripted `claude` runs an allowed command through the prefix, and the command writes its chat folder and nothing outside. A command that ran without the wrapper stops the run. With no sandbox, a command of the allow table asks in the game, and the reply carries the notice.
 
 ### 14.6 Supply chain
@@ -2679,6 +2838,8 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 15. **A second app: Timeways (9.7).** The steps are in 9.7, "Order of the build". **Done:** steps 1 to 8, with 5b. Step 5 is the app protocol (9.8), the story sandbox (6.6.4), and the life cycle, with a loopback in the fake game. Step 6 is the model calls with no tools, through `claude -p` or a local model, and the budget (9.7, decision 10). Step 7 is the shared strip corner (7.1.2) with its Quint model. Step 8 is setup for two apps (9.7, decision 15) and the version range of each app (7.7, S30). **Next:** a loopback in the real game, when Timeways ships an addon build.
 16. **Done: the command sandbox (6.6.4).** The policy (S31) and the Seatbelt escape (S32) are proved. Each command of Claude from the game runs in `bwrap` on Linux or `sandbox-exec` on macOS, and Codex writes only its chat folder and a private temp folder. Windows and a computer with no working tool get the fallback. **Done:** the proxy for commands (6.6.4): a command reaches only the allowed package hosts, through a Unix socket and a forwarder on Linux and one loopback port on macOS. **Done:** the agent process behind the proxy on Linux (6.6.4, "The agent process behind the proxy"), `local_ports`, and one sandbox for each run. S33 to S35 are proved. **Stopped:** the Windows launcher with an AppContainer (`rappct`), because Git Bash cannot start in an AppContainer (6.6.4, "Windows").
 17. **Done: limits and accounts.** The limit on parallel runs, with a waiting line in the game (8.2). Two WoW accounts on one computer, told apart from a wipe by the account folder of each token, with a slot window for each token (7.3, 7.6). The tokens and the cost of each run, the total of each day, and the daily cost cap (9.10). **Next:** a test in the real game with two accounts, and a live run of Claude and Codex that checks the usage line.
+
+18. **Done: git in a chat (9.11, 6.6.6).** An own branch in a worktree for each chat, with Merge and Discard; a change summary with Commit and Revert at the end of each run; and the test line and the CI checks of the branch. **Next:** a test in the real game.
 
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 

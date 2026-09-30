@@ -11,6 +11,7 @@ use protocol::lua::lua_string;
 use protocol::slot::MAX_TEXT;
 
 use crate::always_rules::{RuleLine, RuleList};
+use crate::ci_checks::CiChecks;
 use crate::config::{Policy, RelayConfig, StoryConfig};
 use crate::folder_list::CUT;
 use crate::folder_path::{is_inside_folder, native_folder, path_bytes, path_parts};
@@ -47,6 +48,8 @@ pub struct BridgeSettings {
     /// The settings files of the agents that can hold our hooks, read at each reply,
     /// because `hooks install` runs while the bridge runs (SPEC.md 10.5).
     pub hooks: Vec<HookFiles>,
+    /// `[git] ci_checks` (SPEC.md 9.11).
+    pub ci_checks: CiChecks,
 }
 
 /// The state of our hooks for one agent: a `hook` line of the list.
@@ -136,6 +139,7 @@ impl BridgeSettings {
                 ..RuleList::default()
             },
             hooks: Vec::new(),
+            ci_checks: relay.ci_checks.clone(),
         }
     }
 
@@ -278,6 +282,7 @@ mod tests {
             allow_folders: vec![("~/Code/app".into(), "npm test".into())],
             rules: RuleList::default(),
             hooks: Vec::new(),
+            ci_checks: CiChecks::Off,
         }
     }
 

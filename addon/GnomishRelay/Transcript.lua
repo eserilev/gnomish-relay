@@ -419,18 +419,19 @@ local function DrawUsage(text, y)
 	return TextLine(string.format("|cff%s%s|r", GREY, ns.Relay.Plain(usage)), PAD, y, width - PAD)
 end
 
+-- The link to open or fold a long reply goes right under its text.
 local function DrawRendered(entry, prefix, y)
 	y = TextLine(prefix, 0, y, width - PIN_WIDTH)
 	local blocks = ns.Blocks.Parse(entry.text)
 	if not IsLong(blocks) then
-		return DrawUsage(entry.text, DrawBlocks(blocks, PAD, y + 2))
+		return DrawBlocks(blocks, PAD, y + 2)
 	end
 	local isOpen = opened[entry] == true
 	y = DrawBlocks(isOpen and blocks or Summary(blocks), PAD, y + 2)
 	DrawLink(isOpen and "Show less" or "Show more", function()
 		Transcript.Toggle(entry)
 	end, PAD, y)
-	return DrawUsage(entry.text, y + 18)
+	return y + 18
 end
 
 local function SetPinText(button, entry)
@@ -490,14 +491,15 @@ local function UpdateDelivery()
 end
 
 local function DrawMessage(entry, y)
+	local text = Prefix("You", YOU) .. PlainText(ns.Changes.Label(entry))
 	if entry.answered then
-		return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width)
+		return TextLine(text, 0, y, width)
 	end
 	local line = Acquire(ui.pools.status)
 	line:SetWidth(STATUS_WIDTH)
 	Place(line, width - STATUS_WIDTH, y)
 	table.insert(open, { entry = entry, line = line, index = drawn.count })
-	return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width - STATUS_WIDTH)
+	return TextLine(text, 0, y, width - STATUS_WIDTH)
 end
 
 local function DrawResend(message, y)
@@ -509,28 +511,45 @@ local function DrawResend(message, y)
 	return y + 20
 end
 
--- An error comes from the relay, not from the agent, so it has its own grey line.
+-- The words of a line of the relay. Only one with blocks of the bridge is rendered: the
+-- bridge made it, and the renderer escaped its text (SPEC.md 7.3.1).
+local function RelayWords(text)
+	if ns.Blocks.Git(text) then
+		return ns.Blocks.Plain(text)
+	end
+	return ns.Relay.Plain(text)
+end
+
+local function RelayLine(text, y)
+	return TextLine(string.format("|cff%s[Relay]: %s|r", GREY, RelayWords(text)), 0, y, width)
+end
+
+-- An error comes from the relay, not from the agent, so it has its own grey line. An
+-- error of a run can still have changes, and needs Revert most (SPEC.md 9.11).
 local function DrawError(chat, entry, y)
-	y = TextLine(string.format("|cff%s[Relay]: %s|r", GREY, ns.Relay.Plain(entry.text)), 0, y, width)
+	y = ns.Changes.Draw(chat, entry, RelayLine(entry.text, y), width)
 	local message = entry.id and ns.Store.Message(chat, entry.id)
-	if message and not message.attach and message.text ~= "" then
+	if message and not message.attach and not message.git and message.text ~= "" then
 		y = DrawResend(message, y)
 	end
 	return y
 end
 
--- Only the bridge renders, and only a done reply: an error that looks rendered is text.
+-- An error that looks rendered with no blocks of the bridge is text.
 local function DrawEntry(chat, entry, y)
 	if entry.attach then
 		return TextLine(string.format('|cff%sResumed "%s"|r', GREY, ns.Relay.Plain(chat.name)), 0, y, width)
 	elseif entry.role == "user" then
 		return DrawMessage(entry, y)
-	end
-	if entry.role == "error" then
+	elseif entry.role == "error" then
 		return DrawError(chat, entry, y)
+	elseif entry.role == "note" then
+		return ns.Changes.Draw(chat, entry, RelayLine(entry.text, y), width)
 	end
 	local agent = entry.agent or chat.agent
-	return DrawReply(entry, Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), y)
+	y = DrawReply(entry, Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), y)
+	y = ns.Changes.Draw(chat, entry, y, width)
+	return DrawUsage(entry.text, y)
 end
 
 local function ScrollTo(offset)
@@ -551,6 +570,7 @@ local function Clear(chat)
 	for _, pool in pairs(ui.pools) do
 		ReleaseAll(pool)
 	end
+	ns.Changes.Clear()
 	contentHeight = 0
 	drawn = {
 		count = 0,
@@ -717,6 +737,11 @@ local function NewLink()
 	return button
 end
 
+-- The next Show draws the whole chat again, for an old entry that changed.
+function Transcript.Invalidate()
+	drawn = { count = 0, tops = {}, marks = {}, chat = drawn.chat }
+end
+
 -- The next Show draws the whole chat again for the new width.
 function Transcript.Resize(w, h)
 	width, viewHeight = w, h
@@ -751,4 +776,5 @@ function Transcript.Build(parent, w, h)
 		rule = NewPool(NewTexture("ARTWORK", 0.6, 0.5, 0.2, 0.8)),
 		band = NewPool(NewTexture("BACKGROUND")),
 	}
+	ns.Changes.Build(ui.child)
 end

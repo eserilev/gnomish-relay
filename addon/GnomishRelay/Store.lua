@@ -197,6 +197,11 @@ function Store.AddReply(chat, id, text, status)
 		AddExchange(chat, id, text)
 		return
 	end
+	-- The answer to a git action comes from the desktop app, never from the agent.
+	if message.git then
+		Append(chat, { role = "note", id = id, text = text })
+		return
+	end
 	Append(chat, { role = status == "error" and "error" or "agent", id = id, text = text, agent = chat.agent })
 end
 

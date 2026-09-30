@@ -94,9 +94,11 @@ impl Agent for CodexAgent {
             Work::Attach { session: id, open } => {
                 self.attach(job, id.as_str(), *open, &mut session)
             }
-            Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
-                self.prompt(job, control, &mut session, &mut usage)
-            }
+            Work::Prompt
+            | Work::ListSessions
+            | Work::ListFolders
+            | Work::ListSettings
+            | Work::Git(_) => self.prompt(job, control, &mut session, &mut usage),
         };
         Run {
             reply,
@@ -270,6 +272,8 @@ pub enum Event {
     },
     /// The final text of one agent message.
     Said(String),
+    /// The output of a command that ended, for the test line (SPEC.md 9.11).
+    Output(String),
     /// The end of the turn: the reply, or an error text.
     Ended(Result<(), String>),
     /// The tokens of the thread so far, and of its last model call.
@@ -285,6 +289,13 @@ pub fn read_event(method: &str, params: &Value) -> Event {
         "item/started" => read_started(params.get("item").unwrap_or(&Value::Null)),
         "item/completed" if text_at(params, "/item/type") == Some("agentMessage") => {
             Event::Said(text_at(params, "/item/text").unwrap_or("").to_owned())
+        }
+        "item/completed" if text_at(params, "/item/type") == Some("commandExecution") => {
+            Event::Output(
+                text_at(params, "/item/aggregatedOutput")
+                    .unwrap_or("")
+                    .to_owned(),
+            )
         }
         "turn/completed" => Event::Ended(read_ending(params.get("turn").unwrap_or(&Value::Null))),
         "thread/tokenUsage/updated" => Event::Used {
@@ -664,6 +675,7 @@ impl Connection {
                 }
             }
             Event::Said(text) => self.said.push(text),
+            Event::Output(text) => self.turn.output(text),
             Event::Ended(ending) => self.ended = Some(ending),
             Event::Used { total, last } => {
                 let before = self
@@ -706,6 +718,21 @@ impl Connection {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_command_that_ended_gives_its_output_for_the_test_line() {
+        let params = serde_json::json!({ "item": {
+            "type": "commandExecution", "id": "c1",
+            "aggregatedOutput": "test result: ok. 3 passed; 0 failed;",
+        }});
+
+        let event = read_event("item/completed", &params);
+
+        assert_eq!(
+            event,
+            Event::Output("test result: ok. 3 passed; 0 failed;".into())
+        );
+    }
 
     #[test]
     fn a_shell_wrapper_gives_its_script_and_any_other_command_stays() {

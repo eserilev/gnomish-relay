@@ -47,9 +47,11 @@ impl Agent for AcpAgent {
             Work::Attach { session: id, open } => {
                 self.attach(job, control, id.as_str(), *open, &mut session)
             }
-            Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
-                self.run_in_session(job, control, &mut session)
-            }
+            Work::Prompt
+            | Work::ListSessions
+            | Work::ListFolders
+            | Work::ListSettings
+            | Work::Git(_) => self.run_in_session(job, control, &mut session),
         };
         Run {
             reply,

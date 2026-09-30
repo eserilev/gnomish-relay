@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent_wall::AgentNetwork;
 use crate::allow::{self, AllowFile, AllowTable};
 use crate::allow_hosts::{Defaults, HostList, check_host_name};
+use crate::ci_checks::CiChecks;
 use crate::claude;
 use crate::folder_path::path_bytes;
 use crate::model::{ModelChoice, ModelSpec};
@@ -133,6 +134,8 @@ pub struct RelayConfig {
     pub local_ports: Vec<u16>,
     /// Which hosts the agent process reaches through its proxy (SPEC.md 6.6.4).
     pub agent_network: AgentNetwork,
+    /// `[git] ci_checks`: the CI checks of a chat branch through `gh` (SPEC.md 9.11).
+    pub ci_checks: CiChecks,
 }
 
 /// The story program of Timeways (SPEC.md 9.8).
@@ -214,7 +217,25 @@ struct File {
     agents: Option<BTreeMap<String, Agent>>,
     allow: Option<AllowFile>,
     sandbox: Option<SandboxFile>,
+    git: Option<GitFile>,
     story: Option<Story>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct GitFile {
+    /// Off by default: the only network call of the bridge with a login of the user.
+    #[serde(default)]
+    ci_checks: bool,
+}
+
+fn ci_checks(git: Option<&GitFile>) -> CiChecks {
+    match git {
+        Some(GitFile { ci_checks: true }) => CiChecks::On {
+            program: PathBuf::from("gh"),
+        },
+        _ => CiChecks::Off,
+    }
 }
 
 #[derive(Deserialize)]
@@ -616,6 +637,7 @@ fn no_relay_keys(file: &File) -> Result<()> {
         ("[agents]", file.agents.is_some()),
         ("[allow]", file.allow.is_some()),
         ("[sandbox]", file.sandbox.is_some()),
+        ("[git]", file.git.is_some()),
     ];
     match keys.iter().find(|(_, given)| *given) {
         Some((key, _)) => bail!("{key} needs allowed_roots"),
@@ -698,6 +720,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         hosts,
         local_ports,
         agent_network,
+        ci_checks: ci_checks(file.git.as_ref()),
     }))
 }
 
@@ -1442,6 +1465,7 @@ mod tests {
             "[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n",
             "[allow]\n",
             "[sandbox]\n",
+            "[git]\nci_checks = true\n",
         ] {
             let error = format!(
                 "{:#}",
@@ -1451,6 +1475,27 @@ mod tests {
             );
             assert!(error.contains("needs allowed_roots"), "{error}");
         }
+    }
+
+    #[test]
+    fn ci_checks_are_off_unless_the_git_table_turns_them_on() {
+        let home = Home::new();
+        let relay = |text: &str| home.parse(text).unwrap().relay.unwrap();
+
+        let off = relay(GOOD);
+        let on = relay(&format!("{GOOD}\n[git]\nci_checks = true\n"));
+
+        assert_eq!(off.ci_checks, CiChecks::Off);
+        assert_eq!(
+            on.ci_checks,
+            CiChecks::On {
+                program: PathBuf::from("gh")
+            }
+        );
+        assert!(
+            home.parse(&format!("{GOOD}\n[git]\npush = true\n"))
+                .is_err()
+        );
     }
 
     #[test]

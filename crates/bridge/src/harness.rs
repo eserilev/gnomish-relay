@@ -73,9 +73,11 @@ impl Agent for CommandAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         let reply = match &job.work {
             Work::Attach { .. } => Err("This agent has no sessions to resume.".into()),
-            Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
-                self.prompt(job, control)
-            }
+            Work::Prompt
+            | Work::ListSessions
+            | Work::ListFolders
+            | Work::ListSettings
+            | Work::Git(_) => self.prompt(job, control),
         };
         let session = reply.is_ok().then(|| SessionId::from(RAN_BEFORE));
         Run {
