@@ -239,6 +239,8 @@ mod tests {
         assert_eq!(found, [root.path().join("c"), root.path().join("d")]);
     }
 
+    /// The code runs only in the Linux of WSL, where paths use `/` and `:`.
+    #[cfg(unix)]
     #[test]
     fn the_linux_path_drops_every_windows_folder() {
         let path = OsStr::new(

@@ -719,6 +719,8 @@ mod tests {
         assert_eq!(game_folder(&given), game);
     }
 
+    /// The code runs only in the Linux of WSL, where paths use `/` and `:`.
+    #[cfg(unix)]
     #[test]
     fn under_wsl_a_given_windows_folder_maps_to_its_drive() {
         let root = tempfile::tempdir().unwrap();
