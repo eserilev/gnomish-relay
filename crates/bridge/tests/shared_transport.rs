@@ -8,7 +8,9 @@
 
 mod common;
 
+use bridge::app_files::key_addon_name;
 use bridge::ids::hex;
+use bridge::install::key_addon_lua;
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::run::{Bridge, now};
 use bridge::slots::{self, BODY_FILE, LIVE_FILE, RESTORE_FILE};
@@ -37,6 +39,7 @@ const SHARED: &[&str] = &[
 ];
 const RELAY_FILES: &[&str] = &[
     "App.lua",
+    "KeyHandoff.lua",
     "Sha256.lua",
     "Codec.lua",
     "Saved.lua",
@@ -65,6 +68,7 @@ const RELAY_FILES: &[&str] = &[
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",
+    "SetupNeeded.lua",
     "Core.lua",
 ];
 /// The App.lua of the test addon: the Timeways names of SPEC.md 9.7, decision 5.
@@ -80,6 +84,8 @@ ns.App = {
 	live = "Timeways_Live",
 	strip = "TimewaysStrip",
 	saved = "TimewaysDB",
+	keyAddon = "Timeways_Key",
+	keyGlobal = "TimewaysKey",
 }
 "#;
 /// The same names as the App.lua of the relay addon.
@@ -95,6 +101,8 @@ ns.App = {
 	live = "GnomishRelay_Live",
 	strip = "GnomishRelayStrip",
 	saved = "GnomishRelayDB",
+	keyAddon = "GnomishRelay_Key",
+	keyGlobal = "GnomishRelayKey",
 }
 "#;
 /// The Link.lua of the test addon: the seam `ns.Link` of the Timeways addon, as a thin
@@ -169,6 +177,24 @@ impl Game {
             .call::<()>((names.addon, ns.clone()))
             .unwrap();
         load_addon(&self.lua, names.addon, &ns, SHARED);
+        ns
+    }
+
+    /// Puts the key addon that the desktop app writes for `names` into the game.
+    fn install_key_addon(&self, names: &Names) {
+        let lua = key_addon_lua(names.app, &hex(names.key)).unwrap();
+        let keys: Table = self.wow.get("keyAddons").unwrap();
+        keys.set(key_addon_name(names.app), lua).unwrap();
+    }
+
+    /// Runs the App.lua of `names` and the shared key handoff, as the TOC of each app does.
+    fn take_key(&self, names: &Names) -> Table {
+        let ns = self.lua.create_table().unwrap();
+        self.lua
+            .load(names.app_file)
+            .call::<()>((names.addon, ns.clone()))
+            .unwrap();
+        load_addon(&self.lua, names.addon, &ns, &["KeyHandoff.lua"]);
         ns
     }
 
@@ -1230,4 +1256,66 @@ fn a_player_screenshot_does_not_end_a_strip_while_both_addons_run() {
     assert_eq!(game.shows_of(&TIMEWAYS, b"story kept"), 1);
     assert_eq!(game.shows_of(&RELAY, b"relay next"), 1);
     assert_eq!(game.overlaps(), 0);
+}
+
+/// Timeways copies `KeyHandoff.lua` and names its own key addon (SPEC.md 7.3.2).
+#[test]
+fn each_app_takes_its_own_key_from_its_own_key_addon() {
+    let game = Game::new();
+    game.install_key_addon(&RELAY);
+    game.install_key_addon(&TIMEWAYS);
+
+    let relay = game.take_key(&RELAY);
+    let timeways = game.take_key(&TIMEWAYS);
+
+    assert_eq!(
+        relay.get::<mlua::String>("key").unwrap().as_bytes(),
+        RELAY_KEY
+    );
+    assert_eq!(
+        timeways.get::<mlua::String>("key").unwrap().as_bytes(),
+        TIMEWAYS_KEY
+    );
+    for global in ["GnomishRelayKey", "TimewaysKey"] {
+        assert!(game.lua.globals().get::<Value>(global).unwrap().is_nil());
+    }
+}
+
+#[test]
+fn an_app_with_no_key_addon_has_no_key() {
+    let game = Game::new();
+    game.install_key_addon(&RELAY);
+
+    let timeways = game.take_key(&TIMEWAYS);
+
+    assert!(timeways.get::<Value>("key").unwrap().is_nil());
+}
+
+/// A fresh install from an addon site has no key addon yet. The shared transport then
+/// signs nothing and shows no strip, and no call fails (SPEC.md 7.3.2).
+#[test]
+fn with_no_key_a_send_is_refused_and_nothing_is_signed() {
+    let game = Game::new();
+    let ns = game.take_key(&TIMEWAYS);
+    load_addon(&game.lua, TIMEWAYS.addon, &ns, SHARED);
+    game.lua
+        .load(TIMEWAYS_LINK)
+        .call::<()>((TIMEWAYS.addon, ns.clone()))
+        .unwrap();
+
+    let sent: bool = game
+        .lua
+        .load("local ns = ... return ns.Link.Send('hello')")
+        .call(ns.clone())
+        .unwrap();
+    let queued: Value = game
+        .lua
+        .load("local ns = ... return ns.Messages.Queue({ id = 'story' }, { id = 1, text = 'x' })")
+        .call(ns)
+        .unwrap();
+    game.advance(120.0);
+
+    assert!(!sent);
+    assert!(queued.is_nil());
+    assert!(game.shots(TIMEWAYS.strip).is_empty());
 }

@@ -1,8 +1,9 @@
 #!/bin/sh
 # Installs gnomish-relay from the latest GitHub Release, and runs setup (SPEC.md 11.3).
 #   curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh
-# Arguments go to setup (`| sh -s -- --roots ~/code`). With none, setup gets --autostart.
-# GNOMISH_URL changes the download folder, and GNOMISH_BIN the install folder.
+# Arguments go to setup, after --autostart (`| sh -s -- --timeways`, SPEC.md 11.4).
+# --no-autostart turns the autostart off. GNOMISH_URL changes the download folder, and
+# GNOMISH_BIN the install folder, also of the Timeways programs.
 set -eu
 
 case "$(uname -s)-$(uname -m)" in
@@ -38,9 +39,7 @@ case ":$PATH:" in
   *) echo "To run gnomish-relay from any folder, add this line to your shell profile: export PATH=\"$bin:\$PATH\"" ;;
 esac
 
-if [ $# -eq 0 ]; then
-  set -- --autostart
-fi
+set -- --autostart "$@"
 # `curl | sh` gives the script to sh on stdin, so setup asks its questions on the terminal.
 if (: < /dev/tty) 2> /dev/null; then
   "$bin/gnomish-relay" setup "$@" < /dev/tty

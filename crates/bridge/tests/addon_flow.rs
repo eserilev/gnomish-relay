@@ -10,6 +10,7 @@ use bridge::agent::{Agent, Control, Echo, NO_AGENT};
 use bridge::config::{Permission, Policy};
 use bridge::desktop::{Notice, Prompted, Waiting};
 use bridge::fixture::{Capture, Fake, HookMissing, SavedVariables, StatusShown, TimerOrder};
+use bridge::install::key_addon_lua;
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::relay::{Folders, Relay};
 use bridge::settings_list::{BridgeSettings, StorySettings, settings_reply};
@@ -36,6 +37,7 @@ use sha2::Sha256;
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 const FILES: &[&str] = &[
     "App.lua",
+    "KeyHandoff.lua",
     "Sha256.lua",
     "Codec.lua",
     "Saved.lua",
@@ -64,6 +66,7 @@ const FILES: &[&str] = &[
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",
+    "SetupNeeded.lua",
     "Core.lua",
 ];
 
@@ -73,6 +76,15 @@ struct Game {
     ns: Table,
     /// The behavior of the game: the measured one, or another one that a test chose.
     fake: Fake,
+}
+
+/// The key addon that the desktop app writes for `KEY` (SPEC.md 7.3.2).
+fn install_key_addon(wow: &Table) {
+    let lua = key_addon_lua(App::Relay, &bridge::ids::hex(KEY)).unwrap();
+    wow.get::<Table>("keyAddons")
+        .unwrap()
+        .set("GnomishRelay_Key", lua)
+        .unwrap();
 }
 
 impl Game {
@@ -116,11 +128,19 @@ impl Game {
     }
 
     fn boot(fake: Fake, saved: Option<&str>, before: impl FnOnce(&Table)) -> Game {
+        Game::boot_with_key_addon(fake, saved, |wow| {
+            install_key_addon(wow);
+            before(wow);
+        })
+    }
+
+    /// `before` installs the key addon, or leaves it out as a fresh install from an
+    /// addon site does.
+    fn boot_with_key_addon(fake: Fake, saved: Option<&str>, before: impl FnOnce(&Table)) -> Game {
         let lua = game_lua_for(&fake);
         let wow = fake_game_for(&lua, "addon/tests/api.lua", &fake);
         before(&wow);
         let ns = lua.create_table().unwrap();
-        ns.set("key", lua.create_string(KEY).unwrap()).unwrap();
         start_addon(
             &lua,
             &wow,
@@ -235,11 +255,13 @@ fn flags(record: &Record) -> Vec<String> {
         .collect()
 }
 
+/// The key addon loads too, but it is no slot.
 fn loaded_slots(game: &Game) -> usize {
     game.wow
         .get::<Table>("loaded")
         .unwrap()
         .pairs::<String, bool>()
+        .filter(|pair| pair.as_ref().is_ok_and(|(name, _)| name.contains("_S")))
         .count()
 }
 
@@ -2369,19 +2391,208 @@ fn blocked_screenshots_show_one_line_and_mark_the_window() {
     assert_eq!(problem, "blocked");
 }
 
+const NO_APP_LINE: &str = "Gnomish Relay needs its desktop app. Get it at github.com/eserilev/gnomish-relay, then restart WoW.";
+const RESTART_LINE: &str = "Gnomish Relay: restart WoW to finish setup. If this shows again, run gnomish-relay setup on your desktop.";
+
+/// A fresh install from an addon site: the desktop app has written no key addon yet.
+fn start_with_no_key_addon() -> Game {
+    Game::boot_with_key_addon(measured(), None, |_| {})
+}
+
+fn setup_window_title(game: &Game) -> String {
+    text_of(
+        game,
+        "GnomishRelaySetupNeeded and GnomishRelaySetupNeeded:IsShown() and GnomishRelaySetupHeading:GetText() or ''",
+    )
+}
+
+/// A game whose `LoadAddOn` of the key addon works only in `event`, or never.
+fn start_with_key_addon_from(event: &str) -> Game {
+    Game::start_with(|wow| wow.set("keyAddonWorksAt", event).unwrap())
+}
+
+fn key_step(game: &Game) -> String {
+    game.run("local ns = ... return table.concat(ns.Relay.DiagLines(), '\\n')")
+        .to_string()
+        .unwrap()
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Gnomish Relay: key loaded at ")
+                .map(str::to_owned)
+        })
+        .unwrap_or_default()
+}
+
 #[test]
-fn an_addon_with_no_key_asks_for_setup() {
-    let game = Game::start();
-    game.run("local ns = ... ns.key = nil");
-    game.fire("PLAYER_LOGIN", ());
+fn a_key_addon_that_loads_only_at_addon_loaded_still_gives_the_key() {
+    let game = start_with_key_addon_from("ADDON_LOADED");
+
+    let key = game.run("local ns = ... return ns.key");
+
+    assert_eq!(key.as_string().unwrap().as_bytes(), KEY);
+    assert_eq!(key_step(&game), "ADDON_LOADED");
+    assert!(game.run("return rawget(_G, 'GnomishRelayKey')").is_nil());
+}
+
+#[test]
+fn a_key_addon_that_loads_only_at_player_login_still_gives_the_key() {
+    let game = start_with_key_addon_from("PLAYER_LOGIN");
+
+    let key = game.run("local ns = ... return ns.key");
+
+    assert_eq!(key.as_string().unwrap().as_bytes(), KEY);
+    assert_eq!(key_step(&game), "PLAYER_LOGIN");
+    assert_eq!(setup_window_title(&game), "");
+    assert!(game.run("return rawget(_G, 'GnomishRelayKey')").is_nil());
+}
+
+#[test]
+fn a_key_addon_that_never_loads_shows_the_first_run_window_and_signs_nothing() {
+    let game = start_with_key_addon_from("never");
+
+    game.run("SlashCmdList.GNOMISHRELAYASK('hello')");
+    game.advance(300.0);
+
+    assert!(game.run("local ns = ... return ns.key").is_nil());
+    assert_eq!(
+        setup_window_title(&game),
+        "Gnomish Relay needs its desktop app"
+    );
+    assert_eq!(game.shots(), 0);
+    game.run("SlashCmdList.GNOMISHRELAY('diag')");
     assert!(
-        game.printed().contains(
-            &"Gnomish Relay isn't set up yet. Get the desktop app at github.com/eserilev/gnomish-relay, then run gnomish-relay setup."
-                .into()
-        ),
+        game.printed()
+            .contains(&"Gnomish Relay: key loaded at missing".into()),
         "{:?}",
         game.printed()
     );
+}
+
+#[test]
+fn a_key_addon_that_loads_at_once_says_file_load() {
+    let game = Game::start();
+    assert_eq!(key_step(&game), "file load");
+}
+
+#[test]
+fn the_relay_takes_its_key_from_the_key_addon() {
+    let game = Game::start();
+
+    let key = game.run("local ns = ... return ns.key");
+
+    assert_eq!(key.as_string().unwrap().as_bytes(), KEY);
+}
+
+/// Only an addon that loads before the relay can see the key (SPEC.md 7.3.2).
+#[test]
+fn an_addon_that_loads_after_the_relay_finds_no_key() {
+    let game = Game::start();
+
+    let global = game.run("return rawget(_G, 'GnomishRelayKey')");
+    let again =
+        game.run("C_AddOns.LoadAddOn('GnomishRelay_Key') return rawget(_G, 'GnomishRelayKey')");
+
+    assert!(global.is_nil());
+    assert!(again.is_nil(), "a key addon runs once in a UI session");
+}
+
+#[test]
+fn a_key_addon_with_a_broken_key_counts_as_no_key() {
+    let game = Game::boot_with_key_addon(measured(), None, |wow| {
+        let keys: Table = wow.get("keyAddons").unwrap();
+        keys.set("GnomishRelay_Key", "GnomishRelayKey = \"zz\"")
+            .unwrap();
+    });
+
+    assert!(game.run("local ns = ... return ns.key").is_nil());
+    assert!(game.printed().contains(&NO_APP_LINE.into()));
+}
+
+#[test]
+fn a_fresh_install_with_no_desktop_app_shows_the_first_run_window_once() {
+    let game = start_with_no_key_addon();
+
+    assert_eq!(
+        setup_window_title(&game),
+        "Gnomish Relay needs its desktop app"
+    );
+    assert_eq!(
+        game.printed().iter().filter(|l| *l == NO_APP_LINE).count(),
+        1,
+        "{:?}",
+        game.printed()
+    );
+    let windows = text_of(&game, "GnomishRelaySetupCommand1:GetText()");
+    assert!(windows.ends_with("scripts/install.ps1 | iex"), "{windows}");
+    let linux = text_of(&game, "GnomishRelaySetupCommand2:GetText()");
+    assert!(linux.ends_with("scripts/install.sh | sh"), "{linux}");
+}
+
+#[test]
+fn a_mac_gets_only_the_terminal_line() {
+    let game = Game::boot_with_key_addon(measured(), None, |wow| {
+        wow.set("mac", true).unwrap();
+    });
+
+    let first = text_of(&game, "GnomishRelaySetupCommand1:GetText()");
+    let second = game.run("return GnomishRelaySetupCommand2 == nil");
+
+    assert!(first.starts_with("curl -fsSL "), "{first}");
+    assert_eq!(second.as_boolean(), Some(true));
+}
+
+#[test]
+fn the_install_line_stays_the_same_when_the_player_types_in_it() {
+    let game = start_with_no_key_addon();
+
+    let text = game
+        .run(
+            "local box = GnomishRelaySetupCommand1 box:SetText('oops') \
+             box:GetScript('OnTextChanged')(box, true) return box:GetText()",
+        )
+        .to_string()
+        .unwrap();
+
+    assert!(text.ends_with("scripts/install.ps1 | iex"), "{text}");
+}
+
+#[test]
+fn with_no_key_the_commands_open_the_first_run_window_and_nothing_errors() {
+    let game = start_with_no_key_addon();
+    game.run("GnomishRelaySetupClose:GetScript('OnClick')()");
+    assert_eq!(setup_window_title(&game), "");
+
+    game.run("SlashCmdList.GNOMISHRELAY('')");
+    assert_eq!(
+        setup_window_title(&game),
+        "Gnomish Relay needs its desktop app"
+    );
+    game.run("SlashCmdList.GNOMISHRELAY('')");
+    game.run("SlashCmdList.GNOMISHRELAYASK('hello')");
+    game.run("SlashCmdList.GNOMISHRELAY('diag')");
+    game.run("GnomishRelay_Toggle()");
+    game.advance(300.0);
+
+    assert_eq!(game.shots(), 0, "no key signs no strip");
+    assert!(
+        game.run("return GnomishRelayFrame == nil")
+            .as_boolean()
+            .unwrap()
+    );
+}
+
+/// A key addon that is new since launch loads only after a restart (SPEC.md 7.2, rule 1).
+#[test]
+fn a_player_who_had_a_key_is_asked_to_restart() {
+    let first = Game::start();
+    let saved = first.saved_variables();
+
+    let game = Game::boot_with_key_addon(measured(), Some(&saved), |_| {});
+
+    assert!(game.printed().contains(&RESTART_LINE.into()));
+    assert_eq!(setup_window_title(&game), "Restart WoW to finish setup");
+    let command = game.run("return GnomishRelaySetupCommand1:IsShown()");
+    assert_eq!(command.as_boolean(), Some(false));
 }
 
 const SILENT_LINE: &str =

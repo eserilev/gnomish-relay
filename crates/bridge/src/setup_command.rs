@@ -16,6 +16,7 @@ use crate::model_setup;
 use crate::service;
 use crate::setup::{self, KeyChoice};
 use crate::status::{self, SandboxFound};
+use crate::timeways_install::{self, Lore, Sources};
 
 /// The game folder: the one given, the one found, or the answer to a question.
 pub fn pick_game(dirs: &Dirs, given: Option<&str>) -> Result<PathBuf> {
@@ -119,13 +120,24 @@ enum Autostart {
     Off,
 }
 
-/// `setup [folder] [--roots a,b] [--relay] [--new-key] [--autostart]`.
+/// Whether setup installs the Timeways programs and builds the lore pack (SPEC.md 11.4).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum TimewaysInstall {
+    /// `--timeways`: always, also again.
+    Asked,
+    /// Only with a Timeways folder and no story program in the config.
+    IfMissing,
+}
+
+/// `setup [folder] [--roots a,b] [--relay] [--timeways] [--new-key] [--autostart]
+/// [--no-autostart]`. The installers always add `--autostart`, so `--no-autostart` wins.
 #[derive(Debug, PartialEq, Eq)]
 struct SetupArgs<'a> {
     folder: Option<&'a str>,
     roots: Option<&'a str>,
     /// `--relay`, or `--roots`, which only the relay uses.
     relay_asked: bool,
+    timeways: TimewaysInstall,
     keys: KeyChoice,
     autostart: Autostart,
 }
@@ -141,12 +153,17 @@ impl<'a> SetupArgs<'a> {
             folder,
             roots,
             relay_asked: args.contains(&"--relay") || roots.is_some(),
+            timeways: if args.contains(&"--timeways") {
+                TimewaysInstall::Asked
+            } else {
+                TimewaysInstall::IfMissing
+            },
             keys: if args.contains(&"--new-key") {
                 KeyChoice::New
             } else {
                 KeyChoice::Keep
             },
-            autostart: if args.contains(&"--autostart") {
+            autostart: if args.contains(&"--autostart") && !args.contains(&"--no-autostart") {
                 Autostart::On
             } else {
                 Autostart::Off
@@ -190,6 +207,9 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     let changed = setup::install_files(&folders, relay, args.keys)?;
     let config = setup_config(dirs, &wow, existing.as_ref(), relay, timeways, args.roots)?;
     print_setup(dirs, &config, relay, timeways);
+    if wants_timeways_install(args.timeways, timeways, &config) {
+        setup_timeways(dirs, args.autostart);
+    }
     if args.autostart == Autostart::On {
         match service::autostart(dirs) {
             Ok(()) => println!("Desktop app: on, starts at login"),
@@ -204,6 +224,66 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         println!("{}", hooks_install::SETUP_HINT);
     }
     Ok(())
+}
+
+fn wants_timeways_install(asked: TimewaysInstall, folder: bool, config: &Config) -> bool {
+    let has_program = config.story.as_ref().is_some_and(|s| s.program.is_some());
+    asked == TimewaysInstall::Asked || (folder && !has_program)
+}
+
+/// A failed step prints one line, and setup goes on (SPEC.md 11.4).
+fn setup_timeways(dirs: &Dirs, autostart: Autostart) {
+    use std::io::Write;
+    println!(
+        "Timeways: installing the story program and building its lore (a download of about 133 MB)"
+    );
+    let bin = std::env::var_os("GNOMISH_BIN").map(PathBuf::from);
+    let places = timeways_install::Places::of(dirs, bin);
+    let mut shown = None;
+    let result = timeways_install::install(dirs, &Sources::from_env(), &places, |bytes| {
+        let megabytes = bytes / 1_000_000;
+        if shown != Some(megabytes) {
+            print!("\rDownloading the Wowpedia lore: {megabytes} MB");
+            let _ = std::io::stdout().flush();
+            shown = Some(megabytes);
+        }
+    });
+    if shown.is_some() {
+        println!();
+    }
+    let lines = match result {
+        Ok(report) => timeways_lines(&report, &places, autostart),
+        Err(e) => vec![format!(
+            "Timeways: couldn't install the story program. {e:#} To try again, run gnomish-relay setup --timeways"
+        )],
+    };
+    for line in lines {
+        println!("{line}");
+    }
+}
+
+fn timeways_lines(
+    report: &timeways_install::Report,
+    places: &timeways_install::Places,
+    autostart: Autostart,
+) -> Vec<String> {
+    let mut lines = vec![format!(
+        "Timeways story program: {} in {}",
+        report.version,
+        places.bin.display()
+    )];
+    match &report.lore {
+        Lore::Built(summary) => {
+            lines.extend(summary.iter().map(|line| format!("Timeways lore: {line}")));
+        }
+        Lore::Kept(error) => lines.push(format!(
+            "Timeways lore: {error} To try again, run gnomish-relay setup --timeways"
+        )),
+    }
+    if autostart == Autostart::Off {
+        lines.push("To start the story program, run gnomish-relay restart".into());
+    }
+    lines
 }
 
 /// A player who came for Timeways says no, so no is the answer with no terminal.
@@ -341,16 +421,14 @@ fn story_line(config: &Config) -> String {
 
 /// WoW finds a new addon folder only at launch, and a new key only after a `/reload`.
 fn last_line(changed: &setup::Changed, relay: setup::Relay, keys: KeyChoice) -> &'static str {
-    let new_relay = changed.relay_addon == Some(install::Installed::New);
-    if changed.new_slots || new_relay {
+    let parts = [changed.relay_addon.as_ref(), changed.timeways_key.as_ref()];
+    if changed.new_slots || parts.contains(&Some(&install::Installed::New)) {
         return match relay {
             setup::Relay::On => "All set. Restart WoW, then type /relay",
             setup::Relay::Off => "All set. Restart WoW to load the addon",
         };
     }
-    let updated = [changed.relay_addon.as_ref(), changed.timeways_key.as_ref()]
-        .contains(&Some(&install::Installed::Updated));
-    if updated || keys == KeyChoice::New {
+    if parts.contains(&Some(&install::Installed::Updated)) || keys == KeyChoice::New {
         return "All set. Type /reload in WoW";
     }
     "All set"
@@ -387,6 +465,7 @@ mod tests {
                 folder: Some("/games/wow"),
                 roots: Some("~/a,~/b"),
                 relay_asked: true,
+                timeways: TimewaysInstall::IfMissing,
                 keys: KeyChoice::Keep,
                 autostart: Autostart::On,
             }
@@ -396,6 +475,77 @@ mod tests {
         assert!(!plain.relay_asked);
         assert_eq!(plain.keys, KeyChoice::New);
         assert_eq!(plain.autostart, Autostart::Off);
+    }
+
+    #[test]
+    fn the_installer_adds_autostart_and_no_autostart_wins() {
+        let args = SetupArgs::parse(&["--autostart", "--timeways", "--no-autostart"]);
+        assert_eq!(args.autostart, Autostart::Off);
+        assert_eq!(args.timeways, TimewaysInstall::Asked);
+        assert!(!args.relay_asked);
+    }
+
+    fn story_config(program: bool) -> Config {
+        let home = tempfile::tempdir().unwrap();
+        let mut text = "[wow]\npath = \"~/wow\"\n[story]\n".to_owned();
+        if program {
+            text.push_str("program = \"~/s\"\nlore_pack = \"~/l\"\n");
+        }
+        config::parse(&text, home.path()).unwrap()
+    }
+
+    #[test]
+    fn setup_installs_timeways_when_asked_or_when_its_program_is_missing() {
+        let with = story_config(true);
+        let without = story_config(false);
+        assert!(wants_timeways_install(TimewaysInstall::Asked, false, &with));
+        assert!(wants_timeways_install(
+            TimewaysInstall::IfMissing,
+            true,
+            &without
+        ));
+        assert!(!wants_timeways_install(
+            TimewaysInstall::IfMissing,
+            true,
+            &with
+        ));
+        assert!(!wants_timeways_install(
+            TimewaysInstall::IfMissing,
+            false,
+            &without
+        ));
+    }
+
+    #[test]
+    fn the_timeways_lines_name_the_version_the_lore_and_the_next_step() {
+        let places = timeways_install::Places {
+            bin: PathBuf::from("/b"),
+            pack: PathBuf::from("/p"),
+            work: PathBuf::from("/w"),
+        };
+        let built = timeways_install::Report {
+            version: "0.1.0".into(),
+            changed: vec![],
+            lore: Lore::Built(vec!["read 9 pages, skipped 1".into()]),
+        };
+        let kept = timeways_install::Report {
+            lore: Lore::Kept("Couldn't build the Timeways lore. Your old lore stays.".into()),
+            ..built
+        };
+
+        let lines = timeways_lines(&kept, &places, Autostart::On);
+        assert_eq!(
+            lines,
+            [
+                "Timeways story program: 0.1.0 in /b",
+                "Timeways lore: Couldn't build the Timeways lore. Your old lore stays. To try again, run gnomish-relay setup --timeways",
+            ]
+        );
+        let off = timeways_lines(&kept, &places, Autostart::Off);
+        assert_eq!(
+            off.last().unwrap(),
+            "To start the story program, run gnomish-relay restart"
+        );
     }
 
     #[test]
@@ -463,5 +613,13 @@ mod tests {
             "All set. Type /reload in WoW"
         );
         assert_eq!(last_line(&changed(false, None), on, keep), "All set");
+        let new_timeways_key = setup::Changed {
+            timeways_key: Some(install::Installed::New),
+            ..changed(false, None)
+        };
+        assert_eq!(
+            last_line(&new_timeways_key, setup::Relay::Off, keep),
+            "All set. Restart WoW to load the addon"
+        );
     }
 }

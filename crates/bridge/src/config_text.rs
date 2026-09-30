@@ -5,6 +5,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use crate::config::Found;
+use crate::config_story::STORY_PATHS_NOTE;
 use crate::model_setup::{CLAUDE_MODEL, FoundModel};
 
 /// The relay part of a config: the folders of the agents and the agents that setup found.
@@ -123,12 +124,10 @@ fn model_lines(model: &FoundModel, prefix: &str) -> String {
 }
 
 /// The first model that setup found runs, and the others wait as comments.
-// TODO: find timeways-story when Timeways ships it.
 pub fn story_table(models: &[FoundModel]) -> String {
-    let mut text = String::from(
-        "\n[story]\n\
-         # The story program of Timeways and its lore pack: absolute paths, or ones that\n\
-         # start with ~/. Set both when Timeways ships its program (SPEC.md 12).\n\
+    let [note, rest] = STORY_PATHS_NOTE;
+    let mut text = format!(
+        "\n[story]\n{note}\n{rest}\n\
          # program = \"~/.local/bin/timeways-story\"\n\
          # lore_pack = \"~/.local/share/timeways/lore.sqlite\"\n",
     );

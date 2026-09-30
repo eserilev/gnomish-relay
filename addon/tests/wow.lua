@@ -44,6 +44,13 @@ local wow = {
 	overlaps = 0,
 	-- The slot files of an app other than the relay, by the slot prefix before `_S`.
 	files = {},
+	-- The Key.lua text of each key addon (SPEC.md 7.3.2), by addon name. A key addon
+	-- that is not here is missing.
+	keyAddons = {},
+	-- The event in which LoadAddOn of a key addon works: nil for always, "never", or an
+	-- event name. Outside every event is the file load.
+	keyAddonWorksAt = nil,
+	event = nil,
 	reloads = 0,
 	combat = false,
 	textures = {},
@@ -52,6 +59,8 @@ local wow = {
 	missingFiles = {},
 	-- Makes every SimpleHTML fail, as a client with a different SimpleHTML could.
 	brokenHtml = false,
+	-- IsMacClient(). Linux players run the Windows client under Wine.
+	mac = false,
 	-- The mouse, in the pixels of the screen, for GetCursorPosition().
 	cursor = { 0, 0 },
 }
@@ -437,11 +446,14 @@ function methods:Click()
 end
 
 function wow.Fire(event, ...)
+	local outer = wow.event
+	wow.event = event
 	for _, f in ipairs(wow.frames) do
 		if f.events and f.events[event] and f.scripts.OnEvent then
 			f.scripts.OnEvent(f, event, ...)
 		end
 	end
+	wow.event = outer
 end
 
 local function Under(o, root)
@@ -623,6 +635,10 @@ function GetBuildInfo()
 	return info.version, info.build, info.date, info.interface
 end
 
+function IsMacClient()
+	return wow.mac
+end
+
 function GetPhysicalScreenSize()
 	return fake.physical_screen[1], fake.physical_screen[2]
 end
@@ -767,9 +783,21 @@ end
 
 -- A slot runs the body, the restore file, and the live file that the test put there,
 -- one time per UI session. A slot of another app runs the files of that app.
+local function KeyAddonWorksNow()
+	local at = wow.keyAddonWorksAt
+	return at == nil or at == wow.event
+end
+
+local function IsMissing(name)
+	if name:match("_Key$") then
+		return wow.keyAddons[name] == nil or not KeyAddonWorksNow()
+	end
+	return not wow.slotsInstalled or wow.missingAddOns[name]
+end
+
 function C_AddOns.LoadAddOn(name)
 	local returns = fake.load_addon
-	if not wow.slotsInstalled or wow.missingAddOns[name] then
+	if IsMissing(name) then
 		return Returns(returns.missing)
 	elseif wow.disabled[name] then
 		return Returns(returns.disabled)
@@ -779,6 +807,10 @@ function C_AddOns.LoadAddOn(name)
 		return Returns(returns.again)
 	end
 	wow.loaded[name] = true
+	if wow.keyAddons[name] then
+		assert(loadstring(wow.keyAddons[name]))()
+		return Returns(returns.present)
+	end
 	local files = wow.files[name:match("^(.-)_S%d+$")] or wow
 	if files.body then
 		assert(loadstring(files.body))()

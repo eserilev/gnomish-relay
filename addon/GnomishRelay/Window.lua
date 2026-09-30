@@ -961,6 +961,10 @@ function Window.Showing(chatId)
 end
 
 function Window.Open(chatId)
+	if not ns.key then
+		ns.SetupNeeded.Show()
+		return
+	end
 	if not frame then
 		Build()
 	end
@@ -984,7 +988,9 @@ function Window.OpenSearch()
 end
 
 function Window.Toggle()
-	if frame and frame:IsShown() then
+	if not ns.key then
+		ns.SetupNeeded.Toggle()
+	elseif frame and frame:IsShown() then
 		frame:Hide()
 	else
 		Window.Open()

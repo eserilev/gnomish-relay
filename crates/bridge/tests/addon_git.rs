@@ -19,6 +19,7 @@ use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 const FILES: &[&str] = &[
     "App.lua",
+    "KeyHandoff.lua",
     "Sha256.lua",
     "Codec.lua",
     "Saved.lua",
@@ -47,6 +48,7 @@ const FILES: &[&str] = &[
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",
+    "SetupNeeded.lua",
     "Core.lua",
 ];
 /// A reply of a run on its own branch that changed two files, with its tests and checks.

@@ -2,7 +2,7 @@ __pycache__/
 spikes/last-strip.png
 target/
 proofs/.lake/
-# The strip key. scripts/dev-link.sh writes it.
+# The strip key of an older setup. Setup deletes it, and writes GnomishRelay_Key instead.
 addon/GnomishRelay/Key.lua
 # Links to the shared transport. scripts/dev-link.sh makes them.
 addon/GnomishRelay/Sha256.lua
@@ -12,6 +12,7 @@ addon/GnomishRelay/Strip.lua
 addon/GnomishRelay/Slots.lua
 addon/GnomishRelay/Health.lua
 addon/GnomishRelay/Messages.lua
+addon/GnomishRelay/KeyHandoff.lua
 # Links to the shared transport in the self-test. scripts/selftest-link.sh makes them.
 addon/GnomishRelaySelfTest/Sha256.lua
 addon/GnomishRelaySelfTest/Codec.lua

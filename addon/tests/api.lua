@@ -24,6 +24,7 @@ return {
 		"GetPhysicalScreenSize",
 		"GetTime",
 		"InCombatLockdown",
+		"IsMacClient",
 		"Minimap",
 		"PlaySound",
 		"ReloadUI",
@@ -1578,6 +1579,26 @@ return {
 		},
 	},
 	templates = {
+		BackdropTemplate = {
+			base = "Frame",
+			names = {
+				"ApplyBackdrop",
+				"ClearBackdrop",
+				"GetBackdrop",
+				"GetBackdropBorderColor",
+				"GetBackdropColor",
+				"GetEdgeSize",
+				"HasBackdropInfo",
+				"OnBackdropLoaded",
+				"OnBackdropSizeChanged",
+				"SetBackdrop",
+				"SetBackdropBorderColor",
+				"SetBackdropColor",
+				"SetBorderBlendMode",
+				"SetupPieceVisuals",
+				"SetupTextureCoordinates",
+			},
+		},
 		DialogBorderDarkTemplate = {
 			base = "Frame",
 			names = {

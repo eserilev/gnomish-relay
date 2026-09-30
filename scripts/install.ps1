@@ -1,5 +1,8 @@
 # Installs gnomish-relay from the latest GitHub Release, and runs setup (SPEC.md 11.3).
 #   irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex
+# With arguments for setup, after --autostart (SPEC.md 11.4):
+#   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways
+param([Parameter(ValueFromRemainingArguments = $true)] [string[]] $SetupArgs = @())
 $ErrorActionPreference = "Stop"
 # The progress bar of Windows PowerShell 5.1 makes downloads many times slower.
 $ProgressPreference = "SilentlyContinue"
@@ -26,4 +29,4 @@ if (($path -split ";") -notcontains $bin) {
 # The new user PATH reaches only new terminals. This one gets it too.
 if (($env:Path -split ";") -notcontains $bin) { $env:Path = "$env:Path;$bin" }
 Write-Host "Installed $bin\gnomish-relay.exe"
-& "$bin\gnomish-relay.exe" setup --autostart
+& "$bin\gnomish-relay.exe" setup --autostart @SetupArgs

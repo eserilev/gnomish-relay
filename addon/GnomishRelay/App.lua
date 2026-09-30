@@ -15,4 +15,7 @@ ns.App = {
 	live = "GnomishRelay_Live",
 	strip = "GnomishRelayStrip",
 	saved = "GnomishRelayDB",
+	-- The desktop app writes the key into an addon of its own (SPEC.md 7.3.2).
+	keyAddon = "GnomishRelay_Key",
+	keyGlobal = "GnomishRelayKey",
 }

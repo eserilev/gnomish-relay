@@ -1,0 +1,53 @@
+# Builds the zip of the relay addon on a version tag, and uploads it to CurseForge with
+# the BigWigs packager (SPEC.md 11.3). The upload needs two things that the maintainer
+# makes once: the secret CF_API_KEY, and the project id, in the repo variable
+# CURSEFORGE_PROJECT_ID or in `## X-Curse-Project-ID` of GnomishRelay.toc. Without both,
+# the job still builds the zip and keeps it as an artifact of the run.
+name: curseforge
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  addon:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - name: Find the project id
+        id: project
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+          PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
+        run: |
+          id=${PROJECT_ID:-$(awk -F: '/^## X-Curse-Project-ID:/ { gsub(/[ \t\r]/, "", $2); print $2 }' addon/GnomishRelay/GnomishRelay.toc)}
+          if [[ $GITHUB_REF_TYPE == tag && $id =~ ^[0-9]+$ && -n $CF_API_KEY ]]; then
+            echo "args=-p $id" >> "$GITHUB_OUTPUT"
+          else
+            echo "::notice::No CurseForge upload: set the secret CF_API_KEY and a numeric project id (see README, Maintainers)."
+            echo "args=-d" >> "$GITHUB_OUTPUT"
+          fi
+      # The packager ships only files that git tracks. So the folder gets a repo of its
+      # own, with the transport as real files and the tag of this run.
+      - name: Make the addon folder
+        run: |
+          dir=$(scripts/package-addon.sh "$RUNNER_TEMP/curseforge")
+          cd "$dir"
+          git init -q
+          git add -A
+          git -c user.name=release -c user.email=release@localhost commit -q -m "$GITHUB_REF_NAME"
+          git tag "$GITHUB_REF_NAME"
+          echo "ADDON_DIR=$dir" >> "$GITHUB_ENV"
+      - uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0 # v2.6.1
+        with:
+          args: -t ${{ env.ADDON_DIR }} -r ${{ runner.temp }}/release ${{ steps.project.outputs.args }}
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: GnomishRelay-addon
+          path: ${{ runner.temp }}/release/*.zip

@@ -7,9 +7,10 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
+use bridge::app_files::key_addon_name;
 use bridge::config::Kind;
 use bridge::config_text::RelayPart;
-use bridge::install::{self, ADDON, Installed, KEY_FILE, TIMEWAYS, key_lua};
+use bridge::install::{self, ADDON, Installed, KEY_FILE, TIMEWAYS, key_addon_lua};
 use bridge::model::ModelChoice;
 use bridge::model_setup::FoundModel;
 use bridge::receive::{KeySet, RELAY_KEY_FILE, TIMEWAYS_KEY_FILE};
@@ -60,6 +61,10 @@ impl Computer {
         fs::read_to_string(self.folders.addons.join(addon).join(file)).ok()
     }
 
+    fn key_addon(&self, app: App) -> Option<String> {
+        self.addon_file(key_addon_name(app), KEY_FILE)
+    }
+
     fn has_slots(&self, app: App) -> bool {
         [1, SLOTS]
             .iter()
@@ -107,11 +112,13 @@ fn with_no_timeways_folder_setup_installs_the_relay_as_before() {
     assert!(changed.new_slots);
     let relay_key = computer.key(RELAY_KEY_FILE).unwrap();
     assert_eq!(
-        computer.addon_file(ADDON, KEY_FILE),
-        Some(key_lua(&relay_key))
+        computer.key_addon(App::Relay),
+        Some(key_addon_lua(App::Relay, &relay_key).unwrap())
     );
+    assert_eq!(computer.addon_file(ADDON, KEY_FILE), None);
     assert!(computer.has_slots(App::Relay));
     assert!(!computer.any_slot(App::Timeways), "no Timeways slots");
+    assert_eq!(computer.key_addon(App::Timeways), None);
     assert_eq!(computer.key(TIMEWAYS_KEY_FILE), None);
     assert!(!computer.folders.addons.join(TIMEWAYS).exists());
     assert!(config.relay.is_some());
@@ -143,14 +150,14 @@ fn with_both_folders_setup_installs_both_apps_with_two_keys() {
     let config = computer.config(Relay::On, Some(&[FoundModel::Claude]));
 
     assert_eq!(changed.relay_addon, Some(Installed::New));
-    assert_eq!(changed.timeways_key, Some(Installed::Updated));
+    assert_eq!(changed.timeways_key, Some(Installed::New));
     let relay_key = computer.key(RELAY_KEY_FILE).unwrap();
     let timeways_key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
     assert_ne!(relay_key, timeways_key);
     assert_eq!(timeways_key.len(), 64);
     assert_eq!(
-        computer.addon_file(TIMEWAYS, KEY_FILE),
-        Some(key_lua(&timeways_key))
+        computer.key_addon(App::Timeways),
+        Some(key_addon_lua(App::Timeways, &timeways_key).unwrap())
     );
     assert!(computer.has_slots(App::Relay));
     assert!(computer.has_slots(App::Timeways));
@@ -174,9 +181,10 @@ fn with_only_timeways_setup_installs_no_relay_and_no_agent() {
     let config = computer.config(Relay::Off, Some(&[]));
 
     assert_eq!(changed.relay_addon, None);
-    assert_eq!(changed.timeways_key, Some(Installed::Updated));
+    assert_eq!(changed.timeways_key, Some(Installed::New));
     assert!(changed.new_slots);
     assert!(!computer.folders.addons.join(ADDON).exists());
+    assert_eq!(computer.key_addon(App::Relay), None);
     assert!(!computer.any_slot(App::Relay));
     assert!(computer.has_slots(App::Timeways));
     // The bridge needs the relay key to start, so it exists with no addon.
@@ -195,7 +203,7 @@ fn the_timeways_slots_depend_on_timeways() {
 }
 
 #[test]
-fn new_keys_replace_both_keys_and_both_key_files() {
+fn new_keys_replace_both_keys_and_both_key_addons() {
     let computer = Computer::new(&[TIMEWAYS]);
     install(&computer, Relay::On, KeyChoice::Keep);
     let old_relay = computer.key(RELAY_KEY_FILE).unwrap();
@@ -211,12 +219,12 @@ fn new_keys_replace_both_keys_and_both_key_files() {
     assert_eq!(changed.relay_addon, Some(Installed::Updated));
     assert_eq!(changed.timeways_key, Some(Installed::Updated));
     assert_eq!(
-        computer.addon_file(ADDON, KEY_FILE),
-        Some(key_lua(&relay_key))
+        computer.key_addon(App::Relay),
+        Some(key_addon_lua(App::Relay, &relay_key).unwrap())
     );
     assert_eq!(
-        computer.addon_file(TIMEWAYS, KEY_FILE),
-        Some(key_lua(&timeways_key))
+        computer.key_addon(App::Timeways),
+        Some(key_addon_lua(App::Timeways, &timeways_key).unwrap())
     );
 }
 
@@ -249,24 +257,26 @@ fn equal_keys_stop_setup() {
 }
 
 #[test]
-fn the_bridge_writes_a_missing_timeways_key_file_again_and_no_other_file() {
+fn the_bridge_writes_a_missing_timeways_key_again_and_no_file_of_timeways() {
     let computer = Computer::new(&[TIMEWAYS]);
     install(&computer, Relay::Off, KeyChoice::Keep);
     let dir = computer.folders.addons.join(TIMEWAYS);
-    fs::remove_file(dir.join(KEY_FILE)).unwrap();
+    fs::remove_file(computer.folders.addons.join("Timeways_Key").join(KEY_FILE)).unwrap();
     fs::remove_file(dir.join("Timeways.toc")).unwrap();
 
     let repaired = repair_timeways_key(&computer.folders.config, &computer.folders.addons);
 
     assert_eq!(repaired.unwrap(), Some(Installed::Updated));
     let key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
-    assert_eq!(computer.addon_file(TIMEWAYS, KEY_FILE), Some(key_lua(&key)));
-    let names: Vec<_> = fs::read_dir(&dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.file_name())
-        .collect();
-    assert_eq!(names, [KEY_FILE], "the bridge never writes the TOC");
+    assert_eq!(
+        computer.key_addon(App::Timeways),
+        Some(key_addon_lua(App::Timeways, &key).unwrap())
+    );
+    assert_eq!(
+        fs::read_dir(&dir).unwrap().count(),
+        0,
+        "the bridge never writes the TOC"
+    );
 }
 
 #[test]
@@ -285,23 +295,21 @@ fn with_no_timeways_folder_or_key_the_bridge_writes_nothing_for_timeways() {
         "the bridge never makes a key"
     );
     assert!(computer.addon_file(TIMEWAYS, KEY_FILE).is_none());
+    assert!(computer.key_addon(App::Timeways).is_none());
 }
 
 #[cfg(unix)]
 #[test]
-fn a_linked_timeways_checkout_gets_only_the_key_in_its_real_folder() {
+fn a_linked_timeways_folder_stays_a_link_and_its_key_goes_into_the_key_addon() {
     let computer = Computer::new(&[]);
-    let checkout = computer.home().join("timeways-checkout");
-    fs::create_dir(&checkout).unwrap();
-    std::os::unix::fs::symlink(&checkout, computer.folders.addons.join(TIMEWAYS)).unwrap();
+    let repo = computer.home().join("timeways-repo");
+    fs::create_dir(&repo).unwrap();
+    std::os::unix::fs::symlink(&repo, computer.folders.addons.join(TIMEWAYS)).unwrap();
 
     install(&computer, Relay::Off, KeyChoice::Keep);
 
-    let key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
-    assert_eq!(
-        fs::read_to_string(checkout.join(KEY_FILE)).unwrap(),
-        key_lua(&key)
-    );
+    assert_eq!(fs::read_dir(&repo).unwrap().count(), 0);
+    assert!(computer.key_addon(App::Timeways).is_some());
     let link = fs::symlink_metadata(computer.folders.addons.join(TIMEWAYS)).unwrap();
     assert!(link.file_type().is_symlink());
 }

@@ -106,7 +106,7 @@ So the bridge bounds what any message from the game can do (6.6).
 ### 6.3 Strip authentication
 
 The setup step makes a random 32-byte key.
-It writes the key into the addon (as a file-local value) and into the bridge config.
+It writes the key into the key addon of the app (7.3.2), and into `strip.key` in the config folder.
 Each strip ends with a truncated HMAC-SHA256 tag (8 bytes) of the header and payload.
 The bridge drops each strip with a wrong tag, deletes its screenshot (6.2, rule 8), and logs it.
 The bridge compares tags in constant time (`subtle::ConstantTimeEq`).
@@ -134,7 +134,7 @@ Theorem S15 covers these rules.
 - Reply text sits in a global table after a slot loads. Any addon can read it.
 - `GnomishRelayDB` is a global table. Any addon can read the chats in it.
 - The strip is signed, not encrypted. The prompt is in the pixels of each strip screenshot until the bridge deletes it. If the bridge does not run, these files stay until its next start, which deletes them (6.2, rule 8). A cloud sync of the Screenshots folder (for example OneDrive on Windows) copies them.
-- An addon that loads before ours, for example one named `!Evil`, can replace global functions such as `string.char`, `tonumber`, or `bit.band` before `Key.lua` and `Sha256.lua` run. It can then read the strip key. Lua in WoW gives an addon no way to stop this. Layers 2 to 4 of 6.6 assume that any game message can come from another addon, so the key is a check against programs outside the game, not against other addons.
+- An addon that loads before ours, for example one named `!Evil`, can replace global functions such as `string.char`, `tonumber`, or `bit.band` before `KeyHandoff.lua` and `Sha256.lua` run. It can then read the strip key. It can also read the global of the key addon in the short time that it exists (7.3.2). Lua in WoW gives an addon no way to stop this. Layers 2 to 4 of 6.6 assume that any game message can come from another addon, so the key is a check against programs outside the game, not against other addons.
 - Code in the sandbox can still send data to the allowed API host, for example with an upload under another account key. A proxy that ends TLS and pins the account closes this. It is not in v1.
 - A command of a game run can send data to each host of the proxy list (6.6.4), for example a push to `github.com` with a token of its own. The list limits where a command connects, not what it sends.
 
@@ -161,6 +161,8 @@ The trust of "always allow" (6.6.5) rests on layers 2 to 4. It never rests on la
 - A stored frame or an outbox frame older than 270 seconds is too old for the bridge (S11 allows 300). The message then ends with "Not sent." and a Resend link, and the user decides. While the bridge is offline (7.4), the text is "Not sent: the desktop app isn't running. On your desktop, run gnomish-relay restart."
 - An outbox entry (7.5) is the same signed frame. The bridge checks the tag, the time, and the replay store for it (S2, S11, S7), as for a strip.
 - A permission answer carries a hash of the exact text that the popup showed: `perm=<request>:<option>:<hash>`. The hash is the first 8 bytes of SHA-256, in hex. The bridge refuses an answer whose hash does not match its own text of the request.
+
+The key reaches the addon through its key addon (7.3.2). After the load, it lives only in the private table `ns`.
 
 No WoW mechanism lets an addon prove that the user typed a message. For example, another addon can fill the chat box with `/ai …` and wait for the user to press Enter. So layers 2 to 4 assume that any game message can come from another addon.
 
@@ -262,8 +264,8 @@ There are four answers, in this order from strict to open:
 - **Unknown tools are `desktop`.** The classifier knows file reads, file writes, and shell commands. Every other tool is `desktop`: web fetch, web search, MCP tools, and subagents.
 - **Inside:** a path is inside a folder when the parts of the folder start the parts of the path (S5). A write outside the chat folder is `desktop`. A read outside `allowed_roots` is `desktop`.
 - **`deny` paths:** the strip key, `timeways.key`, `config.toml`, and everything else in the config folder of the bridge (12). An approved access would let the agent sign fake strips or raise its own ceiling. The bridge writes `config.toml` itself after a raise on the desktop (9.3), never through the classifier.
-- **`deny` paths in the game folder** (fixed on 2026-09-29; the tests came first): `Key.lua` of the `GnomishRelay` and `Timeways` addons, which holds a plain copy of the strip key; `WTF/Account`, which holds the saved variables of every account, with the chats; and `Screenshots`, which holds the prompt in the pixels of each strip. The sandbox (6.6.4) hides them too, as it hides every `deny` path. The bridge writes `Key.lua` with mode 0600, and writes an older key file again when others can read it.
-  - Only `Key.lua`, not the whole addon folder: a developer checkout links `AddOns/GnomishRelay` into the repository (16), and an agent edits the other files of that folder.
+- **`deny` paths in the game folder** (fixed on 2026-09-29; the tests came first): the key addons `GnomishRelay_Key` and `Timeways_Key` (7.3.2), which hold a plain copy of each strip key, and an old `Key.lua` in the `GnomishRelay` and `Timeways` folders; `WTF/Account`, which holds the saved variables of every account, with the chats; and `Screenshots`, which holds the prompt in the pixels of each strip. The sandbox (6.6.4) hides them too, as it hides every `deny` path. The bridge writes each `Key.lua` with mode 0600, and writes an older key file again when others can read it.
+  - The whole key addon folder, but only an old `Key.lua` of an app addon, not its whole folder: a developer checkout links `AddOns/GnomishRelay` into the repository (16), and an agent edits the other files of that folder.
   - Not the slot folders: they hold the replies of the agent, which any addon can read anyway (6.5), and 1000 slots for each app would need 2000 mounts, about 0.5 s for each run with `bwrap`.
 - **`deny` paths in the data folder** (12, and 9.7 decision 12): `state.json`, `approvals/`, `timeways/`, `rules.json` (6.6.5), `bridge.lock`, `bridge.pid`, `bridge.log`, and everything else there. An approved access would let the agent clear the replay store, answer its own desktop request, or change the story state. The bridge writes these files itself, never through the classifier.
 - **`desktop` patterns** are whole parts that match anywhere in a path, for example `.git/hooks`. A last `*` in a part matches the rest of a part, so `.env.*` matches `.env.local`.
@@ -987,6 +989,28 @@ Below 20 free slots, the window shows "Reload soon to keep chatting." with a **R
 `ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat.
 The chat history is in the saved variables, so a `/reload` keeps it.
 
+#### 7.3.2 The key addon
+
+An addon app such as CurseForge replaces the whole folder of an addon at each update. A key file inside `GnomishRelay` then goes away. So the desktop app writes each strip key into an addon of its own, next to the slots (fixed on 2026-09-29; the tests came first).
+
+| App | Key addon | Global | In the app addon |
+|---|---|---|---|
+| Relay | `GnomishRelay_Key` | `GnomishRelayKey` | `App.lua` names both. `KeyHandoff.lua` (shared) takes the key. |
+| Timeways | `Timeways_Key` | `TimewaysKey` | The same, in the Timeways repo. |
+
+- The key addon holds two files. `<name>.toc` has `## Interface: 16001`, a grey `## Title` ("Gnomish Relay key (leave on)"), a `## Notes` line, `## LoadOnDemand: 1`, and `Key.lua`. It has no `## Dependencies`. `Key.lua` is one line: `GnomishRelayKey = "<64 hex digits>"`. The desktop app writes it only from a key of 64 hex digits, with mode 0600, in a folder with mode 0700, and never through a link.
+- The app addon lists `KeyHandoff.lua` right after `App.lua`, before each file that reads `ns.key`. `KeyHandoff.lua` calls `C_AddOns.EnableAddOn` and `C_AddOns.LoadAddOn` for the key addon. On the next line it reads the global with `rawget` and sets it to nil with `rawset`. It keeps the key in `ns.key` only when the value is a string of 64 hex digits.
+- The desktop app writes the key addon, the slots, and the relay addon. An addon app manages only the relay addon `GnomishRelay`. So an update of the addon app never removes a key or a slot.
+- **Three tries** (asked for on 2026-09-30, before any test in the real game). Nobody has checked that `LoadAddOn` of a load-on-demand addon works during the file load of another addon in the Forever client. So `KeyHandoff.Try` runs at the file load, again in the `ADDON_LOADED` of the app, and again at `PLAYER_LOGIN`. A try runs only while the app has no key, and the first key wins. Each try reads the global and clears it in the same call, so the exposure below stays the same. Only when all three fail does the app have no key. `/relay diag` shows "Gnomish Relay: key loaded at <step>": `file load`, `ADDON_LOADED`, `PLAYER_LOGIN`, or `missing`. With no key, `/relay diag` shows only that line.
+- **Why load on demand, and not `## OptionalDeps`.** With `## OptionalDeps: GnomishRelay_Key`, WoW loads the key addon before the relay at login. But the key addon then also loads when the relay is off or fails, and its global stays for the whole UI session. A load-on-demand addon runs only when code calls `LoadAddOn`, and only once in a UI session: a second `LoadAddOn` runs no file.
+- **The exposure.** The global exists from the `Key.lua` of the key addon to the line after `LoadAddOn`. In that time, only code that the load runs can read it: the `ADDON_LOADED` handlers of the addons that loaded before the relay. An addon that loaded earlier can also call `LoadAddOn` for the key addon first and take the global, or put a metatable on `_G`. The relay then has no key, and shows the first-run window. An addon that loads after the relay finds no global, and cannot load the key addon again. This is the bound of the known leak of 6.5: an addon that loads first can already replace `string.char` or `tonumber` and read the key. The key is a check against programs outside the game, not against other addons (6.6.1), and a call to our handlers from any addon gets no more than a typed message (6.1). So the key addon adds no reader that the old `Key.lua` did not have.
+- **With no key.** The relay starts no transport. At login it prints one line and shows the first-run window, once in each UI session. `/relay`, the key binding, and `/ai` open the window again. The window has the look of the setup window of Timeways: a rock background with a dialog border, the title "Gnomish Relay Setup", a close button, and a parchment sheet. The sheet holds a heading, one sentence, the install line in an edit box that keeps its text (a click selects all of it), "Click a line and press Ctrl+C to copy it (Cmd+C on a Mac).", and "Run it on your computer. Then restart WoW.". **Close** is below the sheet. A Mac client gets the Terminal line. A Windows client gets the PowerShell line and the Linux line, because Linux players run the Windows client under Wine.
+  - With no key in any earlier UI session: "Gnomish Relay needs its desktop app. Get it at github.com/eserilev/gnomish-relay, then restart WoW."
+  - With a key in an earlier UI session (`hadKey` in the saved variables), the key addon is new since the launch of the game: "Gnomish Relay: restart WoW to finish setup. If this shows again, run gnomish-relay setup on your desktop." The window then shows no install line.
+- **Migration.** Setup and each start of the bridge delete `Key.lua` in the real folder of `GnomishRelay`, also in the linked folder of a developer (16). WoW finds the new key addon only at launch. So setup says "Restart WoW", and `update` says "Restart WoW to finish." when the key addon was missing before.
+- **A newer addon stays.** An addon app can install a relay addon that is newer than the one built into the desktop app. The desktop app then leaves the folder as it is: it compares the `## Version` of the two TOCs as numbers. The version check of 7.7 then names the fix.
+- **Timeways moves later.** While the TOC in the Timeways folder lists `Key.lua`, the desktop app also writes that file, in the old format. When the TOC does not list it, the desktop app deletes it. `// TODO: remove when every Timeways release reads Timeways_Key`.
+
 ### 7.4 Signals
 
 **Status: signals do not work on the tested client (rule 4 fails).** The addon polls slots on the schedule in 7.3. This section stays for clients where the self-test passes. A replacement signal through font files (as in `wow-forever-codex`) is an open question.
@@ -1546,11 +1570,11 @@ Timeways is a separate story addon (`~/Documents/Code/Personal/timeways`). It us
       - Each app keeps its own hook for the "Screen captured" text. One shared hook needs a shared flag that a hostile addon can set.
       - The value goes through `rawget` and `rawset`, so a metatable of a hostile addon has no effect.
 14. **Shared Lua transport.** `Codec.lua`, `Sha256.lua`, `Strip.lua`, the slot poll, `Health.lua`, and `Messages.lua` move into one source folder with parameters: the app name, the slot prefix, the global names, and the saved variables. The relay repo copies the folder at package time and never commits a copy. The Timeways repo checks its copy with a plain diff against the pinned relay tag.
-15. **Setup.** A player with only Timeways gets no folder question and no coding agents, only a `[story]` section in the config for the model. The bridge makes the Timeways slots only when the Timeways addon folder exists. It writes only `Key.lua` into the Timeways folder, and writes it again at start if it is missing. It never writes other Timeways files. (Step 8, decided with an advisor on 2026-09-26. `crates/bridge/src/setup.rs` has the steps, `config_text.rs` the text of the config, and `model_setup.rs` the search for a model.)
+15. **Setup.** A player with only Timeways gets no folder question and no coding agents, only a `[story]` section in the config for the model. The bridge makes the Timeways slots only when the Timeways addon folder exists. It writes the Timeways key into the key addon `Timeways_Key` (7.3.2), and again at start if it is missing. In the Timeways folder it writes only the old `Key.lua`, and only while the Timeways TOC lists it. It never writes other Timeways files. (Step 8, decided with an advisor on 2026-09-26. `crates/bridge/src/setup.rs` has the steps, `config_text.rs` the text of the config, and `model_setup.rs` the search for a model.)
     - **Relay on or off.** Setup decides in this order. `--relay` or `--roots` turns the relay on. Then a config decides: on only when it has the relay part (12). Then a `GnomishRelay` folder turns it on, and so does a game with no `Timeways` folder, as before step 8. Only a player with Timeways, no relay folder, and no config gets a question: "Also set up Gnomish Relay, to chat with coding agents in WoW? (y/N)". With no terminal, the answer is no. Why: no fits a player who came for Timeways, and a relay user with Timeways already has the relay folder or the config.
     - **The config with no relay.** It holds `[wow]` and `[story]`, and no relay key (12). `allowed_roots` alone turns the relay on. The bridge then has no relay lane, and a `Config` holds `relay: Option<RelayConfig>`. Why: an idle relay lane needs a fake policy, and a fake policy is a trap, because an admitted strip then reaches an agent path. Setup still makes `strip.key`, so `KeySet` and S29 need no change. `setup --relay` adds the relay later: its top keys before the old text, because TOML needs them before the first table, and its tables after.
-    - **One `--new-key` for every app.** It makes a new `strip.key`, and a new `timeways.key` when the `Timeways` folder exists, and writes both `Key.lua` files. Why: an addon that reads one key reads both (decision 18), so after a leak both change. A new Timeways key is never equal to the relay key, and setup loads both keys at its end, as the bridge does.
-    - **`program` and `lore_pack` are optional**, both or neither (12). Setup writes them as commented lines, and searches for nothing. Why: the story program does not ship yet, so a search finds nothing. `// TODO: find timeways-story when Timeways ships it`.
+    - **One `--new-key` for every app.** It makes a new `strip.key`, and a new `timeways.key` when the `Timeways` folder exists, and writes both key addons. Why: an addon that reads one key reads both (decision 18), so after a leak both change. A new Timeways key is never equal to the relay key, and setup loads both keys at its end, as the bridge does.
+    - **`program` and `lore_pack` are optional**, both or neither (12). Setup writes them as commented lines. It sets both when it installs the programs of the Timeways release and builds the lore pack (11.4).
     - **The model.** Setup takes the first model it finds: `claude` on `PATH` (with `claude_model = "haiku"`), then Ollama on 127.0.0.1:11434, then LM Studio on 127.0.0.1:1234. It asks a local server for `/v1/models` with `curl` and the flags of a model call, and takes the first id that is not an embedding model. Another model that it finds goes in as commented lines. With none, `[story]` has no model. Why: `claude` is a deliberate install, its answers are better than a small local model, and the budget of decision 10 bounds its use. `curl` is already the only HTTP client of the bridge.
     - **An existing config.** Setup adds `[story]` to a config that has none when the `Timeways` folder exists, for a relay user who installs Timeways later. It checks every new text with the config loader before it writes. It never changes a key that exists.
     - **`## Group:`** is in neither app's slots. Nothing shows yet that the Forever client reads it. After a test in the game, both apps get it in one commit.
@@ -2135,7 +2159,7 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
    - Linux: each Wine prefix (`~/.wine`, `~/Games/*`, Bottles also as a Flatpak, and Steam Proton), with the `product.db` of the prefix. `C:` maps to `drive_c`, and other drives to `dosdevices`.
    With more than one, or none, it asks in a terminal. `setup <folder>` skips the search, and takes the `World of Warcraft` folder or `_classic_beta_`. It makes `Interface/AddOns` if WoW has not made it yet, and it finds that folder in any case.
 2. **Make the keys**, 32 random bytes from the OS each, with mode 0600, once: `strip.key` always, and `timeways.key` only when the game has an `Interface/AddOns/Timeways` folder (in any case). The Timeways key is never equal to the strip key. `--new-key` makes a new key for each app that is there, and then each addon needs a `/reload`.
-3. **Install the addons.** Relay on or off: 9.7, decision 15. With the relay on, setup writes the addon files, which are built into the program, into `Interface/AddOns/GnomishRelay`, and writes `Key.lua` from the strip key. A folder that is a link (a developer checkout, 16) stays as it is, and only `Key.lua` changes. With a Timeways folder, setup writes only `Key.lua` into it, from `timeways.key`, in the same format: the Timeways TOC lists `Key.lua` first. It never makes the Timeways folder and never writes another file in it.
+3. **Install the addons.** Relay on or off: 9.7, decision 15. With the relay on, setup writes the addon files, which are built into the program, into `Interface/AddOns/GnomishRelay`, and the key addon `GnomishRelay_Key` from the strip key (7.3.2). It deletes an old `Key.lua` in `GnomishRelay`. A folder that is a link (a developer checkout, 16) stays as it is and gets no file. A newer addon from an addon app stays as it is. With a Timeways folder, setup writes the key addon `Timeways_Key` from `timeways.key`. It never makes the Timeways folder, and writes no file in it but the old `Key.lua` of 7.3.2.
 4. **Write the config**, once. With the relay on, it has an `[agents.<name>]` entry for each known agent on `PATH`: `claude` (as `kind = "claude"`), `codex` (as `kind = "codex"`), and the ACP agents of 9.2. The default agent is the first one it finds, in the order of `KNOWN_AGENTS` in `install.rs`. With none, it is `echo`. Each entry gets `permission = "auto-edit"`. For each harness with no ACP mode on `PATH` (aider and `llm`), setup asks "Found aider. Add it as an agent? It runs its own commands without asking, inside the sandbox. (y/N)", and adds a `kind = "command"` entry with its preset only on a yes. With no terminal, the answer is no. A harness that has an ACP mode (gemini, goose, opencode) gets its ACP entry, which asks about its tool calls. A local model that answers on the loopback (Ollama on 11434, LM Studio on 1234) puts its port into `[sandbox] local_ports`, so an agent that uses it reaches it from its wall (6.6.4).
    - Why `auto-edit` (decided with an advisor on 2026-09-26): the config is the ceiling of every chat (S6), and the addon asks for `auto-edit`. With `ask` in the config, the player got a game popup for each edit and could not change that from the game. At `auto-edit`, edits inside the chat folder run, and each command still asks in the game unless the allow table covers it. The `desktop` and `deny` answers do not change. Every kind gets the same level, so the rule is simple. An ACP agent at `auto-edit` also edits the chat folder with no popup when it asks. `echo` has no tools. The config also gets a commented example of the allow table (12): setup allows no command. With a Timeways folder, the config gets a `[story]` section with the model that setup finds (9.7, decision 15). With the relay off, the config has no relay part, and setup asks no folder question.
 5. **Make the slot addons**: `GnomishRelay_S0001` to `S1000` with the relay on, and `Timeways_S0001` to `S1000` (with `## Dependencies: Timeways`) with a Timeways folder. WoW finds a new addon only at launch, so after new slots the game needs a restart. Setup says so.
@@ -2147,9 +2171,9 @@ The last lines say what setup found and the next action, for example "Agent: cla
 
 **Keeping it working.**
 
-- At each start, the bridge writes `Key.lua` again if it is missing, and the addon files again if their version differs. An addon app such as CurseForge can replace the folder, and a `/reload` then loads the files.
-- At each start, the bridge also writes the Timeways `Key.lua` again when it is missing or old, and only that file. It never makes a Timeways key: that is the job of setup.
-- With no key, the addon shows one line: "Gnomish Relay isn't set up yet. Get the desktop app at github.com/eserilev/gnomish-relay, then run gnomish-relay setup."
+- At each start, the bridge writes the key addon again if it is missing or old, and the addon files again if they differ, but never over a newer addon (7.3.2). An addon app such as CurseForge replaces only the `GnomishRelay` folder, so the key and the slots stay.
+- At each start, the bridge also writes the Timeways key addon again when it is missing or old. It never makes a Timeways key: that is the job of setup.
+- With no key, the addon shows one line and the first-run window of 7.3.2.
 - With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: the desktop app isn't running. On your desktop, run gnomish-relay restart."
 - Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude isn't logged in. Run claude"), not as the first reply in the game.
 - `gnomish-relay status` prints one line for each part, with the next step when it does not work: whether the bridge runs (the lock of 8.4), the time of the last strip that the bridge took (`last-strip` in the data folder), whether the config loads (with the TOML error and its line), the sandbox, and the default agent with its version or its login. It also says when the program of the default agent is not on the `PATH` of the login service. The logic is in `status.rs`, and `crates/bridge/tests/status.rs` tests it with the fake agents.
@@ -2162,7 +2186,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - If the new program is the same as the installed one, update changes nothing. Otherwise, it puts the new program in place of the old one and restarts the bridge.
 - Windows refuses to replace a running program, but it lets update rename it. So update renames the old program to `gnomish-relay.exe.old` first, and the next update deletes that file.
 - The sum comes from the same release as the archive. It finds a broken download, not a changed release.
-- The new bridge writes the new addon files of the relay at its start, and only `Key.lua` for Timeways. Then the game needs a `/reload`, and update says so. The new bridge starts the story program again (9.8).
+- The new bridge writes the new addon files of the relay and the key addons at its start. Then the game needs a `/reload`, and update says so. When the relay key addon was missing before the update, the game needs a restart, and update says "Restart WoW to finish." (7.3.2). The new bridge starts the story program again (9.8).
 
 **Distribution.**
 
@@ -2171,7 +2195,58 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - Setup asks which folders the agents can use. It suggests the usual folders of code projects that hold a git repository, or the home folder. `--roots a,b` gives them with no question.
 - Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so. After the player installs an agent, a second setup adds its entry (12).
 - Later: winget, Homebrew, and the AUR point at the release.
-- The addon is also listed on CurseForge and Wago Addons, so players can find it. The listing points to the program: the addon alone does nothing, because each computer needs its own key.
+- The addon is also listed on CurseForge, so players can find it. The listing points to the program: the addon alone does nothing, because each computer needs its own key (7.3.2).
+  - A version tag also starts `.github/workflows/curseforge.yml`. `scripts/package-addon.sh` makes the `GnomishRelay` folder: the files of `addon/GnomishRelay` and of `addon/transport` as real files, and `.pkgmeta`. It never holds a key addon or a slot. The BigWigs packager ships only files that git tracks, so the job gives the folder a git repo of its own with the tag, and then runs the packager on it.
+  - The project id comes from the repository variable `CURSEFORGE_PROJECT_ID`, or else from `## X-Curse-Project-ID` in `GnomishRelay.toc`. The TOC holds a placeholder until the maintainer makes the project. With no numeric id, no `CF_API_KEY` secret, or no tag, the job skips the upload and keeps the zip as an artifact of the run.
+  - A test checks that the folder holds exactly the files that the desktop app installs.
+  - Later: Wago Addons.
+
+### 11.4 The Timeways programs and the lore pack
+
+Setup installs the story program of Timeways and builds its lore pack (planned with the Timeways session on 2026-09-30; the tests came first). The release format below is the one that the release job of `eserilev/timeways` makes. `crates/bridge/src/timeways_release.rs` holds every asset name in one place, `lore_pack.rs` the dump and the build, and `timeways_install.rs` the steps.
+
+**When.** `setup --timeways` always installs the programs, builds the lore pack again, and sets the config. Setup with a `Timeways` addon folder and no `--timeways` does the same only when `[story]` has no `program` yet. `gnomish-relay update` installs new programs when `[story] program` is set, into the folder of that program. It builds no lore pack. A failed Timeways step prints one line with the next step, and setup and update go on.
+
+**The release.** The base is `https://github.com/eserilev/timeways/releases/latest/download`. `TIMEWAYS_URL` changes it, as `GNOMISH_URL` does for the desktop app (11.3). The files:
+
+| File | What |
+|---|---|
+| `timeways-manifest.json` | The version, the tag, the addon version, and one entry for each target |
+| `SHA256SUMS` | One `sha256sum` line for each archive |
+| `timeways-<target>.tar.gz` | Linux and macOS: `timeways-story`, `timeways-pack`, and `LICENSE` at the top level |
+| `timeways-x86_64-pc-windows-msvc.zip` | Windows: `timeways-story.exe`, `timeways-pack.exe`, and `LICENSE` |
+| `<archive>.sha256` | The sum of one archive. Setup does not need it. |
+| `timeways-addon.zip` | The addon for CurseForge. Setup does not need it. |
+
+The manifest:
+
+```json
+{"version": "0.1.0", "tag": "v0.1.0", "app_version": 1,
+ "targets": {"x86_64-unknown-linux-gnu": {"asset": "timeways-x86_64-unknown-linux-gnu.tar.gz",
+   "sha256": "<64 hex digits>", "programs": ["timeways-story", "timeways-pack"]}},
+ "addon": {"asset": "timeways-addon.zip", "sha256": "<64 hex digits>"}}
+```
+
+- The target is the one of the desktop app on this computer, the same as in the names of 11.3. With no entry for it, setup says "Timeways has no build for this computer yet."
+- An asset or a program is a plain file name: no folder, no `..`, and no leading dot. `programs` must hold `timeways-story` and `timeways-pack`. A Windows program gets `.exe`.
+- `app_version` is the `ns.App.version` of the Timeways addon of that release. Setup checks it with `version_fit` (7.7, S30). A version out of the range of this desktop app stops the install: "This Timeways needs a newer desktop app. Run gnomish-relay update first." or "This Timeways is older than this desktop app supports."
+- Setup checks the SHA-256 sum of the archive against the manifest and against `SHA256SUMS`, and refuses the archive when either one differs or is missing. As in 11.3, the sums come from the same release, so they find a broken download, not a changed release.
+- Setup unpacks the archive with `tar` into a new work folder in the data folder, and installs each program: into `GNOMISH_BIN` when it is set, else into `~/.local/bin` on Linux and macOS, and `%LOCALAPPDATA%\timeways\bin` on Windows. The data folder of the desktop app holds that `bin` folder of `install.ps1`, and the bridge refuses a story program in a folder that the sandbox hides (9.8), so Timeways gets a folder of its own. A program that is the same as the installed one stays. A new one goes in place of the old one as in `update` (11.3).
+
+**The lore pack.** The pack is never shipped: each computer builds it from the public Wowpedia dump.
+
+- The dump is `https://s3.amazonaws.com/wikia_xml_dumps/w/wo/wowpedia_pages_current.xml.7z`, about 133 MB. `TIMEWAYS_DUMP_URL` changes it. It changes over time, so no sum is pinned.
+- Setup downloads it with `curl`, as `update` does, into the Timeways work folder in the data folder. The sandbox hides the data folder (6.6.3), so no agent or command of a game run reads it. While `curl` runs, setup prints the megabytes so far: "Downloading the Wowpedia lore: 45 MB".
+- Then it runs `timeways-pack from-dump <dump> <pack>.new`. The program reads the `.7z` itself, and never writes over a file, so setup first deletes an old `<pack>.new`. It prints one line for each page. Setup shows only its last two lines: "read N pages, skipped M" and "wrote N passages to <path>".
+- On success, setup renames `<pack>.new` over the pack. On a failure, the old pack stays, and setup says "Couldn't build the Timeways lore. Your old lore stays. To try again, run gnomish-relay setup --timeways." Setup deletes the dump at the end either way.
+- The pack is `lore.sqlite` in the `timeways` folder next to the data folder: `~/.local/share/timeways/lore.sqlite` on Linux, `~/Library/Application Support/timeways/lore.sqlite` on macOS, and `%LOCALAPPDATA%\timeways\lore.sqlite` on Windows. It is outside the folders that the sandbox hides, because the story program reads it.
+
+**The config.** After the programs and a pack, setup sets `program` and `lore_pack` in `[story]`, with `~/` for a path in the home folder. It replaces the lines of both keys, also the commented ones of 12, and keeps every other line. A config with no `[story]` gets one at its end. As in 11.3, setup checks the new text with the config loader before it writes. With no pack, setup sets neither key: they go together (12).
+
+**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. `--no-autostart` turns it off.
+
+- Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh -s -- --timeways`
+- Windows: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways`
 
 ## 12. Config
 
@@ -2183,7 +2258,7 @@ The config file is `config.toml` in the config folder of the OS:
 | macOS | `~/Library/Application Support/gnomish-relay` | the same |
 | Windows | `%APPDATA%\gnomish-relay` | `%LOCALAPPDATA%\gnomish-relay` |
 
-`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists. It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
+`gnomish-relay setup <wow folder>` writes the first config. It never changes a key that exists, but `program` and `lore_pack` of `[story]` after it installs Timeways (11.4). It only adds a missing `[story]` section when the Timeways addon is there, the relay part with `--relay` (11.3), or an `[agents.<name>]` entry for each known agent on `PATH` that a config with the relay lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
 Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `[wow] path`, `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, `[git]` with `ci_checks`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
@@ -2210,7 +2285,7 @@ local_model = "llama3.2"
 ```
 
 - The bridge never looks up `program` on `PATH`. A name with no folder is an error, for `program` and for `lore_pack`.
-- `program` and `lore_pack` go together: both, or neither. With neither, the story program does not start, the bridge logs one line at start, and each Timeways message gets "Timeways story program not running.". Setup cannot know them before Timeways ships its program, so it writes them as commented lines (11.3).
+- `program` and `lore_pack` go together: both, or neither. With neither, the story program does not start, the bridge logs one line at start, and each Timeways message gets "Timeways story program not running.". Setup writes them as commented lines, and sets both when it installs the Timeways programs and builds the lore pack (11.4).
 - With no `[story]`, each Timeways message gets the answer "Timeways story program not running.".
 - With `[story]` and no `timeways.key`, the bridge logs one line and starts no story program.
 - `local_url` is only `http://127.0.0.1:<port>` or `http://[::1]:<port>`, with nothing after the port. Config load refuses `localhost`, any other host, `https`, and a path, because `localhost` can resolve to another host.
@@ -2399,8 +2474,8 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 
 | File | Job |
 |---|---|
-| `Key.lua` | The strip key. `scripts/dev-link.sh` writes it, and git ignores it. |
-| `App.lua` | The names of the app: its title, the chat of a hello, the slot prefix, the three slot globals, the strip frame, and the saved variables. |
+| `App.lua` | The names of the app: its title, the chat of a hello, the slot prefix, the three slot globals, the strip frame, the saved variables, and the key addon with its global. |
+| `KeyHandoff.lua` (shared) | Loads the key addon and takes the strip key into `ns.key` (7.3.2). |
 | `Sha256.lua` (shared) | SHA-256 and HMAC-SHA256 for the strip tag. |
 | `Codec.lua` (shared) | Records, frames, and cells: the Lua side of `crates/protocol`. |
 | `Saved.lua` (shared) | The saved variables table of the app. |
@@ -2429,6 +2504,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Window.lua` | The window of 13.1, its side tabs, and its place. |
 | `Popup.lua` | The permission popup (6.4). Each button names the kind of its option, never the label of the agent. |
 | `NoticeFrames.lua` | The bell at the minimap, the list of notifications, and the toast (10.4). |
+| `SetupNeeded.lua` | The first-run window with no key (7.3.2). |
 | `Core.lua` | Startup, slash commands, and the whisper line. |
 
 **The hooks of `Messages.lua`.** An app sets them after the file loads. The defaults suit an app with one chat, such as Timeways. An advisor agent and the implementer chose this split (2026-09-26, 9.7 step 5b):
@@ -2846,7 +2922,7 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 ## 16. Development environment
 
 - `dev gnomish-relay` opens tmux with nvim, the agent, and a terminal in this folder.
-- Link `addon/GnomishRelay` into `_classic_beta_/Interface/AddOns`. Then an edit plus `/reload` loads the new code, with no copy step. `scripts/dev-link.sh` does this, and also links each file of `addon/transport` into `addon/GnomishRelay`. Git ignores these links.
+- Link `addon/GnomishRelay` into `_classic_beta_/Interface/AddOns`. Then an edit plus `/reload` loads the new code, with no copy step. `scripts/dev-link.sh` does this, and also links each file of `addon/transport` into `addon/GnomishRelay`. Git ignores these links. The key addon and the slots are real folders in `AddOns`, never in the repo (7.3.2).
 - After each client patch, run the self-test of the game (14.3.1): `scripts/selftest-link.sh`, a login and a `/reload`, then `gnomish-relay selftest collect`. Commit the new fixture and vectors. `scripts/selftest-link.sh --remove` takes the self-test out of the game.
 - Run the bridge in the bottom-right pane.
 - Aeneas and Charon are built in `~/verif`. `proofs/TOOLS` pins their commits, and CI builds the same commits with Nix.
