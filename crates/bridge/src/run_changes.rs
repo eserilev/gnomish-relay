@@ -124,16 +124,29 @@ fn numstat_line(part: &[u8]) -> Option<(LineCounts, &[u8])> {
     Some((count(added).zip(count(removed)), path))
 }
 
-/// The files that changed between two trees, and whether any name is not UTF-8.
+/// The files in `within` that changed between two trees, and whether any name is not
+/// UTF-8. `within` is the chat folder relative to `top`, and empty for the top itself.
 pub fn changes(
     git: &GitHost,
     top: &Path,
     start: &str,
     end: &str,
+    within: &str,
 ) -> Result<(Vec<FileChange>, bool), GitError> {
     let base = ["diff-tree", "-r", "-z", "--no-renames"];
-    let numstat = git.bytes(top, &[&base[..], &["--numstat", start, end]].concat())?;
-    let statuses = git.bytes(top, &[&base[..], &["--name-status", start, end]].concat())?;
+    let only = if within.is_empty() {
+        Vec::new()
+    } else {
+        vec!["--", within]
+    };
+    let numstat = git.bytes(
+        top,
+        &[&base[..], &["--numstat", start, end], &only].concat(),
+    )?;
+    let statuses = git.bytes(
+        top,
+        &[&base[..], &["--name-status", start, end], &only].concat(),
+    )?;
     let status_parts = nul_parts(&statuses);
     let mut files = Vec::new();
     let mut odd = false;
@@ -188,7 +201,7 @@ mod tests {
     }
 
     fn diff(repo: &Repo, start: &Snapshot, end: &Snapshot) -> Vec<FileChange> {
-        changes(&repo.git, &repo.top, &start.tree, &end.tree)
+        changes(&repo.git, &repo.top, &start.tree, &end.tree, "")
             .unwrap()
             .0
     }
@@ -257,6 +270,21 @@ mod tests {
             .map(|f| f.path)
             .collect();
         assert_eq!(paths, ["agent.txt"]);
+    }
+
+    #[test]
+    fn the_changes_of_a_subfolder_chat_leave_out_the_rest_of_the_repository() {
+        let repo = repo();
+        fs::create_dir(repo.top.join("web")).unwrap();
+        let start = snapshot(&repo.git, &repo.top).unwrap();
+        fs::write(repo.top.join("web/page.txt"), "page\n").unwrap();
+        fs::write(repo.top.join("kept.txt"), "another chat\n").unwrap();
+        let end = snapshot(&repo.git, &repo.top).unwrap();
+
+        let (files, _) = changes(&repo.git, &repo.top, &start.tree, &end.tree, "web").unwrap();
+
+        let paths: Vec<_> = files.into_iter().map(|f| f.path).collect();
+        assert_eq!(paths, ["web/page.txt"]);
     }
 
     #[test]

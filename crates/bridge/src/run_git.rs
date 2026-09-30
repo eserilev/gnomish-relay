@@ -114,10 +114,13 @@ impl RunGit {
         }
     }
 
+    /// Only the files in the chat folder count: another chat can work in another
+    /// folder of the same repository at the same time.
     fn changes(&self, job: &Job, started: &Started) -> Option<RunChanges> {
         let (top, start) = started.start.as_ref()?;
         let end = snapshot(&self.host, top).ok()?;
-        let (files, odd_names) = changes(&self.host, top, &start.tree, &end.tree).ok()?;
+        let within = within_top(top, Path::new(&started.folder))?;
+        let (files, odd_names) = changes(&self.host, top, &start.tree, &end.tree, &within).ok()?;
         if files.is_empty() {
             return None;
         }
@@ -145,4 +148,13 @@ impl RunGit {
             }
         }
     }
+}
+
+/// The chat folder relative to the top of its repository, with `/` as git writes it.
+/// A folder name that is not UTF-8 gets no summary.
+fn within_top(top: &Path, folder: &Path) -> Option<String> {
+    let real = folder.canonicalize().ok()?;
+    let relative = real.strip_prefix(top).ok()?;
+    let parts: Option<Vec<&str>> = relative.iter().map(|p| p.to_str()).collect();
+    Some(parts?.join("/"))
 }

@@ -276,7 +276,8 @@ mod tests {
             let start = snapshot(&self.git, &self.top).unwrap();
             change(self);
             let end = snapshot(&self.git, &self.top).unwrap();
-            let (files, odd_names) = changes(&self.git, &self.top, &start.tree, &end.tree).unwrap();
+            let (files, odd_names) =
+                changes(&self.git, &self.top, &start.tree, &end.tree, "").unwrap();
             RunChanges {
                 chat: ChatId::new("c"),
                 id: MessageId(7),
