@@ -337,11 +337,14 @@ fn toc_lists_key_file(dir: &Path, toc_name: &str) -> bool {
         .is_ok_and(|toc| toc.lines().any(|line| line.trim() == KEY_FILE))
 }
 
-/// The Timeways key addon, and the old `Key.lua` in the Timeways folder for as long as
-/// the installed Timeways TOC loads it. Timeways owns every other file of its folder
-/// (SPEC.md 9.7, decision 15).
-pub fn write_timeways_keys(addons: &Path, timeways: &Path, key_hex: &str) -> Result<Installed> {
+/// The Timeways key addon, also with no Timeways folder yet, and the old `Key.lua` in the
+/// Timeways folder for as long as the installed Timeways TOC loads it. Timeways owns
+/// every other file of its folder (SPEC.md 9.7, decision 15).
+pub fn write_timeways_keys(addons: &Path, key_hex: &str) -> Result<Installed> {
     let key_addon = write_key_addon(addons, App::Timeways, key_hex)?;
+    let Some(timeways) = timeways_dir(addons) else {
+        return Ok(key_addon);
+    };
     let real = timeways
         .canonicalize()
         .with_context(|| format!("{} is missing or a broken link", timeways.display()))?;
@@ -969,7 +972,7 @@ mod tests {
         fs::write(timeways.join("Timeways.toc"), toc).unwrap();
         let key = "cd".repeat(32);
 
-        let written = write_timeways_keys(addons.path(), &timeways, &key).unwrap();
+        let written = write_timeways_keys(addons.path(), &key).unwrap();
 
         assert_eq!(written, Installed::New);
         assert_eq!(
@@ -988,7 +991,7 @@ mod tests {
         fs::write(timeways.join("Timeways.toc"), toc).unwrap();
         fs::write(timeways.join(KEY_FILE), "old").unwrap();
 
-        write_timeways_keys(addons.path(), &timeways, &"cd".repeat(32)).unwrap();
+        write_timeways_keys(addons.path(), &"cd".repeat(32)).unwrap();
 
         assert!(!timeways.join(KEY_FILE).exists());
         assert!(timeways.join("Timeways.toc").is_file());

@@ -202,12 +202,13 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         Ok(text) => Some((text, config::load(&dirs.config, &dirs.home)?)),
         Err(_) => None,
     };
-    let timeways = install::timeways_dir(&addons).is_some();
+    let timeways_folder = install::timeways_dir(&addons).is_some();
+    let timeways = setup::timeways_choice(timeways_folder, args.timeways == TimewaysInstall::Asked);
     let found = setup::Found {
         relay_asked: args.relay_asked,
         config_has_relay: existing.as_ref().map(|(_, c)| c.relay.is_some()),
         relay_folder: addons.join(install::ADDON).exists(),
-        timeways_folder: timeways,
+        timeways,
     };
     let relay = match setup::relay_choice(&found) {
         setup::RelayChoice::Decided(relay) => relay,
@@ -218,11 +219,11 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         addons,
     };
     // The key addons and the slots first: they need nothing else, and a later step can fail.
-    let changed = setup::install_files(&folders, relay, args.keys)?;
+    let changed = setup::install_files(&folders, relay, timeways, args.keys)?;
     let addon = (relay == setup::Relay::On).then(|| relay_addon::find(&folders.addons));
     let config = setup_config(dirs, &wow, existing.as_ref(), relay, timeways, args.roots)?;
     print_setup(dirs, &config, relay);
-    let config = if timeways || args.timeways == TimewaysInstall::Asked {
+    let config = if timeways == setup::Timeways::On {
         let config = setup_story_model(dirs, config);
         if let Some(line) = story_line(&config) {
             println!("{line}");
@@ -231,7 +232,7 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     } else {
         config
     };
-    if wants_timeways_install(args.timeways, timeways, &config) {
+    if wants_timeways_install(args.timeways, timeways_folder, &config) {
         setup_timeways(dirs, args.autostart);
     }
     if args.autostart == Autostart::On {
@@ -246,7 +247,10 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     if relay == setup::Relay::On {
         println!("{}", hooks_install::SETUP_HINT);
     }
-    println!("{}", final_line(&changed, relay, args.keys, addon));
+    let get_timeways = timeways_step(timeways, timeways_folder);
+    for line in final_lines(&changed, relay, args.keys, addon, get_timeways) {
+        println!("{line}");
+    }
     Ok(())
 }
 
@@ -338,7 +342,7 @@ fn setup_config(
     wow: &Path,
     existing: Option<&(String, Config)>,
     relay: setup::Relay,
-    timeways: bool,
+    timeways: setup::Timeways,
     roots_given: Option<&str>,
 ) -> Result<Config> {
     // Under WSL, a Windows agent on the PATH runs outside every wall (SPEC.md 11.5).
@@ -356,7 +360,7 @@ fn setup_config(
     } else {
         choose_harnesses(&path_var)?
     };
-    let wants_story = timeways && lacks_story;
+    let wants_story = timeways == setup::Timeways::On && lacks_story;
     // A local model is also for the agents: the relay part opens its port.
     let models = if wants_story || !roots.is_empty() {
         model_setup::find_models(&path_var)
@@ -587,17 +591,31 @@ fn pull_with_progress(ollama: &ollama_install::Ollama) -> Result<()> {
     result
 }
 
-/// A missing or unfit relay addon comes last, so it is also the last line of the
-/// installers (SPEC.md 11.3).
-fn final_line(
+// TODO: add the link when the Timeways project on CurseForge has one.
+const GET_TIMEWAYS: &str = "Get the Timeways addon on CurseForge, then restart WoW.";
+
+/// Setup for Timeways can come before its addon, which players get from `CurseForge`.
+fn timeways_step(timeways: setup::Timeways, folder: bool) -> Option<&'static str> {
+    (timeways == setup::Timeways::On && !folder).then_some(GET_TIMEWAYS)
+}
+
+/// A missing addon comes last, so it is also the last line of the installers (SPEC.md
+/// 11.3). The next step of each addon replaces "All set".
+fn final_lines(
     changed: &setup::Changed,
     relay: setup::Relay,
     keys: KeyChoice,
     addon: Option<RelayAddon>,
-) -> &'static str {
-    addon
-        .and_then(relay_addon::next_step)
-        .unwrap_or_else(|| last_line(changed, relay, keys))
+    timeways_step: Option<&'static str>,
+) -> Vec<&'static str> {
+    let steps: Vec<&'static str> = [addon.and_then(relay_addon::next_step), timeways_step]
+        .into_iter()
+        .flatten()
+        .collect();
+    if steps.is_empty() {
+        return vec![last_line(changed, relay, keys)];
+    }
+    steps
 }
 
 /// WoW finds a new addon folder only at launch, and a new key only after a `/reload`.
@@ -879,16 +897,19 @@ mod tests {
     fn a_missing_relay_addon_replaces_the_last_line_with_the_curseforge_link() {
         let new = changed(true, Some(install::Installed::New));
 
-        let line = final_line(
+        let lines = final_lines(
             &new,
             setup::Relay::On,
             KeyChoice::Keep,
             Some(RelayAddon::Missing),
+            None,
         );
 
         assert_eq!(
-            line,
-            "Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW."
+            lines,
+            [
+                "Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW."
+            ]
         );
     }
 
@@ -901,16 +922,42 @@ mod tests {
         let fit = Some(RelayAddon::Installed(VersionFit::Supported));
 
         assert_eq!(
-            final_line(&new, on, keep, old),
-            "Update Gnomish Relay in the CurseForge app, then restart WoW."
+            final_lines(&new, on, keep, old, None),
+            ["Update Gnomish Relay in the CurseForge app, then restart WoW."]
         );
         assert_eq!(
-            final_line(&new, on, keep, fit),
-            "All set. Restart WoW, then type /relay"
+            final_lines(&new, on, keep, fit, None),
+            ["All set. Restart WoW, then type /relay"]
         );
         assert_eq!(
-            final_line(&new, setup::Relay::Off, keep, None),
-            "All set. Restart WoW to load the addon"
+            final_lines(&new, setup::Relay::Off, keep, None, None),
+            ["All set. Restart WoW to load the addon"]
         );
+    }
+
+    #[test]
+    fn setup_for_timeways_with_no_timeways_folder_ends_with_the_curseforge_step() {
+        let new = changed(false, Some(install::Installed::New));
+        let (off, keep) = (setup::Relay::Off, KeyChoice::Keep);
+
+        assert_eq!(
+            timeways_step(setup::Timeways::On, false),
+            Some(GET_TIMEWAYS)
+        );
+        assert_eq!(timeways_step(setup::Timeways::On, true), None);
+        assert_eq!(timeways_step(setup::Timeways::Off, false), None);
+        assert_eq!(
+            final_lines(&new, off, keep, None, Some(GET_TIMEWAYS)),
+            ["Get the Timeways addon on CurseForge, then restart WoW."]
+        );
+        let both = final_lines(
+            &new,
+            setup::Relay::On,
+            keep,
+            Some(RelayAddon::Missing),
+            Some(GET_TIMEWAYS),
+        );
+        assert_eq!(both.len(), 2);
+        assert_eq!(both[1], GET_TIMEWAYS, "the Timeways step is the last line");
     }
 }

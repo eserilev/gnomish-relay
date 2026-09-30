@@ -137,3 +137,42 @@ fn status_in_a_fresh_home_says_the_bridge_is_stopped() {
         stdout(&out)
     );
 }
+
+/// Players get the Timeways addon from `CurseForge`, so `setup --timeways` can come first.
+/// No `curl` on the `PATH`, so nothing downloads.
+#[cfg(target_os = "linux")]
+#[test]
+fn setup_for_timeways_before_its_addon_writes_its_key_addon_and_ends_with_the_curseforge_step() {
+    let home = tempfile::tempdir().unwrap();
+    let addons = home.path().join("wow/Interface/AddOns");
+    std::fs::create_dir_all(&addons).unwrap();
+    let empty = home.path().join("empty");
+    std::fs::create_dir(&empty).unwrap();
+
+    let out = Command::new(env!("CARGO_BIN_EXE_gnomish-relay"))
+        .arg("setup")
+        .arg(home.path().join("wow"))
+        .arg("--timeways")
+        .env_clear()
+        .env("HOME", home.path())
+        .env("XDG_CONFIG_HOME", home.path().join("config"))
+        .env("XDG_DATA_HOME", home.path().join("data"))
+        .env("PATH", &empty)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .unwrap();
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.ends_with("\nGet the Timeways addon on CurseForge, then restart WoW.\n"),
+        "{stdout}"
+    );
+    assert!(addons.join("Timeways_Key/Key.lua").is_file());
+    assert!(addons.join("Timeways_S0001").is_dir());
+    assert!(!addons.join("Timeways").exists());
+    assert!(
+        !addons.join("GnomishRelay_Key").exists(),
+        "no relay with no terminal"
+    );
+}

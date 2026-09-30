@@ -25,6 +25,23 @@ pub enum Relay {
     Off,
 }
 
+/// Whether this computer runs Timeways.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Timeways {
+    On,
+    Off,
+}
+
+/// The Timeways addon folder, or `--timeways`. Players get the addon from `CurseForge`,
+/// so setup can come first, and then WoW finds the key addon at its next start.
+pub fn timeways_choice(folder: bool, asked: bool) -> Timeways {
+    if folder || asked {
+        Timeways::On
+    } else {
+        Timeways::Off
+    }
+}
+
 /// Whether setup can decide the relay alone, or asks the player.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RelayChoice {
@@ -46,7 +63,8 @@ pub struct Found {
     /// `None` with no config yet.
     pub config_has_relay: Option<bool>,
     pub relay_folder: bool,
-    pub timeways_folder: bool,
+    /// The Timeways folder, or `--timeways`: the player came for Timeways.
+    pub timeways: Timeways,
 }
 
 /// Only a player with Timeways, no relay folder, and no config gets a question.
@@ -57,7 +75,7 @@ pub fn relay_choice(found: &Found) -> RelayChoice {
     if let Some(has_relay) = found.config_has_relay {
         return RelayChoice::Decided(if has_relay { Relay::On } else { Relay::Off });
     }
-    if found.relay_folder || !found.timeways_folder {
+    if found.relay_folder || found.timeways == Timeways::Off {
         return RelayChoice::Decided(Relay::On);
     }
     RelayChoice::Ask
@@ -90,7 +108,7 @@ fn key(dir: &Path, file: &str, choice: KeyChoice, other: Option<&str>) -> Result
 pub struct Changed {
     /// `None` with the relay off.
     pub relay_key: Option<Installed>,
-    /// `None` with no Timeways folder. `New` for a new key addon folder.
+    /// `None` with Timeways off. `New` for a new key addon folder.
     pub timeways_key: Option<Installed>,
     /// WoW finds a new slot folder only at launch.
     pub new_slots: bool,
@@ -98,7 +116,12 @@ pub struct Changed {
 
 /// The keys, the key addons, and the slots of each app that this computer has. They
 /// need nothing else, so they come before the config (SPEC.md 11.3).
-pub fn install_files(folders: &Folders, relay: Relay, keys: KeyChoice) -> Result<Changed> {
+pub fn install_files(
+    folders: &Folders,
+    relay: Relay,
+    timeways: Timeways,
+    keys: KeyChoice,
+) -> Result<Changed> {
     let dir = &folders.config;
     make_private_dir(dir)?;
     // `KeySet` needs the relay key, so every player gets it. With no addon, it does nothing.
@@ -111,17 +134,13 @@ pub fn install_files(folders: &Folders, relay: Relay, keys: KeyChoice) -> Result
         }
         Relay::Off => None,
     };
-    let timeways_key = match install::timeways_dir(&folders.addons) {
-        Some(timeways) => {
+    let timeways_key = match timeways {
+        Timeways::On => {
             let hex = key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay_hex))?;
             new_slots |= install_slots(&folders.addons, App::Timeways)?;
-            Some(install::write_timeways_keys(
-                &folders.addons,
-                &timeways,
-                &hex,
-            )?)
+            Some(install::write_timeways_keys(&folders.addons, &hex)?)
         }
-        None => None,
+        Timeways::Off => None,
     };
     // Equal keys stop setup here, as they stop the bridge.
     KeySet::load(dir)?;
@@ -158,13 +177,10 @@ pub fn install_all_slots(addons: &Path, relay: Relay) -> Result<Vec<App>> {
 /// Writes the Timeways key addon again when it is missing or old, as the bridge does for
 /// the relay at each start (SPEC.md 11.3). The bridge never makes a key.
 pub fn repair_timeways_key(config_dir: &Path, addons: &Path) -> Result<Option<Installed>> {
-    let Some(timeways) = install::timeways_dir(addons) else {
-        return Ok(None);
-    };
     let Ok(hex) = fs::read_to_string(config_dir.join(TIMEWAYS_KEY_FILE)) else {
         return Ok(None);
     };
-    install::write_timeways_keys(addons, &timeways, hex.trim()).map(Some)
+    install::write_timeways_keys(addons, hex.trim()).map(Some)
 }
 
 /// The parts that the config gets. Each one is `Some` only when the config lacks it.
@@ -263,7 +279,7 @@ mod tests {
             relay_asked,
             config_has_relay: config,
             relay_folder: relay,
-            timeways_folder: timeways,
+            timeways: timeways_choice(timeways, false),
         }
     }
 
@@ -297,6 +313,15 @@ mod tests {
             relay_choice(&found(false, None, false, true)),
             RelayChoice::Ask
         );
+    }
+
+    #[test]
+    fn a_new_player_who_asks_for_timeways_before_its_addon_gets_the_question() {
+        let asked = Found {
+            timeways: timeways_choice(false, true),
+            ..found(false, None, false, false)
+        };
+        assert_eq!(relay_choice(&asked), RelayChoice::Ask);
     }
 
     #[test]
