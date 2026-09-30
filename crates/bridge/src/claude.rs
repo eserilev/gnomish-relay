@@ -480,23 +480,30 @@ pub fn read_request(request: &Value) -> Request {
     }
 }
 
-/// The classifier input of a tool of Claude Code (SPEC.md 6.6.3). A relative path is
-/// relative to the folder of the chat. A tool that the bridge does not know is unknown.
-pub fn tool_call(request: &Request, cwd: &Path) -> Call {
+/// The classifier input of a tool of Claude Code (SPEC.md 6.6.3). Each path is the path
+/// that Claude Code opens. A tool that the bridge does not know is unknown.
+pub fn tool_call(request: &Request, cwd: &Path, home: &Path) -> Call {
     let input = &request.input;
-    let path = |key: &str| text_at(input, key).map(|p| cwd.join(p));
+    let path = |key: &str| text_at(input, key).and_then(|p| expand_path(p, cwd, home));
+    let root = || match text_at(input, "/path") {
+        Some(p) => expand_path(p, cwd, home),
+        None => Some(cwd.to_owned()),
+    };
     let (text, title) = (request.text.clone(), request.title.clone());
-    let files = |reads: Option<PathBuf>, writes: Option<PathBuf>| match (reads, writes) {
-        (Some(read), None) => Call::files(&[read], &[], text.clone(), title.clone()),
-        (None, Some(write)) => Call::files(&[], &[write], text.clone(), title.clone()),
-        _ => Call::unknown(text.clone(), title.clone()),
+    let reads = |paths: Option<Vec<PathBuf>>| match paths {
+        Some(paths) => Call::files(&paths, &[], text.clone(), title.clone()),
+        None => Call::unknown(text.clone(), title.clone()),
+    };
+    let write = |path: Option<PathBuf>| match path {
+        Some(path) => Call::files(&[], &[path], text.clone(), title.clone()),
+        None => Call::unknown(text.clone(), title.clone()),
     };
     match request.tool.as_str() {
-        "Read" => files(path("/file_path"), None),
-        "Write" | "Edit" | "MultiEdit" => files(None, path("/file_path")),
-        "NotebookEdit" => files(None, path("/notebook_path")),
-        "Glob" if !is_plain_glob(text_at(input, "/pattern").unwrap_or("")) => files(None, None),
-        "Glob" | "Grep" | "LS" => files(path("/path").or(Some(cwd.to_owned())), None),
+        "Read" => reads(path("/file_path").map(|p| vec![p])),
+        "Write" | "Edit" | "MultiEdit" => write(path("/file_path")),
+        "NotebookEdit" => write(path("/notebook_path")),
+        "Glob" if !is_plain_glob(text_at(input, "/pattern").unwrap_or("")) => reads(None),
+        "Glob" | "Grep" | "LS" => reads(root().map(|p| vec![p])),
         "Bash" => match text_at(input, "/command") {
             Some(command) => Call::command(command, cwd, text, title),
             None => Call::unknown(text, title),
@@ -504,6 +511,37 @@ pub fn tool_call(request: &Request, cwd: &Path) -> Call {
         tool if SESSION_TOOLS.contains(&tool) => Call::files(&[], &[], text, title),
         _ => Call::unknown(text, title),
     }
+}
+
+/// The path that Claude Code opens (`expandPath`, checked on 2.1.285): it trims the text,
+/// expands `~` and `~/`, and joins a relative path to the folder. `None` for a path that
+/// the bridge cannot place the same way, such as `~other` or a NUL byte.
+fn expand_path(text: &str, cwd: &Path, home: &Path) -> Option<PathBuf> {
+    // JavaScript `trim` also takes a byte order mark.
+    let text = text.trim_matches(|c: char| c.is_whitespace() || c == '\u{feff}');
+    if text.contains('\0') || is_msys_drive(text) {
+        return None;
+    }
+    let path = if text == "~" {
+        home.to_owned()
+    } else if let Some(rest) = text.strip_prefix("~/") {
+        home.join(rest)
+    } else if text.starts_with('~') {
+        return None;
+    } else {
+        cwd.join(text)
+    };
+    path.is_absolute().then_some(path)
+}
+
+/// On Windows, Claude Code reads `/c/x` as `C:\x`.
+fn is_msys_drive(text: &str) -> bool {
+    let bytes = text.as_bytes();
+    cfg!(windows)
+        && bytes.len() >= 3
+        && bytes[0] == b'/'
+        && bytes[1].is_ascii_alphabetic()
+        && bytes[2] == b'/'
 }
 
 /// A glob that stays under its folder: no absolute part, no `~`, and no `..`.
@@ -786,7 +824,7 @@ impl Stream {
         let Rules::Gate(gated) = &self.rules else {
             return Err(Refusal::ByRule(NO_TOOLS.into()));
         };
-        let call = tool_call(request, Path::new(&gated.cwd));
+        let call = tool_call(request, Path::new(&gated.cwd), &gated.gate.home);
         let job = gate::Job {
             agent: &gated.agent,
             cwd: &gated.cwd,

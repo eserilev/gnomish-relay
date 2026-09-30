@@ -499,6 +499,50 @@ fn a_glob_that_leaves_its_folder_asks_on_the_desktop() {
     );
 }
 
+/// Claude Code expands `~` and trims the path before it reads, so the gate does too.
+#[test]
+fn a_search_path_with_a_tilde_or_spaces_is_the_path_that_claude_code_reads() {
+    let mut home = home("");
+    home.gate.home = home.path.clone();
+    for path in ["~/notes", "  ~/notes", "~", " /etc ", "~other/x"] {
+        let reply = call(
+            &home,
+            "Grep",
+            &json!({ "pattern": "x", "path": path }),
+            Permission::FullAuto,
+        );
+        assert!(
+            reply.starts_with("deny: No answer on the desktop."),
+            "{path}: {reply}"
+        );
+    }
+    let inside = call(
+        &home,
+        "Grep",
+        &json!({ "pattern": "x", "path": " src " }),
+        Permission::Ask,
+    );
+    assert_eq!(inside, "allow: Allowed by Gnomish Relay.");
+}
+
+#[test]
+fn a_read_of_a_path_with_a_tilde_resolves_in_the_home_folder() {
+    let mut home = home("");
+    home.gate.home = home.path.clone();
+
+    let reply = call(
+        &home,
+        "Read",
+        &json!({ "file_path": "~/notes.txt" }),
+        Permission::FullAuto,
+    );
+
+    assert!(
+        reply.starts_with("deny: No answer on the desktop."),
+        "{reply}"
+    );
+}
+
 #[test]
 fn a_tool_of_the_session_only_runs_with_no_question() {
     let home = home("");
