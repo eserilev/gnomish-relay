@@ -67,7 +67,7 @@ fn write_systemd_unit(dirs: &Dirs, exe: &Path) -> Result<()> {
         .iter()
         .filter_map(|name| Some((*name, std::env::var(name).ok()?)))
         .collect();
-    let dir = systemd_dir(dirs)?;
+    let dir = systemd_dir(dirs);
     std::fs::create_dir_all(&dir)?;
     write_atomic(
         &dir,
@@ -96,13 +96,8 @@ fn load_launchd_agent(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
     Ok(log)
 }
 
-fn systemd_dir(dirs: &Dirs) -> Result<PathBuf> {
-    Ok(dirs
-        .config
-        .parent()
-        .context("no config folder")?
-        .join("systemd")
-        .join("user"))
+fn systemd_dir(dirs: &Dirs) -> PathBuf {
+    install::systemd_dir(&dirs.home)
 }
 
 fn launch_agents_dir(dirs: &Dirs) -> PathBuf {
@@ -134,7 +129,7 @@ pub fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
 }
 
 fn restart_service(dirs: &Dirs, exe: &Path) -> Result<BridgeLog> {
-    if cfg!(target_os = "linux") && systemd_dir(dirs)?.join(SYSTEMD_UNIT).is_file() {
+    if cfg!(target_os = "linux") && systemd_dir(dirs).join(SYSTEMD_UNIT).is_file() {
         write_systemd_unit(dirs, exe)?;
         command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
         return Ok(BridgeLog::Journal);
@@ -295,10 +290,17 @@ mod tests {
     }
 
     #[test]
-    fn the_systemd_unit_of_the_user_lies_next_to_the_config_folder() {
+    fn the_systemd_unit_lies_where_the_user_manager_reads_it_also_with_xdg_config_home() {
         let root = tempfile::tempdir().unwrap();
-        let dir = systemd_dir(&dirs(root.path())).unwrap();
-        assert_eq!(dir, root.path().join("config").join("systemd").join("user"));
+        let dirs = dirs(root.path());
+
+        let dir = systemd_dir(&dirs);
+
+        assert_eq!(dir, root.path().join("home/.config/systemd/user"));
+        let unit = dir.join(SYSTEMD_UNIT);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(&unit, "").unwrap();
+        assert_eq!(install::service_file(&dirs.home), Some(unit));
     }
 
     /// `sh run` fails at once, which is enough: only the log matters here.

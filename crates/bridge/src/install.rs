@@ -536,10 +536,16 @@ pub fn launchd_plist(exe: &Path, path_var: &str, log: &Path) -> String {
 
 pub const SYSTEMD_UNIT: &str = "gnomish-relay.service";
 
+/// The user manager of systemd starts with no `XDG_CONFIG_HOME` of a shell rc file, so
+/// it reads units here, not under the `XDG_CONFIG_HOME` of the shell.
+pub fn systemd_dir(home: &Path) -> PathBuf {
+    home.join(".config").join("systemd").join("user")
+}
+
 /// The login service file of setup on this OS, if there is one.
-pub fn service_file(config_dir: &Path, home: &Path) -> Option<PathBuf> {
+pub fn service_file(home: &Path) -> Option<PathBuf> {
     let file = if cfg!(target_os = "linux") {
-        config_dir.parent()?.join("systemd/user").join(SYSTEMD_UNIT)
+        systemd_dir(home).join(SYSTEMD_UNIT)
     } else if cfg!(target_os = "macos") {
         home.join("Library/LaunchAgents")
             .join(format!("{LAUNCHD_LABEL}.plist"))

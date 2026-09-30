@@ -48,7 +48,7 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
 fn default_agent_off_service_path(relay: &RelayConfig, places: &Places) -> Option<String> {
     let spec = relay.agents.get(&relay.policy.default_agent)?;
     let program = spec.command.first()?;
-    let file = install::service_file(places.config_dir, places.home)?;
+    let file = install::service_file(places.home)?;
     let service_path = install::service_path_var(&fs::read_to_string(file).ok()?);
     service_path_line(program, service_path.as_deref())
 }
