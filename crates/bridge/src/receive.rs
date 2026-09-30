@@ -142,6 +142,11 @@ pub fn receive(bytes: &[u8], keys: &KeySet, now: u32) -> Result<(App, Vec<Record
     Ok((app, records))
 }
 
+/// The tag of the frame in `bytes`, after `receive` took it: then a key verified it.
+pub fn frame_tag(bytes: &[u8]) -> Option<[u8; 8]> {
+    decode_frame(bytes).ok().map(|frame| frame.tag)
+}
+
 /// An outbox frame counts only for the app whose saved variables hold it (SPEC.md 9.7,
 /// decision 3).
 pub fn receive_for(
@@ -187,6 +192,16 @@ mod tests {
 
     fn app_of(wire: &[u8], keys: &KeySet) -> Result<App, Rejected> {
         receive(wire, keys, NOW).map(|(app, _)| app)
+    }
+
+    #[test]
+    fn the_same_frame_has_the_same_tag_and_another_frame_another_tag() {
+        let first = signed(NOW, RECORD, &key("ab"));
+        let later = signed(NOW + 1, RECORD, &key("ab"));
+
+        assert_eq!(frame_tag(&first), frame_tag(&first.clone()));
+        assert_ne!(frame_tag(&first), frame_tag(&later));
+        assert_eq!(frame_tag(b"not a frame"), None);
     }
 
     #[test]

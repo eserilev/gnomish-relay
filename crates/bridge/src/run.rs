@@ -12,7 +12,7 @@ use anyhow::Result;
 use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal};
 use crate::config::{Permission, Policy};
 use crate::raise::{RaiseGuard, Raised, Raiser};
-use crate::receive::{KeySet, receive, receive_for};
+use crate::receive::{KeySet, frame_tag, receive, receive_for};
 use crate::turn::STOPPED;
 use protocol::apps::App;
 use protocol::record::Record;
@@ -21,7 +21,7 @@ use protocol::version::version_fit;
 use crate::action_input::resolve;
 use crate::folder_walk::{self, Snapshot, Walk};
 use crate::new_folder::make_folder;
-use crate::relay::{ChatId, Job, MessageId, Outcome, Relay, Work};
+use crate::relay::{ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::settings_list::BridgeSettings;
@@ -237,8 +237,11 @@ impl Bridge {
                 return false;
             }
         };
+        let Some(tag) = frame_tag(bytes) else {
+            return false;
+        };
         match (app, &mut self.relay, &mut self.timeways) {
-            (App::Relay, Some(relay), _) => relay.take_records(&records, "strip"),
+            (App::Relay, Some(relay), _) => relay.take_records(tag, &records, "strip"),
             (App::Timeways, _, Some(timeways)) => timeways.take_records(&records, "strip"),
             // `KeySet` routes to Timeways only with a Timeways key, and that key makes the lane.
             (App::Relay, None, _) | (App::Timeways, _, None) => {
@@ -310,16 +313,16 @@ impl RelayLane {
         for text in self.files.saved.changed() {
             self.relay.reset_window();
             self.files.changed = true;
-            for records in outbox_records(App::Relay, &text, keys) {
-                self.take_records(&records, "outbox");
+            for (tag, records) in outbox_records(App::Relay, &text, keys) {
+                self.take_records(tag, &records, "outbox");
             }
         }
     }
 
-    fn take_records(&mut self, records: &[Record], source: &str) {
+    fn take_records(&mut self, tag: FrameTag, records: &[Record], source: &str) {
         let build = self.relay.client_build().map(str::to_owned);
         let version = self.relay.addon_version();
-        let outcomes = self.relay.on_frame(records, now());
+        let outcomes = self.relay.on_tagged_frame(tag, records, now());
         if let Some(new) = self
             .relay
             .client_build()
@@ -596,12 +599,13 @@ fn log_version(app: App, reported: u32) {
 
 /// The records of each outbox frame that the key of `app` signed. Any other frame is
 /// refused (SPEC.md 9.7, decision 3).
-fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<Vec<Record>> {
+fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<(FrameTag, Vec<Record>)> {
     let mut all = Vec::new();
     for frame in saved::frames(text) {
-        match receive_for(app, &frame, keys, now()) {
-            Ok(records) => all.push(records),
-            Err(reason) => log(&format!("{app:?} outbox rejected: {reason:?}")),
+        match (receive_for(app, &frame, keys, now()), frame_tag(&frame)) {
+            (Ok(records), Some(tag)) => all.push((tag, records)),
+            (Err(reason), _) => log(&format!("{app:?} outbox rejected: {reason:?}")),
+            (Ok(_), None) => log(&format!("{app:?} outbox frame with no tag")),
         }
     }
     all
@@ -642,7 +646,7 @@ impl TimewaysLane {
         for text in self.files.saved.changed() {
             self.timeways.reset_window();
             self.files.changed = true;
-            for records in outbox_records(App::Timeways, &text, keys) {
+            for (_, records) in outbox_records(App::Timeways, &text, keys) {
                 self.take_records(&records, "outbox");
             }
         }
