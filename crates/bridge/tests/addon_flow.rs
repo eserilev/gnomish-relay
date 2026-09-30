@@ -3996,6 +3996,28 @@ fn the_status_line_shows_the_age_of_the_list_and_the_state_of_the_bridge() {
 }
 
 #[test]
+fn settings_says_what_the_permissions_of_the_chosen_agent_do() {
+    let game = Game::start();
+    open_settings_with_list(&game, false);
+    let sandbox = "|cff8d8778Edits the chat folder and runs commands in the sandbox on its own. Asks for risky commands.|r";
+    let ask = "|cff8d8778Asks before each edit and each command.|r";
+    assert!(
+        texts_of(&game, "FontString").contains(&sandbox.to_owned()),
+        "claude at auto-edit with bwrap"
+    );
+
+    click(&game, "GnomishRelaySettingsAgent");
+    click(&game, "GnomishRelaySettingsAgentChoice2");
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&ask.to_owned()),
+        "codex is up to ask: {texts:?}"
+    );
+    assert!(!texts.contains(&sandbox.to_owned()), "{texts:?}");
+}
+
+#[test]
 fn a_new_chat_takes_the_agent_and_level_that_settings_chose() {
     let game = Game::start();
     open_settings_with_list(&game, false);

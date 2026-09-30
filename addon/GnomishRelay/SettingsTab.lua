@@ -12,6 +12,14 @@ local GREY = "8d8778"
 local ORANGE = "ff9f40"
 local GREEN = "1eff00"
 local LEVELS = { "ask", "auto-edit" }
+-- What a chat can do, by the permissions that apply (SPEC.md 9.3 and 13.1).
+local LEVEL_HINTS = {
+	ask = "Asks before each edit and each command.",
+	sandbox = "Edits the chat folder and runs commands in the sandbox on its own. Asks for risky commands.",
+	command = "Edits the chat folder and runs its own commands in the sandbox.",
+	edit = "Edits the chat folder on its own. Asks before each command.",
+}
+local SANDBOXES = { bwrap = true, ["sandbox-exec"] = true }
 local COLORS = { "f0a860", "ff80ff", "69ccf0", "9fe39f", "ffd100" }
 local FONT_MIN, FONT_MAX = 12, 20
 -- A list older than this shows its age in orange.
@@ -136,6 +144,31 @@ local function Ceiling(agent)
 	return known and known.level or "?"
 end
 
+-- The chat runs at the lower of the chosen level and the level in the config.
+local function LevelInUse(agent)
+	if Ceiling(agent) == "ask" then
+		return "ask"
+	end
+	return ns.Store.NewLevel()
+end
+
+-- Only Claude runs its commands in the sandbox of the desktop app. Codex and ACP agents ask.
+local function LevelHint(agent)
+	if LevelInUse(agent) == "ask" then
+		return LEVEL_HINTS.ask
+	end
+	local known = ns.BridgeSettings.FindAgent(agent)
+	local kind = known and known.kind
+	if kind == "command" then
+		return LEVEL_HINTS.command
+	end
+	local last = ns.BridgeSettings.Last()
+	if kind == "claude" and last and SANDBOXES[last.values.sandbox] then
+		return LEVEL_HINTS.sandbox
+	end
+	return LEVEL_HINTS.edit
+end
+
 local function Ago(seconds)
 	local minutes = math.floor(seconds / 60)
 	if minutes < 60 then
@@ -227,6 +260,7 @@ function SettingsTab.Refresh()
 	ui.agent:SetText(ns.Relay.AgentName(agent))
 	ui.level:SetText(ns.Store.NewLevel())
 	ui.ceiling:SetText(string.format("|cff%sUp to %s (set on your desktop)|r", GREY, Ceiling(agent)))
+	ui.levelHint:SetText(string.format("|cff%s%s|r", GREY, LevelHint(agent)))
 	ui.font:SetValue(db.fontSize)
 	ui.fontValue:SetText(db.fontSize)
 	ui.whisperOn:SetChecked(db.whisperOn)
@@ -256,6 +290,7 @@ local function BuildNewChats()
 	end
 	SetChoices(ui.level, levels)
 	ui.ceiling = Label(ui.page, "GameFontHighlightSmall", 20 + LABEL_WIDTH + 150, -44 - ROW)
+	ui.levelHint = Label(ui.page, "GameFontHighlightSmall", 20, -40 - 2 * ROW + 4)
 end
 
 local function BuildFontSize(y)
