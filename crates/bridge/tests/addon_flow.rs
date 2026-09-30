@@ -4283,6 +4283,16 @@ fn the_key_binding_opens_and_closes_the_window() {
     );
 }
 
+/// WoW warns "Binding header … was attempted to be loaded more than once" at each login.
+#[test]
+fn the_key_bindings_name_their_header_only_once() {
+    let bindings = repo_file("addon/GnomishRelay/Bindings.xml");
+
+    let headers = bindings.matches("header=").count();
+
+    assert_eq!(headers, 1, "{bindings}");
+}
+
 // A client patch can change what the self-test measures (SPEC.md 14.3). The tests below
 // run the relay in each other behavior that the fake game knows.
 

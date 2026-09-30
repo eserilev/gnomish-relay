@@ -2,7 +2,7 @@
 	<Binding name="GNOMISHRELAY_TOGGLE" header="GNOMISHRELAY" category="ADDONS">
 		GnomishRelay_Toggle()
 	</Binding>
-	<Binding name="GNOMISHRELAY_SEARCH" header="GNOMISHRELAY" category="ADDONS">
+	<Binding name="GNOMISHRELAY_SEARCH" category="ADDONS">
 		GnomishRelay_Search()
 	</Binding>
 </Bindings>
