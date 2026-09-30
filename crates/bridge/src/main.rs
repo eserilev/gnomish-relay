@@ -3,33 +3,26 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
-use bridge::agent;
-use bridge::agent::Agents;
 #[cfg(unix)]
 use bridge::agent_wall;
 use bridge::always_rules::AlwaysRules;
-use bridge::app_files::private_game_paths;
 use bridge::check_agent;
 use bridge::command_sandbox;
-use bridge::config::{self, Config, Policy, RelayConfig, StoryConfig};
+use bridge::config::{self, Config};
 use bridge::desktop::{self, Approvals, Prompt};
 use bridge::dirs::Dirs;
 #[cfg(unix)]
 use bridge::forward;
-use bridge::gate::{Gate, Places};
+use bridge::gate::Places;
 use bridge::install;
-use bridge::lock;
-use bridge::raise::Raiser;
-use bridge::receive::{KeySet, RELAY_KEY_FILE};
-use bridge::run::{Paths, now, run};
+use bridge::run::now;
 use bridge::selftest;
 use bridge::service;
-use bridge::settings_list::BridgeSettings;
 use bridge::setup;
 use bridge::setup_command;
 use bridge::slots::{self, Files};
+use bridge::start;
 use bridge::status;
-use bridge::story::StorySpec;
 use bridge::update;
 use protocol::apps::App;
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
@@ -141,85 +134,6 @@ fn install(dirs: &Dirs) -> Result<()> {
     Ok(())
 }
 
-fn start(dirs: &Dirs) -> Result<()> {
-    let config = load_config(dirs)?;
-    let state = dirs.data.clone();
-    bridge::fs_safe::make_private_dir(&state)?;
-    let _lock = lock::take(&state)?;
-    let paths = Paths {
-        state,
-        config: dirs.config.clone(),
-        screenshots: config.wow.join("Screenshots"),
-        accounts: config.wow.join("WTF").join("Account"),
-        addons: addons_dir(&config.wow),
-    };
-    // Equal keys, or a `timeways.key` that does not load, stop the bridge here.
-    let keys = KeySet::load(&dirs.config)?;
-    // Only `Key.lua`, never another file of the Timeways addon (SPEC.md 9.7, decision 15).
-    if setup::repair_timeways_key(&dirs.config, &paths.addons)? == Some(install::Installed::Updated)
-    {
-        println!("wrote the Timeways key again: type /reload in the game");
-    }
-    let relay = match config.relay {
-        Some(relay) => Some(start_relay(dirs, relay, config.story.as_ref(), &paths)?),
-        None => None,
-    };
-    let story = match &config.story {
-        Some(story) => story_spec(dirs, story, &paths)?,
-        None => None,
-    };
-    run(paths, relay, keys, story)
-}
-
-/// An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
-fn start_relay(
-    dirs: &Dirs,
-    relay: RelayConfig,
-    story: Option<&StoryConfig>,
-    paths: &Paths,
-) -> Result<(Policy, Agents, Raiser, BridgeSettings)> {
-    let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
-    if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
-        println!("wrote the addon files again: type /reload in the game");
-    }
-    let places = Places {
-        config_dir: &dirs.config,
-        data_dir: &paths.state,
-        home: &dirs.home,
-    };
-    let mut gate = Gate::new(&relay, &places, Prompt::Dialog);
-    let private = private_game_paths(&paths.addons, &paths.accounts, &paths.screenshots);
-    gate.sandbox = gate.sandbox.with_game(private);
-    gate.approvals.clear();
-    let sandbox = gate.sandbox.summary();
-    println!("commands from the game run in: {sandbox}");
-    println!("the agents of the game run in: {}", gate.wall.summary());
-    let agents = agent::from_config(&relay, &gate);
-    let raiser = Raiser {
-        approvals: gate.approvals.clone(),
-        config_dir: dirs.config.clone(),
-        home: dirs.home.clone(),
-        permission_timeout: relay.permission_timeout,
-        free_commands: relay
-            .agents
-            .iter()
-            .filter(|(_, spec)| spec.kind == config::Kind::Command)
-            .map(|(name, _)| name.clone())
-            .collect(),
-    };
-    let mut settings = BridgeSettings::from_config(&relay, story, Some(&dirs.home), sandbox);
-    settings.rules.store = gate.always.clone();
-    Ok((relay.policy, agents, raiser, settings))
-}
-
-fn story_spec(dirs: &Dirs, story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
-    let spec = StorySpec::from_config(story, &dirs.config, &paths.state, &dirs.home)?;
-    if spec.is_none() {
-        eprintln!("timeways: [story] has no program, so the story program does not start");
-    }
-    Ok(spec)
-}
-
 fn print_status(dirs: &Dirs) -> Result<()> {
     let places = Places {
         config_dir: &dirs.config,
@@ -296,7 +210,7 @@ fn main() -> Result<()> {
         }
         ["setup", ref rest @ ..] => setup_command::setup(&Dirs::from_env()?, rest),
         ["install"] => install(&Dirs::from_env()?),
-        ["run"] => start(&Dirs::from_env()?),
+        ["run"] => start::start(&Dirs::from_env()?),
         ["run", "--background"] => {
             let log = service::start_background(&Dirs::from_env()?, &std::env::current_exe()?)?;
             println!("the bridge runs, and logs to {}", log.display());

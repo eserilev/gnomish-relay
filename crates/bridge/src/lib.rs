@@ -71,6 +71,7 @@ pub mod settings_list;
 pub mod setup;
 pub mod setup_command;
 pub mod slots;
+pub mod start;
 pub mod state;
 pub mod status;
 pub mod story;
