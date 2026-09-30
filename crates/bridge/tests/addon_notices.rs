@@ -560,6 +560,23 @@ fn clear_empties_the_list_hides_the_bell_and_the_notice_never_comes_back() {
 }
 
 #[test]
+fn clear_sits_in_the_title_row_so_a_long_list_never_hides_it() {
+    let game = Game::start();
+    game.publish_and_poll(1, 1, &[waiting(1)]);
+    game.click("GnomishRelayBell");
+
+    let point = game.run(
+        "local point, relative = GnomishRelayNoticesClear:GetPoint() return point .. ' ' .. tostring(relative == GnomishRelayNoticesClose)",
+    );
+
+    assert_eq!(
+        point.as_string().unwrap().to_str().unwrap(),
+        "RIGHT true",
+        "left of the close button"
+    );
+}
+
+#[test]
 fn the_bell_and_the_line_open_the_list_and_escape_can_close_it() {
     let game = Game::start();
     game.publish_and_poll(1, 1, &[waiting(1)]);

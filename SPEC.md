@@ -1764,7 +1764,7 @@ notices = {busy = 1, open = 2, list = {
 
 - The title "Notifications", and a × that closes it. Escape also closes it.
 - One row for each notice, newest first: the agent name in its color (the addon has no agent icons), the repo in gold, the state ("Waiting" in orange, "Finished · 4 min" in green, "Failed · 2 min" in red), the age, and the first words of the text on a second line. A click on a row shows its full text (at most 600 bytes), and a second click folds it.
-- **Clear** empties the list and hides the bell. A cleared notice never comes back, also when the next live file still holds it.
+- **Clear**, in the title row left of the ×, empties the list and hides the bell. The list and the toast stay on the screen: a list longer than the room below the minimap moves up. The list has no scroll, so a list taller than the screen still passes its bottom, and Clear at the top stays in reach. A cleared notice never comes back, also when the next live file still holds it.
 - A notice has no button that runs anything. Later: "Continue in the game" through Resume (9.6), with the session of the notice, only after `session-end`, because two programs on one session conflict.
 
 **Settings.** One new group "Notifications" in the Settings tab, after Appearance (13.1). It shows only after `hooks install`: the settings list (13.4) has a `hook` line with `on`. The group has two rows: Notifications and Finished work on one, and the three Alerts boxes on the other. While it shows, the Always Allowed group below it shows 3 rules at a time, so the page still fits the least window (900 × 560).
