@@ -7,6 +7,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use protocol::apps::App;
 use protocol::folder::resolve_folder;
 use protocol::frame::{MAX_AGE, MAX_AHEAD};
+use protocol::live::Notices;
 use protocol::rate::{ChatQueue, MAX_QUEUE, enqueue};
 use protocol::record::Record;
 use protocol::restore::{prepare_restore, restore_body};
@@ -702,8 +703,8 @@ impl Relay {
         self.activity.is_open(request)
     }
 
-    pub fn live_file(&self) -> Vec<u8> {
-        self.activity.file()
+    pub fn live_file(&self, notices: &Notices) -> Vec<u8> {
+        self.activity.file(notices)
     }
 
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
@@ -905,6 +906,7 @@ fn with_level_note(job: &Job, text: String) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use protocol::live::no_notices;
 
     const NOW: u32 = 1_790_211_079;
 
@@ -1212,7 +1214,7 @@ mod tests {
         relay.on_frame(&[record("c1", 1, "agent=codex;level=auto-edit", "hi")], NOW);
         let job = relay.next_job().unwrap();
         relay.begin(&job);
-        let live = String::from_utf8(relay.live_file()).unwrap();
+        let live = String::from_utf8(relay.live_file(&no_notices())).unwrap();
         assert!(
             live.contains(r#"lines = {"Level: ask (config)", }"#),
             "{live}"
@@ -1227,7 +1229,7 @@ mod tests {
         relay.on_frame(&[record("c1", 1, "level=auto-edit", "hi")], NOW);
         let job = relay.next_job().unwrap();
         relay.begin(&job);
-        let live = String::from_utf8(relay.live_file()).unwrap();
+        let live = String::from_utf8(relay.live_file(&no_notices())).unwrap();
         assert!(live.contains(r#"lines = {"Level: auto-edit", }"#), "{live}");
         relay.finish(&job, Ok("done".into()));
         assert!(!body(&relay).contains("Ran at"));

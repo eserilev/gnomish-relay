@@ -80,6 +80,7 @@ pub mod status;
 pub mod story;
 pub mod story_sandbox;
 pub mod strip;
+pub mod terminal_sessions;
 pub mod timeways;
 pub mod turn;
 pub mod update;

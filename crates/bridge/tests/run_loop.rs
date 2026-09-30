@@ -784,3 +784,38 @@ fn a_new_folder_whose_parent_is_missing_ends_as_an_error_and_makes_nothing() {
     assert!(!root.join("none").exists());
     assert!(!slot_body(&f.addons).contains("echo: hello"));
 }
+
+const WAITING_FILE: &str = r#"{"v":1,"source":"claude","event":"waiting","session":"s1","repo":"app","text":"Allow Bash?"}"#;
+
+#[test]
+fn a_spool_file_reaches_the_live_file_and_leaves_the_folder() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let spool = f.state.join("notices");
+    fs::write(spool.join("1.json"), WAITING_FILE).unwrap();
+    let live = f.addons.join(slot_name(App::Relay, 1)).join(LIVE_FILE);
+
+    let shown = common::step_until_within(&mut bridge, Duration::from_secs(5), || {
+        fs::read_to_string(&live)
+            .unwrap()
+            .contains("text = \"Allow Bash?\"")
+    });
+
+    assert!(shown);
+    assert_eq!(fs::read_dir(&spool).unwrap().count(), 0);
+    assert!(f.state.join("notices.json").is_file());
+}
+
+#[test]
+fn a_start_of_the_bridge_empties_the_spool_folder() {
+    let f = folders();
+    let spool = f.state.join("notices");
+    fs::create_dir_all(&spool).unwrap();
+    fs::write(spool.join("1.json"), WAITING_FILE).unwrap();
+
+    let mut bridge = bridge(&f);
+    bridge.step();
+
+    let live = f.addons.join(slot_name(App::Relay, 1)).join(LIVE_FILE);
+    assert!(!fs::read_to_string(live).unwrap().contains("Allow Bash?"));
+}

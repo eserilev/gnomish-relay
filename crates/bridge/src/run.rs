@@ -26,9 +26,11 @@ use crate::saved;
 use crate::screenshots::{Watcher, read_strip};
 use crate::settings_list::BridgeSettings;
 use crate::slots::{self, Files};
+use crate::spool::{open_spool, spool_dir, take_files};
 use crate::state;
 use crate::status;
 use crate::story::{Story, StorySpec};
+use crate::terminal_sessions::TerminalSessions;
 use crate::timeways::{NO_STORY, Timeways};
 use crate::vectors::is_test_strip;
 use crate::versions::update_text;
@@ -36,6 +38,8 @@ use crate::versions::update_text;
 const TICK: Duration = Duration::from_millis(250);
 /// The addon calls the bridge offline when the body it loads is older than 150 s.
 const HEARTBEAT: Duration = Duration::from_mins(1);
+/// A flood of spool files then costs at most one live file for each 3 seconds (SPEC.md 10.2).
+const NOTICE_GAP: Duration = Duration::from_secs(3);
 /// The folder of the Timeways state, inside the data folder (SPEC.md 9.7, decision 4).
 pub const TIMEWAYS_DIR: &str = "timeways";
 
@@ -135,6 +139,10 @@ struct RelayLane {
     /// Strips with a bad tag since the last good relay strip. The game shows a key
     /// mismatch only through this count.
     bad_tags: u32,
+    /// The terminal sessions of the hooks, and the spool folder that brings their events.
+    terminal: TerminalSessions,
+    spool: PathBuf,
+    notices_changed: bool,
 }
 
 /// The Timeways app: its lane and its files. Its messages go to the story program, and
@@ -332,6 +340,14 @@ impl RelayLane {
         };
         let (finished, results) = channel();
         let (events, run_events) = channel();
+        let spool = spool_dir(&paths.state);
+        if let Err(e) = open_spool(&spool) {
+            log(&format!("no notifications from terminal sessions: {e:#}"));
+        }
+        let (terminal, problem) = TerminalSessions::load(&paths.state);
+        if let Some(problem) = problem {
+            log(&problem);
+        }
         Ok(RelayLane {
             relay,
             files: LaneFiles::new(paths.state.clone(), &paths.accounts, App::Relay),
@@ -347,17 +363,21 @@ impl RelayLane {
             raises: RaiseGuard::default(),
             settings: BridgeSettings::default(),
             bad_tags: 0,
+            terminal,
+            spool,
+            notices_changed: false,
         })
     }
 
     fn step(&mut self, keys: &KeySet, addons: &Path) {
         self.take_saved_variables(keys);
+        self.take_notices();
         self.signal_stops();
         self.remove_rules();
         self.take_events();
         self.pass_answers();
         self.finish_runs();
-        if self.files.publish_due() {
+        if self.files.publish_due() || self.notices_due() {
             self.store();
             self.publish(addons);
             self.files.last_publish = Instant::now();
@@ -377,6 +397,30 @@ impl RelayLane {
             log(&format!("cannot save the state: {e:#}"));
         }
         self.files.stored = result.is_ok();
+    }
+
+    fn notices_due(&self) -> bool {
+        self.notices_changed && self.files.last_publish.elapsed() >= NOTICE_GAP
+    }
+
+    /// The events of the terminal sessions, with the time of this read (SPEC.md 10.2).
+    fn take_notices(&mut self) {
+        let taken = take_files(&self.spool, SystemTime::now());
+        for refused in &taken.refused {
+            log(&format!("spool file dropped: {refused}"));
+        }
+        let mut changed = self.terminal.expire(now());
+        for file in &taken.files {
+            self.terminal.apply(file, now());
+            changed = true;
+        }
+        if !changed {
+            return;
+        }
+        self.notices_changed = true;
+        if let Err(e) = self.terminal.save() {
+            log(&format!("cannot save the terminal sessions: {e:#}"));
+        }
     }
 
     /// A changed file means a `/reload`: the outbox frames get the same checks as a strip.
@@ -639,12 +683,13 @@ impl RelayLane {
         let files = Files {
             body: slots::with_bad_tags(self.relay.body(now()), App::Relay, self.bad_tags),
             restore: self.relay.restore_file(),
-            live: self.relay.live_file(),
+            live: self.relay.live_file(&self.terminal.notices()),
         };
         if let Err(e) = slots::publish(addons, App::Relay, &files, self.relay.next_slot()) {
             log(&format!("publish failed: {e:#}"));
         }
         self.files.changed = false;
+        self.notices_changed = false;
     }
 }
 

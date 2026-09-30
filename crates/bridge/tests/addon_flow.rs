@@ -1484,7 +1484,12 @@ fn a_new_message_in_the_game_ends_the_wait_on_the_desktop() {
         .set("body", game.lua.create_string(relay.body(now)).unwrap())
         .unwrap();
     game.wow
-        .set("live", game.lua.create_string(relay.live_file()).unwrap())
+        .set(
+            "live",
+            game.lua
+                .create_string(relay.live_file(&no_notices()))
+                .unwrap(),
+        )
         .unwrap();
     game.advance(5.0);
     assert_eq!(whispers_with(&game, "Approve on your desktop."), 1);
@@ -1873,7 +1878,12 @@ fn the_bridge_takes_the_always_click_of_the_game() {
         now,
     );
     game.wow
-        .set("live", game.lua.create_string(relay.live_file()).unwrap())
+        .set(
+            "live",
+            game.lua
+                .create_string(relay.live_file(&no_notices()))
+                .unwrap(),
+        )
         .unwrap();
     game.run("local ns = ... ns.Transport.Poll()");
 

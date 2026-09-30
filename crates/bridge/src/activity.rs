@@ -3,7 +3,7 @@
 
 use protocol::apps::App;
 use protocol::live::{
-    MAX_LINES, OptionKind, PermOption, Progress, Request, live_body, no_notices, prepare_progress,
+    MAX_LINES, Notices, OptionKind, PermOption, Progress, Request, live_body, prepare_progress,
     prepare_requests,
 };
 
@@ -188,7 +188,7 @@ impl Activity {
         self.asked.retain(|a| !(&a.chat == chat && a.id == id));
     }
 
-    pub fn file(&self) -> Vec<u8> {
+    pub fn file(&self, notices: &Notices) -> Vec<u8> {
         let progress: Vec<Progress> = self
             .steps
             .iter()
@@ -210,7 +210,7 @@ impl Activity {
             App::Relay,
             &prepare_progress(&progress),
             &prepare_requests(&requests),
-            &no_notices(),
+            notices,
         )
     }
 }
@@ -252,7 +252,7 @@ impl Asked {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::live::OptionKind;
+    use protocol::live::{OptionKind, no_notices};
 
     fn chat() -> ChatId {
         ChatId::new("c1")
@@ -290,7 +290,7 @@ mod tests {
             0x1234,
         );
         assert_eq!(request, "p12341");
-        let file = String::from_utf8(activity.file()).unwrap();
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
         assert!(
             file.contains(r#"{request = "p12341", chat = "c1", id = 7, text = "rm -rf build""#)
         );
@@ -363,13 +363,17 @@ mod tests {
         for n in 0..8 {
             activity.step(&chat(), MessageId(7), format!("step {n}"));
         }
-        let file = String::from_utf8(activity.file()).unwrap();
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
         assert!(
             file.contains(r#"lines = {"step 3", "step 4", "step 5", "step 6", "step 7", }"#),
             "{file}"
         );
         activity.end(&chat(), MessageId(7));
-        assert!(!String::from_utf8(activity.file()).unwrap().contains("step"));
+        assert!(
+            !String::from_utf8(activity.file(&no_notices()))
+                .unwrap()
+                .contains("step")
+        );
     }
 
     #[test]
@@ -380,7 +384,7 @@ mod tests {
         for n in 0..8 {
             activity.step(&chat(), MessageId(7), format!("step {n}"));
         }
-        let file = String::from_utf8(activity.file()).unwrap();
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
         assert!(
             file.contains(
                 r#"lines = {"Level: ask (config)", "step 4", "step 5", "step 6", "step 7", }"#
@@ -394,7 +398,7 @@ mod tests {
         let mut activity = Activity::default();
         activity.step(&chat(), MessageId(7), "Level: full-auto".into());
         activity.step(&chat(), MessageId(7), "Level:full-auto".into());
-        let file = String::from_utf8(activity.file()).unwrap();
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
         assert!(
             file.contains(r#"lines = {"agent: Level: full-auto", "agent: Level:full-auto", }"#),
             "{file}"
@@ -428,7 +432,7 @@ mod tests {
             activity.step(&chat(), MessageId(7), format!("step {n}"));
         }
         activity.desktop(&chat(), MessageId(7), notice(Waiting::Open));
-        let file = String::from_utf8(activity.file()).unwrap();
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
         assert!(
             file.contains(
                 r#"lines = {"Level: ask", "Desktop: wait a1b2c3d4e5f6 dialog", "step 5", "step 6", "step 7", }"#
@@ -437,7 +441,7 @@ mod tests {
         );
         assert!(activity.waits(&chat()));
         activity.desktop(&chat(), MessageId(7), notice(Waiting::Denied));
-        let file = String::from_utf8(activity.file()).unwrap();
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
         assert!(
             file.contains(r#""Desktop: denied a1b2c3d4e5f6 dialog""#),
             "{file}"
@@ -453,7 +457,7 @@ mod tests {
             MessageId(7),
             "Desktop: approved a1b2c3d4e5f6 dialog".into(),
         );
-        let file = String::from_utf8(activity.file()).unwrap();
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
         assert!(
             file.contains(r#"lines = {"agent: Desktop: approved a1b2c3d4e5f6 dialog", }"#),
             "{file}"
