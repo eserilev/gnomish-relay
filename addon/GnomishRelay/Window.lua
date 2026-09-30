@@ -15,6 +15,7 @@ local CAST_UPDATE = 0.2
 local PICK_ROWS = 20
 local PICK_ROW_HEIGHT = 19
 local GREEN = "1eff00"
+local ORANGE = "ff9f40"
 -- The text of a message is only part of a strip, so Room() is the real limit.
 local MAX_INPUT = 3200
 -- The input counts the bytes left only near the limit.
@@ -126,7 +127,9 @@ local function ShowTile(index, chat, selected)
 		tile.name:SetText(ns.Relay.Plain(chat.name))
 		tile.agent:SetText(ns.Relay.AgentName(chat.agent))
 		local mark = ""
-		if chat.unread then
+		if ns.Transport.WaitsForAnswer(chat.id) then
+			mark = "|cff" .. ORANGE .. "?|r"
+		elseif chat.unread then
 			mark = "!"
 		elseif ns.Transport.Working(chat.id) then
 			mark = "..."
@@ -182,9 +185,17 @@ local function UpdateCast(chat)
 	if not working then
 		return
 	end
-	local elapsed = GetTime() - working.since
-	ui.cast:SetValue(elapsed % 10 / 10)
-	ui.cast.text:SetText("Tinkering " .. Elapsed(elapsed))
+	-- A run that waits for the player makes no progress, so the bar stands still.
+	if ns.Transport.WaitsForAnswer(chat.id) then
+		ui.cast:SetStatusBarColor(0.3, 0.3, 0.3)
+		ui.cast:SetValue(1)
+		ui.cast.text:SetText("|cff" .. ORANGE .. "Waiting for you: approve in popup|r")
+	else
+		local elapsed = GetTime() - working.since
+		ui.cast:SetStatusBarColor(1, 0.7, 0)
+		ui.cast:SetValue(elapsed % 10 / 10)
+		ui.cast.text:SetText("Tinkering " .. Elapsed(elapsed))
+	end
 	ui.nextCheck:SetText(string.format("Next check in %d s", math.ceil(ns.Transport.NextPollIn())))
 end
 

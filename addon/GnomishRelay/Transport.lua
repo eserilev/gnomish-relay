@@ -408,6 +408,16 @@ function Transport.Request()
 	end
 end
 
+-- True while a popup of the chat waits for the player.
+function Transport.WaitsForAnswer(chatId)
+	for _, r in ipairs(state.requests) do
+		if r.chat == chatId and not state.answered[r.request] then
+			return true
+		end
+	end
+	return false
+end
+
 -- The hash tells the bridge which text the user saw (SPEC.md 9.3).
 -- The popup text that an answer vouches for. "Always allow" also shows its rule line,
 -- so its hash binds the rule that the player saw (SPEC.md 6.6.5).

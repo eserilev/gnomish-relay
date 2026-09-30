@@ -1444,6 +1444,38 @@ fn ask(game: &Game, text: &str) {
 }
 
 #[test]
+fn a_chat_that_waits_for_a_popup_answer_says_so_in_activity_and_on_its_tile() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("clean up");
+    game.advance(1.0);
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Working,
+        "",
+    )]);
+    ask(&game, "rm -rf build");
+
+    assert_eq!(tile_mark(&game), "|cffff9f40?|r");
+    assert_eq!(
+        game.run("return GnomishRelayCast.text:GetText()")
+            .as_string_lossy()
+            .unwrap(),
+        "|cffff9f40Waiting for you: approve in popup|r"
+    );
+
+    game.run("GnomishRelayPopupButton1:Click()");
+    assert_eq!(tile_mark(&game), "...");
+}
+
+fn tile_mark(game: &Game) -> String {
+    game.run("return GnomishRelayTile1.mark:GetText()")
+        .as_string_lossy()
+        .unwrap()
+}
+
+#[test]
 fn a_permission_request_shows_the_honest_text_and_buttons_by_kind() {
     let game = Game::start();
     game.send("clean up");
