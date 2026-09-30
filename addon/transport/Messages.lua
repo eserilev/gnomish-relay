@@ -9,6 +9,8 @@ ns.Messages = Messages
 
 local LOW_SLOTS = 20
 local REPORT_AHEAD = 20
+-- The bridge writes each body only into this many slots from the reported one (SPEC.md 7.3).
+local SLOT_WINDOW = 30
 local SHOWS = 3
 local RETRY = 40
 local LATE_POLL = 60
@@ -130,8 +132,12 @@ function Messages.Delivery(message)
 	return "sending", shown and shown.count or 0, SHOWS
 end
 
+function Messages.SlotsLow()
+	return Messages.SlotsLeft() < LOW_SLOTS
+end
+
 function Messages.NeedsReload()
-	return #Messages.Db().outbox > 0 or Messages.SlotsLeft() < LOW_SLOTS
+	return #Messages.Db().outbox > 0 or Messages.SlotsLow()
 end
 
 function Messages.Problem()
@@ -502,6 +508,15 @@ local function ApplyReply(r, done)
 	end
 end
 
+-- A slot of an earlier UI session can still hold a body that the bridge wrote before.
+local function IsOlder(data)
+	if type(data) ~= "table" then
+		return false
+	end
+	local now = tonumber(data.now)
+	return now ~= nil and state.lastNow ~= nil and now < state.lastNow
+end
+
 local function Apply(data)
 	if type(data) ~= "table" or data.proto ~= PROTO then
 		state.mismatch = true
@@ -518,8 +533,13 @@ local function Apply(data)
 	state.bodyDone = done
 end
 
+-- A slot past the window holds an older body. The polls wait for the next strip.
+local function PastWindow()
+	return state.reported ~= nil and state.nextSlot >= state.reported + SLOT_WINDOW
+end
+
 function Messages.Poll()
-	if state.nextSlot > ns.Slots.COUNT then
+	if state.nextSlot > ns.Slots.COUNT or PastWindow() then
 		return
 	end
 	local loaded, data, restore, live = ns.Slots.Load(state.nextSlot)
@@ -531,8 +551,10 @@ function Messages.Poll()
 		if not state.reported or state.nextSlot - state.reported >= REPORT_AHEAD then
 			state.helloDue = true
 		end
-		Apply(data)
-		Messages.OnPoll(restore, live)
+		if not IsOlder(data) then
+			Apply(data)
+			Messages.OnPoll(restore, live)
+		end
 	end
 	Messages.OnChange()
 end

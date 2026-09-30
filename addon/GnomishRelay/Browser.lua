@@ -270,10 +270,10 @@ local function PickChoice()
 end
 
 -- A typed text is only a filter, never a path.
-local function BuildFilter(frame, width)
+local function BuildFilter(frame)
 	ui.filter = CreateFrame("EditBox", "GnomishRelayBrowserFilter", frame, "InputBoxTemplate")
 	ui.filter:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -8)
-	ui.filter:SetSize(width - 60, 22)
+	ui.filter:SetHeight(22)
 	ui.filter:SetAutoFocus(false)
 	ui.filter:SetScript("OnTextChanged", function()
 		state.choice, state.offset = 1, 0
@@ -324,12 +324,12 @@ local function BuildName(frame)
 	ui.name:Hide()
 end
 
-local function BuildRows(frame, width)
+local function BuildRows(frame)
 	ui.rows = {}
 	for i = 1, ROWS do
 		local row = CreateFrame("Button", "GnomishRelayBrowseRow" .. i, frame)
 		row:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -ROWS_TOP - (i - 1) * ROW_HEIGHT)
-		row:SetSize(width - 16, ROW_HEIGHT)
+		row:SetHeight(ROW_HEIGHT)
 		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 		row.choice = row:CreateTexture(nil, "BACKGROUND")
 		row.choice:SetAllPoints()
@@ -389,15 +389,23 @@ local function BuildOpen(frame)
 	end)
 end
 
+-- The window calls this at each new size, so the filter and the rows use the room.
+function Browser.Resize(width)
+	ui.frame:SetWidth(width)
+	ui.filter:SetWidth(width - 60)
+	for _, row in ipairs(ui.rows) do
+		row:SetWidth(width - 16)
+	end
+end
+
 function Browser.Build(parent, left, width, bottom)
 	local frame = CreateFrame("Frame", "GnomishRelayBrowser", parent, "InsetFrameTemplate")
 	frame:SetPoint("TOPLEFT", parent, "TOPLEFT", left, -84)
 	frame:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", left, bottom)
-	frame:SetWidth(width)
 	ui.frame = frame
-	BuildFilter(frame, width)
+	BuildFilter(frame)
 	BuildSpinner(frame)
-	BuildRows(frame, width)
+	BuildRows(frame)
 	BuildCrumbs(frame)
 	BuildName(frame)
 	BuildOpen(frame)
@@ -406,5 +414,6 @@ function Browser.Build(parent, left, width, bottom)
 		state.offset = state.offset - delta * 3
 		Browser.Refresh()
 	end)
+	Browser.Resize(width)
 	frame:Hide()
 end

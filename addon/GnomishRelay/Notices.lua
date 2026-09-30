@@ -26,7 +26,9 @@ Notices.FINISHED = {
 }
 
 local state = {
-	-- The notices of the last live file that pass the filter, newest first.
+	-- The valid notices of the last live file, oldest first.
+	all = {},
+	-- The ones of `all` that pass the filter, newest first.
 	list = {},
 	busy = 0,
 	open = 0,
@@ -114,16 +116,21 @@ local function MarkShown(id)
 	end
 end
 
--- The bridge doubles each "|" (S10), so a cut never ends inside "||" or a character.
+local function IsContinuation(byte)
+	return byte ~= nil and byte >= 0x80 and byte < 0xC0
+end
+
+-- Cuts at `most` bytes. The bridge doubles each "|" (S10), so a cut never ends inside
+-- "||" or a character.
 function Notices.Cut(text, most)
 	if #text <= most then
 		return text
 	end
 	local cut = text:sub(1, most)
-	while #cut > 0 and cut:byte(#cut) >= 0x80 and cut:byte(#cut) < 0xC0 do
-		cut = cut:sub(1, -2)
-	end
-	if #cut > 0 and cut:byte(#cut) >= 0xC0 then
+	if IsContinuation(text:byte(most + 1)) then
+		while IsContinuation(cut:byte(#cut)) do
+			cut = cut:sub(1, -2)
+		end
 		cut = cut:sub(1, -2)
 	end
 	local pipes = #cut:match("|*$")
@@ -170,6 +177,22 @@ local function Line(text)
 	)
 end
 
+-- "3 agents finished: a, b, c", or "3 agents done (1 failed): a, b, c".
+local function GroupText(done)
+	local repos, failed = {}, 0
+	for _, n in ipairs(done) do
+		table.insert(repos, n.repo ~= "" and n.repo or Notices.Agent(n))
+		if n.kind == "failed" then
+			failed = failed + 1
+		end
+	end
+	local list = table.concat(repos, ", ")
+	if failed == 0 then
+		return string.format("%d agents finished: %s", #done, list)
+	end
+	return string.format("%d agents done (%d failed): %s", #done, failed, list)
+end
+
 local function ChatLines(new)
 	local done = {}
 	for _, n in ipairs(new) do
@@ -183,11 +206,7 @@ local function ChatLines(new)
 		local n = done[1]
 		Line(string.format("%s %s: %s", Tag(n), DoneText(n), Notices.Cut(n.text, SNIPPET)))
 	elseif #done > 1 then
-		local repos = {}
-		for _, n in ipairs(done) do
-			table.insert(repos, n.repo ~= "" and n.repo or Notices.Agent(n))
-		end
-		Line(string.format("%d agents finished: %s", #done, table.concat(repos, ", ")))
+		Line(GroupText(done))
 	end
 end
 
@@ -256,28 +275,62 @@ local function Cleared(n)
 	return n.id <= ns.Store.db.noticesCleared
 end
 
+-- The notices that pass the filter, newest first.
+local function Filtered()
+	local list = {}
+	for _, n in ipairs(state.all) do
+		if Passes(n) and not Cleared(n) then
+			table.insert(list, 1, n)
+		end
+	end
+	return list
+end
+
+-- A notice that the filter hides is marked as shown too, so a new setting never alerts old work.
+local function IsNew(n)
+	if WasShown(n.id) then
+		return false
+	end
+	MarkShown(n.id)
+	return Passes(n) and not Cleared(n)
+end
+
 -- `notices` is the table of the live file, and `bodyNow` the `now` of the body in the
 -- same slot, so a clock difference between the desktop and the game has no effect.
 function Notices.Apply(notices, bodyNow)
 	local t = type(notices) == "table" and notices or {}
 	state.busy = tonumber(t.busy) or 0
 	state.open = tonumber(t.open) or 0
-	local list, new = {}, {}
+	state.all = {}
+	local new = {}
 	for _, n in ipairs(type(t.list) == "table" and t.list or {}) do
-		if Valid(n) and Passes(n) and not Cleared(n) then
+		if Valid(n) then
 			n.age = math.max(0, (bodyNow or n.at) - n.at)
 			n.seenAt = GetTime()
-			table.insert(list, 1, n)
-			if not WasShown(n.id) then
-				MarkShown(n.id)
+			table.insert(state.all, n)
+			if IsNew(n) then
 				table.insert(new, n)
 			end
 		end
 	end
-	state.list = list
+	state.list = Filtered()
 	if Notices.On() and #new > 0 then
 		Alert(new)
 	end
+	Notices.OnChange()
+end
+
+-- A new Finished work setting changes the list at once, with no alert.
+function Notices.Refilter()
+	state.list = Filtered()
+	Notices.OnChange()
+end
+
+function Notices.Drop()
+	state.all = {}
+	state.list = {}
+	state.busy = 0
+	state.open = 0
 	Notices.OnChange()
 end
 
@@ -292,8 +345,9 @@ function Notices.Clear()
 end
 
 -- Seconds to the next poll while a terminal session is open, or nil.
+-- Only the bridge ends a stale turn, so an offline bridge leaves `busy` as it was.
 function Notices.PollEvery()
-	if not Notices.On() then
+	if not Notices.On() or not ns.Transport.Online() then
 		return nil
 	elseif state.busy > 0 then
 		return BUSY_POLL

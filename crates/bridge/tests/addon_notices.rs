@@ -167,9 +167,23 @@ impl Game {
 
     /// The seconds between the polls of the game, from a clock that ticks each second.
     fn poll_gaps(&self, seconds: usize) -> Vec<usize> {
+        self.poll_gaps_with(seconds, |_| {})
+    }
+
+    /// As `poll_gaps`, with a bridge that writes a fresh body each 60 s, as the real one does.
+    fn poll_gaps_while_the_bridge_runs(&self, seconds: usize, busy: u32, open: u32) -> Vec<usize> {
+        self.poll_gaps_with(seconds, |second| {
+            if second % 60 == 0 {
+                self.publish(busy, open, &[]);
+            }
+        })
+    }
+
+    fn poll_gaps_with(&self, seconds: usize, each_second: impl Fn(usize)) -> Vec<usize> {
         let mut at = Vec::new();
         let mut last = self.loaded_slots();
         for second in 1..=seconds {
+            each_second(second);
             self.advance(1.0);
             let now = self.loaded_slots();
             if now != last {
@@ -339,6 +353,20 @@ fn finished_work_of_unknown_length_passes_every_setting_but_never() {
 }
 
 #[test]
+fn a_lower_finished_setting_never_alerts_notices_that_the_old_setting_hid() {
+    let game = Game::start();
+    game.set("ns.Store.db.notifyFinished = 'over3'");
+    game.publish_and_poll(0, 1, &[finished(1, "quick", 90)]);
+
+    game.set("ns.Store.db.notifyFinished = 'always'");
+    game.publish_and_poll(0, 1, &[finished(1, "quick", 90)]);
+
+    assert!(game.lines_with("quick").is_empty());
+    assert!(game.sounds().is_empty());
+    assert_eq!(game.list_len(), 1, "the list shows it now");
+}
+
+#[test]
 fn three_finished_notices_of_one_poll_share_one_line() {
     let game = Game::start();
 
@@ -359,7 +387,25 @@ fn three_finished_notices_of_one_poll_share_one_line() {
 }
 
 #[test]
-fn a_long_text_is_cut_at_120_characters_and_never_inside_a_doubled_pipe() {
+fn a_shared_line_with_a_failed_notice_counts_the_failed_ones() {
+    let game = Game::start();
+
+    game.publish_and_poll(
+        0,
+        2,
+        &[
+            notice(1, NoticeKind::Failed, "lighthouse", 300, "overloaded"),
+            finished(2, "gnomish-relay", 100),
+        ],
+    );
+
+    let lines = game.lines_with("agents done");
+    assert_eq!(lines.len(), 1, "{:?}", game.printed());
+    assert!(lines[0].contains("2 agents done (1 failed): lighthouse, gnomish-relay"));
+}
+
+#[test]
+fn a_long_text_is_cut_at_120_bytes_and_never_inside_a_doubled_pipe() {
     let game = Game::start();
     let text = format!("{}||x", "a".repeat(119));
     game.publish_and_poll(1, 1, &[notice(1, NoticeKind::Waiting, "r", 0, &text)]);
@@ -367,6 +413,32 @@ fn a_long_text_is_cut_at_120_characters_and_never_inside_a_doubled_pipe() {
     assert!(
         line.contains(&format!("{}...|h", "a".repeat(119))),
         "{line}"
+    );
+}
+
+#[test]
+fn a_cut_keeps_a_whole_character_that_ends_at_the_limit_and_drops_a_split_one() {
+    let game = Game::start();
+    let whole = format!("{}é tail", "a".repeat(118));
+    let split = format!("{}é tail", "b".repeat(119));
+
+    game.publish_and_poll(
+        1,
+        2,
+        &[
+            notice(1, NoticeKind::Waiting, "r", 0, &whole),
+            notice(2, NoticeKind::Waiting, "r", 0, &split),
+        ],
+    );
+
+    let lines = game.lines_with("Waiting for you");
+    assert!(
+        lines[0].contains(&format!("{}é...|h", "a".repeat(118))),
+        "{lines:?}"
+    );
+    assert!(
+        lines[1].contains(&format!("{}...|h", "b".repeat(119))),
+        "{lines:?}"
     );
 }
 
@@ -411,14 +483,47 @@ fn a_running_turn_polls_every_60_seconds_and_an_open_session_every_3_minutes() {
     let game = Game::start();
     game.advance(10.0);
     game.publish_and_poll(1, 1, &[]);
-    game.advance(700.0);
-    let gaps = game.poll_gaps(400);
+    game.poll_gaps_while_the_bridge_runs(700, 1, 1);
+    let gaps = game.poll_gaps_while_the_bridge_runs(400, 1, 1);
     assert!(gaps.iter().all(|g| *g == 60), "{gaps:?}");
 
     game.publish_and_poll(0, 1, &[]);
-    game.advance(700.0);
-    let gaps = game.poll_gaps(800);
+    game.poll_gaps_while_the_bridge_runs(700, 0, 1);
+    let gaps = game.poll_gaps_while_the_bridge_runs(800, 0, 1);
     assert!(gaps.iter().all(|g| *g == 180), "{gaps:?}");
+}
+
+#[test]
+fn an_offline_bridge_stops_the_faster_polls() {
+    let game = Game::start();
+    game.advance(10.0);
+    game.publish_and_poll(1, 1, &[]);
+
+    game.advance(700.0);
+    let gaps = game.poll_gaps(1300);
+
+    assert!(gaps.iter().all(|g| *g == 600), "{gaps:?}");
+}
+
+#[test]
+fn few_slots_left_print_one_line_and_the_last_slot_hides_the_bell() {
+    let game = Game::start();
+    let loaded: Table = game.wow.get("loaded").unwrap();
+    for n in 1..=980 {
+        loaded.set(format!("GnomishRelay_S{n:04}"), true).unwrap();
+    }
+    game.run("local ns = ... ns.Transport.Init()");
+
+    game.publish_and_poll(1, 1, &[waiting(1)]);
+    game.poll();
+
+    assert_eq!(game.lines_with("slots run low").len(), 1, "one line only");
+    assert!(game.shown("GnomishRelayBell"));
+    for _ in 0..18 {
+        game.poll();
+    }
+    assert_eq!(game.list_len(), 0);
+    assert!(!game.shown("GnomishRelayBell"), "no stale notice stays");
 }
 
 #[test]
@@ -470,6 +575,23 @@ fn clear_empties_the_list_hides_the_bell_and_the_notice_never_comes_back() {
     assert!(!game.shown("GnomishRelayNotices"));
     game.publish_and_poll(1, 1, &[waiting(1), waiting(2)]);
     assert_eq!(game.list_len(), 1, "a newer notice still comes");
+}
+
+#[test]
+fn clear_sits_in_the_title_row_so_a_long_list_never_hides_it() {
+    let game = Game::start();
+    game.publish_and_poll(1, 1, &[waiting(1)]);
+    game.click("GnomishRelayBell");
+
+    let point = game.run(
+        "local point, relative = GnomishRelayNoticesClear:GetPoint() return point .. ' ' .. tostring(relative == GnomishRelayNoticesClose)",
+    );
+
+    assert_eq!(
+        point.as_string().unwrap().to_str().unwrap(),
+        "RIGHT true",
+        "left of the close button"
+    );
 }
 
 #[test]
@@ -534,6 +656,21 @@ fn a_row_shows_the_repo_the_state_the_age_and_folds_its_full_text() {
             .unwrap()
             .contains("End.")
     );
+}
+
+#[test]
+fn a_row_cuts_a_long_repo_so_the_state_and_the_age_still_show() {
+    let game = Game::start();
+    let repo = "gnomish-relay-experiments-2024-q3-and-more";
+    game.publish_and_poll(0, 1, &[finished(1, repo, 240)]);
+    game.click("GnomishRelayBell");
+
+    let head = game.run("return GnomishRelayNotice1.head:GetText()");
+    let head = head.as_string().unwrap().to_str().unwrap().to_owned();
+
+    assert!(head.contains("gnomish-relay-experiment..."), "{head}");
+    assert!(!head.contains(repo), "{head}");
+    assert!(head.contains("Finished · 4 min"), "{head}");
 }
 
 #[test]
@@ -633,6 +770,28 @@ fn the_finished_work_dropdown_sets_the_filter() {
 }
 
 #[test]
+fn a_new_finished_setting_filters_the_list_at_once_with_no_alert() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open() ns.Window.ShowTab('settings')");
+    with_hooks(&game, "on");
+    game.run("local ns = ... ns.SettingsTab.Refresh()");
+    game.set("ns.Store.db.notifyFinished = 'always'");
+    game.publish_and_poll(0, 1, &[finished(1, "quick", 30)]);
+    assert!(game.shown("GnomishRelayBell"));
+
+    game.click("GnomishRelaySettingsFinished");
+    game.click("GnomishRelaySettingsFinishedChoice3");
+    assert_eq!(game.list_len(), 0);
+    assert!(!game.shown("GnomishRelayBell"));
+
+    game.click("GnomishRelaySettingsFinished");
+    game.click("GnomishRelaySettingsFinishedChoice1");
+    assert_eq!(game.list_len(), 1);
+    assert_eq!(game.lines_with("quick").len(), 1, "no second line");
+    assert_eq!(game.sounds(), [WHISPER_SOUND], "no second sound");
+}
+
+#[test]
 fn diag_shows_the_hooks_the_sessions_and_the_last_notification_after_hooks_install() {
     let game = Game::start();
     with_hooks(&game, "on");
@@ -655,6 +814,27 @@ fn diag_shows_the_hooks_the_sessions_and_the_last_notification_after_hooks_insta
         "{texts:?}"
     );
     assert!(texts.iter().any(|t| t.ends_with(" ago")), "{texts:?}");
+}
+
+#[test]
+fn diag_shows_a_moved_hook_with_the_fix_when_no_hook_is_on() {
+    let game = Game::start();
+    with_hooks(&game, "moved");
+    game.run("local ns = ... ns.Window.Open() ns.Window.ShowTab('diag')");
+
+    let texts: Vec<String> = (1..=26)
+        .filter_map(|i| {
+            let value = game.run(&format!("return GnomishRelayDiagLine{i}.value:GetText()"));
+            value.as_string().map(|s| s.to_str().unwrap().to_owned())
+        })
+        .collect();
+
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.contains("Claude moved: run hooks install · Codex off")),
+        "{texts:?}"
+    );
 }
 
 #[test]

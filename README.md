@@ -123,6 +123,8 @@ It adds a hook to `~/.claude/settings.json` and to `~/.codex/hooks.json`, for ea
 `claude` and `codex` on your `PATH`. It keeps your own hooks, and it makes a backup of the
 file first. Restart the sessions that run now. At its next start, Codex asks you to
 trust the new hooks: trust them, or no notification comes.
+The first notification can take up to 10 minutes. In the game, type `/relay poll` to
+check now.
 
 A bell then shows at the edge of the minimap while a notification waits, with a line in
 the chat and a sound. A notification never runs anything: you answer in the terminal.

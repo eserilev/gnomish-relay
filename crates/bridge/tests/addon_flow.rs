@@ -427,6 +427,22 @@ fn a_send_with_few_slots_left_never_reloads_and_the_banner_asks_for_a_reload() {
 }
 
 #[test]
+fn a_click_on_reload_in_combat_says_that_reload_works_after_combat() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.wow.set("combat", true).unwrap();
+
+    game.run("GnomishRelayReload:Click()");
+
+    assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 0);
+    let errors: Table = game.lua.globals().get("UIErrorsFrame").unwrap();
+    assert_eq!(
+        errors.get::<Vec<String>>("lines").unwrap(),
+        ["Reload works after combat."]
+    );
+}
+
+#[test]
 fn a_message_in_the_outbox_asks_for_a_click_on_reload() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
@@ -453,6 +469,59 @@ fn after_twenty_polls_a_hello_reports_the_slot_position() {
         f.contains(&"h".into()) && f.contains(&"next=21".into()),
         "{f:?}"
     );
+}
+
+fn stat(game: &Game, name: &str) -> i64 {
+    game.run(&format!(
+        "local ns = ... return ns.Transport.Stats().{name}"
+    ))
+    .as_integer()
+    .unwrap()
+}
+
+#[test]
+fn a_long_fight_during_a_working_run_stops_the_polls_at_the_end_of_the_window() {
+    let game = Game::start();
+    game.send("a long job");
+    game.advance(1.0);
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
+    game.advance(20.0);
+    let reported = stat(&game, "reported");
+    game.wow.set("combat", true).unwrap();
+
+    game.advance(1200.0);
+
+    assert_eq!(
+        stat(&game, "nextSlot"),
+        reported + 30,
+        "no slot past the window"
+    );
+    game.wow.set("combat", false).unwrap();
+    game.advance(20.0);
+    assert!(
+        stat(&game, "reported") >= reported + 30,
+        "a hello moves the window"
+    );
+    assert!(stat(&game, "nextSlot") > reported + 30, "the polls go on");
+}
+
+#[test]
+fn a_body_older_than_the_last_applied_one_changes_nothing() {
+    let game = Game::start();
+    game.publish(&[]);
+    game.run("local ns = ... ns.Transport.Poll()");
+    let fresh = stat(&game, "bodyNow");
+    let old = u32::try_from(fresh - 3600).unwrap();
+    let body = slot_body(App::Relay, old, &[]);
+    game.wow
+        .set("body", game.lua.create_string(body).unwrap())
+        .unwrap();
+
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(stat(&game, "bodyNow"), fresh);
+    assert!(online(&game));
 }
 
 #[test]
@@ -730,9 +799,59 @@ fn the_grip_resizes_the_window_within_bounds_and_the_size_stays_after_a_reload()
     assert_eq!(size_of(&game, "GnomishRelayTranscript").0, 1200 - 900 + 456);
 
     let game = game.reload();
+    game.run("UIParent:SetSize(1600, 900)");
     game.run("local ns = ... ns.Window.Open()");
     assert_eq!(size_of(&game, "GnomishRelayFrame"), (1200, 700));
     assert_eq!(size_of(&game, "GnomishRelayTranscript").0, 756);
+}
+
+#[test]
+fn a_saved_size_larger_than_the_screen_opens_at_the_screen_size_and_reset_forgets_it() {
+    let game = Game::start();
+    game.run("UIParent:SetSize(1600, 900)");
+
+    game.run(
+        "local ns = ... ns.Store.db.windowSize = { width = 9000, height = 9000 } ns.Window.Open()",
+    );
+    assert_eq!(size_of(&game, "GnomishRelayFrame"), (1600 - 74, 900));
+
+    game.run("local ns = ... ns.Window.ResetPosition()");
+    assert_eq!(size_of(&game, "GnomishRelayFrame"), (900, 560));
+    assert_eq!(
+        game.run("local ns = ... return ns.Store.db.windowSize"),
+        Value::Nil
+    );
+}
+
+fn width_of(game: &Game, name: &str) -> i64 {
+    let frame: Table = game.lua.globals().get(name).unwrap();
+    frame.get("width").unwrap()
+}
+
+#[test]
+fn a_larger_window_widens_the_folder_browser_and_shows_more_diag_lines() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+
+    game.run(
+        "GnomishRelayFrame:SetSize(1400, 900) \
+         GnomishRelayResizeGrip:GetScript('OnMouseUp')(GnomishRelayResizeGrip)",
+    );
+
+    let center = 1400 - 2 * 200 - 28;
+    assert_eq!(width_of(&game, "GnomishRelayBrowser"), center);
+    assert_eq!(width_of(&game, "GnomishRelayBrowserFilter"), center - 60);
+    assert_eq!(width_of(&game, "GnomishRelayBrowseRow1"), center - 16);
+    game.run("local ns = ... ns.Window.ShowTab('diag')");
+    let page = 1400 - 200 - 20;
+    assert_eq!(width_of(&game, "GnomishRelayDiagLine1"), page - 24);
+    let lines = (900 - 76 - 40) / 17;
+    assert!(
+        game.lua
+            .globals()
+            .contains_key(format!("GnomishRelayDiagLine{lines}"))
+            .unwrap()
+    );
 }
 
 #[test]

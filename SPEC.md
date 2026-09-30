@@ -667,7 +667,7 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - The addon hides the "Screen captured" text for its own screenshots through the `ActionStatus` frame. Normal screenshots still show it.
 - The bridge ignores screenshots with no valid strip. Those are the screenshots of the user.
 - The first strip ever prints one line: "<title>: the colored bar at the top left carries your messages to the desktop. It shows for half a second." The saved variables remember it, so the line shows once.
-- In combat, a strip waits for the end of the fight unless it carries a message or a control of the player (Stop, a permission answer, a delete of a rule). So a hello and a request for a list (sessions, folders, settings) wait. They still ride on a strip that goes anyway. A long fight can then pass the window of slots (7.3): the replies wait for the next strip, and none is lost.
+- In combat, a strip waits for the end of the fight unless it carries a message or a control of the player (Stop, a permission answer, a delete of a rule). So a hello and a request for a list (sessions, folders, settings) wait. They still ride on a strip that goes anyway. A long fight can then reach the end of the window of slots (7.3): the polls and the replies wait for the next strip, and none is lost.
 
 **Frame layout (bytes):**
 
@@ -803,7 +803,9 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 
 - The addon reports `next` in every strip. When it nears the end of the window without a strip to send, it sends a hello with `next`.
 - At a hello, or when the saved variables file changes (a `/reload`), the bridge starts the window at the reported slot, or at slot 1.
-- A slot outside the window holds an older body. A read of an older body is harmless: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
+- A slot outside the window holds an older body. The addon never loads a slot past the window of its last strip. In a long fight, the polls stop there, and they go on after the hello at the end of the fight.
+- A slot of an earlier UI session can still hold an older body. The addon skips a body whose `now` is older than the `now` of the last body that it applied, with its live file and its restore bundle. An older body would bring back old `working` records, an old live file, and an old clock.
+- A skipped body loses no reply: every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.
 
 Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with four files:
 
@@ -880,7 +882,7 @@ A signal (7.4) makes the addon load a slot at once.
 
 **Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). A working run costs 4 slots a minute, so the slots of a UI session last about 4 hours of agent work, and "Reload soon" covers the rest. The polls for notifications cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
 The window never shows the slot count. `/relay diag` shows it.
-Below 20 free slots, the window shows "Reload soon" with a **Reload** button. Only a click on **Reload** reloads. A reload from Enter took the game away for seconds with no warning, so Send never reloads.
+Below 20 free slots, the window shows "Reload soon" with a **Reload** button. Only a click on **Reload** reloads. In combat, the game allows no reload, so a click shows "Reload works after combat." in the red error text. A reload from Enter took the game away for seconds with no warning, so Send never reloads.
 `ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat.
 The chat history is in the saved variables, so a `/reload` keeps it.
 
@@ -1714,7 +1716,7 @@ The bridge keeps a table of the terminal sessions. Each session has a state and 
 | `session-end` | removed | removed |
 
 - A `waiting` notice lasts until the next event of its session, usually the end of the turn. An answer at the terminal fires no hook (10, decision 2).
-- `took` is the length of the turn in seconds, at least 1. It is 0 when the bridge saw no `turn-start`, for example after a restart of the bridge. The addon counts 0 as long work.
+- `took` is the length of the turn in seconds, at least 1. It is 0 when the bridge saw no `turn-start`, for example for a turn that started while no bridge ran: the bridge empties the spool folder at its start. A restart during a turn keeps the length, because `notices.json` keeps the start of the turn. The addon counts 0 as long work.
 - A `waiting`, `finished`, or `failed` event in the 60 seconds after the `session-end` of its session is dropped. Claude runs its hooks async, so the file of `Stop` can come just after the file of `SessionEnd`, and it then opens a session that ended, with a `took` of 0. A `session-start` or `turn-start` of the same id opens the session again as usual. The bridge keeps at most 32 ended ids, only in memory.
 - A running turn ends after 30 minutes with no event of its session. An open session ends after 12 hours with no event. So a crash of the agent never keeps the faster polls on.
 - With 32 sessions, a new session takes the place of a session with no notice: the one whose latest event is the oldest. Only when all 32 sessions have a notice, it takes the place of the session whose notice is the oldest (by the time of the notice). "Oldest" always means the latest event or the notice time, never the start of the session. (The user chose this rule on 2026-09-28.)
@@ -1741,19 +1743,20 @@ notices = {busy = 1, open = 2, list = {
 | State | Poll |
 |---|---|
 | A desktop request waits (6.6.3) | every 5 s, as before |
-| Notifications on, and `busy` > 0 | every 60 s |
-| Notifications on, and `open` > 0 | every 3 min |
+| Notifications on, the bridge online, and `busy` > 0 | every 60 s |
+| Notifications on, the bridge online, and `open` > 0 | every 3 min |
 | Else | the schedule of 7.3 (10 minutes when idle) |
 
-- Cost: 60 slots in each hour of terminal work, and 20 in each hour with an idle session. The 1000 slots of a UI session then last about 16 hours of terminal work, less the slots of game chats. Diag shows the free slots, and "Reload soon" (7.3) covers the rest.
+- Cost: 60 slots in each hour of terminal work, and 20 in each hour with an idle session. The 1000 slots of a UI session then last about 16 hours of terminal work, less the slots of game chats. Diag shows the free slots, and "Reload soon" (7.3) covers the rest. The banner shows only in the window, so when fewer than 20 slots are left, the addon also prints one chat line: "Gnomish Relay: slots run low. Type /reload to keep replies and notifications." After the last slot, no poll can take a notice away, so the addon empties the list and the bell hides.
 - The addon learns that a session is open only at a poll, so the first notification of an evening can wait up to 10 minutes.
 - Notifications off stops the faster polls, so it is also a way to save slots.
+- Only the bridge ends a stale turn (10.3). A bridge that stopped leaves `busy` as it was in the last live file, so the faster polls stop while the bridge is offline (7.3).
 
-**The list.** The addon keeps the notices of the last live file that pass the filter, less the ones that the user cleared. So an answered notice leaves the list at the next poll: the bridge took it away (10.3). The filter: a `finished` or `failed` notice with a `took` below the setting shows nowhere, not in the list and not in the chat. `took` = 0 passes every setting but Never. `waiting` always passes.
+**The list.** The addon keeps the notices of the last live file that pass the filter, less the ones that the user cleared. So an answered notice leaves the list at the next poll: the bridge took it away (10.3). The filter: a `finished` or `failed` notice with a `took` below the setting shows nowhere, not in the list and not in the chat. `took` = 0 passes every setting but Never. `waiting` always passes. A change of the Finished work setting filters the list at once, with no line and no sound.
 
-**New notices.** A notice is new when its id is not in the last 64 ids that the addon showed. The saved variables keep these ids, so a `/reload` shows nothing twice. For the new notices of one poll:
+**New notices.** A notice is new when its id is not in the last 64 ids that the addon saw. The addon also counts a notice that the filter hid as seen, so a lower Finished work setting never alerts old work: such a notice shows in the list, with no line and no sound. The saved variables keep these ids, so a `/reload` shows nothing twice. For the new notices of one poll:
 
-- **The chat line.** It starts with the icon of the bell, and has the color of the reply line (13.1). Each `waiting` notice gets its own line: `[Claude · gnomish-relay] Waiting for you: <text>`. The `finished` and `failed` notices get one line together. With one: `[Codex · lighthouse] Finished in 4 min: <text>`, or `Failed after 2 min: <text>`. With more: `3 agents finished: gnomish-relay, lighthouse, timeways`. The text is its first 120 characters. A click on the line opens the list. It is a link of the addon (`|Hgnomishrelaynotices|h`), never a chat that can take an answer.
+- **The chat line.** It starts with the icon of the bell, and has the color of the reply line (13.1). Each `waiting` notice gets its own line: `[Claude · gnomish-relay] Waiting for you: <text>`. The `finished` and `failed` notices get one line together. With one: `[Codex · lighthouse] Finished in 4 min: <text>`, or `Failed after 2 min: <text>`. With more: `3 agents finished: gnomish-relay, lighthouse, timeways`. When one of them failed: `3 agents done (1 failed): gnomish-relay, lighthouse, timeways`, so a failure never reads as finished. The text is its first 120 bytes, cut at a whole character, as the list counts its 600 bytes. A click on the line opens the list. It is a link of the addon (`|Hgnomishrelaynotices|h`), never a chat that can take an answer.
 - **The sound.** One sound for each poll: the Battle.net toast sound (`SOUNDKIT.UI_BNET_TOAST`) when a `waiting` notice is new, else the whisper sound. Built-in sound kits only, so nothing needs to exist at game start.
 - **The toast.** For a new `waiting` notice: a small frame at the bottom left, above the chat frame, as the Battle.net toast. Its first line is `<Agent> is waiting · <repo>`, and below it at most 2 lines of the text. It goes away after 8 seconds. A click opens the list.
 - **In combat** (`InCombatLockdown`), the chat line shows at once. The toast and the sound wait until combat ends, and then come only for notices that are still in the list.
@@ -1763,13 +1766,13 @@ notices = {busy = 1, open = 2, list = {
 **The list frame.** A small frame in the style of a tooltip, below the minimap:
 
 - The title "Notifications", and a × that closes it. Escape also closes it.
-- One row for each notice, newest first: the agent name in its color (the addon has no agent icons), the repo in gold, the state ("Waiting" in orange, "Finished · 4 min" in green, "Failed · 2 min" in red), the age, and the first words of the text on a second line. A click on a row shows its full text (at most 600 bytes), and a second click folds it.
-- **Clear** empties the list and hides the bell. A cleared notice never comes back, also when the next live file still holds it.
+- One row for each notice, newest first: the agent name in its color (the addon has no agent icons), the repo in gold (its first 24 bytes, so the head stays one line), the state ("Waiting" in orange, "Finished · 4 min" in green, "Failed · 2 min" in red), the age, and the first words of the text on a second line. A click on a row shows its full text (at most 600 bytes), and a second click folds it.
+- **Clear**, in the title row left of the ×, empties the list and hides the bell. The list and the toast stay on the screen: a list longer than the room below the minimap moves up. The list has no scroll, so a list taller than the screen still passes its bottom, and Clear at the top stays in reach. A cleared notice never comes back, also when the next live file still holds it.
 - A notice has no button that runs anything. Later: "Continue in the game" through Resume (9.6), with the session of the notice, only after `session-end`, because two programs on one session conflict.
 
 **Settings.** One new group "Notifications" in the Settings tab, after Appearance (13.1). It shows only after `hooks install`: the settings list (13.4) has a `hook` line with `on`. The group has two rows: Notifications and Finished work on one, and the three Alerts boxes on the other. While it shows, the Always Allowed group below it shows 3 rules at a time, so the page still fits the least window (900 × 560).
 
-**Diag.** Three new rows, also only after `hooks install`: Hooks (the state of each agent from the settings list), Sessions (the running and open terminal sessions of the last live file), and Last notification (its age). Diag also shows the free slots.
+**Diag.** Three new rows, also only after `hooks install`, and also while no hook is on: a moved or disabled hook shows here with its fix. The rows: Hooks (the state of each agent from the settings list), Sessions (the running and open terminal sessions of the last live file), and Last notification (its age). Diag also shows the free slots.
 
 **Two WoW clients** on one computer each read their own slots, so both show each notification and both spend slots. This is accepted.
 
@@ -1797,7 +1800,7 @@ notices = {busy = 1, open = 2, list = {
 - It never changes `notify`.
 - `remove` takes out its groups.
 
-**After an install**, the command prints "Restart the <agents> sessions that run now.", with the agents that it changed. Both load hooks only at the start of a session.
+**After an install**, the command prints "Restart the <agents> sessions that run now.", with the agents that it changed. Both load hooks only at the start of a session. Then it prints "The first notification can take up to 10 minutes. In the game, type /relay poll to check now.": the addon learns about an open session only at a poll (10.4).
 
 **`hooks status`** shows for each agent: on, off, or on with a path that does not exist (a moved binary). After `hooks install` and `hooks status`, one more line says when no config exists or the config has no relay: "The relay is off, so no notification comes. Run: gnomish-relay setup --relay". Only the relay lane makes the spool folder. It also shows `disableAllHooks` in the Claude settings, and a Codex config that turns hooks off. The settings list (13.4) carries the same state, so Diag shows it. It reads the files at each list, because `hooks install` can run while the bridge runs. The service of the bridge lacks the variables of a shell rc file, such as `CLAUDE_CONFIG_DIR` and `CODEX_HOME`. So each `hooks` command saves the two folders that it used in `<data>/hook-folders.json`, and the bridge reads the files there. With no such file, the bridge takes its own variables.
 
@@ -2053,7 +2056,7 @@ The window follows the classic Guild & Communities frame, and uses the built-in 
 The mockup is the reference for the layout.
 
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
-- **Size:** a grip at the bottom-right corner resizes the window, from 900 × 560 up to the size of the screen. The saved variables keep the size. The transcript, the input, and the Settings and Diag pages grow with the window. The chat column and the Activity column keep their width. The transcript draws again at the end of a resize, not during it.
+- **Size:** a grip at the bottom-right corner resizes the window, from 900 × 560 up to the size of the screen. The saved variables keep the size. A saved size larger than the screen opens at the size of the screen, for example after a larger UI scale. The transcript, the input, the folder browser, and the Settings and Diag pages grow with the window. A taller window shows more lines of Diag. The chat column and the Activity column keep their width. The transcript draws again at the end of a resize, not during it.
 - **Bridge light:** at the right of the title bar, so every tab shows it: a dot and a label. "Checking the bridge" in grey until the first poll, "Bridge online" in green, "Bridge slow" in amber, and "Bridge offline" in red (7.4). A channel problem (7.8) or a version mismatch (7.7) shows here in red too.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
 - **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. An orange "?" marks a chat whose permission popup waits for the player. The last tiles are "Start a New Chat" and "Resume". When the tiles do not fit in the column, the mouse wheel scrolls them, and a new chat scrolls to the end. A new chat opens the folder browser in the center (9.9). Escape closes it, and the chat keeps the default folder. Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**. The question is a dialog of the game (`StaticPopupDialogs`), so it has the border of the game, and Escape closes it.
@@ -2070,7 +2073,7 @@ The mockup is the reference for the layout.
 - **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. The window stays on screen with its tabs: the clamp of the window counts the tabs as part of it. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
   - **New Chats:** Agent, a dropdown of the agents in the settings list (13.4), and Level, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Max: <level> (set on the desktop)", the level of the chosen agent in the config.
-  - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center.
+  - **Appearance:** Font Size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply line: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center, at its first size (900 × 560).
   - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the toasts, the bell, and the faster polls of 10.4, and greys the other two rows. Finished work, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Toast (default on).
   - **Always Allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
   - At the bottom, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "No data yet.". A click asks for a new list.

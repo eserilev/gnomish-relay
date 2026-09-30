@@ -409,14 +409,6 @@ function Window.SetFontSize(size)
 	Window.Refresh()
 end
 
-function Window.ResetPosition()
-	ns.Store.db.windowPoint = nil
-	if frame then
-		frame:ClearAllPoints()
-		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-	end
-end
-
 -- The default folder often holds all the projects, so a new chat asks for its folder
 -- first (SPEC.md 9.9). Escape keeps the default folder.
 function Window.NewChat()
@@ -578,9 +570,18 @@ local function BuildInputHelp()
 	ui.input:SetScript("OnEditFocusLost", RefreshInputHelp)
 end
 
+local function CenterWidth()
+	return frame:GetWidth() - 2 * SIDE - 28
+end
+
 -- The transcript is the center inset less 8 at each side and 6 at the top and bottom.
 local function TranscriptSize()
-	return frame:GetWidth() - 2 * SIDE - 28 - 16, frame:GetHeight() - 84 - 72 - 12
+	return CenterWidth() - 16, frame:GetHeight() - 84 - 72 - 12
+end
+
+-- The Settings and Diag pages cover the window right of the chat column.
+local function PageSize()
+	return frame:GetWidth() - SIDE - 20, frame:GetHeight() - 60 - 16
 end
 
 local function BuildCenter()
@@ -607,21 +608,23 @@ local function BuildCenter()
 	end)
 	ui.picker:Hide()
 
-	ns.Browser.Build(frame, left, width, 72)
+	ns.Browser.Build(frame, left, CenterWidth(), 72)
 
 	ui.banner = CreateFrame("Frame", "GnomishRelayBanner", frame)
 	ui.banner:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left, 44)
 	ui.banner:SetSize(width, 24)
 	ui.bannerText = ui.banner:CreateFontString("GnomishRelayBannerText", "OVERLAY", "GameFontNormal")
 	ui.bannerText:SetPoint("LEFT", ui.banner, "LEFT", 6, 0)
-	local reload = CreateFrame("Button", nil, ui.banner, "UIPanelButtonTemplate")
+	local reload = CreateFrame("Button", "GnomishRelayReload", ui.banner, "UIPanelButtonTemplate")
 	reload:SetSize(90, 22)
 	reload:SetPoint("RIGHT", ui.banner, "RIGHT", 0, 0)
 	reload:SetText("Reload")
 	reload:SetScript("OnClick", function()
-		if not InCombatLockdown() then
-			ReloadUI()
+		if InCombatLockdown() then
+			UIErrorsFrame:AddMessage("Reload works after combat.", 1, 0.1, 0.1)
+			return
 		end
+		ReloadUI()
 	end)
 	ui.banner:Hide()
 
@@ -791,6 +794,7 @@ local function BuildPages()
 	Stretch(ui.diag, 6, -60)
 	ns.SettingsTab.Build(ui.settings)
 	ns.DiagTab.Build(ui.diag)
+	ns.DiagTab.Resize(PageSize())
 	ui.settings:Hide()
 	ui.diag:Hide()
 end
@@ -803,30 +807,52 @@ local function BuildBridgeLight()
 	ui.bridgeDot:SetPoint("RIGHT", ui.bridge, "LEFT", -4, 0)
 end
 
+local function LargestSize()
+	return math.max(WIDTH, UIParent:GetWidth() - TAB_WIDTH), math.max(HEIGHT, UIParent:GetHeight())
+end
+
+-- A larger UI scale or a lower resolution since the save leaves the grip off screen, so
+-- the size never passes the screen.
 local function SavedSize()
 	local saved = ns.Store.db.windowSize
 	if type(saved) ~= "table" or type(saved.width) ~= "number" or type(saved.height) ~= "number" then
 		return WIDTH, HEIGHT
 	end
-	return math.max(WIDTH, saved.width), math.max(HEIGHT, saved.height)
+	local largestWidth, largestHeight = LargestSize()
+	local width = math.min(largestWidth, math.max(WIDTH, saved.width))
+	local height = math.min(largestHeight, math.max(HEIGHT, saved.height))
+	return width, height
 end
 
 -- The transcript lays out its entries for one width, so a new size draws it again.
+local function Resized()
+	ns.Transcript.Resize(TranscriptSize())
+	ns.Browser.Resize(CenterWidth())
+	ns.DiagTab.Resize(PageSize())
+	Window.Refresh()
+end
+
 local function EndSizing()
 	SavePosition()
 	ns.Store.db.windowSize = { width = frame:GetWidth(), height = frame:GetHeight() }
-	ns.Transcript.Resize(TranscriptSize())
-	Window.Refresh()
+	Resized()
+end
+
+function Window.ResetPosition()
+	ns.Store.db.windowPoint = nil
+	ns.Store.db.windowSize = nil
+	if frame then
+		frame:ClearAllPoints()
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+		frame:SetSize(WIDTH, HEIGHT)
+		Resized()
+	end
 end
 
 local function BuildGrip()
 	frame:SetResizable(true)
-	frame:SetResizeBounds(
-		WIDTH,
-		HEIGHT,
-		math.max(WIDTH, UIParent:GetWidth() - TAB_WIDTH),
-		math.max(HEIGHT, UIParent:GetHeight())
-	)
+	local largestWidth, largestHeight = LargestSize()
+	frame:SetResizeBounds(WIDTH, HEIGHT, largestWidth, largestHeight)
 	local grip = CreateFrame("Button", "GnomishRelayResizeGrip", frame)
 	grip:SetSize(16, 16)
 	grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)

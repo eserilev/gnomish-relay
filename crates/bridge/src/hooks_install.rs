@@ -364,6 +364,13 @@ pub fn install_command(
             "Codex asks you to trust the new hooks at the start of its next session. Trust them, or no notification comes."
         )?;
     }
+    if !changed.is_empty() {
+        // The game learns about an open session only at its next poll.
+        writeln!(
+            out,
+            "The first notification can take up to 10 minutes. In the game, type /relay poll to check now."
+        )?;
+    }
     if failed {
         bail!("some hooks were not added");
     }
@@ -808,6 +815,7 @@ mod tests {
         assert!(!text.contains("Claude Code"), "{text}");
         assert!(text.contains("Restart the Codex sessions that run now."));
         assert!(text.contains("trust the new hooks"));
+        assert!(text.contains("type /relay poll to check now"), "{text}");
     }
 
     #[test]

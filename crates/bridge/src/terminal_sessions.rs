@@ -448,10 +448,22 @@ mod tests {
     }
 
     #[test]
-    fn a_finish_after_a_restart_of_the_bridge_took_zero() {
+    fn a_finish_with_no_turn_start_seen_took_zero() {
         let (_dir, mut sessions) = fresh();
         sessions.apply(&file("s1", SpoolEvent::Finished, "Done."), NOW);
         assert_eq!(sessions.notices().list[0].took, 0);
+    }
+
+    #[test]
+    fn a_turn_that_runs_across_a_restart_of_the_bridge_keeps_its_length() {
+        let (dir, mut sessions) = fresh();
+        sessions.apply(&file("s1", SpoolEvent::TurnStart, ""), NOW);
+        sessions.save().unwrap();
+
+        let (mut again, _) = TerminalSessions::load(dir.path());
+        again.apply(&file("s1", SpoolEvent::Finished, "Done."), NOW + 300);
+
+        assert_eq!(again.notices().list[0].took, 300);
     }
 
     #[test]

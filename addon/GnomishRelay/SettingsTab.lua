@@ -346,6 +346,7 @@ local function BuildNotify()
 	finishedLabel:SetText("Finished work")
 	ui.finished = Dropdown("GnomishRelaySettingsFinished", -28, 110, function(value)
 		ns.Store.db.notifyFinished = value
+		ns.Notices.Refilter()
 		SettingsTab.Refresh()
 	end, 20 + LABEL_WIDTH + 140, ui.notify)
 	local choices = {}

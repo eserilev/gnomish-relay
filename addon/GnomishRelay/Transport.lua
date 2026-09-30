@@ -47,6 +47,7 @@ local state = {
 	answered = {},
 	-- The polls so far of each open desktop request, by its id.
 	desktopPolls = {},
+	lowSlotsTold = false,
 }
 
 Transport.OnReply = function() end
@@ -393,9 +394,23 @@ local function ApplyLive(live)
 	ns.Notices.Apply(live.notices, Messages.Stats().bodyNow)
 end
 
+-- The "Reload soon" banner shows only in the window, and notifications need no window.
+local function TellLowSlotsOnce()
+	if state.lowSlotsTold or not Messages.SlotsLow() then
+		return
+	end
+	state.lowSlotsTold = true
+	print(ns.App.title .. ": slots run low. Type /reload to keep replies and notifications.")
+end
+
 local function ApplySlot(restore, live)
 	ApplyRestore(restore)
 	ApplyLive(live)
+	TellLowSlotsOnce()
+	-- No later poll takes a notice away, so the bell shows nothing stale.
+	if Messages.SlotsLeft() == 0 then
+		ns.Notices.Drop()
+	end
 	if #ns.Store.db.forget > 0 and Messages.Online() then
 		Messages.Hello()
 	end

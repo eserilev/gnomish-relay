@@ -11,6 +11,8 @@ local WIDTH = 320
 local ROW_WIDTH = WIDTH - 24
 local LINE = 14
 local PREVIEW = 60
+-- A repo can be 64 bytes. A cut keeps the state and the age on the one line of the head.
+local REPO_BYTES = 24
 local TOAST_TEXT = 150
 local TOAST_SECONDS = 8
 local DEFAULT_ANGLE = 200
@@ -128,7 +130,7 @@ local function ShowRow(row, n, y)
 			color,
 			ns.Notices.Agent(n),
 			GOLD,
-			n.repo,
+			ns.Notices.Cut(n.repo, REPO_BYTES),
 			StateText(n),
 			GREY,
 			Ago(ns.Notices.Age(n))
@@ -156,7 +158,7 @@ local function RefreshList()
 			ui.rows[i]:Hide()
 		end
 	end
-	ui.list:SetHeight(-y + 36)
+	ui.list:SetHeight(-y + 12)
 end
 
 local function BuildList()
@@ -164,6 +166,7 @@ local function BuildList()
 	list:SetWidth(WIDTH)
 	list:SetPoint("TOPRIGHT", Minimap, "BOTTOMRIGHT", 0, -24)
 	list:SetFrameStrata("DIALOG")
+	list:SetClampedToScreen(true)
 	list:EnableMouse(true)
 	local title = Text(list, "GameFontNormal")
 	title:SetPoint("TOPLEFT", list, "TOPLEFT", 12, -12)
@@ -172,7 +175,8 @@ local function BuildList()
 	close:SetPoint("TOPRIGHT", list, "TOPRIGHT", -2, -2)
 	local clear = CreateFrame("Button", "GnomishRelayNoticesClear", list, "UIPanelButtonTemplate")
 	clear:SetSize(70, 20)
-	clear:SetPoint("BOTTOMRIGHT", list, "BOTTOMRIGHT", -10, 8)
+	-- In the title row, so a list longer than the screen never hides it.
+	clear:SetPoint("RIGHT", close, "LEFT", -2, 0)
 	clear:SetText("Clear")
 	clear:SetScript("OnClick", function()
 		ns.Notices.Clear()
@@ -188,6 +192,7 @@ local function BuildToast()
 	toast:SetSize(300, 58)
 	toast:SetPoint("BOTTOMLEFT", DEFAULT_CHAT_FRAME, "TOPLEFT", 0, 40)
 	toast:SetFrameStrata("DIALOG")
+	toast:SetClampedToScreen(true)
 	toast.title = Text(toast, "GameFontNormal")
 	toast.title:SetPoint("TOPLEFT", toast, "TOPLEFT", 12, -10)
 	toast.title:SetWidth(276)
