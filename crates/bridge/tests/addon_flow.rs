@@ -1327,7 +1327,7 @@ fn a_desktop_request_shows_a_row_and_no_popup() {
 
     let texts = texts_of(&game, "FontString");
     assert!(
-        texts.contains(&"Approve on desktop".to_owned()),
+        texts.contains(&"Approve on your desktop".to_owned()),
         "{texts:?}"
     );
     assert!(
@@ -1349,10 +1349,10 @@ fn the_desktop_row_changes_on_each_answer() {
     game.send("read my key");
     game.advance(1.0);
     for (state, row) in [
-        ("wait", "Approve on desktop"),
-        ("approved", "Approved on desktop"),
-        ("denied", "Denied on desktop"),
-        ("none", "No answer on desktop"),
+        ("wait", "Approve on your desktop"),
+        ("approved", "Approved on your desktop"),
+        ("denied", "Denied on your desktop"),
+        ("none", "No answer on your desktop"),
     ] {
         wait_on_desktop(&game, &format!("Desktop: {state} a1b2c3d4e5f6 dialog"));
         game.run("local ns = ... ns.Transport.Poll()");
@@ -1418,7 +1418,7 @@ fn a_desktop_line_in_the_wrong_place_or_shape_is_only_a_step() {
 
     let texts = texts_of(&game, "FontString");
     assert!(
-        !texts.contains(&"Approve on desktop".to_owned()),
+        !texts.contains(&"Approve on your desktop".to_owned()),
         "{texts:?}"
     );
     assert_eq!(whispers_with(&game, "desktop"), 0);

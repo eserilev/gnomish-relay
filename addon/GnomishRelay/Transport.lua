@@ -24,10 +24,10 @@ local LEVELS = {
 -- The bridge writes this line right after the level line while a run waits for the
 -- desktop, and no agent line can start with "Desktop:" (SPEC.md 6.6.3).
 local DESKTOP_STATES = {
-	wait = "Approve on desktop",
-	approved = "Approved on desktop",
-	denied = "Denied on desktop",
-	none = "No answer on desktop",
+	wait = "Approve on your desktop",
+	approved = "Approved on your desktop",
+	denied = "Denied on your desktop",
+	none = "No answer on your desktop",
 }
 local DESKTOP_HOW = { dialog = true, command = true }
 local RAISE_LEVELS = { ["auto-edit"] = true, ["full-auto"] = true }
