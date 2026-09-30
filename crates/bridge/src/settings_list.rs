@@ -63,7 +63,7 @@ pub struct StorySettings {
 
 /// `~/Code` for a path in the home folder, as the player reads it. Both paths are in the
 /// form of `path_bytes`, so a `\\?\` prefix on Windows makes no difference.
-fn shown(path: &[u8], home: Option<&[u8]>) -> String {
+pub fn shown(path: &[u8], home: Option<&[u8]>) -> String {
     let Some(home) = home.filter(|h| is_inside_folder(path, h)) else {
         return String::from_utf8_lossy(path).into_owned();
     };
