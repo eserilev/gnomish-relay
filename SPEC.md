@@ -2251,7 +2251,7 @@ The manifest:
 
 **The config.** After the programs and a pack, setup sets `program` and `lore_pack` in `[story]`, with `~/` for a path in the home folder. It replaces the lines of both keys, also the commented ones of 12, and keeps every other line. A config with no `[story]` gets one at its end. As in 11.3, setup checks the new text with the config loader before it writes. With no pack, setup sets neither key: they go together (12).
 
-**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. `--no-autostart` turns it off. `install.ps1` sets up the desktop app in WSL2 unless the player says no or gives `--no-wsl` (11.5).
+**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. `--no-autostart` turns it off. `install.ps1` sets up the desktop app in WSL2 only with `-Wsl` or `--wsl` (11.5).
 
 - Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh -s -- --timeways`
 - Windows: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways`
@@ -2306,7 +2306,7 @@ Native Windows has no sandbox for the commands of Claude (6.6.4, "Windows"). So 
 **The install flow.** `install.ps1` holds the Windows steps. The decisions that tests can reach are in Rust.
 
 1. The player runs the Windows one-liner (11.3). `install.ps1` installs `gnomish-relay.exe` as before. Under WSL2 it is the launcher of the desktop app.
-2. Unless the player gave `--no-wsl` (or `-NoWsl`, or set `GNOMISH_NO_WSL=1`), it asks once: "Protect your computer with the Linux sandbox? This uses WSL2 (Windows' built-in Linux). First-time setup needs a restart. (Y/n)". An empty answer is yes. No keeps the Windows desktop app of today, where every command asks.
+2. Only with `-Wsl` or `--wsl` does it take the WSL2 path. Without the flag it runs the native Windows setup and asks nothing, as before. **Why opt-in:** the WSL2 path has not passed the manual plan below on a real PC yet, and the one-liner fetches `install.ps1` from `main` while it fetches the program from the latest release. A default of yes would send every Windows player into an untested path, with a program that may lack `wsl-run`. When the plan passes and a release carries `wsl-run`, the default can become the question "Protect your computer with the Linux sandbox? …" again.
 3. It finds the default distro with `wsl.exe --exec sh -c 'echo "$WSL_DISTRO_NAME"; uname -r; id -u'`. This works in every language of Windows, unlike the text of `wsl.exe --status`. A release with no `WSL2` in it is WSL1: the installer says "Your Linux runs on WSL1, which has no sandbox. Run: wsl --set-version <distro> 2", and stops. User id 0 means that the distro has no Linux user yet, and setup as root would put every file in `/root`: the installer says "Set up your Linux user first: open <distro> from the Start menu, pick a user name and password, then run this installer again.", and stops.
 4. With no distro, it runs `wsl.exe --install` as admin (`Start-Process -Verb RunAs`, so Windows asks the player once). Then it looks for the distro again: a Windows that has the virtual machine part already needs no restart. Else it downloads itself as `install.ps1` into the bin folder (under `irm | iex` it has no file), adds a `RunOnce` entry that runs it again at the next sign-in with `-Wsl` and the same arguments, and says "Restart Windows to finish. The installer continues after you sign in."
 5. With WSL2:
@@ -2324,7 +2324,7 @@ Native Windows has no sandbox for the commands of Claude (6.6.4, "Windows"). So 
 
 **Manual test on Windows 11.** Use a Windows 11 computer with WoW Forever, no WSL, and no Gnomish Relay.
 
-1. In PowerShell, run the one-liner of 11.3. It installs `gnomish-relay.exe` and asks "Protect your computer with the Linux sandbox? ...". Press Enter.
+1. In PowerShell, run the one-liner of 11.3 with `-Wsl`. It installs `gnomish-relay.exe` and takes the WSL2 path.
 2. Windows asks for admin rights for `wsl --install`. Click Yes. A second window installs WSL and Ubuntu. The installer says "Restart Windows to finish. The installer continues after you sign in."
 3. Restart and sign in. Ubuntu opens and asks for a new Linux user name and password. Enter them. A PowerShell window opens by itself and goes on with no question about the sandbox. If Ubuntu did not open, the installer says "Set up your Linux user first: ...". Do that, then run the one-liner again.
 4. The installer installs bubblewrap with no password, then Claude Code, then opens `claude`. Log in, then type `/exit`.
@@ -2337,7 +2337,7 @@ Native Windows has no sandbox for the commands of Claude (6.6.4, "Windows"). So 
 11. In Ubuntu, run `gnomish-relay restart`. It prints "The desktop app is running." within 10 seconds.
 12. Sign out of Windows and sign in again. With no terminal open, the desktop app runs: `/relay` in WoW works, and `gnomish-relay status` in a new Ubuntu window shows it running.
 13. In PowerShell, run `wsl --shutdown`. After about 5 seconds, `/relay` in WoW works again.
-14. Run the one-liner again with `--no-wsl`. It sets up the Windows desktop app. The `Run` entry now starts the Windows one, and `gnomish-relay status` in PowerShell shows "Sandbox: none".
+14. Run the one-liner again with no flag. It sets up the Windows desktop app. The `Run` entry now starts the Windows one, and `gnomish-relay status` in PowerShell shows "Sandbox: none".
 
 ## 12. Config
 

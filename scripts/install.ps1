@@ -2,11 +2,12 @@
 #   irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex
 # With arguments for setup, after --autostart (SPEC.md 11.4):
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways
-# By default the desktop app runs in WSL2, with the Linux sandbox (SPEC.md 11.5).
-# --no-wsl, -NoWsl, or GNOMISH_NO_WSL=1 keeps the Windows desktop app.
+# With -Wsl (or --wsl), the desktop app runs in WSL2, with the Linux sandbox (SPEC.md 11.5).
+# The WSL2 path is experimental until it passes the manual plan of SPEC 11.5 on a real PC,
+# so without the flag the installer keeps the Windows desktop app and asks nothing.
 param(
     [switch] $NoWsl,
-    # Set by the RunOnce entry after the restart of `wsl --install`: the player said yes.
+    # The player asks for WSL2; the RunOnce entry after the restart of `wsl --install` sets it too.
     [switch] $Wsl,
     [Parameter(ValueFromRemainingArguments = $true)] [string[]] $SetupArgs = @()
 )
@@ -38,13 +39,11 @@ if (($path -split ";") -notcontains $bin) {
 if (($env:Path -split ";") -notcontains $bin) { $env:Path = "$env:Path;$bin" }
 Write-Host "Installed $bin\gnomish-relay.exe"
 
+if ($SetupArgs -contains "--wsl") { $Wsl = $true }
 if ($SetupArgs -contains "--no-wsl") { $NoWsl = $true }
-$SetupArgs = @($SetupArgs | Where-Object { $_ -ne "--no-wsl" })
+$SetupArgs = @($SetupArgs | Where-Object { $_ -ne "--no-wsl" -and $_ -ne "--wsl" })
 if ($env:GNOMISH_NO_WSL -eq "1") { $NoWsl = $true }
-if (-not $NoWsl -and -not $Wsl) {
-    $answer = Read-Host "Protect your computer with the Linux sandbox? This uses WSL2 (Windows' built-in Linux). First-time setup needs a restart. (Y/n)"
-    if ($answer -match '^\s*n') { $NoWsl = $true }
-}
+if (-not $Wsl) { $NoWsl = $true }
 if ($NoWsl) {
     & "$bin\gnomish-relay.exe" setup --autostart @SetupArgs
     return
