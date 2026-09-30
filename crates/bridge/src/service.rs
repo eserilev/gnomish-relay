@@ -48,8 +48,16 @@ pub fn write_run_entry(value: &str) -> Result<()> {
     )
 }
 
+/// Whether autostart also starts the bridge now.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Start {
+    Now,
+    /// With no game yet, the bridge has nothing to do until the next setup.
+    AtLogin,
+}
+
 /// Starts the bridge at each login, and now (SPEC.md 11.3).
-pub fn autostart(dirs: &Dirs) -> Result<()> {
+pub fn autostart(dirs: &Dirs, start: Start) -> Result<()> {
     let exe = std::env::current_exe()?;
     if let Some(wsl) = wsl::this() {
         let distro = wsl_distro(&wsl)?;
@@ -58,18 +66,26 @@ pub fn autostart(dirs: &Dirs) -> Result<()> {
             &windows.to_string_lossy(),
             &[wsl_launcher::AUTOSTART_COMMAND, distro],
         )?;
-        return restart(dirs, &exe);
+        return match start {
+            Start::Now => restart(dirs, &exe),
+            Start::AtLogin => Ok(()),
+        };
     }
     if cfg!(windows) {
         write_run_entry(&format!("\"{}\" run --background", exe.display()))?;
-        restart_process(dirs, &exe)?;
+        if start == Start::Now {
+            restart_process(dirs, &exe)?;
+        }
     } else if cfg!(target_os = "macos") {
+        // With no game, the bridge ends with success at once, and launchd leaves it.
         let log = load_launchd_agent(dirs, &exe)?;
         println!("Log: {}", log.display());
     } else {
         write_systemd_unit(dirs, &exe)?;
         command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
-        command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
+        if start == Start::Now {
+            command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
+        }
         println!("logs: journalctl --user -u gnomish-relay");
     }
     Ok(())
@@ -133,9 +149,11 @@ enum BridgeLog {
 /// old file.
 pub fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
     // A service restart succeeds even when the new bridge stops at once on a bad config.
-    config::load(&dirs.config, &dirs.home).context(
+    let config = config::load(&dirs.config, &dirs.home).context(
         "config.toml has an error, so the desktop app can't start. Fix it, then run gnomish-relay restart",
     )?;
+    // With no game, a new bridge ends at once, so the wait for its lock fails.
+    config.game()?;
     let before = lock::status(&dirs.data)?;
     let log = restart_service(dirs, exe)?;
     confirm_start(dirs, &log, &before)

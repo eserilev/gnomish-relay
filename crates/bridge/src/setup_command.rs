@@ -164,40 +164,33 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         Ok(text) => Some((text, config::load(&dirs.config, &dirs.home)?)),
         Err(_) => None,
     };
-    let config_wow = existing.as_ref().map(|(_, config)| config.wow.as_path());
+    let config_wow = existing
+        .as_ref()
+        .and_then(|(_, config)| config.wow.as_deref());
     let game = game_choice::choose(args.folder, config_wow, &dirs.home);
-    let Some(wow) = game.folder() else {
-        bail!(game_choice::NO_WOW);
-    };
-    if !wow.is_dir() {
-        bail!("{} isn't a folder", wow.display());
-    }
-    // WoW makes Interface/AddOns at its first start. Setup makes it earlier.
-    let addons = install::addons_dir(wow);
-    std::fs::create_dir_all(&addons)
-        .with_context(|| format!("cannot make {}", addons.display()))?;
+    let wow = game.folder();
+    let addons = wow.map(addons_of).transpose()?;
     if let Some(line) = game_choice::game_line(&game) {
         println!("{line}");
     }
-    let timeways_folder = install::timeways_dir(&addons).is_some();
+    let timeways_folder = addons
+        .as_deref()
+        .is_some_and(|addons| install::timeways_dir(addons).is_some());
     let timeways = setup::timeways_choice(timeways_folder, args.timeways == TimewaysInstall::Asked);
     let found = setup::Found {
         relay_asked: args.relay_asked,
         config_has_relay: existing.as_ref().map(|(_, c)| c.relay.is_some()),
-        relay_folder: addons.join(install::ADDON).exists(),
+        relay_folder: addons
+            .as_deref()
+            .is_some_and(|addons| addons.join(install::ADDON).exists()),
         timeways,
     };
     let relay = match setup::relay_choice(&found) {
         setup::RelayChoice::Decided(relay) => relay,
         setup::RelayChoice::Ask => ask_relay()?,
     };
-    let folders = setup::Folders {
-        config: dirs.config.clone(),
-        addons,
-    };
     // The key addons and the slots first: they need nothing else, and a later step can fail.
-    let changed = setup::install_files(&folders, relay, timeways, args.keys)?;
-    let addon = (relay == setup::Relay::On).then(|| relay_addon::find(&folders.addons));
+    let game_files = setup_files(dirs, addons, relay, timeways, args.keys)?;
     let config = setup_config(dirs, wow, existing.as_ref(), relay, timeways, args.roots)?;
     print_setup(dirs, &config, relay);
     let config = if timeways == setup::Timeways::On {
@@ -213,7 +206,11 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         setup_timeways(dirs, args.autostart);
     }
     if args.autostart == Autostart::On {
-        match service::autostart(dirs) {
+        let start = match wow {
+            Some(_) => service::Start::Now,
+            None => service::Start::AtLogin,
+        };
+        match service::autostart(dirs, start) {
             Ok(()) => println!("Desktop app: on, starts at login"),
             Err(e) => println!(
                 "Desktop app: can't start at login ({e:#}). To start it now, run gnomish-relay run"
@@ -224,11 +221,47 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     if relay == setup::Relay::On {
         println!("{}", hooks_install::SETUP_HINT);
     }
+    let Some((changed, addon)) = game_files else {
+        println!("{}", game_choice::NO_WOW);
+        return Ok(());
+    };
     let get_timeways = timeways_step(timeways, timeways_folder);
     for line in final_lines(&changed, relay, args.keys, addon, get_timeways) {
         println!("{line}");
     }
     Ok(())
+}
+
+/// WoW makes `Interface/AddOns` at its first start. Setup makes it earlier.
+fn addons_of(wow: &Path) -> Result<PathBuf> {
+    if !wow.is_dir() {
+        bail!("{} isn't a folder", wow.display());
+    }
+    let addons = install::addons_dir(wow);
+    std::fs::create_dir_all(&addons)
+        .with_context(|| format!("cannot make {}", addons.display()))?;
+    Ok(addons)
+}
+
+/// The keys, and with a game its files and the relay addon that setup found there.
+fn setup_files(
+    dirs: &Dirs,
+    addons: Option<PathBuf>,
+    relay: setup::Relay,
+    timeways: setup::Timeways,
+    keys: KeyChoice,
+) -> Result<Option<(setup::Changed, Option<RelayAddon>)>> {
+    let Some(addons) = addons else {
+        setup::make_keys(&dirs.config, timeways, keys)?;
+        return Ok(None);
+    };
+    let folders = setup::Folders {
+        config: dirs.config.clone(),
+        addons,
+    };
+    let changed = setup::install_files(&folders, relay, timeways, keys)?;
+    let addon = (relay == setup::Relay::On).then(|| relay_addon::find(&folders.addons));
+    Ok(Some((changed, addon)))
 }
 
 fn wants_timeways_install(asked: TimewaysInstall, folder: bool, config: &Config) -> bool {
@@ -316,7 +349,7 @@ fn ask_relay() -> Result<setup::Relay> {
 /// and `[story]` when the Timeways addon is there.
 fn setup_config(
     dirs: &Dirs,
-    wow: &Path,
+    wow: Option<&Path>,
     existing: Option<&(String, Config)>,
     relay: setup::Relay,
     timeways: setup::Timeways,
@@ -345,9 +378,9 @@ fn setup_config(
     };
     let local_ports = model_setup::local_ports(&models);
     let new_agents = setup::new_agents(&agents, existing.map(|(_, config)| config));
-    let old_wow = existing.map(|(_, config)| config.wow.as_path());
+    let old_wow = existing.and_then(|(_, config)| config.wow.as_deref());
     let parts = setup::ConfigParts {
-        wow: (old_wow != Some(wow)).then_some(wow),
+        wow: wow.filter(|wow| old_wow != Some(*wow)),
         relay: roots.as_deref().map(|roots| RelayPart {
             agents: &agents,
             harnesses: &harnesses,
@@ -631,7 +664,7 @@ fn last_line(changed: &setup::Changed, relay: setup::Relay, keys: KeyChoice) -> 
 /// `gnomish-relay install`: the slots of each app of the config.
 pub fn install_slots(dirs: &Dirs) -> Result<()> {
     let config = config::load(&dirs.config, &dirs.home)?;
-    let dir = install::addons_dir(&config.wow);
+    let dir = install::addons_dir(config.game()?);
     let relay = match config.relay {
         Some(_) => setup::Relay::On,
         None => setup::Relay::Off,

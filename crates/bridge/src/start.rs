@@ -10,6 +10,7 @@ use crate::desktop::Prompt;
 use crate::dirs::Dirs;
 use crate::folder_path::real_path;
 use crate::fs_safe::make_private_dir;
+use crate::game_choice::NO_WOW;
 use crate::gate::{Gate, Places};
 use crate::hooks_install::files_for_bridge;
 use crate::install;
@@ -22,18 +23,23 @@ use crate::setup;
 use crate::story::StorySpec;
 use crate::trust::Truster;
 
-/// Holds the lock of the bridge until the run loop ends.
+/// Holds the lock of the bridge until the run loop ends. With no game yet, it says so
+/// and ends with success, so the login service does not start it again and again.
 pub fn start(dirs: &Dirs) -> Result<()> {
     let config = config::load(&dirs.config, &dirs.home)?;
+    let Some(wow) = config.wow.as_deref() else {
+        println!("{NO_WOW}");
+        return Ok(());
+    };
     let state = dirs.data.clone();
     make_private_dir(&state)?;
     let _lock = lock::take(&state)?;
     let paths = Paths {
         state,
         config: dirs.config.clone(),
-        screenshots: config.wow.join("Screenshots"),
-        accounts: config.wow.join("WTF").join("Account"),
-        addons: install::addons_dir(&config.wow),
+        screenshots: wow.join("Screenshots"),
+        accounts: wow.join("WTF").join("Account"),
+        addons: install::addons_dir(wow),
     };
     // Equal keys, or a `timeways.key` that does not load, stop the bridge here.
     let keys = KeySet::load(&dirs.config)?;

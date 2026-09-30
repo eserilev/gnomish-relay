@@ -329,6 +329,68 @@ fn the_wow_flag_overrides_the_install_played_last_and_changes_the_config() {
 
 #[cfg(target_os = "linux")]
 #[test]
+fn with_no_wow_setup_finishes_the_rest_and_ends_with_what_to_do() {
+    let home = tempfile::tempdir().unwrap();
+
+    let out = setup_in(home.path(), &[]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(
+        stdout.ends_with("\nWoW not found. Start WoW once, then run gnomish-relay setup.\n"),
+        "{stdout}"
+    );
+    let config = config_of(home.path());
+    assert!(config.contains("allowed_roots = []\n"), "{config}");
+    assert!(!config.contains("[wow]"), "{config}");
+    assert!(home.path().join("config/gnomish-relay/strip.key").is_file());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn with_no_wow_the_desktop_app_ends_cleanly_and_status_and_restart_say_what_to_do() {
+    let home = tempfile::tempdir().unwrap();
+    setup_in(home.path(), &[]);
+
+    let run = in_home(home.path(), &["run"]);
+    let status = in_home(home.path(), &["status"]);
+    let restart = in_home(home.path(), &["restart"]);
+
+    let line = "WoW not found. Start WoW once, then run gnomish-relay setup.";
+    assert!(run.status.success(), "{}", stderr(&run));
+    assert_eq!(stdout(&run), format!("{line}\n"));
+    assert!(status.status.success(), "{}", stderr(&status));
+    assert!(
+        stdout(&status).contains(&format!("\nConfig: OK\n{line}\n")),
+        "{}",
+        stdout(&status)
+    );
+    assert!(!restart.status.success());
+    assert!(stderr(&restart).contains(line), "{}", stderr(&restart));
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_setup_after_the_first_start_of_wow_adds_the_game_to_the_config() {
+    let home = tempfile::tempdir().unwrap();
+    setup_in(home.path(), &[]);
+    let game = game_played(&home.path().join(".wine"), 60);
+
+    let out = setup_in(home.path(), &[]);
+
+    let stdout = stdout(&out);
+    assert!(out.status.success(), "{stdout}{}", stderr(&out));
+    assert!(!stdout.contains("WoW not found"), "{stdout}");
+    let config = config_of(home.path());
+    assert!(
+        config.contains(&format!("[wow]\npath = \"{}\"\n", game.display())),
+        "{config}"
+    );
+    assert!(game.join("Interface/AddOns/GnomishRelay_Key").is_dir());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
 fn a_second_setup_keeps_the_wow_folder_of_the_config() {
     let home = tempfile::tempdir().unwrap();
     let older = game_played(&home.path().join(".wine"), 86_400);

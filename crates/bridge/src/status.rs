@@ -11,6 +11,7 @@ use crate::agent;
 use crate::config::{self, RelayConfig};
 use crate::desktop::Prompt;
 use crate::fs_safe::write_atomic_unsynced;
+use crate::game_choice::NO_WOW;
 use crate::gate::{Gate, Places};
 use crate::install;
 use crate::lock::{self, Bridge};
@@ -35,6 +36,10 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
         }
     };
     lines.push("Config: OK".into());
+    let Some(wow) = config.wow.as_deref() else {
+        lines.push(NO_WOW.into());
+        return lines;
+    };
     let Some(relay) = &config.relay else {
         lines.push("Coding agents: off. To turn them on, run gnomish-relay setup --relay".into());
         return lines;
@@ -42,7 +47,7 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let gate = Gate::new(relay, places, Prompt::Off);
     lines.push(sandbox_line(&SandboxFound::of(&gate.sandbox.tool, path)));
     lines.push(agent_line(relay, &gate));
-    let addons = install::addons_dir(&config.wow);
+    let addons = install::addons_dir(wow);
     lines.push(relay_addon::status_line(relay_addon::find(&addons)));
     lines.extend(default_agent_off_service_path(relay, places));
     lines

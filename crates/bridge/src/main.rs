@@ -77,7 +77,7 @@ fn say(dirs: &Dirs, chat: &str, id: &str, text: &str) -> Result<()> {
     };
     let config = config::load(&dirs.config, &dirs.home)?;
     config.require_relay()?;
-    slots::publish_reply(&install::addons_dir(&config.wow), reply, next, now())?;
+    slots::publish_reply(&install::addons_dir(config.game()?), reply, next, now())?;
     println!(
         "published to {} slots from slot {next}",
         protocol::slot::SLOT_WINDOW

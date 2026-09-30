@@ -261,7 +261,7 @@ mod tests {
         assert_eq!(relay.policy.default_agent, "claude");
         assert_eq!(relay.agents["gemini"].command, ["gemini", "--acp"]);
         assert_eq!(relay.agents["claude"].kind, Kind::Claude);
-        assert_eq!(config.wow, PathBuf::from(wow));
+        assert_eq!(config.wow, Some(PathBuf::from(wow)));
         assert!(config.story.is_none());
     }
 

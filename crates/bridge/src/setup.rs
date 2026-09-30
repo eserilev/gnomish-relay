@@ -115,6 +115,27 @@ pub struct Changed {
     pub new_slots: bool,
 }
 
+/// The keys in hex. `timeways` is `None` with Timeways off.
+pub struct Keys {
+    pub relay: String,
+    pub timeways: Option<String>,
+}
+
+/// The keys of each app that this computer has. They need no game, so setup makes them
+/// also before WoW is there.
+pub fn make_keys(dir: &Path, timeways: Timeways, keys: KeyChoice) -> Result<Keys> {
+    make_private_dir(dir)?;
+    // `KeySet` needs the relay key, so every player gets it. With no addon, it does nothing.
+    let relay = key(dir, RELAY_KEY_FILE, keys, None)?;
+    let timeways = match timeways {
+        Timeways::On => Some(key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay))?),
+        Timeways::Off => None,
+    };
+    // Equal keys stop setup here, as they stop the bridge.
+    KeySet::load(dir)?;
+    Ok(Keys { relay, timeways })
+}
+
 /// The keys, the key addons, and the slots of each app that this computer has. They
 /// need nothing else, so they come before the config (SPEC.md 11.3).
 pub fn install_files(
@@ -123,28 +144,22 @@ pub fn install_files(
     timeways: Timeways,
     keys: KeyChoice,
 ) -> Result<Changed> {
-    let dir = &folders.config;
-    make_private_dir(dir)?;
-    // `KeySet` needs the relay key, so every player gets it. With no addon, it does nothing.
-    let relay_hex = key(dir, RELAY_KEY_FILE, keys, None)?;
+    let hex = make_keys(&folders.config, timeways, keys)?;
     let mut new_slots = false;
     let relay_key = match relay {
         Relay::On => {
             new_slots |= install_slots(&folders.addons, App::Relay)?;
-            Some(install::write_relay_keys(&folders.addons, &relay_hex)?)
+            Some(install::write_relay_keys(&folders.addons, &hex.relay)?)
         }
         Relay::Off => None,
     };
-    let timeways_key = match timeways {
-        Timeways::On => {
-            let hex = key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay_hex))?;
+    let timeways_key = match &hex.timeways {
+        Some(timeways_hex) => {
             new_slots |= install_slots(&folders.addons, App::Timeways)?;
-            Some(install::write_timeways_keys(&folders.addons, &hex)?)
+            Some(install::write_timeways_keys(&folders.addons, timeways_hex)?)
         }
-        Timeways::Off => None,
+        None => None,
     };
-    // Equal keys stop setup here, as they stop the bridge.
-    KeySet::load(dir)?;
     Ok(Changed {
         relay_key,
         timeways_key,
