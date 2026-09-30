@@ -1160,7 +1160,7 @@ gnomish-relay/
     protocol/           frames, records, slot body, escapes, dedup, counters. No I/O. Verified with Aeneas.
     app-protocol/       the checked lines of the app protocol (9.8). No I/O. Apps test against it.
     bridge/             the daemon: screenshot reader, policy, queue, publisher, state, and the agents of 9.2
-  fuzz/                 the fuzz targets (14.4)
+  fuzz/                 the fuzz targets (14.3)
   proofs/               Lean project with the Aeneas output and the proofs
   models/               Quint model of the transport
   tests/vectors/        golden strip images
@@ -2114,7 +2114,7 @@ notices = {busy = 1, open = 2, list = {
 
 **Unit tests** for each rule of 10.1 to 10.5, with sentence names, for example `a_hook_in_a_bridge_job_writes_nothing`, `a_turn_start_removes_the_notice_of_its_session`, `short_finished_work_shows_nowhere`, and `install_keeps_the_hooks_of_the_user`.
 
-**Fake-game tests** (`crates/bridge/tests/addon_notices.rs`, with the fake WoW API; `addon_flow.rs` is long already, so the notices got their own file): the hook subcommand writes a spool file, the bridge publishes, and the Lua poll shows the line, the sound, the toast, and the bell. Other cases: nothing twice across a `/reload`, an answered notice that leaves the list, the filter of short work, one line for three `finished` notices, a toast and a sound that wait for the end of combat, the 60 s and 3 min polls, notifications off, Clear, the angle of the bell, and a Settings group that shows only after `hooks install`. A seeded test feeds the addon 600 random live files, as for the settings list (14.4).
+**Fake-game tests** (`crates/bridge/tests/addon_notices.rs`, with the fake WoW API; `addon_flow.rs` is long already, so the notices got their own file): the hook subcommand writes a spool file, the bridge publishes, and the Lua poll shows the line, the sound, the toast, and the bell. Other cases: nothing twice across a `/reload`, an answered notice that leaves the list, the filter of short work, one line for three `finished` notices, a toast and a sound that wait for the end of combat, the 60 s and 3 min polls, notifications off, Clear, the angle of the bell, and a Settings group that shows only after `hooks install`. A seeded test feeds the addon 600 random live files, as for the settings list (14.3).
 
 **The end-to-end test** (`crates/bridge/tests/notices_e2e.rs`) runs the real bridge and the real binary in a temp home, with no game. `hooks install` merges into a `settings.json` that holds hooks of the user. The test then runs the real `gnomish-relay hook claude` with the stdin of each Claude event, and reads `Live.lua` with the Lua slot poll. It also checks that the hook with no bridge exits 0 in less than 300 ms with an empty stdout. A live test marked `#[ignore]` runs the real `claude -p` with `--settings <temp file>`, so the real `~/.claude` stays the same, and waits for the `finished` notice. It passed with Claude Code 2.1.285 on 2026-09-29. A live Codex test waits until a temp `CODEX_HOME` can keep the login, and until a test can trust hooks with no terminal.
 
@@ -2622,7 +2622,7 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 - The reply is at most 32 KB after the Lua escape (S12). The allow table comes last, because only it can be long. The `rule` lines (6.6.5) come just before it, so a cut removes allow patterns first. A list that does not fit keeps its first lines and ends with a line `+`, as the folder tree does.
 - No version change (7.7): the bridge writes the relay addon again at each start, so the addon is never newer than its bridge.
 - **When the addon asks.** When the Settings or Diag tab opens and the list is older than 10 minutes, or there is none, and at a click on the status line. Each ask costs a strip, so a tab that opens again soon asks nothing.
-- The addon parser takes a line only with a known shape: an agent needs a valid name and a known level, and a folder rule needs a folder and a pattern. A seeded test feeds it random bytes (14.4).
+- The addon parser takes a line only with a known shape: an agent needs a valid name and a known level, and a folder rule needs a folder and a pattern. A seeded test feeds it random bytes (14.3).
 
 ### 13.5 Decisions for the desktop notice, the new message, and the Settings tab
 
