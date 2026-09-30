@@ -18,6 +18,21 @@ class Ident(str):
     """A bare Lua name or expression in a doc, such as `Enum.SecretAspect.Text`."""
 
 
+def enum_names(text):
+    """`Enum`, each `Enum.X`, and each `Enum.X.Y` of LuaEnum.lua, which puts one name on each line."""
+    names = {"Enum"}
+    current = None
+    for line in text.splitlines():
+        table = re.match(r"^\t(\w+) = \{", line)
+        value = re.match(r"^\t\t(\w+) = ", line)
+        if table:
+            current = f"Enum.{table.group(1)}"
+            names.add(current)
+        elif value and current:
+            names.add(f"{current}.{value.group(1)}")
+    return names
+
+
 def tokens(text):
     out = []
     for match in TOKEN.finditer(text):

@@ -226,5 +226,17 @@ class LuaTests(unittest.TestCase):
         self.assertIn("SecretReturns = true,", new)
 
 
+class EnumTests(unittest.TestCase):
+    def test_enum_names_lists_the_table_each_enum_and_each_value(self):
+        text = "Enum = {\n\tTooltipDataType = {\n\t\tItem = 0,\n\t\tUnit = 2,\n\t},\n\tEmpty = {\n\t},\n}\n"
+
+        names = wow_api_docs.enum_names(text)
+
+        self.assertEqual(
+            names,
+            {"Enum", "Enum.TooltipDataType", "Enum.TooltipDataType.Item", "Enum.TooltipDataType.Unit", "Enum.Empty"},
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

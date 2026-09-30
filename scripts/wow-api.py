@@ -243,6 +243,7 @@ def referenced():
     for path in addon_files():
         text = path.read_text(encoding="utf-8")
         names.update(".".join(m) for m in re.findall(r"\b(C_\w+|SOUNDKIT|bit)\.([A-Za-z_]\w*)", text))
+        names.update(re.findall(r"\bEnum\.\w+\.\w+", text))
     if args.fake:
         names |= fake_globals(args.fake)
     own = own_prefixes()
@@ -353,6 +354,7 @@ def main():
     known = global_api | set(quoted(resources / "FrameXML.lua"))
     known |= set(quoted(resources / "Frames.lua"))
     known |= ui_globals()
+    known |= wow_api_docs.enum_names((resources / "LuaEnum.lua").read_text(encoding="utf-8"))
     known |= {n.split(".")[0] for n in known if "." in n}
     docs = wow_api_docs.read_docs(ui / "Blizzard_APIDocumentationGenerated")
     used = referenced()
