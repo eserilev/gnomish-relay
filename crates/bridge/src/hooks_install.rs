@@ -11,6 +11,7 @@ use anyhow::{Context, Result, bail};
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::config;
 use crate::dirs::{Dirs, EnvVar, claude_dir, codex_dir};
 use crate::fs_safe::{make_private_dir, write_private};
 use crate::hooks_merge::{self, our_programs};
@@ -421,13 +422,30 @@ pub fn command(dirs: &Dirs, action: &str, flags: &[&str], out: &mut dyn Write) -
     save_folders(&dirs.data, &all)?;
     let path = std::env::var_os("PATH").unwrap_or_default();
     match action {
-        "install" => install_command(flags, all, &std::env::current_exe()?, &path, out),
-        "remove" => remove_command(flags, all, out),
-        "status" if flags.is_empty() => status_command(&all, out),
+        "install" => install_command(flags, all, &std::env::current_exe()?, &path, out)?,
+        "remove" => return remove_command(flags, all, out),
+        "status" if flags.is_empty() => status_command(&all, out)?,
         _ => {
             bail!("usage: gnomish-relay hooks install|remove [--claude] [--codex], or hooks status")
         }
     }
+    if let Some(line) = relay_off_line(dirs) {
+        writeln!(out, "{line}")?;
+    }
+    Ok(())
+}
+
+const RELAY_OFF: &str =
+    "The relay is off, so no notification comes. Run: gnomish-relay setup --relay";
+
+/// Only the relay lane makes the spool folder, so with no relay a hook writes nothing.
+/// A config that does not load is the job of `gnomish-relay status`.
+fn relay_off_line(dirs: &Dirs) -> Option<&'static str> {
+    let off = match config::load(&dirs.config, &dirs.home) {
+        Ok(config) => config.relay.is_none(),
+        Err(_) => !dirs.config.join(config::FILE).exists(),
+    };
+    off.then_some(RELAY_OFF)
 }
 
 /// The last line of `setup`, which changes no agent settings itself.
@@ -686,6 +704,35 @@ mod tests {
 
         home.write(".codex/config.toml", "[features]\nhooks = false\n");
         assert_eq!(state(&home.codex()), HookState::Disabled);
+    }
+
+    fn dirs_with_config(home: &Home, config: Option<&str>) -> Dirs {
+        let dirs = Dirs {
+            home: home.dir.path().to_owned(),
+            config: home.dir.path().join("config"),
+            data: home.dir.path().join("data"),
+        };
+        if let Some(text) = config {
+            crate::setup::write_config(&dirs.config, text, &dirs.home).unwrap();
+        }
+        dirs
+    }
+
+    #[test]
+    fn with_no_relay_the_hooks_command_says_that_no_notification_comes() {
+        let home = home();
+        fs::create_dir_all(home.dir.path().join("Code")).unwrap();
+        let timeways = "[wow]\npath = \"~/wow\"\n\n[story]\nmodel = \"claude\"\n";
+        let relay = "allowed_roots = [\"~/Code\"]\ndefault_agent = \"echo\"\n\
+            [wow]\npath = \"~/wow\"\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n";
+
+        let no_config = relay_off_line(&dirs_with_config(&home, None));
+        let only_timeways = relay_off_line(&dirs_with_config(&home, Some(timeways)));
+        let with_relay = relay_off_line(&dirs_with_config(&home, Some(relay)));
+
+        assert_eq!(no_config, Some(RELAY_OFF));
+        assert_eq!(only_timeways, Some(RELAY_OFF));
+        assert_eq!(with_relay, None);
     }
 
     #[test]

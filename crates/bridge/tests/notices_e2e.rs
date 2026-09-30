@@ -349,7 +349,8 @@ fn hooks_status_and_remove_speak_of_notifications() {
     let status = home.run(&["hooks", "status"]);
     assert_eq!(
         String::from_utf8(status.stdout).unwrap(),
-        "Claude Code: notifications off\nCodex: notifications off\n"
+        "Claude Code: notifications off\nCodex: notifications off\n\
+         The relay is off, so no notification comes. Run: gnomish-relay setup --relay\n"
     );
 
     home.run(&["hooks", "install", "--codex"]);
