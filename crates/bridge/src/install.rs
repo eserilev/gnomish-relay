@@ -18,7 +18,7 @@ pub const KEY_FILE: &str = "Key.lua";
 /// The addon, built into the program, so one download installs everything. The files of
 /// `addon/transport` are shared with other apps (SPEC.md 9.7, decision 14). They go into
 /// this addon here, so the repo never holds a copy of them.
-pub const ADDON_FILES: [(&str, &[u8]); 25] = [
+pub const ADDON_FILES: [(&str, &[u8]); 26] = [
     (
         "GnomishRelay.toc",
         include_bytes!("../../../addon/GnomishRelay/GnomishRelay.toc"),
@@ -120,6 +120,11 @@ pub const ADDON_FILES: [(&str, &[u8]); 25] = [
     (
         "JetBrainsMono-OFL.txt",
         include_bytes!("../../../addon/GnomishRelay/JetBrainsMono-OFL.txt"),
+    ),
+    // Parts of the addon come from wow-claude, whose MIT license travels with its code.
+    (
+        "LICENSE-wow-claude.txt",
+        include_bytes!("../../../addon/GnomishRelay/LICENSE-wow-claude.txt"),
     ),
 ];
 
@@ -725,6 +730,15 @@ mod tests {
         assert_eq!(font[..4], [0, 1, 0, 0]);
         let license = fs::read_to_string(dir.join("JetBrainsMono-OFL.txt")).unwrap();
         assert!(license.contains("SIL Open Font License"));
+    }
+
+    /// The MIT license of wow-claude asks that its notice goes with each copy of its code.
+    #[test]
+    fn install_writes_the_mit_notice_of_wow_claude() {
+        let addons = tempfile::tempdir().unwrap();
+        install_addon(addons.path(), &"ab".repeat(32)).unwrap();
+        let notice = fs::read_to_string(addons.path().join(ADDON).join("LICENSE-wow-claude.txt"));
+        assert!(notice.unwrap().contains("MIT License"));
     }
 
     #[cfg(unix)]
