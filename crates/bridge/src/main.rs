@@ -168,6 +168,7 @@ fn main() -> Result<()> {
         ["selftest", "collect", ref rest @ ..] => {
             selftest::collect_command(&Dirs::from_env()?, rest)
         }
+        ["hook", agent] => bridge::hook::main(agent),
         [command_sandbox::RUN_FLAG, command] => {
             std::process::exit(command_sandbox::run_wrapped(command))
         }
