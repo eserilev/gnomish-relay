@@ -16,7 +16,7 @@ use bridge::desktop::{self, Approvals, Prompt};
 use bridge::forward;
 use bridge::fs_safe::write_atomic;
 use bridge::gate::{Gate, Places};
-use bridge::install;
+use bridge::install::{self, SYSTEMD_UNIT};
 use bridge::lock::{self, Bridge};
 use bridge::model::ModelChoice;
 use bridge::model_setup;
@@ -140,7 +140,6 @@ fn command(program: &str, args: &[&str]) -> Result<()> {
 /// Starts the bridge at each login, and now (SPEC.md 11.3).
 fn autostart() -> Result<()> {
     let exe = std::env::current_exe()?;
-    let path_var = std::env::var("PATH").unwrap_or_default();
     if cfg!(windows) {
         // The Run key of the user needs no admin rights, unlike a scheduled task.
         let run = format!("\"{}\" run --background", exe.display());
@@ -160,29 +159,10 @@ fn autostart() -> Result<()> {
         )?;
         restart_process(&exe)?;
     } else if cfg!(target_os = "macos") {
-        let dir = launch_agents_dir()?;
-        std::fs::create_dir_all(&dir)?;
-        let name = format!("{}.plist", install::LAUNCHD_LABEL);
-        let log = launchd_log()?;
-        write_atomic(
-            &dir,
-            &name,
-            install::launchd_plist(&exe, &path_var, &log).as_bytes(),
-        )?;
-        let domain = launchd_domain()?;
-        let plist = dir.join(&name).to_string_lossy().into_owned();
-        let _ = command("launchctl", &["bootout", &domain, &plist]);
-        command("launchctl", &["bootstrap", &domain, &plist])?;
+        let log = load_launchd_agent(&exe)?;
         println!("logs: {}", log.display());
     } else {
-        let dir = systemd_dir()?;
-        std::fs::create_dir_all(&dir)?;
-        write_atomic(
-            &dir,
-            SYSTEMD_UNIT,
-            install::systemd_unit(&exe, &path_var).as_bytes(),
-        )?;
-        command("systemctl", &["--user", "daemon-reload"])?;
+        write_systemd_unit(&exe)?;
         command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
         command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
         println!("logs: journalctl --user -u gnomish-relay");
@@ -190,7 +170,38 @@ fn autostart() -> Result<()> {
     Ok(())
 }
 
-const SYSTEMD_UNIT: &str = "gnomish-relay.service";
+/// A service starts with almost no `PATH`, so it gets the one of this shell, and finds
+/// the agents that the shell finds.
+fn write_systemd_unit(exe: &Path) -> Result<()> {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let dir = systemd_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    write_atomic(
+        &dir,
+        SYSTEMD_UNIT,
+        install::systemd_unit(exe, &path_var).as_bytes(),
+    )?;
+    command("systemctl", &["--user", "daemon-reload"])
+}
+
+/// Writes the launchd agent with the `PATH` of this shell, and starts it. Returns its log.
+fn load_launchd_agent(exe: &Path) -> Result<PathBuf> {
+    let path_var = std::env::var("PATH").unwrap_or_default();
+    let dir = launch_agents_dir()?;
+    std::fs::create_dir_all(&dir)?;
+    let name = format!("{}.plist", install::LAUNCHD_LABEL);
+    let log = launchd_log()?;
+    write_atomic(
+        &dir,
+        &name,
+        install::launchd_plist(exe, &path_var, &log).as_bytes(),
+    )?;
+    let domain = launchd_domain()?;
+    let plist = dir.join(&name).to_string_lossy().into_owned();
+    let _ = command("launchctl", &["bootout", &domain, &plist]);
+    command("launchctl", &["bootstrap", &domain, &plist])?;
+    Ok(log)
+}
 
 fn systemd_dir() -> Result<PathBuf> {
     Ok(config_dir()?
@@ -229,14 +240,13 @@ fn restart(exe: &Path) -> Result<()> {
 
 fn restart_service(exe: &Path) -> Result<BridgeLog> {
     if cfg!(target_os = "linux") && systemd_dir()?.join(SYSTEMD_UNIT).is_file() {
+        write_systemd_unit(exe)?;
         command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
         return Ok(BridgeLog::Journal);
     }
     let plist = launch_agents_dir()?.join(format!("{}.plist", install::LAUNCHD_LABEL));
     if cfg!(target_os = "macos") && plist.is_file() {
-        let service = format!("{}/{}", launchd_domain()?, install::LAUNCHD_LABEL);
-        command("launchctl", &["kickstart", "-k", &service])?;
-        return Ok(BridgeLog::File(launchd_log()?));
+        return load_launchd_agent(exe).map(BridgeLog::File);
     }
     restart_process(exe).map(BridgeLog::File)
 }
@@ -895,6 +905,16 @@ fn check_agent(name: &str) -> Result<()> {
         }
     );
     for line in &report.details {
+        println!("{line}");
+    }
+    let service = install::service_file(&config_dir()?, &home_dir()?)
+        .and_then(|file| std::fs::read_to_string(file).ok())
+        .and_then(|text| install::service_path_var(&text));
+    let missing = spec
+        .command
+        .first()
+        .and_then(|program| status::service_path_line(program, service.as_deref()));
+    if let Some(line) = missing {
         println!("{line}");
     }
     for (level, mode) in &spec.modes {

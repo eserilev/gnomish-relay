@@ -73,9 +73,49 @@ pub fn agent_line(config: &RelayConfig, gate: &Gate) -> String {
     }
 }
 
+/// `None` when the login service finds `program`, or when there is no service. The
+/// service keeps the `PATH` of the last setup or restart, and a shell can have another.
+pub fn service_path_line(program: &str, service_path: Option<&str>) -> Option<String> {
+    let path = service_path?;
+    if find_program(program, OsStr::new(path), cfg!(windows)).is_some() {
+        return None;
+    }
+    Some(format!(
+        "{program} is not on the PATH of the login service. Run: gnomish-relay restart"
+    ))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_agent_that_the_service_cannot_find_asks_for_a_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_string_lossy().into_owned();
+
+        let line = service_path_line("claude", Some(&path));
+
+        assert_eq!(
+            line.as_deref(),
+            Some("claude is not on the PATH of the login service. Run: gnomish-relay restart")
+        );
+    }
+
+    #[test]
+    fn an_agent_on_the_path_of_the_service_or_no_service_needs_no_line() {
+        let dir = tempfile::tempdir().unwrap();
+        let name = if cfg!(windows) {
+            "claude.exe"
+        } else {
+            "claude"
+        };
+        std::fs::write(dir.path().join(name), "").unwrap();
+        let path = dir.path().to_string_lossy().into_owned();
+
+        assert_eq!(service_path_line("claude", Some(&path)), None);
+        assert_eq!(service_path_line("claude", None), None);
+    }
 
     #[test]
     fn a_working_sandbox_shows_its_tool() {
