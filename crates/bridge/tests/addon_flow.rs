@@ -736,6 +736,21 @@ fn the_grip_resizes_the_window_within_bounds_and_the_size_stays_after_a_reload()
 }
 
 #[test]
+fn a_new_chat_opens_the_folder_browser_first() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+
+    game.run("GnomishRelayTile1:Click()");
+
+    assert!(
+        game.run("local ns = ... return ns.Browser.IsOpen()")
+            .as_boolean()
+            .unwrap()
+    );
+    assert_eq!(chat_count(&game), 1);
+}
+
+#[test]
 fn a_click_on_the_whisper_link_opens_that_chat() {
     let game = Game::start();
     game.send("hi");
@@ -2502,9 +2517,11 @@ const TREE: &str = "~/Code\n0\t~/Code\t\n1\tPersonal\t\n1\tscratch\t\n2\tgnomish
 
 const NEW_FOLDER_ROW: &str = "|cff9fe39fNew folder|r";
 
+/// A new chat opens the folder browser. Escape closes it and keeps the default folder.
 fn click_new_chat(game: &Game) {
     game.run("local ns = ... ns.Window.Open()");
     game.run(&format!("GnomishRelayTile{}:Click()", chat_count(game) + 1));
+    game.run("GnomishRelayBrowserFilter:GetScript('OnEscapePressed')(GnomishRelayBrowserFilter)");
 }
 
 /// Clicks the folder button, and answers the folder list request with `tree`.
@@ -2556,11 +2573,13 @@ fn crumbs(game: &Game) -> Vec<String> {
         .collect()
 }
 
+/// The record of the message `text` in the newest strip that holds it.
 fn sent_by_chat(game: &Game, text: &[u8]) -> Record {
-    game.last_strip()
-        .into_iter()
+    (1..=game.shots())
+        .rev()
+        .flat_map(|n| game.strip(n))
         .find(|r| r.text == text)
-        .expect("the message in the last strip")
+        .expect("the message in a strip")
 }
 
 fn header_folder(game: &Game) -> String {
@@ -2578,19 +2597,13 @@ fn chat_field(game: &Game, chat: usize, field: &str) -> String {
 }
 
 #[test]
-fn new_chat_starts_in_the_default_folder_with_its_transcript_and_sends_no_request() {
+fn escape_in_the_browser_of_a_new_chat_keeps_the_default_folder_and_its_transcript() {
     let game = Game::start();
     game.advance(2.0);
-    let before = game.shots();
 
     click_new_chat(&game);
     game.advance(2.0);
 
-    let requests = (before + 1..=game.shots())
-        .flat_map(|n| game.strip(n))
-        .filter(|r| r.chat == b"folders")
-        .count();
-    assert_eq!(requests, 0, "no folder list request");
     assert!(!shown(&game, "GnomishRelayBrowser"));
     assert!(shown(&game, "GnomishRelayTranscript"));
     game.send("hi");
@@ -3392,9 +3405,9 @@ fn a_new_chat_takes_the_agent_and_level_that_settings_chose() {
     );
     click_new_chat(&game);
     game.send("hi");
-    game.advance(1.0);
+    game.advance(3.0);
 
-    let f = flags(&game.last_strip()[0]);
+    let f = flags(&sent_by_chat(&game, b"hi"));
     assert!(
         f.contains(&"agent=codex".into()) && f.contains(&"level=ask".into()),
         "{f:?}"
@@ -3408,9 +3421,9 @@ fn a_chosen_agent_that_the_bridge_no_longer_has_gives_the_default_agent() {
     open_settings_with_list(&game, false);
     click_new_chat(&game);
     game.send("hi");
-    game.advance(1.0);
+    game.advance(3.0);
 
-    let f = flags(&game.last_strip()[0]);
+    let f = flags(&sent_by_chat(&game, b"hi"));
     assert!(f.contains(&"agent=claude".into()), "{f:?}");
 }
 

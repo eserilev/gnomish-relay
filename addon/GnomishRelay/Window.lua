@@ -417,12 +417,17 @@ function Window.ResetPosition()
 	end
 end
 
--- The chat starts in the default folder. The folder button changes it (SPEC.md 9.9).
+-- The default folder often holds all the projects, so a new chat asks for its folder
+-- first (SPEC.md 9.9). Escape keeps the default folder.
 function Window.NewChat()
 	local chat = ns.Store.NewChat()
 	-- The new tile is at the end of the column. RefreshTiles clamps the offset.
 	ui.tileOffset = math.huge
-	Select(chat.id)
+	MarkSelected(chat.id)
+	ui.tab = "chats"
+	ui.picking = false
+	ns.Browser.Open(chat)
+	Window.Refresh()
 end
 
 Window.SelectedChat = Selected
