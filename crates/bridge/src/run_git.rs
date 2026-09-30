@@ -1,7 +1,7 @@
 //! Git around one run, in the thread of the run (SPEC.md 9.10): the own branch before
-//! the agent starts, and the branch after it.
+//! the agent starts, and the snapshot and the branch after it.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use crate::chat_branch::{self, ChatWorktree};
@@ -10,6 +10,7 @@ use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
 use crate::relay::{BranchPlan, Job};
 use crate::run::log;
+use crate::run_changes::{Outcome, RunChanges, Snapshot, changes, snapshot};
 
 /// What the bridge needs for git in a run.
 #[derive(Clone)]
@@ -27,11 +28,12 @@ pub enum WorktreeChange {
     Set(Option<ChatWorktree>),
 }
 
-/// The folder of a run, and its own branch.
+/// The folder of a run, and the state of the repository when the run started.
 pub struct Started {
     pub folder: String,
     pub worktree: Option<ChatWorktree>,
     pub change: WorktreeChange,
+    start: Option<(PathBuf, Snapshot)>,
 }
 
 impl RunGit {
@@ -73,18 +75,52 @@ impl RunGit {
         let folder = worktree
             .as_ref()
             .map_or_else(|| job.cwd.clone(), |w| w.folder.clone());
+        let start = self.snapshot_of(Path::new(&folder));
         Ok(Started {
             folder,
             worktree,
             change,
+            start,
         })
     }
 
+    /// `None` outside a repository, and when git fails: the run goes on with no summary.
+    fn snapshot_of(&self, folder: &Path) -> Option<(PathBuf, Snapshot)> {
+        let top = chat_branch::repo_top(&self.host, folder)?;
+        match snapshot(&self.host, &top) {
+            Ok(snap) => Some((top, snap)),
+            Err(e) => {
+                log(&format!("no change summary in {}: {e}", top.display()));
+                None
+            }
+        }
+    }
+
     /// The blocks of the bridge under the reply.
-    pub fn end(&self, started: &Started) -> RunBlocks {
+    pub fn end(&self, job: &Job, started: &Started) -> RunBlocks {
         let folder = Path::new(&started.folder);
         RunBlocks {
             branch: chat_branch::branch_info(&self.host, folder, started.worktree.as_ref()),
+            changes: self.changes(job, started),
         }
+    }
+
+    fn changes(&self, job: &Job, started: &Started) -> Option<RunChanges> {
+        let (top, start) = started.start.as_ref()?;
+        let end = snapshot(&self.host, top).ok()?;
+        let (files, odd_names) = changes(&self.host, top, &start.tree, &end.tree).ok()?;
+        if files.is_empty() {
+            return None;
+        }
+        Some(RunChanges {
+            chat: job.chat.clone(),
+            id: job.id,
+            top: top.to_string_lossy().into_owned(),
+            start: start.clone(),
+            end,
+            files,
+            odd_names,
+            outcome: Outcome::Open,
+        })
     }
 }

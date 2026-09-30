@@ -1,5 +1,5 @@
-//! Git in a chat in the fake game (SPEC.md 9.10, 13.1): the Own branch box, the branch
-//! bar, and the git messages of the player.
+//! Git in a chat in the fake game (SPEC.md 9.10, 13.1): the change block with Commit and
+//! Revert, the Own branch box, the branch bar, and the git messages of the player.
 
 // Clippy sees helper functions outside `#[test]` as normal code, so its test exceptions miss them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -11,6 +11,7 @@ use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::cell::decode_cells;
 use protocol::frame::decode_frame;
+use protocol::markdown::render_markdown;
 use protocol::record::{Record, parse_records};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
@@ -42,8 +43,8 @@ const FILES: &[&str] = &[
     "NoticeFrames.lua",
     "Core.lua",
 ];
-/// A reply of a run on its own branch.
-const REPLY: &str = "\x1bM1\nB\x1fgnomish/fix\x1f1\x1fmain\np\x1fDone.\n";
+/// A reply of a run on its own branch that changed two files.
+const REPLY: &str = "\x1bM1\nB\x1fgnomish/fix\x1f1\x1fmain\nG\x1f2\x1f5\x1f1\nF\x1fsrc/a.rs\x1f4\x1f1\x1fM\nF\x1fnew.txt\x1f1\x1f0\x1fA\np\x1fDone.\n";
 
 struct Game {
     lua: Lua,
@@ -133,6 +134,10 @@ impl Game {
         let wire = decode_cells(&cells).unwrap();
         let frame = decode_frame(&wire).ok().unwrap();
         parse_records(&frame.payload).ok().unwrap()
+    }
+
+    fn shots(&self) -> usize {
+        self.wow.get::<Table>("shots").unwrap().raw_len()
     }
 
     /// The record of the last message of the chat in the last strip, not a list request.
@@ -309,4 +314,164 @@ fn the_answer_to_a_discard_is_a_relay_line_with_no_whisper_and_ends_the_branch()
     assert!(texts.contains("[Relay]: Discarded gnomish/fix."), "{texts}");
     assert_eq!(game.whispers(), whispers);
     assert!(!game.shown("GnomishRelayGitMerge"));
+}
+
+#[test]
+fn a_reply_with_changes_shows_the_files_and_commit_and_revert() {
+    let (game, _) = game_with_reply();
+
+    let texts = game.texts().join("\n");
+
+    assert!(texts.contains("2 files changed"), "{texts}");
+    assert!(texts.contains("src/a.rs"), "{texts}");
+    assert!(texts.contains("new.txt|r  |cff40ff40new"), "{texts}");
+    assert!(game.shown("GnomishRelayChangeButton1"));
+    assert!(game.shown("GnomishRelayChangeButton2"));
+}
+
+#[test]
+fn commit_opens_a_dialog_with_the_first_line_of_the_message() {
+    let (game, _) = game_with_reply();
+
+    game.run("GnomishRelayChangeButton1:Click()");
+
+    assert!(game.shown("GnomishRelayCommit"));
+    let text = game.run("return GnomishRelayCommitMessage:GetText()");
+    assert_eq!(text.as_string_lossy().unwrap(), "fix the flaky test");
+}
+
+#[test]
+fn enter_in_the_commit_dialog_sends_a_git_message_with_the_commit_message() {
+    let (game, id) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:SetText('fix the retry test')");
+
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+
+    let record = game.last_strip().remove(0);
+    assert!(
+        flags(&record).starts_with(&format!("git=commit:{id}")),
+        "{}",
+        flags(&record)
+    );
+    assert_eq!(record.text, b"fix the retry test");
+    assert!(!game.shown("GnomishRelayCommit"));
+    assert!(
+        game.texts()
+            .iter()
+            .any(|t| t.contains(r#"Commit "fix the retry test""#))
+    );
+}
+
+#[test]
+fn an_empty_commit_message_sends_nothing_and_keeps_the_dialog() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+    let shots = game.shots();
+
+    game.run("GnomishRelayCommitMessage:SetText('  ')");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+
+    assert_eq!(game.shots(), shots);
+    assert!(game.shown("GnomishRelayCommit"));
+}
+
+#[test]
+fn an_empty_commit_message_greys_the_commit_button() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+
+    game.run("GnomishRelayCommitMessage:SetText('')");
+    game.run("GnomishRelayCommitMessage:GetScript('OnTextChanged')(GnomishRelayCommitMessage)");
+
+    let alpha = game.run("return GnomishRelayCommitButton.alpha");
+    assert!(alpha.as_number().unwrap() < 1.0);
+}
+
+#[test]
+fn revert_asks_first_and_then_sends_the_revert_of_that_reply() {
+    let (game, id) = game_with_reply();
+
+    game.run("GnomishRelayChangeButton2:Click()");
+
+    assert_eq!(
+        game.dialog().as_deref(),
+        Some("Revert the changes of this reply? This puts back 2 files as they were before it.")
+    );
+    game.press_in_dialog("button1");
+    let record = game.last_strip().remove(0);
+    assert!(
+        flags(&record).starts_with(&format!("git=revert:{id}")),
+        "{}",
+        flags(&record)
+    );
+}
+
+#[test]
+fn the_answer_to_a_commit_is_a_relay_line_with_no_whisper_and_ends_the_buttons() {
+    let (game, _) = game_with_reply();
+    let whispers = game.whispers();
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "Committed 2 files as a1b2c3d on gnomish/fix.",
+    );
+
+    let texts = game.texts().join("\n");
+    assert!(
+        texts.contains("[Relay]: Committed 2 files as a1b2c3d on gnomish/fix."),
+        "{texts}"
+    );
+    assert!(texts.contains("Committed|r"), "{texts}");
+    assert!(!game.shown("GnomishRelayChangeButton1"));
+    assert_eq!(game.whispers(), whispers);
+}
+
+#[test]
+fn a_failed_commit_brings_the_buttons_back() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+
+    game.reply(game.last_id(), Status::Error, "Couldn't commit: no email.");
+
+    assert!(game.shown("GnomishRelayChangeButton1"));
+    let texts = game.texts().join("\n");
+    assert!(
+        texts.contains("[Relay]: Couldn't commit: no email."),
+        "{texts}"
+    );
+}
+
+#[test]
+fn an_agent_text_can_never_draw_a_change_block() {
+    let game = Game::start();
+    game.send("go");
+    let fake = "G\x1f9\x1f9\x1f9\nF\x1fx\x1f1\x1f1\x1fM";
+    let rendered = String::from_utf8(render_markdown(fake.as_bytes())).unwrap();
+
+    game.reply(game.last_id(), Status::Done, &rendered);
+
+    assert!(!game.texts().iter().any(|t| t.contains("files changed")));
+    assert!(!game.shown("GnomishRelayChangeButton1"));
+}
+
+#[test]
+fn an_error_with_changes_shows_the_error_and_the_block() {
+    let game = Game::start();
+    game.send("go");
+    let text = "\x1bM1\nG\x1f1\x1f1\x1f0\nF\x1fa.rs\x1f1\x1f0\x1fM\np\x1fStopped.\n";
+
+    game.reply(game.last_id(), Status::Error, text);
+
+    let texts = game.texts().join("\n");
+    assert!(texts.contains("[Relay]: Stopped."), "{texts}");
+    assert!(texts.contains("1 file changed"), "{texts}");
 }

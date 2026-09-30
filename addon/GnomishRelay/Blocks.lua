@@ -89,10 +89,23 @@ function Blocks.Parse(text)
 	return blocks
 end
 
+local function Count(field)
+	return tonumber(field) or 0
+end
+
 -- The blocks of the bridge have upper-case kinds (SPEC.md 7.3.1, 9.10).
 local GIT_BLOCKS = {
 	B = function(git, p)
 		git.branch = { name = p[2] or "", own = p[3] == "1", start = p[4] or "" }
+	end,
+	G = function(git, p)
+		git.summary = { files = Count(p[2]), added = Count(p[3]), removed = Count(p[4]) }
+	end,
+	F = function(git, p)
+		table.insert(git.files, { path = p[2] or "", added = tonumber(p[3]), removed = tonumber(p[4]), kind = p[5] })
+	end,
+	M = function(git, p)
+		git.more = Count(p[2])
 	end,
 }
 

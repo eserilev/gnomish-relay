@@ -75,6 +75,8 @@ pub mod receive;
 pub mod relay;
 pub mod reply;
 pub mod run;
+pub mod run_actions;
+pub mod run_changes;
 pub mod run_git;
 pub mod saved;
 pub mod screenshots;

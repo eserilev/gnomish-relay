@@ -34,6 +34,7 @@ pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
 use crate::new_folder::{NewFolderError, is_folder_name};
 use crate::reply::render_reply;
+use crate::run_changes::{Outcome as ChangeOutcome, RunChanges};
 use crate::settings_list::{BridgeSettings, HookLine, settings_reply};
 use crate::state::State;
 
@@ -53,6 +54,8 @@ const ACTIVE_FOR: u32 = 300;
 const NO_SESSION: &str = "That session is gone. Open Resume to pick another.";
 const UNKNOWN_ACTION: &str =
     "The desktop app doesn't know that action. Update it: run gnomish-relay update.";
+/// The runs whose change summary Commit and Revert can still act on.
+const MAX_CHANGES: usize = 32;
 
 /// The agent session of a chat. The next message of the chat resumes it, if its
 /// agent and its folder are the same (SPEC.md 9.5).
@@ -226,6 +229,8 @@ pub struct Relay {
     worktrees: Vec<ChatWorktree>,
     /// The worktrees of deleted chats, which the bridge cleans up.
     cleanups: Vec<ChatWorktree>,
+    /// The last runs with a change summary.
+    changes: Vec<RunChanges>,
 }
 
 /// The tag of a signed frame (SPEC.md 6.3). Two frames with the same tag are one frame.
@@ -306,6 +311,7 @@ impl Relay {
             own_branch: BTreeMap::new(),
             worktrees: Vec::new(),
             cleanups: Vec::new(),
+            changes: Vec::new(),
         }
     }
 
@@ -655,6 +661,7 @@ impl Relay {
         self.sessions.retain(|s| s.chat != chat);
         self.history.remove(&chat);
         self.own_branch.remove(&chat);
+        self.changes.retain(|c| c.chat != chat);
         let (gone, kept) = std::mem::take(&mut self.worktrees)
             .into_iter()
             .partition(|w| w.chat == chat);
@@ -782,17 +789,17 @@ impl Relay {
     }
 
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
-        self.finish_run(job, result, &RunBlocks::default());
+        self.finish_run(job, result, RunBlocks::default());
     }
 
     /// The reply of a run, with the blocks of the bridge under it (SPEC.md 7.3.1, 9.10).
-    pub fn finish_run(&mut self, job: &Job, result: Result<String, String>, run: &RunBlocks) {
+    pub fn finish_run(&mut self, job: &Job, result: Result<String, String>, run: RunBlocks) {
         self.activity.end(&job.chat, job.id);
         self.running.remove(&job.chat);
         if self.is_deleted(&job.chat) {
             return;
         }
-        let added = blocks(run);
+        let added = blocks(&run);
         let (status, text) = match result {
             Ok(text) => {
                 let rendered = render_reply(&job.work, &with_level_note(job, text));
@@ -801,7 +808,17 @@ impl Relay {
             Err(text) if !added.is_empty() => (Status::Error, error_with_blocks(&text, &added)),
             Err(text) => (Status::Error, plain_error(&text)),
         };
+        if let Some(changes) = run.changes {
+            self.keep_changes(changes);
+        }
         self.set_record(&job.token, &job.chat, job.id, status, text);
+    }
+
+    fn keep_changes(&mut self, changes: RunChanges) {
+        self.changes
+            .retain(|c| (c.chat != changes.chat) || (c.id != changes.id));
+        self.changes.push(changes);
+        keep_last(&mut self.changes, MAX_CHANGES);
     }
 
     /// The end of a git action. Its reply is text of the bridge, with blocks when it
@@ -821,10 +838,28 @@ impl Relay {
     }
 
     fn apply_effect(&mut self, chat: &ChatId, effect: &Effect) {
-        if *effect == Effect::Discarded {
-            self.worktrees.retain(|w| &w.chat != chat);
-            self.sessions.retain(|s| &s.chat != chat);
+        let (id, outcome) = match effect {
+            Effect::Nothing => return,
+            Effect::Discarded => {
+                self.worktrees.retain(|w| &w.chat != chat);
+                self.sessions.retain(|s| &s.chat != chat);
+                return;
+            }
+            Effect::Committed(id) => (id, ChangeOutcome::Committed),
+            Effect::Reverted(id) => (id, ChangeOutcome::Reverted),
+        };
+        let found = self
+            .changes
+            .iter_mut()
+            .find(|c| &c.chat == chat && c.id == *id);
+        if let Some(changes) = found {
+            changes.outcome = outcome;
         }
+    }
+
+    /// The record of a run that Commit or Revert names.
+    pub fn changes_of(&self, chat: &ChatId, id: MessageId) -> Option<&RunChanges> {
+        self.changes.iter().find(|c| &c.chat == chat && c.id == id)
     }
 
     pub fn worktree_of(&self, chat: &ChatId) -> Option<&ChatWorktree> {
@@ -981,6 +1016,7 @@ impl Relay {
             frames: self.frames.clone(),
             own_branch: self.own_branch.clone().into_iter().collect(),
             worktrees: self.worktrees.clone(),
+            changes: self.changes.clone(),
         }
     }
 
@@ -1005,6 +1041,7 @@ impl Relay {
         relay.frames = state.frames;
         relay.own_branch = state.own_branch.into_iter().collect();
         relay.worktrees = state.worktrees;
+        relay.changes = state.changes;
         for job in state.waiting {
             let queue = relay
                 .queues
@@ -2129,14 +2166,27 @@ mod tests {
         }
     }
 
-    fn own_branch() -> RunBlocks {
-        use crate::chat_branch::{BranchInfo, Own};
-        RunBlocks {
-            branch: Some(BranchInfo {
-                branch: "gnomish/fix".into(),
-                own: Own::Yes,
-                start: "main".into(),
-            }),
+    fn changes(chat: &str, id: u32) -> RunChanges {
+        use crate::run_changes::{ChangeKind, FileChange, Snapshot};
+        RunChanges {
+            chat: ChatId::new(chat),
+            id: MessageId(id),
+            top: "/home/x/Code/app".into(),
+            start: Snapshot {
+                tree: "t1".into(),
+                head: None,
+            },
+            end: Snapshot {
+                tree: "t2".into(),
+                head: None,
+            },
+            files: vec![FileChange {
+                path: "a.rs".into(),
+                lines: Some((3, 1)),
+                kind: ChangeKind::Modified,
+            }],
+            odd_names: false,
+            outcome: ChangeOutcome::Open,
         }
     }
 
@@ -2146,13 +2196,14 @@ mod tests {
         relay.on_frame(&[record("c1", 1, "", "work")], NOW);
         let running = relay.next_job().unwrap();
 
-        let outcome = relay.on_frame(&[record("c1", 2, "git=merge", "")], NOW);
+        let outcome = relay.on_frame(&[record("c1", 2, "git=commit:1", "fix it")], NOW);
 
         assert_eq!(outcome, [Outcome::Accepted]);
         assert!(relay.next_job().is_none());
         relay.finish(&running, Ok("done".into()));
         let job = relay.next_job().unwrap();
-        assert_eq!(job.work, Work::Git(GitAction::Merge));
+        assert_eq!(job.work, Work::Git(GitAction::Commit(MessageId(1))));
+        assert_eq!(job.text, "fix it");
     }
 
     #[test]
@@ -2233,25 +2284,36 @@ mod tests {
         let mut relay = relay();
         relay.on_frame(&[record("c1", 1, "", "a")], NOW);
         let job = relay.next_job().unwrap();
+        let run = RunBlocks {
+            changes: Some(changes("c1", 1)),
+            ..RunBlocks::default()
+        };
 
-        relay.finish_run(&job, Ok("Done.".into()), &own_branch());
+        relay.finish_run(&job, Ok("Done.".into()), run);
 
         let body = body(&relay);
         assert!(
-            body.contains(r"\027M1\010B\031gnomish/fix\0311\031main\010p\031Done.\010"),
+            body.contains(
+                r"\027M1\010G\0311\0313\0311\010F\031a.rs\0313\0311\031M\010p\031Done.\010"
+            ),
             "{body}"
         );
+        assert!(relay.changes_of(&job.chat, job.id).is_some());
     }
 
     #[test]
-    fn an_error_with_blocks_is_rendered_with_its_blocks() {
+    fn an_error_with_changes_is_rendered_with_its_blocks() {
         let mut relay = relay();
         relay.on_frame(&[record("c1", 1, "", "a")], NOW);
         let job = relay.next_job().unwrap();
+        let run = RunBlocks {
+            changes: Some(changes("c1", 1)),
+            ..RunBlocks::default()
+        };
 
-        relay.finish_run(&job, Err("Stopped.".into()), &own_branch());
+        relay.finish_run(&job, Err("Stopped.".into()), run);
 
-        assert!(body(&relay).contains(r#"status = "error", text = "\027M1\010B"#));
+        assert!(body(&relay).contains(r#"status = "error", text = "\027M1\010G"#));
     }
 
     #[test]
@@ -2270,8 +2332,12 @@ mod tests {
         let mut relay = relay();
         relay.on_frame(&[record("c1", 1, "", "a")], NOW);
         let job = relay.next_job().unwrap();
+        let run = RunBlocks {
+            changes: Some(changes("c1", 1)),
+            ..RunBlocks::default()
+        };
 
-        relay.finish_run(&job, Ok("Done.".into()), &own_branch());
+        relay.finish_run(&job, Ok("Done.".into()), run);
 
         let state = relay.to_state();
         let restored =
@@ -2280,16 +2346,34 @@ mod tests {
     }
 
     #[test]
-    fn a_discard_forgets_the_branch_of_the_chat() {
+    fn a_commit_marks_its_summary_and_a_discard_forgets_the_branch() {
         let mut relay = relay();
         relay.set_worktree(&ChatId::new("c1"), Some(worktree("c1")));
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+        let run = RunBlocks {
+            changes: Some(changes("c1", 1)),
+            ..RunBlocks::default()
+        };
+        relay.finish_run(&job, Ok("Done.".into()), run);
+        relay.on_frame(&[record("c1", 2, "git=commit:1", "msg")], NOW);
+        let commit = relay.next_job().unwrap();
+
+        relay.finish_git(
+            &commit,
+            Ok("Committed 1 file.".into()),
+            &Effect::Committed(MessageId(1)),
+        );
         relay.on_frame(&[record("c1", 3, "git=discard", "")], NOW);
         let discard = relay.next_job().unwrap();
-
         relay.finish_git(&discard, Ok("Discarded.".into()), &Effect::Discarded);
 
+        let outcome = relay
+            .changes_of(&ChatId::new("c1"), MessageId(1))
+            .unwrap()
+            .outcome;
+        assert_eq!(outcome, ChangeOutcome::Committed);
         assert!(relay.worktree_of(&ChatId::new("c1")).is_none());
-        assert!(body(&relay).contains(r#"status = "done", text = "Discarded.""#));
     }
 
     #[test]
@@ -2305,16 +2389,33 @@ mod tests {
     }
 
     #[test]
-    fn worktrees_come_back_after_a_restart() {
+    fn the_bridge_keeps_only_the_last_summaries() {
+        let mut relay = relay();
+        for id in 0..40 {
+            relay.keep_changes(changes("c1", id));
+        }
+
+        assert!(relay.changes_of(&ChatId::new("c1"), MessageId(0)).is_none());
+        assert!(
+            relay
+                .changes_of(&ChatId::new("c1"), MessageId(39))
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn worktrees_and_summaries_come_back_after_a_restart() {
         let mut relay = relay();
         let mut first = record("c1", 1, "branch=1", "a");
         first.name = b"x".to_vec();
         relay.on_frame(&[first], NOW);
         relay.set_worktree(&ChatId::new("c1"), Some(worktree("c1")));
+        relay.keep_changes(changes("c1", 1));
 
         let again = Relay::from_state(policy(), relay.to_state());
 
         assert_eq!(again.worktree_of(&ChatId::new("c1")), Some(&worktree("c1")));
+        assert!(again.changes_of(&ChatId::new("c1"), MessageId(1)).is_some());
         assert_eq!(
             again.own_branch.get(&ChatId::new("c1")).map(String::as_str),
             Some("x")

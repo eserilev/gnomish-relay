@@ -14,6 +14,7 @@ use crate::history::History;
 use crate::lane::{ChatId, LaneState};
 pub use crate::lane::{SavedRecord, SavedStatus};
 use crate::relay::{AgentSession, FrameTag, Job};
+use crate::run_changes::RunChanges;
 
 const FILE: &str = "state.json";
 /// 1000 seen ids and 30 records of 32 KiB fit in far less.
@@ -40,6 +41,9 @@ pub struct State {
     pub own_branch: Vec<(ChatId, String)>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub worktrees: Vec<ChatWorktree>,
+    /// The last runs with a change summary, for Commit and Revert.
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub changes: Vec<RunChanges>,
 }
 
 /// `None` when there is no state yet. A damaged file is an error, not a fresh start:

@@ -197,7 +197,7 @@ fn chat_with_a_commit(w: &mut World, bridge: &mut Bridge) {
 }
 
 #[test]
-fn a_run_in_a_repository_ends_with_its_branch() {
+fn a_run_in_a_repository_ends_with_a_change_summary_and_its_branch() {
     let mut w = world();
     let mut bridge = bridge(&w);
 
@@ -205,8 +205,94 @@ fn a_run_in_a_repository_ends_with_its_branch() {
     let line = reply(&mut bridge, &w, 1);
 
     assert!(
-        line.contains(r"\027M1\010B\031main\0310\031\010p\031Done."),
+        line.contains(r"\027M1\010B\031main\0310\031\010G\0311\0311\0310\010F\031agent.txt\0311\0310\031A\010p\031Done."),
         "{line}"
+    );
+}
+
+#[test]
+fn a_run_that_changes_nothing_has_no_change_summary() {
+    let mut w = world();
+    fs::write(w.repo.join("agent.txt"), "same\n").unwrap();
+    git(&w.repo, &["add", "-A"]);
+    git(&w.repo, &["commit", "-q", "-m", "two"]);
+    let mut bridge = bridge(&w);
+
+    send(&mut w, 1, "n", "app", "same");
+    let line = reply(&mut bridge, &w, 1);
+
+    assert!(!line.contains(r"\010G\031"), "{line}");
+}
+
+#[test]
+fn commit_from_the_game_commits_the_files_of_the_summary() {
+    let mut w = world();
+    let mut bridge = bridge(&w);
+    send(&mut w, 1, "n", "app", "write it");
+    reply(&mut bridge, &w, 1);
+    fs::write(w.repo.join("mine.txt"), "the player's own file\n").unwrap();
+
+    send(&mut w, 2, "git=commit:1", "app", "add the agent file");
+    let line = reply(&mut bridge, &w, 2);
+
+    assert!(line.contains("Committed 1 file as "), "{line}");
+    assert_eq!(
+        git(&w.repo, &["log", "-1", "--format=%s"]).trim(),
+        "add the agent file"
+    );
+    assert_eq!(git(&w.repo, &["status", "--porcelain"]), "?? mine.txt\n");
+}
+
+#[test]
+fn revert_from_the_game_takes_back_only_the_run() {
+    let mut w = world();
+    fs::write(w.repo.join("readme.txt"), "the player's edit\n").unwrap();
+    let mut bridge = bridge(&w);
+    send(&mut w, 1, "n", "app", "write it");
+    reply(&mut bridge, &w, 1);
+
+    send(&mut w, 2, "git=revert:1", "app", "");
+    let line = reply(&mut bridge, &w, 2);
+
+    assert!(line.contains("Reverted 1 file."), "{line}");
+    assert!(!w.repo.join("agent.txt").exists());
+    assert_eq!(
+        fs::read_to_string(w.repo.join("readme.txt")).unwrap(),
+        "the player's edit\n"
+    );
+}
+
+#[test]
+fn a_second_revert_of_one_summary_changes_nothing() {
+    let mut w = world();
+    let mut bridge = bridge(&w);
+    send(&mut w, 1, "n", "app", "write it");
+    reply(&mut bridge, &w, 1);
+    send(&mut w, 2, "git=revert:1", "app", "");
+    reply(&mut bridge, &w, 2);
+
+    send(&mut w, 3, "git=revert:1", "app", "");
+    let line = reply(&mut bridge, &w, 3);
+
+    assert!(line.contains("already reverted"), "{line}");
+}
+
+#[test]
+fn a_commit_on_an_own_branch_goes_to_that_branch() {
+    let mut w = world();
+    let mut bridge = bridge(&w);
+    send(&mut w, 1, "n;branch=1", "Feature", "write it");
+    reply(&mut bridge, &w, 1);
+
+    send(&mut w, 2, "git=commit:1", "app", "agent work");
+    let line = reply(&mut bridge, &w, 2);
+
+    assert!(line.contains(" on gnomish/feature."), "{line}");
+    let log = git(&w.repo, &["log", "-1", "--format=%s", "gnomish/feature"]);
+    assert_eq!(log.trim(), "agent work");
+    assert_eq!(
+        git(&w.repo, &["log", "-1", "--format=%s", "main"]).trim(),
+        "one"
     );
 }
 

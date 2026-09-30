@@ -442,9 +442,10 @@ local function RelayLine(text, y)
 	return TextLine(string.format("|cff%s[Relay]: %s|r", GREY, RelayWords(text)), 0, y, width)
 end
 
--- An error comes from the relay, not from the agent, so it has its own grey line.
+-- An error comes from the relay, not from the agent, so it has its own grey line. An
+-- error of a run can still have changes, and needs Revert most (SPEC.md 9.10).
 local function DrawError(chat, entry, y)
-	y = RelayLine(entry.text, y)
+	y = ns.Changes.Draw(chat, entry, RelayLine(entry.text, y), width)
 	local message = entry.id and ns.Store.Message(chat, entry.id)
 	if message and not message.attach and not message.git and message.text ~= "" then
 		y = DrawResend(message, y)
@@ -461,10 +462,11 @@ local function DrawEntry(chat, entry, y)
 	elseif entry.role == "error" then
 		return DrawError(chat, entry, y)
 	elseif entry.role == "note" then
-		return RelayLine(entry.text, y)
+		return ns.Changes.Draw(chat, entry, RelayLine(entry.text, y), width)
 	end
 	local agent = entry.agent or chat.agent
-	return DrawReply(Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), entry.text, y)
+	y = DrawReply(Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), entry.text, y)
+	return ns.Changes.Draw(chat, entry, y, width)
 end
 
 local function ScrollTo(offset)
@@ -485,6 +487,7 @@ local function Clear(chat)
 	for _, pool in pairs(ui.pools) do
 		ReleaseAll(pool)
 	end
+	ns.Changes.Clear()
 	contentHeight = 0
 	drawn = { count = 0, chatId = chat and chat.id, fontSize = FontSize(), width = width }
 	open = {}
@@ -546,6 +549,11 @@ local function NewResend()
 	return button
 end
 
+-- The next Show draws the whole chat again, for an old entry that changed.
+function Transcript.Invalidate()
+	drawn = { count = 0 }
+end
+
 -- The next Show draws the whole chat again for the new width.
 function Transcript.Resize(w, h)
 	width, viewHeight = w, h
@@ -576,4 +584,5 @@ function Transcript.Build(parent, w, h)
 		rule = NewPool(NewTexture("ARTWORK", 0.6, 0.5, 0.2, 0.8)),
 		band = NewPool(NewTexture("BACKGROUND")),
 	}
+	ns.Changes.Build(ui.child)
 end

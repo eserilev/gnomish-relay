@@ -565,6 +565,12 @@ impl RelayLane {
         };
         self.stops.insert(job.chat.clone(), control.stop.clone());
         let worktree = self.relay.worktree_of(&job.chat).cloned();
+        let run = match action {
+            GitAction::Commit(id) | GitAction::Revert(id) => {
+                self.relay.changes_of(&job.chat, id).cloned()
+            }
+            GitAction::Merge | GitAction::Discard => None,
+        };
         let desk = self.raiser.as_ref().map(|r| MergeDesk {
             approvals: r.approvals.clone(),
             wait: r.permission_timeout,
@@ -573,10 +579,11 @@ impl RelayLane {
             let context = Context {
                 git: &git.host,
                 worktree: worktree.as_ref(),
+                run: run.as_ref(),
                 desk: desk.as_ref(),
                 control: &control,
             };
-            let done = git_actions::perform(&action, &context);
+            let done = git_actions::perform(&action, &job.text, &context);
             let _ = finished.send(Finished::Git(job, done));
         });
     }
@@ -804,7 +811,7 @@ impl RelayLane {
                 self.relay.set_worktree(&job.chat, worktree);
             }
             self.relay.keep_session(&job, run.session);
-            self.relay.finish_run(&job, run.reply, &end.blocks);
+            self.relay.finish_run(&job, run.reply, end.blocks);
             // A request of a run that ended gets no answer: its run stopped waiting.
             let relay = &self.relay;
             self.answers.retain(|request, _| relay.is_asked(request));
@@ -861,7 +868,7 @@ fn run_with_git(
     };
     let end = match (git, started) {
         (Some(git), Some(started)) => RunEnd {
-            blocks: git.end(&started),
+            blocks: git.end(job, &started),
             change: started.change,
         },
         _ => RunEnd::default(),

@@ -11,26 +11,36 @@ use crate::chat_merge;
 use crate::desktop::Approvals;
 use crate::gate;
 use crate::git_host::GitHost;
+use crate::lane::MessageId;
 use crate::run::{log, now};
+use crate::run_actions;
+use crate::run_changes::RunChanges;
 use crate::turn::{Answer, Turn};
 
 const NO_BRANCH: &str = "This chat has no branch of its own.";
 const COPY_GONE: &str = "This chat's copy is gone. Send a message to make a new one.";
+const TOO_OLD: &str = "This change summary is too old. Nothing changed.";
 const NO_DESKTOP: &str =
     "Merge needs your approval on the desktop, and the desktop app can't ask here.";
 const NOT_MERGED: &str = "Not merged.";
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
 pub enum GitAction {
+    /// The run of this message, with the text of the message as the commit message.
+    Commit(MessageId),
+    Revert(MessageId),
     Merge,
     Discard,
 }
 
-/// The value of `git=`: `merge` or `discard`.
+/// The value of `git=`: `commit:<id>`, `revert:<id>`, `merge`, or `discard`.
 pub fn git_action(value: &str) -> Option<GitAction> {
-    match value {
-        "merge" => Some(GitAction::Merge),
-        "discard" => Some(GitAction::Discard),
+    let run = |id: &str| id.parse().ok().map(MessageId);
+    match value.split_once(':') {
+        Some(("commit", id)) => run(id).map(GitAction::Commit),
+        Some(("revert", id)) => run(id).map(GitAction::Revert),
+        None if value == "merge" => Some(GitAction::Merge),
+        None if value == "discard" => Some(GitAction::Discard),
         _ => None,
     }
 }
@@ -47,6 +57,8 @@ pub struct Context<'a> {
     pub git: &'a GitHost,
     /// The own branch of the chat, if it has one.
     pub worktree: Option<&'a ChatWorktree>,
+    /// The record of the run that Commit or Revert names, if the bridge still has it.
+    pub run: Option<&'a RunChanges>,
     pub desk: Option<&'a MergeDesk>,
     pub control: &'a Control,
 }
@@ -55,6 +67,8 @@ pub struct Context<'a> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Effect {
     Nothing,
+    Committed(MessageId),
+    Reverted(MessageId),
     /// The own branch of the chat is gone.
     Discarded,
 }
@@ -73,8 +87,22 @@ fn done(reply: Result<String, String>, effect: Effect) -> Done {
     Done { reply, effect }
 }
 
-pub fn perform(action: &GitAction, context: &Context) -> Done {
+pub fn perform(action: &GitAction, text: &str, context: &Context) -> Done {
     match action {
+        GitAction::Commit(id) => {
+            let reply = context
+                .run
+                .ok_or_else(|| TOO_OLD.to_owned())
+                .and_then(|run| run_actions::commit(context.git, run, text));
+            done(reply, Effect::Committed(*id))
+        }
+        GitAction::Revert(id) => {
+            let reply = context
+                .run
+                .ok_or_else(|| TOO_OLD.to_owned())
+                .and_then(|run| run_actions::revert(context.git, run));
+            done(reply, Effect::Reverted(*id))
+        }
         GitAction::Merge => done(merge(context), Effect::Nothing),
         GitAction::Discard => done(discard(context), Effect::Discarded),
     }
@@ -130,30 +158,66 @@ mod tests {
 
     #[test]
     fn each_action_of_the_game_parses_and_nothing_else() {
+        assert_eq!(
+            git_action("commit:12"),
+            Some(GitAction::Commit(MessageId(12)))
+        );
+        assert_eq!(
+            git_action("revert:3"),
+            Some(GitAction::Revert(MessageId(3)))
+        );
         assert_eq!(git_action("merge"), Some(GitAction::Merge));
         assert_eq!(git_action("discard"), Some(GitAction::Discard));
-        for bad in ["push", "merge:main", ""] {
+        for bad in [
+            "commit",
+            "commit:",
+            "commit:-1",
+            "revert:x",
+            "push",
+            "merge:main",
+            "",
+        ] {
             assert_eq!(git_action(bad), None, "{bad}");
         }
+    }
+
+    fn context<'a>(git: &'a GitHost, control: &'a Control) -> Context<'a> {
+        Context {
+            git,
+            worktree: None,
+            run: None,
+            desk: None,
+            control,
+        }
+    }
+
+    #[test]
+    fn an_action_on_a_summary_that_the_bridge_forgot_changes_nothing() {
+        let git = GitHost::with_config(UserConfig::Skip).unwrap();
+        let control = Control::default();
+
+        let done = perform(
+            &GitAction::Revert(MessageId(4)),
+            "",
+            &context(&git, &control),
+        );
+
+        assert_eq!(done.reply, Err(TOO_OLD.into()));
+        assert_eq!(done.effect, Effect::Nothing);
     }
 
     #[test]
     fn merge_and_discard_need_an_own_branch() {
         let git = GitHost::with_config(UserConfig::Skip).unwrap();
         let control = Control::default();
-        let context = Context {
-            git: &git,
-            worktree: None,
-            desk: None,
-            control: &control,
-        };
+        let context = context(&git, &control);
 
         assert_eq!(
-            perform(&GitAction::Merge, &context).reply,
+            perform(&GitAction::Merge, "", &context).reply,
             Err(NO_BRANCH.into())
         );
         assert_eq!(
-            perform(&GitAction::Discard, &context).reply,
+            perform(&GitAction::Discard, "", &context).reply,
             Err(NO_BRANCH.into())
         );
     }

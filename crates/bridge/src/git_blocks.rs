@@ -4,14 +4,18 @@
 use protocol::markdown::render_markdown;
 
 use crate::chat_branch::{BranchInfo, Own};
+use crate::run_changes::{ChangeKind, RunChanges};
 
 const MARKER: &str = "\x1bM1";
 const US: char = '\x1f';
+/// More rows make the reply long, and the player opens the files anyway.
+const MAX_FILES: usize = 12;
 
 /// What the bridge adds under a reply of a run.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct RunBlocks {
     pub branch: Option<BranchInfo>,
+    pub changes: Option<RunChanges>,
 }
 
 /// A field with no control character and every `|` doubled (S10).
@@ -43,11 +47,47 @@ fn branch_block(branch: &BranchInfo) -> String {
     )
 }
 
+fn file_blocks(changes: &RunChanges) -> String {
+    let mut text = String::new();
+    for file in changes.files.iter().take(MAX_FILES) {
+        let (added, removed) = file.lines.map_or((String::new(), String::new()), |(a, r)| {
+            (a.to_string(), r.to_string())
+        });
+        let kind = match file.kind {
+            ChangeKind::Added => "A",
+            ChangeKind::Removed => "D",
+            ChangeKind::Modified => "M",
+        };
+        text.push_str(&block(
+            'F',
+            &[file.path.clone(), added, removed, kind.into()],
+        ));
+    }
+    let more = changes.files.len().saturating_sub(MAX_FILES);
+    if more > 0 {
+        text.push_str(&block('M', &[more.to_string()]));
+    }
+    text
+}
+
+fn changes_blocks(changes: &RunChanges) -> String {
+    let (added, removed) = changes.totals();
+    let summary = [
+        changes.files.len().to_string(),
+        added.to_string(),
+        removed.to_string(),
+    ];
+    block('G', &summary) + &file_blocks(changes)
+}
+
 /// The blocks, each with its `\n` in front, in the order of the addon.
 pub fn blocks(run: &RunBlocks) -> String {
     let mut text = String::new();
     if let Some(branch) = &run.branch {
         text.push_str(&branch_block(branch));
+    }
+    if let Some(changes) = &run.changes {
+        text.push_str(&changes_blocks(changes));
     }
     text
 }
@@ -95,27 +135,83 @@ pub fn without_blocks(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::lane::{ChatId, MessageId};
+    use crate::run_changes::{FileChange, Outcome, Snapshot};
 
-    fn own_branch() -> RunBlocks {
-        RunBlocks {
-            branch: Some(BranchInfo {
-                branch: "gnomish/x|y".into(),
-                own: Own::Yes,
-                start: "main".into(),
-            }),
+    fn changes(files: usize) -> RunChanges {
+        RunChanges {
+            chat: ChatId::new("c"),
+            id: MessageId(1),
+            top: "/r".into(),
+            start: Snapshot {
+                tree: "a".into(),
+                head: None,
+            },
+            end: Snapshot {
+                tree: "b".into(),
+                head: None,
+            },
+            files: (0..files)
+                .map(|i| FileChange {
+                    path: format!("f{i}|x\n.rs"),
+                    lines: Some((2, 1)),
+                    kind: ChangeKind::Modified,
+                })
+                .collect(),
+            odd_names: false,
+            outcome: Outcome::Open,
+        }
+    }
+
+    fn own_branch() -> BranchInfo {
+        BranchInfo {
+            branch: "gnomish/x|y".into(),
+            own: Own::Yes,
+            start: "main".into(),
         }
     }
 
     #[test]
     fn the_blocks_go_right_after_the_marker() {
-        let text = with_blocks("\x1bM1\np\x1fDone.\n", &blocks(&own_branch()));
+        let run = RunBlocks {
+            branch: Some(own_branch()),
+            ..RunBlocks::default()
+        };
+
+        let text = with_blocks("\x1bM1\np\x1fDone.\n", &blocks(&run));
 
         assert_eq!(text, "\x1bM1\nB\x1fgnomish/x||y\x1f1\x1fmain\np\x1fDone.\n");
     }
 
     #[test]
+    fn a_path_loses_its_control_characters_and_doubles_each_bar() {
+        let text = blocks(&RunBlocks {
+            changes: Some(changes(1)),
+            ..RunBlocks::default()
+        });
+
+        assert_eq!(text, "\nG\x1f1\x1f2\x1f1\nF\x1ff0||x.rs\x1f2\x1f1\x1fM");
+    }
+
+    #[test]
+    fn at_most_twelve_files_show_and_a_last_row_counts_the_rest() {
+        let text = blocks(&RunBlocks {
+            changes: Some(changes(15)),
+            ..RunBlocks::default()
+        });
+
+        assert_eq!(text.matches("\nF\x1f").count(), 12);
+        assert!(text.ends_with("\nM\x1f3"));
+    }
+
+    #[test]
     fn an_empty_reply_with_blocks_is_the_marker_and_the_blocks() {
-        let text = with_blocks("", &blocks(&own_branch()));
+        let run = RunBlocks {
+            branch: Some(own_branch()),
+            ..RunBlocks::default()
+        };
+
+        let text = with_blocks("", &blocks(&run));
 
         assert_eq!(text, "\x1bM1\nB\x1fgnomish/x||y\x1f1\x1fmain\n");
     }
@@ -134,10 +230,10 @@ mod tests {
 
     #[test]
     fn the_history_keeps_the_reply_without_the_blocks() {
-        let text = "\x1bM1\nB\x1fx\x1f0\x1f\np\x1fDone.\n";
+        let text = "\x1bM1\nB\x1fx\x1f0\x1f\nG\x1f1\x1f1\x1f0\np\x1fDone.\n";
 
         assert_eq!(without_blocks(text), "\x1bM1\np\x1fDone.\n");
-        assert_eq!(without_blocks("\x1bM1\nB\x1fx\x1f0\x1f\n"), "");
+        assert_eq!(without_blocks("\x1bM1\nG\x1f1\x1f1\x1f0\n"), "");
         assert_eq!(without_blocks("plain"), "plain");
     }
 
