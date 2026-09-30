@@ -409,14 +409,6 @@ function Window.SetFontSize(size)
 	Window.Refresh()
 end
 
-function Window.ResetPosition()
-	ns.Store.db.windowPoint = nil
-	if frame then
-		frame:ClearAllPoints()
-		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
-	end
-end
-
 -- The default folder often holds all the projects, so a new chat asks for its folder
 -- first (SPEC.md 9.9). Escape keeps the default folder.
 function Window.NewChat()
@@ -796,30 +788,50 @@ local function BuildBridgeLight()
 	ui.bridgeDot:SetPoint("RIGHT", ui.bridge, "LEFT", -4, 0)
 end
 
+local function LargestSize()
+	return math.max(WIDTH, UIParent:GetWidth() - TAB_WIDTH), math.max(HEIGHT, UIParent:GetHeight())
+end
+
+-- A larger UI scale or a lower resolution since the save leaves the grip off screen, so
+-- the size never passes the screen.
 local function SavedSize()
 	local saved = ns.Store.db.windowSize
 	if type(saved) ~= "table" or type(saved.width) ~= "number" or type(saved.height) ~= "number" then
 		return WIDTH, HEIGHT
 	end
-	return math.max(WIDTH, saved.width), math.max(HEIGHT, saved.height)
+	local largestWidth, largestHeight = LargestSize()
+	local width = math.min(largestWidth, math.max(WIDTH, saved.width))
+	local height = math.min(largestHeight, math.max(HEIGHT, saved.height))
+	return width, height
 end
 
 -- The transcript lays out its entries for one width, so a new size draws it again.
-local function EndSizing()
-	SavePosition()
-	ns.Store.db.windowSize = { width = frame:GetWidth(), height = frame:GetHeight() }
+local function Resized()
 	ns.Transcript.Resize(TranscriptSize())
 	Window.Refresh()
 end
 
+local function EndSizing()
+	SavePosition()
+	ns.Store.db.windowSize = { width = frame:GetWidth(), height = frame:GetHeight() }
+	Resized()
+end
+
+function Window.ResetPosition()
+	ns.Store.db.windowPoint = nil
+	ns.Store.db.windowSize = nil
+	if frame then
+		frame:ClearAllPoints()
+		frame:SetPoint("CENTER", UIParent, "CENTER", 0, 0)
+		frame:SetSize(WIDTH, HEIGHT)
+		Resized()
+	end
+end
+
 local function BuildGrip()
 	frame:SetResizable(true)
-	frame:SetResizeBounds(
-		WIDTH,
-		HEIGHT,
-		math.max(WIDTH, UIParent:GetWidth() - TAB_WIDTH),
-		math.max(HEIGHT, UIParent:GetHeight())
-	)
+	local largestWidth, largestHeight = LargestSize()
+	frame:SetResizeBounds(WIDTH, HEIGHT, largestWidth, largestHeight)
 	local grip = CreateFrame("Button", "GnomishRelayResizeGrip", frame)
 	grip:SetSize(16, 16)
 	grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)

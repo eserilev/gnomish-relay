@@ -783,9 +783,28 @@ fn the_grip_resizes_the_window_within_bounds_and_the_size_stays_after_a_reload()
     assert_eq!(size_of(&game, "GnomishRelayTranscript").0, 1200 - 900 + 456);
 
     let game = game.reload();
+    game.run("UIParent:SetSize(1600, 900)");
     game.run("local ns = ... ns.Window.Open()");
     assert_eq!(size_of(&game, "GnomishRelayFrame"), (1200, 700));
     assert_eq!(size_of(&game, "GnomishRelayTranscript").0, 756);
+}
+
+#[test]
+fn a_saved_size_larger_than_the_screen_opens_at_the_screen_size_and_reset_forgets_it() {
+    let game = Game::start();
+    game.run("UIParent:SetSize(1600, 900)");
+
+    game.run(
+        "local ns = ... ns.Store.db.windowSize = { width = 9000, height = 9000 } ns.Window.Open()",
+    );
+    assert_eq!(size_of(&game, "GnomishRelayFrame"), (1600 - 74, 900));
+
+    game.run("local ns = ... ns.Window.ResetPosition()");
+    assert_eq!(size_of(&game, "GnomishRelayFrame"), (900, 560));
+    assert_eq!(
+        game.run("local ns = ... return ns.Store.db.windowSize"),
+        Value::Nil
+    );
 }
 
 #[test]
