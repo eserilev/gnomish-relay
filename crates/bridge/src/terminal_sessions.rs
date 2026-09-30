@@ -460,7 +460,7 @@ mod tests {
         sessions.apply(&file("s1", SpoolEvent::TurnStart, ""), NOW);
         sessions.save().unwrap();
 
-        let (mut again, _) = TerminalSessions::load(dir.path());
+        let (mut again, _) = TerminalSessions::load(dir.path(), NOW + 60);
         again.apply(&file("s1", SpoolEvent::Finished, "Done."), NOW + 300);
 
         assert_eq!(again.notices().list[0].took, 300);
