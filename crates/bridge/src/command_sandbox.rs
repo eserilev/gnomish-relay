@@ -676,6 +676,20 @@ fn scan_chat(policy: &SandboxPolicy, chat: &Path) -> Result<ChatScan, String> {
     Ok(scan)
 }
 
+/// The credential files and the other hidden paths in `folder`, for a tool that reads a
+/// whole folder, such as Grep. The walk does not follow links, as `rg` does not.
+pub fn hidden_in(folder: &Path) -> Result<Vec<PathBuf>, String> {
+    let bytes = resolved_bytes(folder);
+    let policy = sandbox_policy(
+        &bytes,
+        &bytes,
+        &[],
+        &patterns(DESKTOP_PATHS),
+        &patterns(DESKTOP_WRITES),
+    );
+    Ok(scan_chat(&policy, folder)?.hidden)
+}
+
 fn slow_walk_note(took: std::time::Duration, entries: usize) -> Option<String> {
     if took < SLOW_WALK {
         return None;

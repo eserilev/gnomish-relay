@@ -544,6 +544,51 @@ fn a_read_of_a_path_with_a_tilde_resolves_in_the_home_folder() {
 }
 
 #[test]
+fn a_grep_of_a_folder_that_holds_a_credential_file_asks_on_the_desktop() {
+    let home = home("");
+    let nested = home.chat.join("config");
+    std::fs::create_dir_all(&nested).unwrap();
+    std::fs::write(nested.join(".env"), "TOKEN=1").unwrap();
+
+    let whole = call(
+        &home,
+        "Grep",
+        &json!({ "pattern": "TOKEN" }),
+        Permission::FullAuto,
+    );
+    let globbed = call(
+        &home,
+        "Grep",
+        &json!({ "pattern": "TOKEN", "path": "config", "glob": ".env" }),
+        Permission::FullAuto,
+    );
+
+    assert!(
+        whole.starts_with("deny: No answer on the desktop."),
+        "{whole}"
+    );
+    assert!(
+        globbed.starts_with("deny: No answer on the desktop."),
+        "{globbed}"
+    );
+}
+
+#[test]
+fn a_grep_of_a_folder_with_no_credential_file_runs() {
+    let home = home("");
+    std::fs::write(home.chat.join("main.rs"), "fn main() {}").unwrap();
+
+    let reply = call(
+        &home,
+        "Grep",
+        &json!({ "pattern": "main" }),
+        Permission::Ask,
+    );
+
+    assert_eq!(reply, "allow: Allowed by Gnomish Relay.");
+}
+
+#[test]
 fn a_tool_of_the_session_only_runs_with_no_question() {
     let home = home("");
     let reply = call(

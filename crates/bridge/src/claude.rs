@@ -503,7 +503,8 @@ pub fn tool_call(request: &Request, cwd: &Path, home: &Path) -> Call {
         "Write" | "Edit" | "MultiEdit" => write(path("/file_path")),
         "NotebookEdit" => write(path("/notebook_path")),
         "Glob" if !is_plain_glob(text_at(input, "/pattern").unwrap_or("")) => reads(None),
-        "Glob" | "Grep" | "LS" => reads(root().map(|p| vec![p])),
+        "Glob" | "LS" => reads(root().map(|p| vec![p])),
+        "Grep" => reads(root().and_then(search_reads)),
         "Bash" => match text_at(input, "/command") {
             Some(command) => Call::command(command, cwd, text, title),
             None => Call::unknown(text, title),
@@ -542,6 +543,16 @@ fn is_msys_drive(text: &str) -> bool {
         && bytes[0] == b'/'
         && bytes[1].is_ascii_alphabetic()
         && bytes[2] == b'/'
+}
+
+/// Grep reads every file in a folder, so each credential file in it is a read too.
+fn search_reads(root: PathBuf) -> Option<Vec<PathBuf>> {
+    let Some(folder) = crate::action_input::resolve(&root).filter(|r| r.is_dir()) else {
+        return Some(vec![root]);
+    };
+    let mut paths = command_sandbox::hidden_in(&folder).ok()?;
+    paths.push(root);
+    Some(paths)
 }
 
 /// A glob that stays under its folder: no absolute part, no `~`, and no `..`.
