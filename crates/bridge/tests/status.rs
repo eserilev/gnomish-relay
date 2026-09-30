@@ -9,6 +9,7 @@ use std::path::Path;
 use bridge::config::Config;
 use bridge::desktop::Prompt;
 use bridge::gate::{Gate, Places};
+use bridge::line_choice::{self, LineChoice, Reason};
 use bridge::setup;
 use bridge::status;
 
@@ -122,9 +123,40 @@ fn status_with_no_config_says_the_bridge_is_stopped_and_how_to_set_up() {
         lines[1],
         "Last message from WoW: none yet. Send one in the game to test"
     );
-    assert!(lines[2].starts_with("Config: has an error."), "{lines:?}");
-    assert!(lines[2].contains("gnomish-relay setup"), "{lines:?}");
-    assert_eq!(lines.len(), 3);
+    assert!(lines[3].starts_with("Config: has an error."), "{lines:?}");
+    assert!(lines[3].contains("gnomish-relay setup"), "{lines:?}");
+    assert_eq!(lines.len(), 4);
+}
+
+#[test]
+fn status_says_when_the_colored_bar_is_not_measured_yet() {
+    let computer = Computer::new();
+
+    let lines = computer.status();
+
+    assert_eq!(
+        lines[2],
+        "Colored bar: not measured yet. Your next message from the game measures it."
+    );
+}
+
+#[test]
+fn status_says_why_the_colored_bar_stays_full_size() {
+    let computer = Computer::new();
+    let blurred = LineChoice {
+        mode: 0,
+        width: 2560,
+        height: 1440,
+        reason: Some(Reason::Blur),
+    };
+    line_choice::remember(&computer.data_dir(), blurred).unwrap();
+
+    let lines = computer.status();
+
+    assert_eq!(
+        lines[2],
+        "Colored bar: full size, because your screen blurs 1-px lines (anti-aliasing, render scale, or an upscaler). Messages still get through."
+    );
 }
 
 #[test]
@@ -137,8 +169,8 @@ fn status_of_a_config_with_a_typo_shows_the_line_of_the_error() {
 
     let lines = computer.status();
 
-    assert!(lines[2].contains("allowed_rots"), "{lines:?}");
-    assert!(lines[2].contains("line 1"), "{lines:?}");
+    assert!(lines[3].contains("allowed_rots"), "{lines:?}");
+    assert!(lines[3].contains("line 1"), "{lines:?}");
 }
 
 #[test]
@@ -151,9 +183,9 @@ fn status_of_a_working_setup_shows_the_sandbox_and_the_agent() {
 
     assert!(lines[1].starts_with("Last message from WoW: "), "{lines:?}");
     assert!(lines[1].ends_with(" s ago"), "{lines:?}");
-    assert_eq!(lines[2], "Config: OK");
-    assert!(lines[3].starts_with("Sandbox: "), "{lines:?}");
-    assert_eq!(lines[4], "Agent: claude (Claude Code 9.9.9)");
+    assert_eq!(lines[3], "Config: OK");
+    assert!(lines[4].starts_with("Sandbox: "), "{lines:?}");
+    assert_eq!(lines[5], "Agent: claude (Claude Code 9.9.9)");
 }
 
 #[test]
@@ -164,7 +196,7 @@ fn status_with_no_relay_addon_says_to_get_it_on_curseforge() {
     let lines = computer.status();
 
     assert_eq!(
-        lines[5],
+        lines[6],
         "Addon: missing. Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW."
     );
 }
@@ -185,5 +217,5 @@ fn status_with_the_relay_addon_of_this_repo_says_it_is_ok() {
 
     let lines = computer.status();
 
-    assert_eq!(lines[5], "Addon: OK");
+    assert_eq!(lines[6], "Addon: OK");
 }

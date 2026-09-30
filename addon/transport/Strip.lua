@@ -1,5 +1,6 @@
 -- Draws a frame as colored cells in the top-left corner and takes one screenshot
 -- of it (SPEC.md 7.1). With a line from the bridge, the cells are 1 or 2 pixels (7.1.3).
+-- Until the bridge sends a line, the old strip carries the line test (7.1.4).
 -- The strip shows only while the screenshot is taken.
 -- Every app of the shared transport draws in the same corner, so the apps take turns
 -- through one shared global. models/corner.qnt checks the rules of the turns.
@@ -29,9 +30,18 @@ local WAIT_FRESH = 3
 -- An honest wait is at most 15 s: our tail, one strip and tail of another app, and a Tick.
 local BLOCK_AFTER = 30
 
+-- The test lines start 8 pixels right of the old strip (SPEC.md 7.1.4).
+local TEST_LEFT = ns.Codec.CELLS_PER_ROW * CELL + 8
+local TEST_ROW_STEP = 4
+-- A bridge that never answers costs at most this many tests in a UI session.
+local TESTS_PER_SESSION = 3
+
 local frame
 local textures = {}
 local lineTextures = {}
+-- One pool of textures for the test line of each mode.
+local testTextures = {}
+local testsShown = 0
 -- The frame id of the last line. A strip with the same id is a retry, so the line did
 -- not reach the bridge (SPEC.md 7.1.3).
 local lastLineId
@@ -167,27 +177,35 @@ local function Paint(t, cell)
 	t:Show()
 end
 
-local function LineTexture(index)
-	local t = lineTextures[index]
+local function LineTexture(pool, index)
+	local t = pool[index]
 	if not t then
 		t = frame:CreateTexture(nil, "OVERLAY")
 		-- The snap rounds a float error of the scale to the nearest pixel.
 		t:SetSnapToPixelGrid(true)
-		lineTextures[index] = t
+		pool[index] = t
 	end
 	return t
 end
 
-local function PaintLine(rows, size)
+local function PaintLine(pool, rows, size, left, top)
 	local width = ns.Codec.LINE_CELLS_PER_ROW
 	for r, row in ipairs(rows) do
 		for c, color in ipairs(row) do
-			local t = LineTexture((r - 1) * width + c)
+			local t = LineTexture(pool, (r - 1) * width + c)
 			t:SetSize(size, size)
-			t:SetPoint("TOPLEFT", frame, "TOPLEFT", (c - 1) * size, -(r - 1) * size)
+			t:SetPoint("TOPLEFT", frame, "TOPLEFT", left + (c - 1) * size, -(top + (r - 1) * size))
 			t:SetColorTexture(color[1] / 255, color[2] / 255, color[3] / 255)
 			t:Show()
 		end
+	end
+end
+
+local function PaintTest()
+	for id, mode in ipairs(ns.Codec.LINE_MODES) do
+		testTextures[id] = testTextures[id] or {}
+		local rows = ns.Codec.LineRows(ns.Codec.LINE_TEST, id)
+		PaintLine(testTextures[id], rows, mode.size, TEST_LEFT, (id - 1) * TEST_ROW_STEP)
 	end
 end
 
@@ -206,6 +224,11 @@ local function HideAll()
 	for _, t in pairs(lineTextures) do
 		t:Hide()
 	end
+	for _, pool in pairs(testTextures) do
+		for _, t in pairs(pool) do
+			t:Hide()
+		end
+	end
 end
 
 local function FrameId(frameBytes)
@@ -213,17 +236,38 @@ local function FrameId(frameBytes)
 	return (hi or 0) * 256 + (lo or 0)
 end
 
--- Any addon can write the saved variables, so a value of a wrong shape counts as none.
-local function SavedLine()
+-- Mode 0 means that the last line test found no clean mode.
+local function IsKnownMode(mode)
+	return mode == 0 or ns.Codec.LINE_MODES[mode] ~= nil
+end
+
+-- The saved line of this screen, with any mode from 0 to 6. Any addon can write the
+-- saved variables, so a value of a wrong shape counts as none.
+local function ScreenLine()
 	local line = ns.Saved().stripLine
-	if type(line) ~= "table" or not ns.Codec.LINE_MODES[line.mode] then
+	if type(line) ~= "table" or not IsKnownMode(line.mode) then
 		return nil
 	end
 	local width, height = GetPhysicalScreenSize()
 	if line.width ~= width or line.height ~= height then
 		return nil
 	end
-	return line.mode
+	return line
+end
+
+local function SavedLine()
+	local line = ScreenLine()
+	return line and line.mode ~= 0 and line.mode
+end
+
+-- After a test that found no clean mode, one test a session lets a fix of the game
+-- settings take effect at the next /reload.
+local function WantsTest()
+	local line = ScreenLine()
+	if line and line.mode ~= 0 then
+		return false
+	end
+	return testsShown < (line and 1 or TESTS_PER_SESSION)
 end
 
 -- A retry of a line draws the old strip, which always reads.
@@ -255,7 +299,7 @@ end
 -- `line` comes from the slot body of the bridge. Nil removes the line.
 function Strip.TakeLine(line)
 	local valid = type(line) == "table"
-		and ns.Codec.LINE_MODES[line.mode]
+		and IsKnownMode(line.mode)
 		and type(line.width) == "number"
 		and type(line.height) == "number"
 	ns.Saved().stripLine = valid and { mode = line.mode, width = line.width, height = line.height } or nil
@@ -265,7 +309,11 @@ local function Draw(frameBytes)
 	HideAll()
 	local mode = LineMode(frameBytes)
 	if mode then
-		PaintLine(ns.Codec.LineRows(frameBytes, mode), ns.Codec.LINE_MODES[mode].size)
+		PaintLine(lineTextures, ns.Codec.LineRows(frameBytes, mode), ns.Codec.LINE_MODES[mode].size, 0, 0)
+	elseif WantsTest() then
+		testsShown = testsShown + 1
+		PaintStrip(ns.Codec.StripRows(frameBytes .. ns.Codec.Beacon(GetPhysicalScreenSize())))
+		PaintTest()
 	else
 		PaintStrip(ns.Codec.StripRows(frameBytes))
 	end

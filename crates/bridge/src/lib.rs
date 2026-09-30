@@ -68,6 +68,7 @@ pub mod lane;
 pub mod launch;
 pub mod line;
 pub mod line_choice;
+pub mod line_test;
 pub mod lock;
 pub mod lore_pack;
 pub mod model;

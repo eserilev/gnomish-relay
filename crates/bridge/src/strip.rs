@@ -70,6 +70,19 @@ impl Image {
         Some([*red, *green, *blue])
     }
 
+    /// A copy of the part at `(x, y)`, cut at the image edge.
+    #[must_use]
+    pub fn crop(&self, x: usize, y: usize, width: usize, height: usize) -> Image {
+        let width = width.min(self.width.saturating_sub(x));
+        let height = height.min(self.height.saturating_sub(y));
+        let mut rgb = Vec::with_capacity(width * height * 3);
+        for row in y..y + height {
+            let start = (row * self.width + x) * 3;
+            rgb.extend_from_slice(&self.rgb[start..start + width * 3]);
+        }
+        Image { width, height, rgb }
+    }
+
     fn cell(&self, x: usize, y: usize) -> Option<u8> {
         self.pixel(x, y).map(full_color_cell)
     }

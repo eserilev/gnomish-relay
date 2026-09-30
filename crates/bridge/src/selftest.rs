@@ -219,15 +219,13 @@ fn screen(results: &Value) -> Option<(u32, u32)> {
     Some((side(0)?, side(1)?))
 }
 
-/// The smallest clean mode, for the screen of the run.
+/// The smallest clean mode, or mode 0 with a reason, for the screen of the run.
 fn line_choice(lines: &[(Mode, Verdict)], screen: Option<(u32, u32)>) -> Option<LineChoice> {
-    let mode = calibration::chosen(lines)?;
     let (width, height) = screen?;
-    Some(LineChoice {
-        mode: mode.id(),
-        width,
-        height,
-    })
+    if lines.is_empty() {
+        return None;
+    }
+    Some(LineChoice::from_verdicts(lines, width, height))
 }
 
 pub struct Collected {
@@ -270,13 +268,13 @@ impl Collected {
         report
     }
 
-    /// Writes the choice for the bridge, or removes the old one. A run with no line
-    /// changes nothing.
+    /// Writes the result for the bridge, as the line test of the addon does. A run with
+    /// no line changes nothing.
     pub fn save_line(&self, data: &Path) -> Result<()> {
-        if self.lines.is_empty() {
-            return Ok(());
+        match self.line {
+            Some(line) => line_choice::remember(data, line),
+            None => Ok(()),
         }
-        line_choice::save(data, self.line)
     }
 }
 

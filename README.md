@@ -247,7 +247,8 @@ First, run `gnomish-relay status`. It checks every part, and says what to fix.
 | "1 message is waiting. Reload to send it." | The message couldn't go out by screenshot, so it waits in WoW's saved file. WoW writes that file only at a reload. | Click **Reload**. |
 | "Claude needs you to log in again" | Your Claude Code login expired. | On your computer, run `claude` and log in. |
 | A reply says "That agent isn't in config.toml" | The chat uses an agent you removed. | Pick another agent in Settings, or [add the agent](#add-an-agent). |
-| A colored bar flashes in the top-left corner | Nothing is wrong. | That's how your messages reach the desktop app. |
+| A colored bar flashes in the top-left corner | Nothing is wrong. | That's how your messages reach the desktop app. After your first message, it shrinks to a thin line. |
+| The colored bar stays big | Your game blurs, scales, or recolors thin lines. | Nothing to do: messages still get through. `gnomish-relay status` says why. To get the thin line, fix that setting, then type `/reload`. |
 
 ### Where the log is
 

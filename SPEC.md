@@ -725,6 +725,7 @@ So each strip starts with two calibration rows of known colors: row 1 counts 0 t
 The decoder tries every cell size from 2 to 8 pixels, and keeps a size that matches both rows exactly. Row 2 runs backwards, so a grid one cell off fails. The lower bound of 2 reads a strip of 3-pixel cells in a screenshot that is scaled down to two thirds.
 The two rows fix the cell width but not the row height. So the decoder reads the data rows with each size that matches, and keeps the first one whose bytes decode as a frame with a valid checksum and whose tag checks under a key. The checksum does not cover the tag, so a wrong row height can read the payload right and a tag alone in the last row wrong. With no reading that passes the tag, the bridge logs the first reading with a valid checksum as rejected.
 The search starts at the top-left corner of the image. With 8-pixel cells, a strip is 1600×384 pixels.
+The decoder reads the bytes past the end of the frame too. The frame header gives the length, so the frame ignores them. The beacon of the line test (7.1.4) sits there.
 
 **Records in the payload:**
 
@@ -813,9 +814,9 @@ The addon reads and writes the value with `rawget` and `rawset`, so a metatable 
 
 #### 7.1.3 The line: a strip of 1-pixel cells
 
-**Status: built (2026-09-29). It waits for its first self-test in the real game.** The old strip (7.1) is 600 by up to 144 pixels, and its size changes with each message. Players see it in play. The line is the smallest strip that reads exactly: cells of 1 physical pixel, in a line 1 pixel tall at the top-left corner. The old strip stays as the fallback.
+**Status: built (2026-09-29). Changed in v0.3.1:** the relay addon measures the modes itself (7.1.4). In v0.3.0 only the self-test measured them, and the self-test never ships, so no player got the line. The old strip (7.1) is 600 by up to 144 pixels, and its size changes with each message. Players see it in play. The line is the smallest strip that reads exactly: cells of 1 physical pixel, in a line 1 pixel tall at the top-left corner. The old strip stays as the fallback.
 
-**Modes.** A mode is a cell size and a number of bits per cell. The self-test measures each mode (14.3.1), and the addon draws the smallest mode that reads exactly.
+**Modes.** A mode is a cell size and a number of bits per cell. The line test of the addon measures each mode (7.1.4), and the addon draws the smallest mode that reads exactly. The self-test measures them too (14.3.1), for developers.
 
 | Mode | Cell size | Bits per cell | Bits per channel | Levels of a channel |
 |---|---|---|---|---|
@@ -845,29 +846,73 @@ The table is in the order of preference: all 1-pixel modes come first, because t
 
 **The reader.** For each cell size, 1 and then 2, the reader reads the 10 marker cells at the top-left corner. It reads cell `c` of row `r` at pixel `(c × size + size / 2, r × size + size / 2)`, with integer division. The marker must match exactly, and the mode must have this cell size. Then the check must read back exactly. A channel value `v` reads as level `round(v × (2^k − 1) / 255)`. Then the reader reads the frame from the rest of the rows, and the frame must decode (7.1). With no line, the reader searches the grid of the old strip, as before.
 
-**How the mode reaches the addon.** The bridge and the self-test use the channels that exist:
+**How the mode reaches the addon.** The bridge and the addon use the channels that exist:
 
-1. `gnomish-relay selftest collect` (14.3.1) writes the result into `strip-line.json` in the data folder of the bridge: the mode, and the physical screen size of the self-test. With no mode that reads exactly, it removes the file.
-2. At each publish, the bridge reads the file. The file is at most 1 KiB. The mode must be 1 to 6, and each side of the screen 1 to 16384 pixels. A file that fails counts as no file, and the bridge logs each new error once. The bridge adds one line after the body of each app (7.3): `GnomishRelay_SlotData.line = {mode = 1, width = 2560, height = 1440}`. The line holds only decimal numbers, as the key check does, so S9 still covers the table.
-3. `Slots.lua` hands the line of each loaded body to `Strip.lua`. It keeps a line with a known mode and two numbers in the saved variables of the app, as `stripLine`. A body with no line removes `stripLine`.
+1. The line test (7.1.4) gives the bridge a result for the physical screen size of the game: a mode, or no mode with a reason. The bridge keeps the result in `strip-line.json` in its data folder. `gnomish-relay selftest collect` (14.3.1) writes a result there too.
+2. At each publish, the bridge reads the file and sends the newest result. The file is at most 4 KiB. A mode is 0 to 6, where 0 means that no mode reads exactly. Each side of the screen is 1 to 16384 pixels. A file that fails counts as no file, and the bridge logs each new error once. The bridge adds one line after the body of each app (7.3): `GnomishRelay_SlotData.line = {mode = 1, width = 2560, height = 1440}`. The line holds only decimal numbers, as the key check does, so S9 still covers the table.
+3. `Slots.lua` hands the line of each loaded body to `Strip.lua`. It keeps a line with a mode of 0 to 6 and two numbers in the saved variables of the app, as `stripLine`. A body with no line removes `stripLine`. An addon from before v0.3.1 knows no mode 0, so it drops that line and keeps the old strip.
 4. The reader finds the mode in the marker. So the bridge needs no state for it, and a strip of either shape reads.
 
-`Slots.lua` and `Strip.lua` are shared transport files (9.7), so Timeways gets the line with its next pin of the transport, and its code does not change.
+`Slots.lua` and `Strip.lua` are shared transport files (9.7). Timeways gets the line and the line test with its next pin of the transport, and its code does not change.
 
 **Fallback.** The addon draws the old strip in each of these cases:
 
-- It has no `stripLine`: the self-test never ran, it found no clean mode, or the bridge has not sent the line yet.
-- The physical screen size is not the size of `stripLine`. A new resolution needs a new self-test.
+- It has no `stripLine` with a mode of 1 to 6: the line test has not run yet, it found no clean mode, or the bridge has not sent the result yet.
+- The physical screen size is not the size of `stripLine`. The next old strip then carries the line test again (7.1.4).
 - The strip carries the same frame id as the last line, and the id is not 0. This is a retry of a message (7.1, "Strip lifetime"), so the line did not reach the bridge. The retry uses the old strip, which always reads.
 - Two different frame ids needed such a retry in this UI session. The line then stays off until the next `/reload`. A retry can also come from a bridge that was off, so a `/reload` tries the line again.
 
 **Decisions.** The implementer chose these (2026-09-29):
 
 - The packing lives in the bridge reader (`crates/bridge/src/line.rs`) and in `Codec.lua`, with differential tests between them, as `addon_codec.rs` does for the frame. The proved core (`crates/protocol`) does not change: the frame bytes, the checksum, and the tag are the same, and S1 and S3 still cover them. The reader of the line is untrusted input, so the `screenshot` fuzz target covers it.
-- A cell of 2 pixels is the next step after 1 pixel. A cell of 3 pixels or more would be as tall as the old strip row, so the old strip covers it.
-- The self-test measures the modes, not the relay addon. A test of the modes at each login would add 6 shots and 6 flashes of color to each session.
+- A cell of 2 pixels is the next step after 1 pixel. A cell of 3 pixels is the old strip.
+- Changed in v0.3.1: the relay addon measures the modes (7.1.4). v0.3.0 left that to the self-test, to save 6 shots and 6 flashes at each login. The line test takes no shot of its own: it rides on an old strip that goes anyway.
 
 **Tests.** `line.rs` and `calibration.rs` have unit tests for each mode, the marker, the check, and each verdict. `tests/strip.rs` reads a line of each mode through a PNG. `tests/addon_codec.rs` compares `Codec.LineRows` with `line::rows`. The fake game keeps each shot as rectangles of physical pixels (`picturesOf`), so `tests/strip_line.rs` draws the line of `Strip.lua` into a PNG, reads it in every mode, and checks each fallback. `tests/selftest.rs` runs the self-test in the fake game and collect on its pictures: sharp pictures choose mode 1, and blurred pictures keep the old strip with a verdict for each mode.
+
+#### 7.1.4 The line test: the addon measures the modes
+
+**Status: built (v0.3.1).** No player runs the self-test. So the relay addon measures the modes of 7.1.3 by itself, with no setting and no extra shot.
+
+**When.** The addon adds the line test to an old strip in these cases:
+
+- It has no `stripLine` for the physical screen size of this moment. This covers the first strip ever and a new resolution. Then at most 3 old strips of a UI session carry the test, so a bridge that never answers costs little.
+- It has a `stripLine` of mode 0 for this screen: the last test found no clean mode. Then the first old strip of each UI session carries the test, so a fix of the game settings takes effect after a `/reload`.
+
+With a `stripLine` of mode 1 to 6 for this screen, the addon never adds the test. A retry and a line that is off (7.1.3, "Fallback") draw the old strip with no test.
+
+**What the addon draws.** The message still goes in the old strip, so nothing waits for the test. In the same picture, the addon draws two more parts:
+
+- **The beacon.** 8 bytes right after the frame, in the cells of the old strip: `4C 54`, the physical width and height from `GetPhysicalScreenSize()` (2 bytes each, big-endian), and the Fletcher-16 of those 6 bytes. The beacon tells the bridge that a test is in the picture, and for which screen. The frame, its checksum, and its tag do not change.
+- **The test lines.** One line of 200 cells for each mode of 7.1.3, as `Codec.LineRows` draws a line: the marker, the check, then a test payload of 96 bytes. The payload is 12 bytes each of `00`, `FF`, `55`, and `AA`, then the 48 bytes `(i × 37 + 11) mod 256` for `i` from 0 to 47. The flat runs show a color shift (`55` and `AA` are the mid levels that gamma moves), and the rest gives edges in every channel. The payload fits one row in every mode. The line of mode `m` starts at pixel `(608, 4 × (m − 1))`: 8 pixels right of the old strip, with a gap between the lines. So the test takes 400 by 22 pixels next to the old strip.
+
+**What the bridge does.** After the bridge takes a strip (its tag checks), it looks for the beacon after the frame. With a beacon:
+
+1. A screenshot of another size than the beacon is scaled, so every mode gets the verdict "scale".
+2. Else the bridge cuts each test line out of the screenshot and judges it with the verdicts of the self-test (14.3.1): clean, color shift, blur, scale, or not found.
+3. The result is the first clean mode in the order of 7.1.3. With no clean mode, the result is mode 0. Its reason is the first blur or color shift in that order, else a scale, else "not found". A blur of 1-pixel cells can show the marker at another width by chance, so a scale says less than a blur.
+4. The bridge writes the result into `strip-line.json` as the newest result, in place of an older result of that screen size. The file keeps the last 8 screen sizes. Then both lanes publish, so the addon gets the line with its next slot.
+
+**What the player sees.** The first strip of the first session shows the old strip with the small test next to it, for about half a second. From the next strip on, with a clean mode, the strip is a line 1 pixel tall. With no clean mode, the old strip stays, and the bridge says why:
+
+- `gnomish-relay status` prints one line for the newest result: "Colored bar: " and the text below. The settings list (13.4) carries the text as `strip`, and the Diag tab shows it in a row "Colored bar". The player knows the strip as the colored bar (README), so the copy uses that name.
+- "a thin line, 1 px tall (mode 1), for 2560x1440." for a clean mode. The pixels, the mode, and the screen follow the result.
+- "full size, because your screen blurs 1-px lines (anti-aliasing, render scale, or an upscaler). Messages still get through." for blur.
+- "full size, because your screenshots are scaled (render scale below 100%, or a screen size that isn't the screenshot size). Messages still get through." for scale.
+- "full size, because your game changes colors (gamma, brightness, or a color filter). Messages still get through." for a color shift.
+- "full size, because the test line didn't show in the screenshot. Messages still get through." for not found.
+- "not measured yet. Your next message from the game measures it." with no result.
+
+**Decisions.** The implementer chose these (2026-09-30):
+
+- The test rides on a real strip, not on its own shot. A shot of its own needs a frame with no message and one more turn of the shared corner (7.1.2).
+- The beacon sits in the cells of the old strip. A flag in a record would change the records, and Timeways copies the transport at a pin. The old strip reads in every picture that the bridge can read, so a blur or a scale that hides the lines still leaves the beacon.
+- The bridge takes the screen size from the beacon, not from the image. The addon compares `stripLine` with `GetPhysicalScreenSize()`, and a scaled screenshot has another size.
+- The test lines sit right of the old strip, not under it. So the flash stays in the top 144 pixels, and a screen 1024 pixels wide shows every line. A narrower screen cuts the 2-pixel lines first.
+- The bridge sends mode 0, so the addon stops the test for the rest of the session. The test comes again after a `/reload`, so a fix of the settings shows up with no command.
+- A test line is a known picture, so it never holds a prompt. The strip file goes as usual.
+
+**Tests.** `crates/bridge/tests/line_test.rs` runs `Strip.lua` in the fake game and reads its pictures through PNGs: a fresh session draws the test with its first strip, the bridge chooses the smallest clean mode and sends it, the next strip is a 1-pixel line, a blurred test keeps the old strip and the status says why, a new screen size tests again, and a Timeways strip carries the test too. `line_test.rs` in the bridge has unit tests for the beacon and each result.
 
 ### 7.2 Why each channel works
 
@@ -2252,7 +2297,7 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - With no key, the addon shows one line and the first-run window of 7.3.2.
 - With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: the desktop app isn't running. On your desktop, run gnomish-relay restart."
 - Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude isn't logged in. Run claude"), not as the first reply in the game.
-- `gnomish-relay status` prints one line for each part, with the next step when it does not work: whether the bridge runs (the lock of 8.4), the time of the last strip that the bridge took (`last-strip` in the data folder), whether the config loads (with the TOML error and its line), the sandbox, the default agent with its version or its login, and the relay addon: "Addon: OK", "Addon: missing. Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW.", "Addon: too old. Update Gnomish Relay in the CurseForge app, then restart WoW.", or "Addon: newer than the desktop app. Update the desktop app: run gnomish-relay update." It also says when the program of the default agent is not on the `PATH` of the login service. The logic is in `status.rs`, and `crates/bridge/tests/status.rs` tests it with the fake agents.
+- `gnomish-relay status` prints one line for each part, with the next step when it does not work: whether the bridge runs (the lock of 8.4), the time of the last strip that the bridge took (`last-strip` in the data folder), whether the config loads (with the TOML error and its line), the sandbox, the default agent with its version or its login, the strip line of the newest line test (7.1.4), and the relay addon: "Addon: OK", "Addon: missing. Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW.", "Addon: too old. Update Gnomish Relay in the CurseForge app, then restart WoW.", or "Addon: newer than the desktop app. Update the desktop app: run gnomish-relay update." It also says when the program of the default agent is not on the `PATH` of the login service. The logic is in `status.rs`, and `crates/bridge/tests/status.rs` tests it with the fake agents.
 - `gnomish-relay help`, `--help`, and `-h` print the usage on stdout and exit with success. An unknown command prints it as an error.
 
 **Updates and restarts.**
@@ -2661,7 +2706,7 @@ The mockup is the reference for the layout.
   - **Always allowed** (6.6.5): one row for each rule of the settings list, with the pattern, the folder, the last use, and a remove button, 6 rows at a time (3 while the Notifications group shows). The mouse wheel scrolls it. With no rule: "No rules yet. Click Always allow in a popup to add one."
   - At the bottom left, the usage of today (9.10): "Today (UTC): 12k in · 4.1k out · $1.20", with " · limit $5.00" when the config sets a cap. With no usage today, the line is empty.
   - At the bottom right, the status line: "Online · 2m ago", the age of the settings list. It is orange when the list is older than 10 minutes, and grey "Offline · <age>" while the bridge is offline. With no list, it says "Not loaded yet". A click asks for a new list.
-- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, the limit on parallel runs, and the sandbox. With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
+- **Diag:** the settings list of the bridge, read only: the status, the allowed roots, the default folder, the agents with their levels, the allow table with the patterns of each folder, the timeouts, the limit on parallel runs, the sandbox, and the strip line (7.1.4). With `[story]`, the Timeways model and budget. After `hooks install`, the rows of 10.4: Hooks, Sessions, and Last notification. Then the versions, and the lines of `/relay diag`. While the bridge is offline, its values are grey. The mouse wheel scrolls the page.
 - **Key binding:** `Bindings.xml` adds "Toggle window" and "Search chat" under "Gnomish Relay" in the Key Bindings menu of the game. They call the globals `GnomishRelay_Toggle` and `GnomishRelay_Search`. "Search chat" opens the window on its chat, and opens the search. Neither has a default key.
 - **Bottom bar:** a red **Stop** button, only while an agent works. It stops the run.
 - **Game chat:** a finished reply shows one line, `[Claude] whispers: [chat] …`, in its own color (copper by default, a setting). For a rendered reply, the line shows the plain words of its first block. The usage line (9.10) never shows there. A click on it opens the chat. It plays the whisper sound. Settings can turn the line or its sound off. A desktop request (6.6.3) always gets its line, because it is the only notice in the game. A notification of a terminal session gets its own line with a bell (10.4).
@@ -2815,6 +2860,7 @@ The Settings and Diag tabs (13.1) show values of the bridge. The game never writ
 | `daily_cost_cap_usd` | The cap, with two decimals. Only when the config sets one. |
 | `story_model` | Only with `[story]`: `none`, `claude`, `claude <model>`, or `local <model>`. The address of a local model stays on the desktop. |
 | `story_budget_window_minutes` | Only with `[story]`. |
+| `strip` | The result of the newest line test, in the words of `gnomish-relay status` (7.1.4). |
 | `rule` | `id \t folder \t pattern \t days`: one "Always allow" rule (6.6.5), with the days since its last use. |
 | `allow` | One pattern of `[allow] commands`, as words. |
 | `allow_folder` | `folder \t pattern`: one pattern of `[allow.folders]`. |
@@ -2989,6 +3035,8 @@ The run starts 5 seconds after `PLAYER_ENTERING_WORLD`, when the saved results d
 
 **The line modes (7.1.3).** The run draws one line in each of the 6 modes, through the real `Strip.lua`: it sets `stripLine` of the self-test to the mode and the current physical screen size for the shot, and removes it after. Each line carries the same test payload of 924 bytes: the values 0 to 255 in each channel as gradients (each channel counts in its own direction and step), flat runs of the bytes `00`, `FF`, `55`, and `AA` (each one gives one flat color in every mode, and `55` and `AA` are the mid levels that gamma moves), and black and white cells for sharp edges. The payload fills 7 rows at 6 bits, so the edges also run across rows.
 
+The first golden strips of the run also carry the line test of 7.1.4, as the first strips of a player do. The bridge reader ignores the beacon after the frame, so the vectors read as before.
+
 Collect judges each mode by its screenshot. It judges every screenshot of the run for each mode, and keeps the best verdict: clean, then a failure, then not found. A screenshot counts for a mode only when it shows the marker of that mode, at the cell size of the mode or at any cell width from 0.5 to 4 pixels. Collect compares each cell with the frame that the self-test signed. Each mode gets one verdict:
 
 | Verdict | What collect saw | What it tells the player |
@@ -3024,7 +3072,7 @@ It reads no key and no config of the relay, and it never deletes a screenshot. A
 1. Close the game, and run `scripts/selftest-link.sh`.
 2. Start the game and log in. When the chat says "done", type `/reload`.
 3. Run `gnomish-relay selftest collect` in the repo, run the tests, and commit `tests/fixtures` and `tests/vectors`.
-4. After a new resolution, run steps 1 to 3 again: the line fits one physical screen size.
+4. After a new resolution, run steps 1 to 3 again for new golden vectors. The relay addon measures the line of a new resolution itself (7.1.4).
 
 The first run ever needs one more `/reload`: its first session has no saved file, so it cannot see the load order. Collect says so.
 

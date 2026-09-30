@@ -12,7 +12,7 @@ use std::time::{Duration, UNIX_EPOCH};
 
 use bridge::calibration::Verdict;
 use bridge::fixture::{self, Fake, PLACEHOLDER};
-use bridge::line_choice::{self, LineChoice};
+use bridge::line_choice::{self, LineChoice, Reason};
 use bridge::selftest::{self, Parts, SAVED_FILE};
 use bridge::strip::Image;
 use bridge::vectors::{self, Shot};
@@ -461,8 +461,9 @@ fn collect_finds_every_line_mode_clean_and_chooses_mode_1_for_the_screen_of_the_
         mode: 1,
         width: WIDTH,
         height: HEIGHT,
+        reason: None,
     };
-    assert_eq!(line_choice::load(data.path()).unwrap(), Some(choice));
+    assert_eq!(line_choice::load(data.path()).unwrap(), [choice]);
     let report = collected.line_report().join("\n");
     assert!(
         report.starts_with("Strip line modes, for a screen of 1280x720:"),
@@ -485,21 +486,28 @@ fn collect_of_blurred_screenshots_keeps_the_old_strip_and_says_why() {
     let repo = tempfile::tempdir().unwrap();
     repo_folder(repo.path());
     let data = tempfile::tempdir().unwrap();
-    line_choice::save(
+    line_choice::remember(
         data.path(),
-        Some(LineChoice {
+        LineChoice {
             mode: 1,
             width: WIDTH,
             height: HEIGHT,
-        }),
+            reason: None,
+        },
     )
     .unwrap();
 
     let collected = selftest::collect(game_dir.path(), repo.path()).unwrap();
     collected.save_line(data.path()).unwrap();
 
-    assert_eq!(collected.line, None);
-    assert_eq!(line_choice::load(data.path()).unwrap(), None);
+    let none = LineChoice {
+        mode: 0,
+        width: WIDTH,
+        height: HEIGHT,
+        reason: Some(Reason::Blur),
+    };
+    assert_eq!(collected.line, Some(none));
+    assert_eq!(line_choice::load(data.path()).unwrap(), [none]);
     let report = collected.line_report().join("\n");
     assert!(
         report.contains("mode 1 (1 px, 24 bits): not found"),

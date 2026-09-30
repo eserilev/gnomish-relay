@@ -189,3 +189,26 @@ function Codec.LineRows(frame, modeId)
 	end
 	return rows
 end
+
+-- The line test (SPEC.md 7.1.4). `crates/bridge/src/line_test.rs` reads it.
+local BEACON_MAGIC = "\76\84"
+
+-- Tells the bridge that the picture holds the test lines, and for which screen.
+function Codec.Beacon(width, height)
+	local sized = BEACON_MAGIC .. BigEndian(width % 65536, 2) .. BigEndian(height % 65536, 2)
+	return sized .. Codec.Fletcher16(sized)
+end
+
+-- Flat runs show a color shift, and the rest gives edges in every channel.
+local function LineTest()
+	local parts = {}
+	for _, value in ipairs({ 0, 255, 85, 170 }) do
+		parts[#parts + 1] = string.rep(char(value), 12)
+	end
+	for i = 0, 47 do
+		parts[#parts + 1] = char((i * 37 + 11) % 256)
+	end
+	return table.concat(parts)
+end
+
+Codec.LINE_TEST = LineTest()
