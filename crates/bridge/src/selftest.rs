@@ -9,9 +9,12 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use anyhow::{Context, Result, bail};
 use serde_json::Value;
 
+use crate::calibration::{self, Verdict};
 use crate::dirs::Dirs;
 use crate::fixture::{self, PLACEHOLDER};
 use crate::ids::hex;
+use crate::line::{CELLS_PER_ROW, Mode};
+use crate::line_choice::{self, LineChoice};
 use crate::saved;
 use crate::setup_command;
 use crate::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
@@ -109,9 +112,8 @@ fn match_file(path: &Path, shots: &[Shot]) -> Result<Option<Found>> {
     }))
 }
 
-/// The screenshots of the self-test, one per shot, by the frame that each one holds. The
-/// file names in the saved variables are never used: that file is untrusted text.
-pub fn find(dir: &Path, shots: &[Shot]) -> Result<Vec<Found>> {
+/// The PNG files from the time of the run, by name.
+fn pngs_of_the_run(dir: &Path, shots: &[Shot]) -> Result<Vec<PathBuf>> {
     let window = window(shots)?;
     let mut paths: Vec<PathBuf> = fs::read_dir(dir)
         .with_context(|| format!("cannot read {}", dir.display()))?
@@ -120,6 +122,13 @@ pub fn find(dir: &Path, shots: &[Shot]) -> Result<Vec<Found>> {
         .filter(|path| is_png(path) && in_window(path, window))
         .collect();
     paths.sort();
+    Ok(paths)
+}
+
+/// The screenshots of the self-test, one per shot, by the frame that each one holds. The
+/// file names in the saved variables are never used: that file is untrusted text.
+pub fn find(dir: &Path, shots: &[Shot]) -> Result<Vec<Found>> {
+    let paths = pngs_of_the_run(dir, shots)?;
     let mut found: Vec<Found> = Vec::new();
     for path in paths {
         let Some(one) = match_file(&path, shots)? else {
@@ -173,13 +182,108 @@ fn write_vectors(dir: &Path, build: &str, found: &[Found], saved_file: &Path) ->
     Ok(manifest.vectors.len())
 }
 
+/// The best verdict of each line mode over the screenshots of the run (SPEC.md 14.3.1).
+/// A screenshot is judged by the marker that it shows, so a line that reads wrong still
+/// gets a verdict.
+pub fn judge_lines(dir: &Path, shots: &[Shot]) -> Result<Vec<(Mode, Verdict)>> {
+    let mut lines = Vec::new();
+    for shot in shots.iter().filter(|s| s.kind == "line") {
+        let mode = shot
+            .mode
+            .and_then(Mode::from_id)
+            .context("a line shot has no mode")?;
+        lines.push((mode, vectors::frame_of(shot)?, Verdict::NotFound));
+    }
+    if lines.is_empty() {
+        return Ok(Vec::new());
+    }
+    for path in pngs_of_the_run(dir, shots)? {
+        let Ok(image) = vectors::read_png(&path) else {
+            continue;
+        };
+        for (mode, frame, verdict) in &mut lines {
+            *verdict = verdict.better(calibration::judge(&image, *mode, frame));
+        }
+    }
+    Ok(lines.into_iter().map(|(mode, _, v)| (mode, v)).collect())
+}
+
+/// The physical screen size that the self-test measured.
+fn screen(results: &Value) -> Option<(u32, u32)> {
+    let side = |i: usize| {
+        let value = results
+            .pointer(&format!("/screen/physical/{i}"))?
+            .as_u64()?;
+        u32::try_from(value).ok()
+    };
+    Some((side(0)?, side(1)?))
+}
+
+/// The smallest clean mode, for the screen of the run.
+fn line_choice(lines: &[(Mode, Verdict)], results: &Value) -> Option<LineChoice> {
+    let mode = calibration::chosen(lines)?;
+    let (width, height) = screen(results)?;
+    Some(LineChoice {
+        mode: mode.id(),
+        width,
+        height,
+    })
+}
+
 pub struct Collected {
     pub build: String,
     pub fixture: PathBuf,
     pub vectors: usize,
-    /// Shots with no screenshot in the Screenshots folder.
+    /// Shots with no screenshot in the Screenshots folder. The line shots have verdicts instead.
     pub missing: Vec<String>,
     pub capture: fixture::Capture,
+    /// Empty when the run drew no line.
+    pub lines: Vec<(Mode, Verdict)>,
+    pub line: Option<LineChoice>,
+}
+
+impl Collected {
+    /// The report of the line modes, for the player (SPEC.md 14.3.1).
+    pub fn line_report(&self) -> Vec<String> {
+        if self.lines.is_empty() {
+            return vec![
+                "The self-test drew no strip line. Link the new self-test and run it again.".into(),
+            ];
+        }
+        let mut report = vec!["Strip line modes:".to_owned()];
+        for (mode, verdict) in &self.lines {
+            report.push(format!(
+                "  mode {} ({}): {}",
+                mode.id(),
+                mode.name(),
+                verdict.describe()
+            ));
+        }
+        report.push(chosen_line(self.line));
+        report
+    }
+
+    /// Writes the choice for the bridge, or removes the old one. A run with no line
+    /// changes nothing.
+    pub fn save_line(&self, data: &Path) -> Result<()> {
+        if self.lines.is_empty() {
+            return Ok(());
+        }
+        line_choice::save(data, self.line)
+    }
+}
+
+fn chosen_line(line: Option<LineChoice>) -> String {
+    let Some(mode) = line.and_then(|l| Mode::from_id(l.mode)) else {
+        return "No mode reads exactly, so the addons keep the old strip. Fix the cause above, then run the self-test again.".into();
+    };
+    let p = mode.pixels();
+    format!(
+        "Chosen: mode {} ({}). The strip is now a line {p} px tall and {} px wide for most messages.",
+        mode.id(),
+        mode.name(),
+        CELLS_PER_ROW * p
+    )
 }
 
 /// Reads the results in `game` and writes `tests/fixtures` and `tests/vectors` in `repo`.
@@ -205,9 +309,10 @@ pub fn collect(game: &Path, repo: &Path) -> Result<Collected> {
     let _ = fs::remove_file(fixtures.join(PLACEHOLDER));
     let dir = repo.join("tests").join("vectors").join(&fixture.build);
     let vectors = write_vectors(&dir, &fixture.build, &found, &saved_file)?;
+    let lines = judge_lines(&game.join("Screenshots"), &shots)?;
     let missing = shots
         .iter()
-        .filter(|s| s.kind != "hide_after_call")
+        .filter(|s| s.kind != "hide_after_call" && s.kind != "line")
         .filter(|s| !found.iter().any(|f| f.shot.frame_id == s.frame_id))
         .map(|s| s.name.clone())
         .collect();
@@ -217,6 +322,8 @@ pub fn collect(game: &Path, repo: &Path) -> Result<Collected> {
         vectors,
         missing,
         capture: fixture.fake.capture,
+        line: line_choice(&lines, &parts.results),
+        lines,
     })
 }
 
@@ -243,6 +350,16 @@ pub fn collect_command(dirs: &Dirs, args: &[&str]) -> Result<()> {
         println!("no screenshot of {name}");
     }
     println!("capture: {:?}", collected.capture);
+    for line in collected.line_report() {
+        println!("{line}");
+    }
+    collected.save_line(&dirs.data)?;
+    if collected.line.is_some() {
+        println!(
+            "wrote {}. The bridge sends it to the addons at its next publish.",
+            dirs.data.join(line_choice::FILE).display()
+        );
+    }
     Ok(())
 }
 
@@ -283,6 +400,7 @@ mod tests {
             unix: Some(1_790_300_000),
             ui_parent_scale: None,
             strip_effective_scale: None,
+            mode: None,
         }
     }
 

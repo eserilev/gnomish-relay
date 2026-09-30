@@ -182,7 +182,7 @@ fn read_cell(image: &Image, index: usize, pixels: usize) -> Option<Color> {
 }
 
 /// The mode of a marker that is drawn with cells of `pixels`.
-fn marker_mode(image: &Image, pixels: usize) -> Option<Mode> {
+pub fn marker_mode(image: &Image, pixels: usize) -> Option<Mode> {
     let marker: Option<Vec<u8>> = (0..MARKER_CELLS)
         .map(|i| read_cell(image, i, pixels).map(full_color_cell))
         .collect();

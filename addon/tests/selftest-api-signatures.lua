@@ -605,6 +605,12 @@ return {
 				{ Name = "a", Type = "SingleColorValue", Nilable = true },
 			},
 		},
+		["SimpleTextureBaseAPI:SetSnapToPixelGrid"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "snap", Type = "bool", Nilable = false, Default = false },
+			},
+		},
 	},
 	events = {
 		ADDON_LOADED = {

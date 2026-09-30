@@ -10,15 +10,18 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
+use bridge::calibration::Verdict;
 use bridge::fixture::{self, Fake, PLACEHOLDER};
+use bridge::line_choice::{self, LineChoice};
 use bridge::selftest::{self, Parts, SAVED_FILE};
 use bridge::strip::Image;
 use bridge::vectors::{self, Shot};
 use common::{
-    fake_game_for, fire, game_lua_for, load_addon, measured, screenshot_png, signed_frame,
-    start_addon, strip_rows,
+    HEIGHT, WIDTH, encode_png, fake_game_for, fire, game_lua_for, load_addon, measured,
+    screenshot_png, signed_frame, start_addon, strip_rows,
 };
 use mlua::{Function, Lua, Table};
+use png::{BitDepth, ColorType};
 
 const ADDON: &str = "GnomishRelaySelfTest";
 const STRIP: &str = "GnomishRelaySelfTestStrip";
@@ -131,23 +134,62 @@ impl Game {
         self.lua.load("return time()").eval().unwrap()
     }
 
-    /// The cells of each screenshot of the self-test strip, oldest first.
-    fn shots(&self) -> Vec<Vec<Vec<u8>>> {
-        let shots: Table = self
+    /// Each screenshot of the self-test strip as a PNG of 1280x720, oldest first.
+    fn pictures(&self) -> Vec<Vec<u8>> {
+        self.pictures_with(<[u8]>::to_vec)
+    }
+
+    /// The PNGs after `change` of the pixels, as a scaler of the game could do.
+    fn pictures_with(&self, change: impl Fn(&[u8]) -> Vec<u8>) -> Vec<Vec<u8>> {
+        let pictures: Table = self
             .wow
-            .get::<Table>("shotsOf")
+            .get::<Table>("picturesOf")
             .unwrap()
             .get(STRIP)
             .unwrap();
-        shots
-            .sequence_values::<Vec<Vec<u8>>>()
-            .map(Result::unwrap)
+        pictures
+            .sequence_values::<Table>()
+            .map(|picture| {
+                let rgb = change(&rgb_of(&picture.unwrap()));
+                encode_png(WIDTH, HEIGHT, ColorType::Rgb, BitDepth::Eight, &rgb)
+            })
             .collect()
     }
 
     fn printed(&self) -> Vec<String> {
         self.wow.get("printed").unwrap()
     }
+}
+
+/// The rectangles of one picture of the fake game on a grey scene.
+fn rgb_of(picture: &Table) -> Vec<u8> {
+    let (width, height) = (WIDTH as usize, HEIGHT as usize);
+    let mut rgb = vec![70u8; width * height * 3];
+    for rect in picture.sequence_values::<Table>().map(Result::unwrap) {
+        let at = |key: &str| rect.get::<usize>(key).unwrap();
+        let color: Vec<u8> = rect.get("color").unwrap();
+        for y in (at("y")..at("y") + at("height")).filter(|&y| y < height) {
+            for x in (at("x")..at("x") + at("width")).filter(|&x| x < width) {
+                let i = (y * width + x) * 3;
+                rgb[i..i + 3].copy_from_slice(&color);
+            }
+        }
+    }
+    rgb
+}
+
+/// Each pixel takes a quarter from its left and its right neighbor.
+fn blur(rgb: &[u8]) -> Vec<u8> {
+    let row = WIDTH as usize * 3;
+    let mut out = rgb.to_vec();
+    for (i, value) in out.iter_mut().enumerate() {
+        let x = i % row;
+        let left = if x >= 3 { rgb[i - 3] } else { rgb[i] };
+        let right = if x + 3 < row { rgb[i + 3] } else { rgb[i] };
+        let sum = u16::from(left) + 2 * u16::from(rgb[i]) + u16::from(right);
+        *value = u8::try_from(sum / 4).unwrap();
+    }
+    out
 }
 
 /// A first login, the run, and a /reload: the saved file then knows the load order.
@@ -175,11 +217,15 @@ fn the_run_draws_every_golden_strip_with_the_public_test_key() {
     game.advance(RUN);
 
     let shots = shots_of(&game.saved_variables());
-    let pictures = game.shots();
-    assert_eq!(shots.len(), 8, "six sizes, the records, and the probe");
+    let pictures = game.pictures();
+    assert_eq!(
+        shots.len(),
+        14,
+        "six sizes, the records, six lines, and the probe"
+    );
     assert_eq!(pictures.len(), shots.len());
-    for (shot, rows) in shots.iter().zip(&pictures) {
-        let image = Image::from_png(&screenshot_png(rows)).unwrap();
+    for (shot, png_bytes) in shots.iter().zip(&pictures) {
+        let image = Image::from_png(png_bytes).unwrap();
         let frame = vectors::test_frame(&image).unwrap().expect("a test strip");
         assert_eq!(
             vectors::shot_of(&frame, &shots),
@@ -257,6 +303,10 @@ fn the_run_leaves_the_screenshot_format_as_it_found_it() {
 /// A game folder as WoW leaves it after the run: the saved file, and one screenshot per
 /// strip with the time of its shot. Also a screenshot of the player, and a relay strip.
 fn game_folder(root: &Path, game: &Game, saved: &[u8]) {
+    game_folder_with(root, saved, game.pictures());
+}
+
+fn game_folder_with(root: &Path, saved: &[u8], pictures: Vec<Vec<u8>>) {
     let account = root.join("WTF").join("Account").join("ACCOUNT1");
     let saved_dir = account.join("SavedVariables");
     fs::create_dir_all(&saved_dir).unwrap();
@@ -266,10 +316,10 @@ fn game_folder(root: &Path, game: &Game, saved: &[u8]) {
     let shots = shots_of(saved);
     let mut pictures: Vec<(String, Vec<u8>, u32)> = shots
         .iter()
-        .zip(game.shots())
-        .map(|(shot, rows)| {
+        .zip(pictures)
+        .map(|(shot, png_bytes)| {
             let name = format!("WoWScrnShot_{}.png", shot.frame_id);
-            (name, screenshot_png(&rows), shot.unix.unwrap())
+            (name, png_bytes, shot.unix.unwrap())
         })
         .collect();
     let at = shots[0].unix.unwrap();
@@ -303,7 +353,7 @@ fn collect_writes_the_fixture_and_a_golden_vector_for_each_strip() {
     let collected = selftest::collect(game_dir.path(), repo.path()).unwrap();
 
     assert_eq!(collected.build, "1.60.1.70009");
-    assert_eq!(collected.vectors, 8);
+    assert_eq!(collected.vectors, 14);
     assert!(collected.missing.is_empty(), "{:?}", collected.missing);
     let fixtures = repo.path().join("tests").join("fixtures");
     assert!(!fixtures.join(PLACEHOLDER).exists());
@@ -314,7 +364,7 @@ fn collect_writes_the_fixture_and_a_golden_vector_for_each_strip() {
         .join("tests")
         .join("vectors")
         .join("1.60.1.70009");
-    assert_eq!(vectors::check_all(&vectors).unwrap(), 8);
+    assert_eq!(vectors::check_all(&vectors).unwrap(), 14);
     assert_eq!(fs::read(vectors.join(SAVED_FILE)).unwrap(), saved);
 }
 
@@ -336,7 +386,7 @@ fn collect_never_takes_a_screenshot_from_outside_the_time_of_the_run() {
     let collected = selftest::collect(game_dir.path(), repo.path()).unwrap();
 
     assert_eq!(collected.missing, ["len-0000"]);
-    assert_eq!(collected.vectors, 7);
+    assert_eq!(collected.vectors, 13);
 }
 
 #[test]
@@ -386,4 +436,71 @@ fn the_json_writer_keeps_integers_above_32_bits() {
         .unwrap();
 
     assert_eq!(text, "[2147483648,9007199254740991,-12]");
+}
+
+#[test]
+fn collect_finds_every_line_mode_clean_and_chooses_mode_1_for_the_screen_of_the_run() {
+    let (first, saved) = two_sessions();
+    let game_dir = tempfile::tempdir().unwrap();
+    game_folder(game_dir.path(), &first, &saved);
+    let repo = tempfile::tempdir().unwrap();
+    repo_folder(repo.path());
+    let data = tempfile::tempdir().unwrap();
+
+    let collected = selftest::collect(game_dir.path(), repo.path()).unwrap();
+    collected.save_line(data.path()).unwrap();
+
+    assert_eq!(collected.lines.len(), 6);
+    assert!(
+        collected
+            .lines
+            .iter()
+            .all(|(_, v)| matches!(v, Verdict::Clean { .. }))
+    );
+    let choice = LineChoice {
+        mode: 1,
+        width: WIDTH,
+        height: HEIGHT,
+    };
+    assert_eq!(line_choice::load(data.path()).unwrap(), Some(choice));
+    let report = collected.line_report().join("\n");
+    assert!(report.contains("mode 6 (2 px, 6 bits): clean"), "{report}");
+    assert!(
+        report.contains(
+            "Chosen: mode 1 (1 px, 24 bits). The strip is now a line 1 px tall and 200 px wide"
+        ),
+        "{report}"
+    );
+}
+
+#[test]
+fn collect_of_blurred_screenshots_keeps_the_old_strip_and_says_why() {
+    let (first, saved) = two_sessions();
+    let game_dir = tempfile::tempdir().unwrap();
+    game_folder_with(game_dir.path(), &saved, first.pictures_with(blur));
+    let repo = tempfile::tempdir().unwrap();
+    repo_folder(repo.path());
+    let data = tempfile::tempdir().unwrap();
+    line_choice::save(
+        data.path(),
+        Some(LineChoice {
+            mode: 1,
+            width: WIDTH,
+            height: HEIGHT,
+        }),
+    )
+    .unwrap();
+
+    let collected = selftest::collect(game_dir.path(), repo.path()).unwrap();
+    collected.save_line(data.path()).unwrap();
+
+    assert_eq!(collected.line, None);
+    assert_eq!(line_choice::load(data.path()).unwrap(), None);
+    let report = collected.line_report().join("\n");
+    assert!(
+        report.contains("mode 1 (1 px, 24 bits): not found"),
+        "{report}"
+    );
+    assert!(report.contains("mode 4 (2 px, 24 bits): blur"), "{report}");
+    assert!(report.contains("No mode reads exactly"), "{report}");
 }

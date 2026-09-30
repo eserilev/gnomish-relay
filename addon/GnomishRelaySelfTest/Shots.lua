@@ -53,12 +53,39 @@ local function Plan(kind, name, payload, scale)
 	return { kind = kind, name = name, payload = payload, scale = scale }
 end
 
+-- Each channel counts from 0 to 255 in its own direction and step, so every value shows
+-- in every channel. Flat runs of four values then show a color shift apart from a blur:
+-- each of these bytes gives one flat color in every mode. Black and white cells last
+-- give sharp edges (SPEC.md 14.3.1).
+local function LinePattern()
+	local out = {}
+	for k = 0, 255 do
+		out[#out + 1] = string.char(k, 255 - k, (k * 97 + 13) % 256)
+	end
+	for _, value in ipairs({ 0, 255, 85, 170 }) do
+		out[#out + 1] = string.char(value):rep(24)
+	end
+	for k = 1, 20 do
+		out[#out + 1] = k % 2 == 0 and "\0\0\0" or "\255\255\255"
+	end
+	return table.concat(out)
+end
+
+local function LinePlan(mode)
+	local step = Plan("line", "line-" .. mode, LinePattern())
+	step.line = mode
+	return step
+end
+
 function Shots.Golden(withScales)
 	local plan = {}
 	for i, len in ipairs(SIZES) do
 		table.insert(plan, Plan("golden", string.format("len-%04d", len), Bytes(i, len)))
 	end
 	table.insert(plan, Plan("golden", "records", Records()))
+	for mode in ipairs(ns.Codec.LINE_MODES) do
+		table.insert(plan, LinePlan(mode))
+	end
 	table.insert(plan, Plan("hide_after_call", "hide-after-call", "probe: the strip hides right after Screenshot()"))
 	local now = UIParent:GetScale()
 	for _, scale in ipairs(withScales and SCALES or {}) do
@@ -140,11 +167,18 @@ local function Entry(step, id)
 	return {
 		kind = step.kind,
 		name = step.name,
+		mode = step.line,
 		frame_id = id,
 		time = Shots.TIME,
 		payload = ns.Codec.Hex(step.payload),
 		events = ns.Json.NewList(),
 	}
+end
+
+-- Strip.lua draws the line of the saved variables, for the screen of this moment.
+local function SetLine(mode)
+	local width, height = GetPhysicalScreenSize()
+	ns.Saved().stripLine = mode and { mode = mode, width = width, height = height } or nil
 end
 
 -- Takes the shot of one step, and calls `done(entry)` after the gap.
@@ -155,8 +189,10 @@ local function Shoot(step, id, done)
 	local function Try()
 		tries = tries + 1
 		entry.scaled = SetScale(step.scale)
+		SetLine(step.line)
 		current = entry
 		local started = ns.Strip.Show(frame, function(ok)
+			SetLine(nil)
 			RestoreScale()
 			entry.ok = ok
 			C_Timer.After(GAP, function()
@@ -168,6 +204,7 @@ local function Shoot(step, id, done)
 			return
 		end
 		current = nil
+		SetLine(nil)
 		RestoreScale()
 		if tries >= MAX_TRIES then
 			entry.ok, entry.error = false, "the strip corner stayed busy"

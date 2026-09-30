@@ -5,7 +5,7 @@ use std::fs;
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
-use protocol::frame::{Frame, decode_frame, signed_len};
+use protocol::frame::{Frame, TAG_LEN, decode_frame, encode_frame, signed_len};
 use serde::{Deserialize, Serialize};
 
 use crate::ids::hex;
@@ -32,6 +32,9 @@ pub struct Shot {
     pub unix: Option<u32>,
     pub ui_parent_scale: Option<f64>,
     pub strip_effective_scale: Option<f64>,
+    /// The line mode of a shot of kind `line` (SPEC.md 7.1.3).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub mode: Option<u8>,
 }
 
 /// One committed screenshot, and the frame that it holds.
@@ -75,6 +78,17 @@ pub fn test_frame(image: &Image) -> Result<Option<Frame>> {
         return Ok(None);
     }
     Ok(decode_frame(&bytes).ok())
+}
+
+/// The signed frame that the self-test drew for `shot`.
+pub fn frame_of(shot: &Shot) -> Result<Vec<u8>> {
+    let payload = from_hex(&shot.payload).context("the payload of a shot is not hex")?;
+    let mut wire = encode_frame(shot.time, shot.frame_id, &payload, [0; 8])
+        .context("the payload of a shot is too long")?;
+    let signed = wire.len() - TAG_LEN;
+    let tag = test_key()?.tag(&wire[..signed]);
+    wire[signed..].copy_from_slice(&tag);
+    Ok(wire)
 }
 
 /// A PNG that is a plain file under the size limit. A link is refused.
@@ -150,7 +164,21 @@ mod tests {
             unix: None,
             ui_parent_scale: None,
             strip_effective_scale: None,
+            mode: None,
         }
+    }
+
+    #[test]
+    fn the_frame_of_a_shot_is_a_test_strip_that_matches_the_shot() {
+        let line = shot(9, 1_790_211_079, b"a line");
+
+        let wire = frame_of(&line).unwrap();
+
+        assert!(is_test_strip(&wire));
+        let Ok(frame) = decode_frame(&wire) else {
+            panic!("the frame decodes");
+        };
+        assert_eq!(shot_of(&frame, std::slice::from_ref(&line)), Some(&line));
     }
 
     #[test]

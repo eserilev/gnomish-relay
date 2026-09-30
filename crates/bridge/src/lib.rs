@@ -13,6 +13,7 @@ pub mod allow_hosts;
 pub mod always_offer;
 pub mod always_rules;
 pub mod app_files;
+pub mod calibration;
 pub mod check_agent;
 pub mod claude;
 pub mod claude_sessions;
