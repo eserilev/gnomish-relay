@@ -128,16 +128,29 @@ function BridgeSettings.AskIfOld()
 	end
 end
 
--- True after `gnomish-relay hooks install`: the Settings group and the Diag rows of
--- notifications show only then.
-function BridgeSettings.HooksOn()
+local function AnyHook(matches)
 	local last = BridgeSettings.Last()
 	for _, hook in ipairs(last and last.hooks or {}) do
-		if hook.state == "on" then
+		if matches(hook.state) then
 			return true
 		end
 	end
 	return false
+end
+
+-- True while a hook works: the Settings group of notifications shows only then.
+function BridgeSettings.HooksOn()
+	return AnyHook(function(state)
+		return state == "on"
+	end)
+end
+
+-- True after `gnomish-relay hooks install`, also for a moved or disabled hook, so Diag
+-- shows the fix.
+function BridgeSettings.HooksInstalled()
+	return AnyHook(function(state)
+		return state ~= "off"
+	end)
 end
 
 function BridgeSettings.FindAgent(name)

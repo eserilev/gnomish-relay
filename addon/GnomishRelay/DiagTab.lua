@@ -110,9 +110,9 @@ local function LastNotification()
 	return ns.Notices.Duration(math.floor(ns.Notices.Age(newest))) .. " ago"
 end
 
--- Only after `gnomish-relay hooks install` (SPEC.md 10.4).
+-- Only after `gnomish-relay hooks install` (SPEC.md 10.5).
 local function NoticeRows(last, rows)
-	if not ns.BridgeSettings.HooksOn() then
+	if not ns.BridgeSettings.HooksInstalled() then
 		return
 	end
 	local busy, open = ns.Notices.Sessions()

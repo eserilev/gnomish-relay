@@ -694,6 +694,27 @@ fn diag_shows_the_hooks_the_sessions_and_the_last_notification_after_hooks_insta
 }
 
 #[test]
+fn diag_shows_a_moved_hook_with_the_fix_when_no_hook_is_on() {
+    let game = Game::start();
+    with_hooks(&game, "moved");
+    game.run("local ns = ... ns.Window.Open() ns.Window.ShowTab('diag')");
+
+    let texts: Vec<String> = (1..=26)
+        .filter_map(|i| {
+            let value = game.run(&format!("return GnomishRelayDiagLine{i}.value:GetText()"));
+            value.as_string().map(|s| s.to_str().unwrap().to_owned())
+        })
+        .collect();
+
+    assert!(
+        texts
+            .iter()
+            .any(|t| t.contains("Claude moved: run hooks install · Codex off")),
+        "{texts:?}"
+    );
+}
+
+#[test]
 fn six_hundred_random_live_files_never_break_the_addon() {
     let game = Game::start();
     for seed in 0..600u64 {

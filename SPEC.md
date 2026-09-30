@@ -1768,7 +1768,7 @@ notices = {busy = 1, open = 2, list = {
 
 **Settings.** One new group "Notifications" in the Settings tab, after Appearance (13.1). It shows only after `hooks install`: the settings list (13.4) has a `hook` line with `on`. The group has two rows: Notifications and Finished work on one, and the three Alerts boxes on the other. While it shows, the Always Allowed group below it shows 3 rules at a time, so the page still fits the least window (900 × 560).
 
-**Diag.** Three new rows, also only after `hooks install`: Hooks (the state of each agent from the settings list), Sessions (the running and open terminal sessions of the last live file), and Last notification (its age). Diag also shows the free slots.
+**Diag.** Three new rows, also only after `hooks install`, and also while no hook is on: a moved or disabled hook shows here with its fix. The rows: Hooks (the state of each agent from the settings list), Sessions (the running and open terminal sessions of the last live file), and Last notification (its age). Diag also shows the free slots.
 
 **Two WoW clients** on one computer each read their own slots, so both show each notification and both spend slots. This is accepted.
 
