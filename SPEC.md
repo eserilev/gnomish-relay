@@ -2196,7 +2196,7 @@ The implementer and an advisor agent chose these (2026-09-26).
 8. **A settings list, not a new slot file.** It is one more list in its own chat, as `list=folders`. Some values hold tabs, so a line splits at its first tab only.
 9. **The addon asks for the list only when a tab opens and the list is old**, and at a click on the status line, because each ask costs a strip.
 10. **The Level dropdown has no `full-auto`.** The config caps every level anyway (S6), so this only keeps the page honest.
-11. **Own dropdowns.** A button and a list of choices, with no dropdown API of the client, so a client patch cannot break them.
+11. **Own dropdowns.** A button and a list of choices, with no dropdown API of the client, so a client patch cannot break them. An open list closes with its page and at a click outside it (`GLOBAL_MOUSE_DOWN`), as a menu of the game does.
 12. **The reply line setting does not stop the line of a desktop request**, the only notice of that request in the game.
 
 ## 14. Verification and tests

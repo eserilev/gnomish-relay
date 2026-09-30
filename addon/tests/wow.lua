@@ -157,7 +157,16 @@ function methods:Show()
 end
 
 function methods:Hide()
+	local was = self.shown
 	self.shown = false
+	if was and self.scripts.OnHide then
+		self.scripts.OnHide(self)
+	end
+end
+
+-- A test puts the mouse over an object with `mouseOver = true`.
+function methods:IsMouseOver()
+	return self.mouseOver == true
 end
 
 function methods:SetShown(shown)

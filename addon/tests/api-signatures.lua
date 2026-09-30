@@ -769,6 +769,20 @@ return {
 				{ Name = "success", Type = "bool", Nilable = false },
 			},
 		},
+		["SimpleScriptRegionAPI:IsMouseOver"] = {
+			ConstSecretAccessor = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretWhenAnchoringSecret = true,
+			Arguments = {
+				{ Name = "offsetTop", Type = "uiUnit", Nilable = false, Default = 0 },
+				{ Name = "offsetBottom", Type = "uiUnit", Nilable = false, Default = 0 },
+				{ Name = "offsetLeft", Type = "uiUnit", Nilable = false, Default = 0 },
+				{ Name = "offsetRight", Type = "uiUnit", Nilable = false, Default = 0 },
+			},
+			Returns = {
+				{ Name = "isMouseOver", Type = "bool", Nilable = false },
+			},
+		},
 		["SimpleScriptRegionAPI:IsShown"] = {
 			SecretReturnsForAspect = { Enum.SecretAspect.Shown },
 			Arguments = {},
@@ -982,6 +996,12 @@ return {
 			Payload = {
 				{ Name = "addOnName", Type = "cstring", Nilable = false },
 				{ Name = "containsBindings", Type = "bool", Nilable = false },
+			},
+		},
+		GLOBAL_MOUSE_DOWN = {
+			SynchronousEvent = true,
+			Payload = {
+				{ Name = "button", Type = "cstring", Nilable = false },
 			},
 		},
 		PLAYER_LOGIN = {

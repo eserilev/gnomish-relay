@@ -3098,6 +3098,32 @@ fn settings_asks_for_the_list_only_when_it_is_old_and_on_a_click_on_the_status()
     );
 }
 
+fn level_list_shown(game: &Game) -> bool {
+    game.run("return GnomishRelaySettingsLevelList:IsShown()")
+        .as_boolean()
+        .unwrap()
+}
+
+#[test]
+fn a_dropdown_list_closes_when_its_page_hides_and_at_a_click_outside() {
+    let game = Game::start();
+    open_tab(&game, SETTINGS);
+    game.run("GnomishRelaySettingsLevel:Click()");
+    assert!(level_list_shown(&game));
+
+    game.run("local ns = ... ns.Window.ShowTab('diag')");
+    open_tab(&game, SETTINGS);
+    assert!(!level_list_shown(&game), "the list closes with its page");
+
+    game.run("GnomishRelaySettingsLevel:Click()");
+    game.run("GnomishRelaySettingsLevelList.mouseOver = true");
+    game.fire("GLOBAL_MOUSE_DOWN", "LeftButton");
+    assert!(level_list_shown(&game), "a click in the list keeps it");
+    game.run("GnomishRelaySettingsLevelList.mouseOver = false");
+    game.fire("GLOBAL_MOUSE_DOWN", "LeftButton");
+    assert!(!level_list_shown(&game), "a click outside closes it");
+}
+
 #[test]
 fn the_status_line_shows_the_age_of_the_list_and_the_state_of_the_bridge() {
     let game = Game::start();
