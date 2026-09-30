@@ -27,6 +27,23 @@ Bad and good, from this project:
 | strip rejected: Stale | Skipped an old message from before the app started. | Say what happened in the user's terms. |
 | Agent not set up. | No agent yet. Install Claude or Codex, then run `gnomish-relay setup`. | Give the next step. |
 
+Words to use, the same in the game, the CLI, and the README:
+
+| Say | For | Never |
+|---|---|---|
+| the desktop app | the `gnomish-relay` program | bridge, daemon |
+| your desktop | the place outside the game: "Approve on your desktop" | the desktop |
+| WoW, the game | World of Warcraft | client |
+| chat, message, reply | a conversation, what the player sends, what comes back | job, record, turn |
+| agent, session | Claude Code or Codex, and its saved conversation (Resume) | harness, thread |
+| Allow once, Always allow, Deny, Always deny | the buttons of an in-game request | Reject |
+| Approve, Deny | the buttons of the desktop dialog and `gnomish-relay approve`/`deny` | allow, refuse |
+| Always allow rule | a saved answer | grant |
+| Permissions: ask, auto-edit, full-auto | the `permission` of an agent | level (in copy) |
+| the colored bar | the strip, only where the player has to know it exists | strip, frame |
+| addon files | the slot addons | slots |
+| notification, banner | a hook notice, and its pop-up above the chat | toast, spool |
+
 Sources: [Microsoft Style Guide, "simple and human"](https://learn.microsoft.com/en-us/style-guide/brand-voice-above-all-simple-human), [Nielsen Norman Group, error-message guidelines](https://www.nngroup.com/articles/error-message-guidelines/), [Material Design, writing](https://m3.material.io/foundations/content-design/style-guide/ux-writing-best-practices), [Apple HIG, writing](https://developer.apple.com/design/human-interface-guidelines/writing).
 
 When you write copy with an LLM, give it where the text shows, a length limit, the tone, and these examples. Examples work better than rules.
