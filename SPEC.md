@@ -1797,7 +1797,7 @@ notices = {busy = 1, open = 2, list = {
 - It never changes `notify`.
 - `remove` takes out its groups.
 
-**After an install**, the command prints "Restart the <agents> sessions that run now.", with the agents that it changed. Both load hooks only at the start of a session.
+**After an install**, the command prints "Restart the <agents> sessions that run now.", with the agents that it changed. Both load hooks only at the start of a session. Then it prints "The first notification can take up to 10 minutes. In the game, type /relay poll to check now.": the addon learns about an open session only at a poll (10.4).
 
 **`hooks status`** shows for each agent: on, off, or on with a path that does not exist (a moved binary). It also shows `disableAllHooks` in the Claude settings, and a Codex config that turns hooks off. The settings list (13.4) carries the same state, so Diag shows it. It reads the files at each list, because `hooks install` can run while the bridge runs.
 
