@@ -353,9 +353,7 @@ impl Relay {
             return outcome;
         }
         if let Some(update) = self.lane.update_text() {
-            let (token, id) = (text(&r.token), MessageId(r.id));
-            self.set_record(&token, &chat, id, Status::Error, update.into());
-            return Outcome::WrongVersion;
+            return self.refuse(r, &chat, update.into(), Outcome::WrongVersion);
         }
         if let Some(kind) = flags.list {
             return self.enqueue_list(r, chat, kind);
@@ -363,58 +361,56 @@ impl Relay {
         if let Some(session) = &flags.attach {
             return self.attach(r, chat, session, now);
         }
+        let job = match self.prompt_job(r, &chat, flags) {
+            Ok(job) => job,
+            Err(outcome) => return outcome,
+        };
+        let waits = self.running.contains(&chat) && self.activity.waits(&chat);
+        let outcome = self.enqueue_job(job);
+        // The player never has to answer an old question first. A run that only works
+        // keeps working, and the message waits (SPEC.md 9.3).
+        if outcome == Outcome::Accepted && waits {
+            self.interrupts.push(chat);
+        }
+        outcome
+    }
+
+    /// Answers a seen message with an error. It never runs.
+    fn refuse(&mut self, r: &Record, chat: &ChatId, error: String, outcome: Outcome) -> Outcome {
+        self.set_record(&text(&r.token), chat, MessageId(r.id), Status::Error, error);
+        outcome
+    }
+
+    /// The history keeps the message, also when the job is refused.
+    fn prompt_job(
+        &mut self,
+        r: &Record,
+        chat: &ChatId,
+        flags: flags::CodingFlags,
+    ) -> Result<Job, Outcome> {
         let agent = flags
             .agent
             .unwrap_or_else(|| self.policy.default_agent.clone());
-        let log = ChatLog {
-            chat: chat.clone(),
-            name: text(&r.name),
-            agent: agent.clone(),
-            cwd: text(&r.cwd),
-            lines: Vec::new(),
-        };
-        self.history
-            .add_message(log, MessageId(r.id), &text(&r.text));
-        let folders = &self.policy.folders;
-        let request = folder_request(&r.cwd, cfg!(windows));
-        let resolved = request.and_then(|cwd| resolve_folder(&folders.roots, &folders.base, &cwd));
-        let Some(cwd) = resolved else {
-            self.set_record(
-                &text(&r.token),
-                &chat,
-                MessageId(r.id),
-                Status::Error,
-                BAD_FOLDER.into(),
-            );
-            return Outcome::BadFolder;
+        self.add_to_history(r, chat, &agent);
+        let Some(cwd) = self.game_folder(&r.cwd) else {
+            return Err(self.refuse(r, chat, BAD_FOLDER.into(), Outcome::BadFolder));
         };
         // Only the first message of a chat makes its folder (SPEC.md 9.9).
         let new_folder = flags.new_folder && flags.new_session;
         if new_folder && !is_new_folder_request(&r.cwd) {
             let bad = NewFolderError::BadName.text();
-            self.set_record(&text(&r.token), &chat, MessageId(r.id), Status::Error, bad);
-            return Outcome::BadFolder;
+            return Err(self.refuse(r, chat, bad, Outcome::BadFolder));
         }
-        let Some(permission) = self.policy.agents.get(&agent) else {
-            self.set_record(
-                &text(&r.token),
-                &chat,
-                MessageId(r.id),
-                Status::Error,
-                BAD_AGENT.into(),
-            );
-            return Outcome::BadAgent;
+        let Some(&permission) = self.policy.agents.get(&agent) else {
+            return Err(self.refuse(r, chat, BAD_AGENT.into(), Outcome::BadAgent));
         };
-        let asked = flags.level.unwrap_or(*permission);
-        let permission = permission.ceiling(flags.level);
-        let waits = self.running.contains(&chat) && self.activity.waits(&chat);
-        let outcome = self.enqueue_job(Job {
+        Ok(Job {
             token: text(&r.token),
-            chat,
+            chat: chat.clone(),
             id: MessageId(r.id),
             agent,
-            permission,
-            asked,
+            permission: permission.ceiling(flags.level),
+            asked: flags.level.unwrap_or(permission),
             cwd: text(&native_folder(cwd, cfg!(windows))),
             session: if flags.new_session {
                 Session::New
@@ -425,13 +421,26 @@ impl Relay {
             text: text(&r.text),
             work: Work::Prompt,
             new_folder,
-        });
-        // The player never has to answer an old question first. A run that only works
-        // keeps working, and the message waits (SPEC.md 9.3).
-        if outcome == Outcome::Accepted && waits {
-            self.interrupts.push(ChatId(text(&r.chat)));
-        }
-        outcome
+        })
+    }
+
+    fn add_to_history(&mut self, r: &Record, chat: &ChatId, agent: &str) {
+        let log = ChatLog {
+            chat: chat.clone(),
+            name: text(&r.name),
+            agent: agent.to_owned(),
+            cwd: text(&r.cwd),
+            lines: Vec::new(),
+        };
+        self.history
+            .add_message(log, MessageId(r.id), &text(&r.text));
+    }
+
+    /// The folder in the form of the resolver, or `None` outside every root.
+    fn game_folder(&self, raw: &[u8]) -> Option<Vec<u8>> {
+        let folders = &self.policy.folders;
+        let request = folder_request(raw, cfg!(windows))?;
+        resolve_folder(&folders.roots, &folders.base, &request)
     }
 
     fn enqueue_list(&mut self, r: &Record, chat: ChatId, kind: ListKind) -> Outcome {
@@ -458,14 +467,7 @@ impl Relay {
 
     fn attach(&mut self, r: &Record, chat: ChatId, session: &str, now: u32) -> Outcome {
         let Some(listed) = self.listed.iter().find(|l| l.id == session).cloned() else {
-            self.set_record(
-                &text(&r.token),
-                &chat,
-                MessageId(r.id),
-                Status::Error,
-                NO_SESSION.into(),
-            );
-            return Outcome::BadSession;
+            return self.refuse(r, &chat, NO_SESSION.into(), Outcome::BadSession);
         };
         self.enqueue_job(Job {
             token: text(&r.token),
