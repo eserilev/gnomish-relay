@@ -27,6 +27,7 @@ use crate::screenshots::{Watcher, read_strip};
 use crate::settings_list::BridgeSettings;
 use crate::slots::{self, Files};
 use crate::state;
+use crate::status;
 use crate::story::{Story, StorySpec};
 use crate::timeways::{NO_STORY, Timeways};
 use crate::vectors::is_test_strip;
@@ -75,6 +76,8 @@ pub fn log(line: &str) {
 /// calls `step` four times a second. Tests call it directly.
 pub struct Bridge {
     addons: PathBuf,
+    /// The data folder, for the time of the last strip.
+    data: PathBuf,
     keys: KeySet,
     watcher: Watcher,
     /// Only with the relay part in the config (SPEC.md 9.7, decision 15).
@@ -163,6 +166,7 @@ impl Bridge {
             timeways,
             relay,
             addons: paths.addons,
+            data: paths.state,
             keys,
         })
     }
@@ -259,6 +263,9 @@ impl Bridge {
                 log(&format!("strip of {app:?}, which is off"));
                 return StripOutcome::AppOff;
             }
+        }
+        if let Err(e) = status::mark_strip(&self.data, now()) {
+            log(&format!("cannot write the time of the last strip: {e:#}"));
         }
         StripOutcome::Taken
     }

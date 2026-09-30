@@ -154,6 +154,23 @@ fn a_strip_screenshot_comes_back_as_an_echo_in_the_slots() {
 }
 
 #[test]
+fn a_taken_strip_is_the_last_strip_of_the_status() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let before = now();
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        strip_png(KEY, "hi"),
+    )
+    .unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&f.addons).contains("echo: hi")));
+
+    let last = bridge::status::last_strip(&f.state).unwrap();
+    assert!(last >= before && last <= now(), "{last}");
+}
+
+#[test]
 fn a_normal_screenshot_stays_untouched() {
     let f = folders();
     let mut bridge = bridge(&f);

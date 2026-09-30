@@ -1861,6 +1861,8 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - With no key, the addon shows one line: "Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay".
 - With no fresh body one minute after login, the addon shows one line: "Gnomish Relay: bridge not running."
 - Setup starts the default agent once, with no prompt. A missing login then shows in setup ("Agent: claude needs a login. Run: claude"), not as the first reply in the game.
+- `gnomish-relay status` prints one line for each part, with the next step when it does not work: whether the bridge runs (the lock of 8.4), the time of the last strip that the bridge took (`last-strip` in the data folder), whether the config loads (with the TOML error and its line), the sandbox, and the default agent with its version or its login. It also says when the program of the default agent is not on the `PATH` of the login service. The logic is in `status.rs`, and `crates/bridge/tests/status.rs` tests it with the fake agents.
+- `gnomish-relay help`, `--help`, and `-h` print the usage on stdout and exit with success. An unknown command prints it as an error.
 
 **Updates and restarts.**
 

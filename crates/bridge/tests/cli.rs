@@ -22,6 +22,7 @@ fn help_prints_the_usage_on_stdout_and_exits_with_success() {
         assert!(usage.starts_with("usage:\n"), "{flag}: {usage}");
         assert!(usage.contains("gnomish-relay rules "), "{usage}");
         assert!(usage.contains("gnomish-relay rules remove <id>"), "{usage}");
+        assert!(usage.contains("gnomish-relay status "), "{usage}");
     }
 }
 

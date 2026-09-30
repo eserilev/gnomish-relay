@@ -40,6 +40,7 @@ usage:
   gnomish-relay install              make the slot addons (game closed)
   gnomish-relay run                  read strips, run the agents, publish the replies
   gnomish-relay restart              stop the bridge and start it again, for example after a config edit
+  gnomish-relay status               show whether the bridge runs, the config, the sandbox, and the agent
   gnomish-relay update               install the latest release and restart the bridge
   gnomish-relay check-agent <name>   start an agent of the config and show what it offers
   gnomish-relay approve [id]         list the tool calls that wait for the desktop, or allow one
@@ -822,6 +823,20 @@ fn check_gate(config: &RelayConfig) -> Result<Gate> {
     Ok(Gate::new(config, &places, Prompt::Off))
 }
 
+fn print_status() -> Result<()> {
+    let places = Places {
+        config_dir: &config_dir()?,
+        data_dir: &data_dir()?,
+        home: &home_dir()?,
+    };
+    std::fs::create_dir_all(places.data_dir)?;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    for line in status::status_lines(&places, &path, now()) {
+        println!("{line}");
+    }
+    Ok(())
+}
+
 fn approvals() -> Result<Approvals> {
     Ok(Approvals::new(&data_dir()?, Prompt::Off))
 }
@@ -955,6 +970,7 @@ fn main() -> Result<()> {
             Ok(())
         }
         ["restart"] => restart(&std::env::current_exe()?),
+        ["status"] => print_status(),
         ["update"] => self_update(),
         ["check-agent", name] => check_agent(name),
         ["approve"] => list_approvals(),

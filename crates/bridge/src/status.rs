@@ -2,13 +2,96 @@
 //! checks first, with the next step when it does not work.
 
 use std::ffi::OsStr;
+use std::fs;
+use std::path::Path;
+
+use anyhow::Result;
 
 use crate::agent;
-use crate::config::RelayConfig;
-use crate::gate::Gate;
+use crate::config::{self, RelayConfig};
+use crate::desktop::Prompt;
+use crate::fs_safe::write_atomic_unsynced;
+use crate::gate::{Gate, Places};
 use crate::install;
+use crate::lock::{self, Bridge};
 use crate::program::find_program;
 use crate::story_sandbox::Sandbox;
+
+/// In the data folder. The bridge writes the time of each strip that it takes.
+const LAST_STRIP_FILE: &str = "last-strip";
+
+/// The lines of `gnomish-relay status`. `path` is the `PATH` for the sandbox probe.
+pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
+    let mut lines = vec![
+        bridge_line(&lock::status(places.data_dir)),
+        last_strip_line(last_strip(places.data_dir), now),
+    ];
+    let config = match config::load(places.config_dir, places.home) {
+        Ok(config) => config,
+        Err(e) => {
+            lines.push(format!("Config: does not load. {e:#}"));
+            return lines;
+        }
+    };
+    lines.push("Config: loads".into());
+    let Some(relay) = &config.relay else {
+        lines.push("Relay: off. To add coding agents: gnomish-relay setup --relay".into());
+        return lines;
+    };
+    let gate = Gate::new(relay, places, Prompt::Off);
+    lines.push(sandbox_line(&SandboxFound::of(&gate.sandbox.tool, path)));
+    lines.push(agent_line(relay, &gate));
+    lines.extend(default_agent_off_service_path(relay, places));
+    lines
+}
+
+fn default_agent_off_service_path(relay: &RelayConfig, places: &Places) -> Option<String> {
+    let spec = relay.agents.get(&relay.policy.default_agent)?;
+    let program = spec.command.first()?;
+    let file = install::service_file(places.config_dir, places.home)?;
+    let service_path = install::service_path_var(&fs::read_to_string(file).ok()?);
+    service_path_line(program, service_path.as_deref())
+}
+
+pub fn bridge_line(bridge: &Result<Bridge>) -> String {
+    match bridge {
+        Ok(Bridge::Stopped) => "Bridge: stopped. Start it: gnomish-relay restart".into(),
+        Ok(Bridge::Runs(Some(pid))) => format!("Bridge: runs (process {pid})"),
+        Ok(Bridge::Runs(None)) => "Bridge: runs".into(),
+        Err(e) => format!("Bridge: unknown. {e:#}"),
+    }
+}
+
+pub fn mark_strip(data_dir: &Path, now: u32) -> Result<()> {
+    write_atomic_unsynced(data_dir, LAST_STRIP_FILE, now.to_string().as_bytes())
+}
+
+pub fn last_strip(data_dir: &Path) -> Option<u32> {
+    fs::read_to_string(data_dir.join(LAST_STRIP_FILE))
+        .ok()?
+        .trim()
+        .parse()
+        .ok()
+}
+
+pub fn last_strip_line(last: Option<u32>, now: u32) -> String {
+    let Some(last) = last else {
+        return "Last strip: none yet. Send a message in the game".into();
+    };
+    format!(
+        "Last strip: {} ago",
+        duration_text(now.saturating_sub(last))
+    )
+}
+
+fn duration_text(seconds: u32) -> String {
+    match seconds {
+        0..60 => format!("{seconds} s"),
+        60..3600 => format!("{} min", seconds / 60),
+        3600..86400 => format!("{} h", seconds / 3600),
+        _ => format!("{} days", seconds / 86400),
+    }
+}
 
 /// What the sandbox probe found (SPEC.md 6.6.4).
 #[derive(Debug, PartialEq, Eq)]
@@ -88,6 +171,48 @@ pub fn service_path_line(program: &str, service_path: Option<&str>) -> Option<St
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_last_strip_says_how_long_ago_it_came() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            last_strip_line(last_strip(dir.path()), 1000),
+            "Last strip: none yet. Send a message in the game"
+        );
+
+        mark_strip(dir.path(), 1000).unwrap();
+
+        assert_eq!(last_strip(dir.path()), Some(1000));
+        assert_eq!(last_strip_line(Some(1000), 1030), "Last strip: 30 s ago");
+        assert_eq!(
+            last_strip_line(Some(1000), 1000 + 180),
+            "Last strip: 3 min ago"
+        );
+        assert_eq!(
+            last_strip_line(Some(1000), 1000 + 7200),
+            "Last strip: 2 h ago"
+        );
+        assert_eq!(
+            last_strip_line(Some(1000), 1000 + 3 * 86400),
+            "Last strip: 3 days ago"
+        );
+    }
+
+    #[test]
+    fn the_bridge_line_says_whether_the_bridge_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(
+            bridge_line(&lock::status(dir.path())),
+            "Bridge: stopped. Start it: gnomish-relay restart"
+        );
+
+        let _lock = lock::take(dir.path()).unwrap();
+
+        assert_eq!(
+            bridge_line(&lock::status(dir.path())),
+            format!("Bridge: runs (process {})", std::process::id())
+        );
+    }
 
     #[test]
     fn an_agent_that_the_service_cannot_find_asks_for_a_restart() {
