@@ -8,6 +8,8 @@ use std::process::Command;
 use anyhow::{Context, Result, bail};
 use sha2::{Digest, Sha256};
 
+use crate::dirs::Dirs;
+
 pub const RELEASES: &str = "https://github.com/eserilev/gnomish-relay/releases/latest/download";
 
 /// The archive that `scripts/package.sh` makes for this OS and CPU.
@@ -115,6 +117,26 @@ pub fn replace(exe: &Path, new: &Path) -> Result<Replaced> {
         return Err(e).with_context(|| format!("cannot replace {}", exe.display()));
     }
     Ok(Replaced::New)
+}
+
+/// Installs the latest release in place of `current_exe`, and restarts the bridge.
+pub fn self_update(dirs: &Dirs) -> Result<()> {
+    let name = archive_name().context("there is no release build for this OS and CPU")?;
+    let base = std::env::var("GNOMISH_URL").unwrap_or_else(|_| RELEASES.to_owned());
+    let exe = std::env::current_exe()?;
+    let work = dirs.data.join("update");
+    let _ = std::fs::remove_dir_all(&work);
+    std::fs::create_dir_all(&work)?;
+    let replaced = fetch(&base, name, &work).and_then(|new| replace(&exe, &new));
+    let _ = std::fs::remove_dir_all(&work);
+    if replaced? == Replaced::Same {
+        println!("gnomish-relay is the latest release");
+        return Ok(());
+    }
+    println!("updated {}", exe.display());
+    crate::service::restart(dirs, &exe)?;
+    println!("type /reload in the game");
+    Ok(())
 }
 
 #[cfg(test)]

@@ -16,23 +16,22 @@ use bridge::desktop::{self, Approvals, Prompt};
 use bridge::dirs::Dirs;
 #[cfg(unix)]
 use bridge::forward;
-use bridge::fs_safe::write_atomic;
-use bridge::fs_safe::{LogStart, open_private_log};
 use bridge::gate::{Gate, Places};
-use bridge::install::{self, SYSTEMD_UNIT};
-use bridge::lock::{self, Bridge};
+use bridge::install;
+use bridge::lock;
 use bridge::model::ModelChoice;
 use bridge::model_setup;
 use bridge::raise::Raiser;
 use bridge::receive::{KeySet, RELAY_KEY_FILE};
 use bridge::run::{Paths, now, run};
 use bridge::selftest;
+use bridge::service;
 use bridge::settings_list::BridgeSettings;
 use bridge::setup::{self, KeyChoice};
 use bridge::slots::{self, Files};
 use bridge::status::{self, SandboxFound};
 use bridge::story::StorySpec;
-use bridge::update::{self, Replaced};
+use bridge::update;
 use protocol::apps::App;
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
@@ -86,263 +85,6 @@ fn pick_game(dirs: &Dirs, given: Option<&str>) -> Result<PathBuf> {
     Ok(chosen
         .cloned()
         .unwrap_or_else(|| install::game_folder(&answer)))
-}
-
-fn command(program: &str, args: &[&str]) -> Result<()> {
-    let status = std::process::Command::new(program)
-        .args(args)
-        .status()
-        .with_context(|| format!("cannot run {program}"))?;
-    if !status.success() {
-        bail!("{program} {} failed", args.join(" "));
-    }
-    Ok(())
-}
-
-/// Starts the bridge at each login, and now (SPEC.md 11.3).
-fn autostart(dirs: &Dirs) -> Result<()> {
-    let exe = std::env::current_exe()?;
-    if cfg!(windows) {
-        // The Run key of the user needs no admin rights, unlike a scheduled task.
-        let run = format!("\"{}\" run --background", exe.display());
-        command(
-            "reg",
-            &[
-                "add",
-                RUN_KEY,
-                "/v",
-                "Gnomish Relay",
-                "/t",
-                "REG_SZ",
-                "/d",
-                &run,
-                "/f",
-            ],
-        )?;
-        restart_process(dirs, &exe)?;
-    } else if cfg!(target_os = "macos") {
-        let log = load_launchd_agent(dirs, &exe)?;
-        println!("logs: {}", log.display());
-    } else {
-        write_systemd_unit(dirs, &exe)?;
-        command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
-        command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
-        println!("logs: journalctl --user -u gnomish-relay");
-    }
-    Ok(())
-}
-
-/// A service starts with almost no `PATH`, so it gets the one of this shell, and finds
-/// the agents that the shell finds.
-fn write_systemd_unit(dirs: &Dirs, exe: &Path) -> Result<()> {
-    let path_var = std::env::var("PATH").unwrap_or_default();
-    let dir = systemd_dir(dirs)?;
-    std::fs::create_dir_all(&dir)?;
-    write_atomic(
-        &dir,
-        SYSTEMD_UNIT,
-        install::systemd_unit(exe, &path_var).as_bytes(),
-    )?;
-    command("systemctl", &["--user", "daemon-reload"])
-}
-
-/// Writes the launchd agent with the `PATH` of this shell, and starts it. Returns its log.
-fn load_launchd_agent(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
-    let path_var = std::env::var("PATH").unwrap_or_default();
-    let dir = launch_agents_dir(dirs);
-    std::fs::create_dir_all(&dir)?;
-    let name = format!("{}.plist", install::LAUNCHD_LABEL);
-    let log = launchd_log(dirs);
-    write_atomic(
-        &dir,
-        &name,
-        install::launchd_plist(exe, &path_var, &log).as_bytes(),
-    )?;
-    let domain = launchd_domain()?;
-    let plist = dir.join(&name).to_string_lossy().into_owned();
-    let _ = command("launchctl", &["bootout", &domain, &plist]);
-    command("launchctl", &["bootstrap", &domain, &plist])?;
-    Ok(log)
-}
-
-fn systemd_dir(dirs: &Dirs) -> Result<PathBuf> {
-    Ok(dirs
-        .config
-        .parent()
-        .context("no config folder")?
-        .join("systemd")
-        .join("user"))
-}
-
-fn launch_agents_dir(dirs: &Dirs) -> PathBuf {
-    dirs.home.join("Library").join("LaunchAgents")
-}
-
-fn launchd_domain() -> Result<String> {
-    let uid = std::process::Command::new("id").arg("-u").output()?.stdout;
-    Ok(format!("gui/{}", String::from_utf8(uid)?.trim()))
-}
-
-/// Where the bridge of each kind of start writes its log.
-enum BridgeLog {
-    Journal,
-    File(PathBuf),
-}
-
-/// Restarts the bridge through the login service of setup, or as a process with no
-/// service. `exe` is the program to start: after an update, `current_exe` names the
-/// old file.
-fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
-    // A service restart succeeds even when the new bridge stops at once on a bad config.
-    load_config(dirs).context(
-        "the bridge cannot start with this config.toml. Fix it, then run: gnomish-relay restart",
-    )?;
-    let log = restart_service(dirs, exe)?;
-    confirm_start(dirs, &log)
-}
-
-fn restart_service(dirs: &Dirs, exe: &Path) -> Result<BridgeLog> {
-    if cfg!(target_os = "linux") && systemd_dir(dirs)?.join(SYSTEMD_UNIT).is_file() {
-        write_systemd_unit(dirs, exe)?;
-        command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
-        return Ok(BridgeLog::Journal);
-    }
-    let plist = launch_agents_dir(dirs).join(format!("{}.plist", install::LAUNCHD_LABEL));
-    if cfg!(target_os = "macos") && plist.is_file() {
-        return load_launchd_agent(dirs, exe).map(BridgeLog::File);
-    }
-    restart_process(dirs, exe).map(BridgeLog::File)
-}
-
-fn launchd_log(dirs: &Dirs) -> PathBuf {
-    dirs.home
-        .join("Library")
-        .join("Logs")
-        .join("gnomish-relay.log")
-}
-
-/// A bridge that stops at start holds the lock only for a moment, so the check waits a
-/// second after the lock and looks again.
-fn confirm_start(dirs: &Dirs, log: &BridgeLog) -> Result<()> {
-    let data = &dirs.data;
-    let runs = lock::wait_until_runs(data, std::time::Duration::from_secs(10))? && {
-        std::thread::sleep(std::time::Duration::from_secs(1));
-        lock::status(data)? != Bridge::Stopped
-    };
-    if runs {
-        println!("the bridge runs");
-        return Ok(());
-    }
-    match last_log_line(log) {
-        Some(line) => bail!("the bridge does not run. Its last log line: {line}"),
-        None => bail!("the bridge does not run, and its log is empty"),
-    }
-}
-
-fn last_log_line(log: &BridgeLog) -> Option<String> {
-    let text = match log {
-        BridgeLog::Journal => {
-            let args = [
-                "--user",
-                "-u",
-                SYSTEMD_UNIT,
-                "-n",
-                "1",
-                "--no-pager",
-                "-o",
-                "cat",
-            ];
-            let out = std::process::Command::new("journalctl")
-                .args(args)
-                .output()
-                .ok()?;
-            String::from_utf8_lossy(&out.stdout).into_owned()
-        }
-        BridgeLog::File(path) => std::fs::read_to_string(path).ok()?,
-    };
-    text.lines()
-        .rev()
-        .find(|line| !line.trim().is_empty())
-        .map(str::to_owned)
-}
-
-/// A bridge that runs with no service gets stopped, and then `exe` starts in the
-/// background. Returns the log file.
-fn restart_process(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
-    let data = &dirs.data;
-    bridge::fs_safe::make_private_dir(data)?;
-    match lock::status(data)? {
-        Bridge::Stopped => {}
-        Bridge::Runs(None) => {
-            bail!("a bridge runs, but its process id is unknown. Stop it by hand")
-        }
-        Bridge::Runs(Some(pid)) => stop_process(pid)?,
-    }
-    if !lock::wait_until_stopped(data, std::time::Duration::from_secs(10))? {
-        bail!("the bridge does not stop");
-    }
-    let log = start_background(dirs, exe)?;
-    println!("logs: {}", log.display());
-    Ok(log)
-}
-
-fn stop_process(pid: u32) -> Result<()> {
-    let pid = pid.to_string();
-    if cfg!(windows) {
-        // `/T` also stops the agents that the bridge started.
-        command("taskkill", &["/PID", &pid, "/T", "/F"])
-    } else {
-        command("kill", &[&pid])
-    }
-}
-
-fn self_update(dirs: &Dirs) -> Result<()> {
-    let name = update::archive_name().context("there is no release build for this OS and CPU")?;
-    let base = std::env::var("GNOMISH_URL").unwrap_or_else(|_| update::RELEASES.to_owned());
-    let exe = std::env::current_exe()?;
-    let work = dirs.data.join("update");
-    let _ = std::fs::remove_dir_all(&work);
-    std::fs::create_dir_all(&work)?;
-    let replaced = update::fetch(&base, name, &work).and_then(|new| update::replace(&exe, &new));
-    let _ = std::fs::remove_dir_all(&work);
-    if replaced? == Replaced::Same {
-        println!("gnomish-relay is the latest release");
-        return Ok(());
-    }
-    println!("updated {}", exe.display());
-    restart(dirs, &exe)?;
-    println!("type /reload in the game");
-    Ok(())
-}
-
-const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-/// Big enough for weeks of normal logs. A bigger log starts again.
-const MAX_LOG: u64 = 4 * 1024 * 1024;
-
-/// Starts `run` as a new process with no console window, and its log in a file.
-fn start_background(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
-    bridge::fs_safe::make_private_dir(&dirs.data)?;
-    let log_path = dirs.data.join("bridge.log");
-    let start = if std::fs::metadata(&log_path).is_ok_and(|m| m.len() > MAX_LOG) {
-        LogStart::Fresh
-    } else {
-        LogStart::Append
-    };
-    let log = open_private_log(&log_path, start)?;
-    let mut child = std::process::Command::new(exe);
-    child
-        .arg("run")
-        .stdin(std::process::Stdio::null())
-        .stdout(log.try_clone()?)
-        .stderr(log);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        child.creation_flags(CREATE_NO_WINDOW);
-    }
-    child.spawn().context("cannot start the bridge")?;
-    Ok(log_path)
 }
 
 /// Reads one answer in a terminal. With no terminal, or an empty answer, the default.
@@ -449,7 +191,7 @@ fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     let config = setup_config(dirs, &wow, existing.as_ref(), relay, timeways, roots_given)?;
     print_setup(dirs, &config, relay, timeways);
     if args.contains(&"--autostart") {
-        match autostart(dirs) {
+        match service::autostart(dirs) {
             Ok(()) => println!("Bridge: on, starts at login"),
             Err(e) => println!("Bridge: not started at login ({e:#}). Run: gnomish-relay run"),
         }
@@ -920,13 +662,13 @@ fn main() -> Result<()> {
         ["install"] => install(&Dirs::from_env()?),
         ["run"] => start(&Dirs::from_env()?),
         ["run", "--background"] => {
-            let log = start_background(&Dirs::from_env()?, &std::env::current_exe()?)?;
+            let log = service::start_background(&Dirs::from_env()?, &std::env::current_exe()?)?;
             println!("the bridge runs, and logs to {}", log.display());
             Ok(())
         }
-        ["restart"] => restart(&Dirs::from_env()?, &std::env::current_exe()?),
+        ["restart"] => service::restart(&Dirs::from_env()?, &std::env::current_exe()?),
         ["status"] => print_status(&Dirs::from_env()?),
-        ["update"] => self_update(&Dirs::from_env()?),
+        ["update"] => update::self_update(&Dirs::from_env()?),
         ["check-agent", name] => check_agent(&Dirs::from_env()?, name),
         ["approve"] => {
             list_approvals(&Dirs::from_env()?);
