@@ -617,7 +617,7 @@ mod tests {
         let answer = answer_of(line.as_bytes()).unwrap();
         let reply = reply_text(&answer, None).unwrap();
         assert!(
-            reply.contains(r#""weather":{"days":[1,2],"rain":true}"#),
+            reply.contains(r#""weather":{"rain":true,"days":[1,2]}"#),
             "{reply}"
         );
     }
