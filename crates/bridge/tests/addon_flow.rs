@@ -423,7 +423,7 @@ fn a_send_with_few_slots_left_never_reloads_and_the_banner_asks_for_a_reload() {
     game.run("local ns = ... ns.Window.Open()");
     game.send("one");
     assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 0);
-    assert_eq!(banner(&game), "Reload soon");
+    assert_eq!(banner(&game), "Reload soon to keep chatting.");
 }
 
 #[test]
@@ -450,7 +450,7 @@ fn a_message_in_the_outbox_asks_for_a_click_on_reload() {
     game.advance(130.0);
     game.send("and a second one");
     assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 0);
-    assert_eq!(banner(&game), "Press Reload to send 1 message.");
+    assert_eq!(banner(&game), "1 message is waiting. Reload to send it.");
 }
 
 #[test]
@@ -580,7 +580,7 @@ fn missing_slots_are_reported_and_use_no_slot() {
     let told = game
         .printed()
         .iter()
-        .filter(|l| l.starts_with("Gnomish Relay: slots are missing."))
+        .filter(|l| l.starts_with("Gnomish Relay: some addon files are missing."))
         .count();
     assert_eq!(told, 1, "one line, not one per poll");
     assert_eq!(
@@ -750,27 +750,30 @@ fn bridge_light(game: &Game) -> (String, Vec<f64>) {
 fn the_title_bar_shows_the_bridge_light_on_every_tab() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open() ns.Window.ShowTab('diag')");
-    assert_eq!(bridge_light(&game).0, "|cff9d9d9dChecking the bridge|r");
+    assert_eq!(bridge_light(&game).0, "|cff9d9d9dConnecting...|r");
 
     game.publish(&[]);
     game.run("local ns = ... ns.Transport.Poll()");
     assert_eq!(
         bridge_light(&game),
-        ("|cff1eff00Bridge online|r".into(), vec![0.1, 1.0, 0.0])
+        ("|cff1eff00Connected|r".into(), vec![0.1, 1.0, 0.0])
     );
 
     game.advance(100.0);
     game.run("local ns = ... ns.Transport.Poll()");
     assert_eq!(
         bridge_light(&game),
-        ("|cffffb000Bridge slow|r".into(), vec![1.0, 0.7, 0.0])
+        ("|cffffb000Slow connection|r".into(), vec![1.0, 0.7, 0.0])
     );
 
     game.advance(60.0);
     game.run("local ns = ... ns.Transport.Poll()");
     assert_eq!(
         bridge_light(&game),
-        ("|cffff2020Bridge offline|r".into(), vec![1.0, 0.1, 0.1])
+        (
+            "|cffff2020Desktop app offline|r".into(),
+            vec![1.0, 0.1, 0.1]
+        )
     );
 }
 
@@ -923,7 +926,7 @@ fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
         last.get::<String>("text").unwrap(),
         format!("\x1bM1\np\x1f{NO_AGENT}\np\x1fecho: ping the relay\n")
     );
-    assert!(game.printed().iter().any(|l| l.contains("No agent set up")));
+    assert!(game.printed().iter().any(|l| l.contains("No agent yet")));
 }
 
 #[test]
@@ -944,7 +947,7 @@ fn a_message_too_long_for_a_strip_stays_in_the_box_and_starts_no_screenshots() {
     let errors: Table = game.lua.globals().get("UIErrorsFrame").unwrap();
     assert_eq!(
         errors.get::<Vec<String>>("lines").unwrap(),
-        ["Too long to send."]
+        ["Too long to send. Try a shorter message."]
     );
     assert!(
         game.shots() <= 1,
@@ -988,7 +991,10 @@ fn the_empty_input_shows_a_hint_until_it_has_the_focus_or_a_text() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     let hint = |game: &Game| shown_text(game, "GnomishRelayInputHint");
-    assert_eq!(hint(&game).as_deref(), Some("Type a task. Enter sends."));
+    assert_eq!(
+        hint(&game).as_deref(),
+        Some("Type a message, then press Enter.")
+    );
 
     game.run("GnomishRelayInput:SetFocus()");
     assert_eq!(hint(&game), None);
@@ -1012,10 +1018,10 @@ fn the_input_counts_the_bytes_left_near_the_limit_of_one_strip() {
     };
 
     assert_eq!(count(&game, 10), None);
-    assert_eq!(count(&game, room - 100).as_deref(), Some("100 bytes left"));
+    assert_eq!(count(&game, room - 100).as_deref(), Some("100 left"));
     assert_eq!(
         count(&game, room + 5).as_deref(),
-        Some("|cffff20205 bytes too many|r")
+        Some("|cffff20205 over the limit|r")
     );
     assert!(
         game.run(&format!(
@@ -1141,7 +1147,7 @@ fn a_stored_frame_too_old_at_login_asks_to_be_sent_again() {
 }
 
 const BRIDGE_OFF: &str =
-    "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart.";
+    "Not sent: the desktop app isn't running. On your desktop, run gnomish-relay restart.";
 
 #[test]
 fn a_message_given_up_while_the_bridge_is_off_says_how_to_start_it() {
@@ -1168,8 +1174,8 @@ fn a_message_given_up_while_the_bridge_sees_bad_tags_says_to_run_setup() {
     game.advance(2.0);
     assert_eq!(
         last_entry(&game).get::<String>("text").unwrap(),
-        "Not sent: the bridge does not know this key. \
-         On the desktop, run gnomish-relay setup, then type /reload."
+        "Not sent: your game and the desktop app don't match. \
+         On your desktop, run gnomish-relay setup, then type /reload."
     );
 }
 
@@ -1440,7 +1446,7 @@ fn a_desktop_request_shows_a_row_and_no_popup() {
 
     let texts = texts_of(&game, "FontString");
     assert!(
-        texts.contains(&"Approve on desktop".to_owned()),
+        texts.contains(&"Approve on your desktop".to_owned()),
         "{texts:?}"
     );
     assert!(
@@ -1462,10 +1468,10 @@ fn the_desktop_row_changes_on_each_answer() {
     game.send("read my key");
     game.advance(1.0);
     for (state, row) in [
-        ("wait", "Approve on desktop"),
-        ("approved", "Approved on desktop"),
-        ("denied", "Denied on desktop"),
-        ("none", "No answer on desktop"),
+        ("wait", "Approve on your desktop"),
+        ("approved", "Approved on your desktop"),
+        ("denied", "Denied on your desktop"),
+        ("none", "No answer on your desktop"),
     ] {
         wait_on_desktop(&game, &format!("Desktop: {state} a1b2c3d4e5f6 dialog"));
         game.run("local ns = ... ns.Transport.Poll()");
@@ -1504,13 +1510,16 @@ fn with_no_dialog_the_whisper_line_names_the_command_and_a_raise_names_the_level
     game.run("local ns = ... ns.Transport.Poll()");
 
     assert_eq!(
-        whispers_with(&game, "] Run: gnomish-relay approve a1b2c3d4e5f6"),
+        whispers_with(
+            &game,
+            "] Approve on your desktop: run gnomish-relay approve a1b2c3d4e5f6"
+        ),
         1
     );
     assert_eq!(
         whispers_with(
             &game,
-            "] Approve on your desktop: let Claude work at auto-edit."
+            "] Approve on your desktop to let Claude work at auto-edit."
         ),
         1
     );
@@ -1528,7 +1537,7 @@ fn a_desktop_line_in_the_wrong_place_or_shape_is_only_a_step() {
 
     let texts = texts_of(&game, "FontString");
     assert!(
-        !texts.contains(&"Approve on desktop".to_owned()),
+        !texts.contains(&"Approve on your desktop".to_owned()),
         "{texts:?}"
     );
     assert_eq!(whispers_with(&game, "desktop"), 0);
@@ -1584,7 +1593,7 @@ fn a_working_run_polls_every_fifteen_seconds_and_activity_shows_the_next_check()
     assert!(gaps.iter().all(|g| *g == 15), "{gaps:?}");
     let texts = texts_of(&game, "FontString");
     assert!(
-        texts.iter().any(|t| t.starts_with("Next check in ")),
+        texts.iter().any(|t| t.starts_with("Checking again in ")),
         "{texts:?}"
     );
 }
@@ -1692,7 +1701,7 @@ fn a_chat_that_waits_for_a_popup_answer_says_so_in_activity_and_on_its_tile() {
         game.run("return GnomishRelayCast.text:GetText()")
             .as_string_lossy()
             .unwrap(),
-        "|cffff9f40Waiting for you: approve in popup|r"
+        "|cffff9f40Waiting for your approval|r"
     );
 
     click_popup(&game, 1);
@@ -1858,7 +1867,7 @@ fn a_permission_request_shows_the_honest_text_and_buttons_by_kind() {
     let buttons = texts_of(&game, "Button");
     assert_eq!(
         buttons[buttons.len() - 2..],
-        ["Allow once", "Reject"],
+        ["Allow once", "Deny"],
         "{buttons:?}"
     );
 }
@@ -1934,7 +1943,7 @@ fn an_always_choice_shows_its_rule_line_under_the_command() {
     let buttons = texts_of(&game, "Button");
     assert_eq!(
         buttons[buttons.len() - 3..],
-        ["Allow once", "Always allow", "Reject"],
+        ["Allow once", "Always allow", "Deny"],
         "{buttons:?}"
     );
 }
@@ -1970,7 +1979,7 @@ fn always_sends_the_hash_of_the_text_and_the_rule_line_and_whispers_the_rule() {
         strips_with(&game, shots, &expected) >= 1,
         "no strip carried {expected}"
     );
-    let line = format!("Rule added: {RULE_LINE}. Remove it in Settings.");
+    let line = format!("Always allowed now: {RULE_LINE}. Click to manage your rules.");
     assert_eq!(whispers_with(&game, &line), 1);
 }
 
@@ -1987,7 +1996,7 @@ fn allow_once_next_to_always_adds_no_rule_line() {
 
     let expected = format!("perm=p1a2b:o1:{}", text_hash(text.as_bytes()));
     assert!(strips_with(&game, shots, &expected) >= 1);
-    assert_eq!(whispers_with(&game, "Rule added"), 0);
+    assert_eq!(whispers_with(&game, "Always allowed now"), 0);
 }
 
 fn relay_with_a_job(game: &Game, now: u32) -> (Relay, bridge::relay::Job) {
@@ -2248,7 +2257,7 @@ fn a_client_without_a_required_function_turns_the_relay_off() {
     game.fire("PLAYER_LOGIN", ());
     assert!(
         game.printed().contains(
-            &"Gnomish Relay: this game version has no Screenshot. The relay is off. On the desktop, run gnomish-relay update.".into()
+            &"Gnomish Relay is off: this version of the game has no Screenshot. On your desktop, run gnomish-relay update.".into()
         ),
         "{:?}",
         game.printed()
@@ -2300,7 +2309,7 @@ fn blocked_screenshots_show_one_line_and_mark_the_window() {
     let blocked = game
         .printed()
         .iter()
-        .filter(|l| *l == "Gnomish Relay: screenshots are blocked. Check the free disk space and the Screenshots folder, then type /reload.")
+        .filter(|l| *l == "Gnomish Relay: can't take screenshots. Free up disk space and check the Screenshots folder, then type /reload.")
         .count();
     assert_eq!(blocked, 1);
     let problem: String = game
@@ -2317,7 +2326,7 @@ fn an_addon_with_no_key_asks_for_setup() {
     game.fire("PLAYER_LOGIN", ());
     assert!(
         game.printed().contains(
-            &"Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay"
+            &"Gnomish Relay isn't set up yet. Get the desktop app at github.com/eserilev/gnomish-relay, then run gnomish-relay setup."
                 .into()
         ),
         "{:?}",
@@ -2326,7 +2335,7 @@ fn an_addon_with_no_key_asks_for_setup() {
 }
 
 const SILENT_LINE: &str =
-    "Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart.";
+    "Gnomish Relay: the desktop app isn't running. On your desktop, run gnomish-relay restart.";
 
 #[test]
 fn a_silent_bridge_shows_one_line_a_minute_after_login() {
@@ -2931,9 +2940,9 @@ fn new_folder_checks_the_name_and_sets_the_folder_with_a_mark() {
     let enter = "GnomishRelayBrowserName:GetScript('OnEnterPressed')(GnomishRelayBrowserName)";
 
     for (name, problem) in [
-        ("personal", "Already here"),
-        ("a/b", "Bad name"),
-        ("..", "Bad name"),
+        ("personal", "Already exists"),
+        ("a/b", "Name not allowed"),
+        ("..", "Name not allowed"),
     ] {
         game.run(&format!("GnomishRelayBrowserName:SetText('{name}')"));
         game.run(enter);
@@ -2975,7 +2984,7 @@ fn after_the_first_message_the_browser_makes_a_new_chat_in_the_chosen_folder() {
     open_browser(&game);
     assert_eq!(
         text_of(&game, "GnomishRelayBrowserOpen:GetText()"),
-        "New Chat here"
+        "New chat here"
     );
     game.run("GnomishRelayBrowseRow2:Click()");
 
@@ -3005,7 +3014,7 @@ fn two_roots_give_a_top_level_that_lists_them() {
     );
     game.run("GnomishRelayCrumb1:Click()");
 
-    assert_eq!(crumbs(&game), ["|cffffd100Roots|r"]);
+    assert_eq!(crumbs(&game), ["|cffffd100All folders|r"]);
     assert_eq!(
         browse_rows(&game, 3),
         ["", "|cff1eff00Code|r", "work"],
@@ -3500,7 +3509,7 @@ fn the_status_line_shows_the_age_of_the_list_and_the_state_of_the_bridge() {
     open_tab(&game, SETTINGS);
     assert_eq!(
         text_of(&game, "GnomishRelaySettingsStatus.text:GetText()"),
-        "|cff8d8778No data yet.|r"
+        "|cff8d8778Not loaded yet|r"
     );
 
     game.publish(&[reply("settings", 99, Status::Done, &settings_text(false))]);
@@ -3547,7 +3556,7 @@ fn a_new_chat_takes_the_agent_and_level_that_settings_chose() {
 
     let texts = texts_of(&game, "FontString");
     assert!(
-        texts.contains(&"|cff8d8778Max: ask (set on the desktop)|r".to_owned()),
+        texts.contains(&"|cff8d8778Up to ask (set on your desktop)|r".to_owned()),
         "{texts:?}"
     );
     click_new_chat(&game);
@@ -3730,10 +3739,10 @@ fn diag_shows_the_bridge_values_timeways_versions_and_the_transport_lines() {
         "|codex  ask",
         "Commands|cargo test",
         "|npm test  in ~/Code/lighthouse",
-        "Timeout|30 min · ask 10 min",
+        "Timeout|30 min · approvals 10 min",
         "Model|claude haiku",
         "Budget|10 calls / 20 min",
-        "|Bridge 0.1.0 · protocol 1",
+        "|Desktop app 0.1.0 · protocol 1",
     ] {
         assert!(rows.contains(&expected.to_owned()), "{expected}: {rows:#?}");
     }
@@ -3768,7 +3777,7 @@ fn diag_says_no_data_yet_with_no_list() {
     open_tab(&game, DIAG);
     let rows = diag_texts(&game);
     assert!(
-        rows.contains(&"Status||cff8d8778No data yet.|r".to_owned()),
+        rows.contains(&"Status||cff8d8778Not loaded yet|r".to_owned()),
         "{rows:#?}"
     );
 }
@@ -3846,7 +3855,7 @@ fn the_key_binding_opens_and_closes_the_window() {
     assert!(!shown_by_name(&game, "GnomishRelayFrame"));
     assert_eq!(
         text_of(&game, "BINDING_NAME_GNOMISHRELAY_TOGGLE"),
-        "Open or close the window"
+        "Toggle window"
     );
 }
 

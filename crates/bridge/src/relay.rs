@@ -33,11 +33,11 @@ use crate::settings_list::{BridgeSettings, HookLine, settings_reply};
 use crate::state::State;
 
 const BAD_FOLDER: &str =
-    "Folder not allowed: it is outside allowed_roots in config.toml. Pick another folder.";
+    "That folder isn't allowed. Pick another one, or add it to allowed_roots in config.toml.";
 pub const BAD_AGENT: &str =
-    "Agent not in config.toml. Pick another agent in Settings, or add it on the desktop.";
+    "That agent isn't in config.toml. Pick another one in Settings, or add it on your desktop.";
 const STOPPED: &str = "Stopped.";
-const RESTARTED: &str = "Stopped: the bridge restarted. Send the message again.";
+const RESTARTED: &str = "Stopped: the desktop app restarted.";
 /// The agent sessions of the chats with the latest runs.
 const MAX_SESSIONS: usize = 64;
 /// The sessions in one list for the game, newest first.
@@ -45,7 +45,7 @@ const MAX_LISTED: usize = 30;
 const MAX_TITLE: usize = 100;
 /// A session that changed this recently is probably open in a terminal.
 const ACTIVE_FOR: u32 = 300;
-const NO_SESSION: &str = "Session not found. Open Resume again.";
+const NO_SESSION: &str = "That session is gone. Open Resume to pick another.";
 
 /// The agent session of a chat. The next message of the chat resumes it, if its
 /// agent and its folder are the same (SPEC.md 9.5).
@@ -909,7 +909,7 @@ fn with_level_note(job: &Job, text: String) -> String {
         return text;
     }
     let level = job.permission.word();
-    format!("(Ran at {level}: the config allows at most {level}.)\n\n{text}")
+    format!("(Ran at {level}, the most that config.toml allows.)\n\n{text}")
 }
 
 #[cfg(test)]
@@ -1229,7 +1229,7 @@ mod tests {
             "{live}"
         );
         relay.finish(&job, Ok("done".into()));
-        assert!(body(&relay).contains("(Ran at ask: the config allows at most ask.)"));
+        assert!(body(&relay).contains("(Ran at ask, the most that config.toml allows.)"));
     }
 
     #[test]
@@ -1255,12 +1255,13 @@ mod tests {
 
     #[test]
     fn each_error_text_of_the_relay_says_what_to_do_next() {
-        assert!(BAD_FOLDER.contains("Pick another folder"), "{BAD_FOLDER}");
+        assert!(BAD_FOLDER.contains("Pick another one"), "{BAD_FOLDER}");
         assert!(
-            BAD_AGENT.contains("Pick another agent in Settings"),
+            BAD_AGENT.contains("Pick another one in Settings"),
             "{BAD_AGENT}"
         );
-        assert!(RESTARTED.contains("Send the message again"), "{RESTARTED}");
+        // The Resend link next to the error is the next step of RESTARTED.
+        assert_eq!(RESTARTED, "Stopped: the desktop app restarted.");
     }
 
     #[test]
@@ -1924,7 +1925,7 @@ mod tests {
             assert_eq!(outcomes, [Outcome::BadFolder], "{cwd:?}");
             assert!(relay.next_job().is_none());
             assert!(
-                body(&relay).contains("Folder not made: bad name."),
+                body(&relay).contains("Couldn't create the folder: the name can't contain"),
                 "{cwd:?}"
             );
         }
@@ -1935,7 +1936,7 @@ mod tests {
         let mut relay = relay();
         let outcomes = relay.on_frame(&[record_in("../../new", "c1", 1, "n;mkdir=1", "hi")], NOW);
         assert_eq!(outcomes, [Outcome::BadFolder]);
-        assert!(body(&relay).contains("Folder not allowed:"));
+        assert!(body(&relay).contains("That folder isn't allowed"));
     }
 
     #[test]
@@ -1968,7 +1969,9 @@ mod tests {
         let outcomes = relay.on_frame(&[record_in("../../.ssh", "c1", 1, "", "a")], NOW);
         assert_eq!(outcomes, [Outcome::BadFolder]);
         assert!(relay.next_job().is_none());
-        assert!(body(&relay).contains(r#"id = 1, status = "error", text = "Folder not allowed:"#));
+        assert!(
+            body(&relay).contains(r#"id = 1, status = "error", text = "That folder isn't allowed"#)
+        );
         assert_eq!(
             relay.on_frame(&[record_in("../../.ssh", "c1", 1, "", "a")], NOW),
             [Outcome::Duplicate]

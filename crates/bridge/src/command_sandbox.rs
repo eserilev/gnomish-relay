@@ -37,7 +37,8 @@ const COMMONDIR: &str = "commondir";
 /// The `commondir` stand-in of an older build. Claude Code then took a repository for a
 /// linked worktree and could not make a worktree.
 const OLD_STAND_IN: [&[u8]; 2] = [b".\n", b"."];
-pub const NO_SANDBOX: &str = "(No sandbox on this computer: every command asks in the game.)";
+pub const NO_SANDBOX: &str =
+    "(This computer has no sandbox, so every command asks in the game first.)";
 const SANDBOX_EXEC: &str = "/usr/bin/sandbox-exec";
 /// The Unix socket of the proxy, in the temp folder of the run.
 const PROXY_SOCKET: &str = ".gnomish-relay-proxy";

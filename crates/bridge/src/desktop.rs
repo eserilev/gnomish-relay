@@ -272,7 +272,7 @@ impl Approvals {
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
         eprintln!(
-            "{now} approve on the desktop: gnomish-relay approve {id} ({})",
+            "{now} waiting for your approval: run gnomish-relay approve {id} ({})",
             text.escape_debug()
         );
         let tool = match self.prompt {
@@ -377,10 +377,12 @@ impl Approvals {
     /// Answers an open request, for `gnomish-relay approve` and `gnomish-relay deny`.
     pub fn answer(&self, id: &str, verdict: Verdict) -> Result<()> {
         if !is_id(id) || !self.file(id, REQUEST).is_file() {
-            bail!("no open request {id}. Run: gnomish-relay approve");
+            bail!(
+                "no request {id} is waiting. To see the waiting requests, run gnomish-relay approve"
+            );
         }
         if self.answer_of(id).is_some() {
-            bail!("request {id} has an answer already");
+            bail!("request {id} already has an answer");
         }
         check_real_dir(&self.dir)?;
         write_new(&self.file(id, verdict.extension()), b"")
@@ -401,19 +403,17 @@ fn read_pending(path: &Path) -> Option<Pending> {
 pub fn dialog_text(pending: &Pending) -> String {
     let text = match pending.kind {
         Kind::ToolCall => format!(
-            "An agent from the game asks to:\n{}\n\nAgent: {}. Folder: {}. Request {}.",
+            "An agent in WoW wants to:\n{}\n\nAgent: {}\nFolder: {}\nRequest: {}",
             pending.text, pending.agent, pending.folder, pending.id
         ),
         Kind::Raise => format!(
-            "{}\n\nConfig: {}. Request {}.",
+            "{}\n\nConfig: {}\nRequest: {}",
             pending.text, pending.folder, pending.id
         ),
     };
     match pending.wait_minutes {
         0 => text,
-        minutes => format!(
-            "{text}\nIt waits {minutes} minutes for an answer. After that, the agent does not get it."
-        ),
+        minutes => format!("{text}\nNo answer in {minutes} minutes counts as Deny."),
     }
 }
 
@@ -598,9 +598,9 @@ mod tests {
         };
         assert_eq!(
             dialog_text(&pending),
-            "An agent from the game asks to:\ncat ~/.ssh/id_rsa\nthe agent says: Bash\n\n\
-             Agent: claude. Folder: /w/app. Request a1b2c3d4e5f6.\n\
-             It waits 10 minutes for an answer. After that, the agent does not get it."
+            "An agent in WoW wants to:\ncat ~/.ssh/id_rsa\nthe agent says: Bash\n\n\
+             Agent: claude\nFolder: /w/app\nRequest: a1b2c3d4e5f6\n\
+             No answer in 10 minutes counts as Deny."
         );
     }
 

@@ -151,7 +151,7 @@ fn a_session_with_no_file_starts_again_and_the_reply_says_so() {
     job.resume = Some(OLD.into());
     let run = agent("reply", dir.path()).run(&job, &Control::default());
     let reply = run.reply.unwrap();
-    assert!(reply.starts_with("(New session:"), "{reply}");
+    assert!(reply.starts_with("(Started a new session:"), "{reply}");
     assert!(reply.contains("resume=none"), "{reply}");
     assert_eq!(run.session, Some("s1".into()));
 }
@@ -223,7 +223,7 @@ fn an_expired_login_asks_for_a_new_login_on_the_desktop() {
     let error = run("failed", Permission::Ask).unwrap_err();
     assert_eq!(
         error,
-        "Claude needs a new login. On the desktop, run: claude"
+        "Claude needs you to log in again. On your desktop, run claude and log in."
     );
 }
 

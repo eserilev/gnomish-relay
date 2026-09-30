@@ -10,9 +10,9 @@ use crate::folder_walk::{Walk, is_shown};
 
 /// The longest file name on the file systems that the bridge runs on.
 const MAX_NAME: usize = 255;
-const MISSING: &str = "The folder of this chat is missing.";
+const MISSING: &str = "This chat's folder is gone. Pick another folder.";
 const OUTSIDE_ROOTS: &str =
-    "Folder not allowed: with its links resolved, it is outside the allowed roots.";
+    "That folder isn't allowed: it links to a place outside allowed_roots in config.toml.";
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum NewFolderError {
@@ -27,12 +27,12 @@ pub enum NewFolderError {
 impl NewFolderError {
     pub fn text(&self) -> String {
         match self {
-            NewFolderError::BadName => "Folder not made: bad name. Use a name with no / or \\.".into(),
-            NewFolderError::NoParent => "Folder not made: its parent is missing. Pick a folder that exists.".into(),
-            NewFolderError::OutsideRoots => "Folder not made: not in the allowed roots. Pick a folder inside allowed_roots of config.toml.".into(),
-            NewFolderError::NotAllowed => "Folder not made: not allowed. Pick another folder.".into(),
-            NewFolderError::NotAFolder => "Folder not made: a file has its name. Pick another name.".into(),
-            NewFolderError::Failed(e) => format!("Folder not made: {e}"),
+            NewFolderError::BadName => "Couldn't create the folder: the name can't contain / or \\. Pick another name.".into(),
+            NewFolderError::NoParent => "Couldn't create the folder: the folder it goes in is gone. Pick one that exists.".into(),
+            NewFolderError::OutsideRoots => "Couldn't create the folder: it's outside allowed_roots in config.toml. Pick a folder inside them.".into(),
+            NewFolderError::NotAllowed => "Couldn't create a folder there. Pick another folder.".into(),
+            NewFolderError::NotAFolder => "Couldn't create the folder: a file already has that name. Pick another name.".into(),
+            NewFolderError::Failed(e) => format!("Couldn't create the folder: {e}"),
         }
     }
 }
@@ -305,7 +305,7 @@ mod tests {
         let texts: std::collections::BTreeSet<String> =
             all.iter().map(NewFolderError::text).collect();
         assert_eq!(texts.len(), all.len());
-        assert!(texts.iter().all(|t| t.starts_with("Folder not made")));
+        assert!(texts.iter().all(|t| t.starts_with("Couldn't create")));
     }
 
     #[test]

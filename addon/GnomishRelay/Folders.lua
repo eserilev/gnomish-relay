@@ -20,14 +20,14 @@ end
 -- Returns nil for a good name, else the short reason that the browser shows.
 function Folders.CheckName(name, siblings)
 	if name == "" or name == "." or name == ".." or #name > MAX_NAME then
-		return "Bad name"
+		return "Name not allowed"
 	end
 	if name:find("[/\\]") or HasControl(name) then
-		return "Bad name"
+		return "Name not allowed"
 	end
 	for _, sibling in ipairs(siblings) do
 		if sibling:lower() == name:lower() then
-			return "Already here"
+			return "Already exists"
 		end
 	end
 end

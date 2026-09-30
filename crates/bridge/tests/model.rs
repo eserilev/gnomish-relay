@@ -55,7 +55,7 @@ fn the_gate_denies_every_tool_on_the_story_route() {
 fn a_tool_that_ran_with_no_hook_stops_the_call() {
     let answer = ask_claude(&["nohook"], Duration::from_secs(20));
 
-    assert!(answer.unwrap_err().contains("no check"));
+    assert!(answer.unwrap_err().contains("without a check"));
 }
 
 #[test]

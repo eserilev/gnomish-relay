@@ -6,8 +6,8 @@ use serde_json::Value;
 use crate::spool::{Source, SpoolEvent, is_session_id};
 
 /// The text of a `Stop` with no text: the turn ended on a tool call.
-pub const TURN_DONE: &str = "Turn done.";
-const FAILED: &str = "The turn failed.";
+pub const TURN_DONE: &str = "Done.";
+const FAILED: &str = "Something went wrong.";
 const WAITING: &str = "Waiting for your answer.";
 
 /// The `Notification` types that wait for the user. `idle_prompt` comes 60 seconds after

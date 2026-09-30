@@ -240,14 +240,14 @@ impl Bridge {
             };
             if is_test_strip(&bytes) {
                 log(&format!(
-                    "kept {}: a strip of the self-test",
+                    "left {} in place: it's from the self-test",
                     path.display()
                 ));
                 continue;
             }
             let outcome = self.take_strip(&bytes);
             if let Some(why) = kept_reason(&outcome) {
-                log(&format!("rejected {}: {why}", path.display()));
+                log(&format!("left {} in place: {why}", path.display()));
                 continue;
             }
             // A normal screenshot never decodes as a frame, so this is a strip, and its
@@ -266,7 +266,10 @@ impl Bridge {
         let (app, records) = match receive(bytes, &self.keys, now()) {
             Ok(routed) => routed,
             Err(reason) => {
-                log(&format!("strip rejected: {reason:?}"));
+                log(&format!(
+                    "skipped a message from WoW: {}",
+                    rejected_text(&reason)
+                ));
                 self.count_bad_tag(&reason);
                 return StripOutcome::Rejected(reason);
             }
@@ -282,7 +285,9 @@ impl Bridge {
             (App::Timeways, _, Some(timeways)) => timeways.take_records(&records, "strip"),
             // `KeySet` routes to Timeways only with a Timeways key, and that key makes the lane.
             (App::Relay, None, _) | (App::Timeways, _, None) => {
-                log(&format!("strip of {app:?}, which is off"));
+                log(&format!(
+                    "got a message for {app:?}, which is off in config.toml"
+                ));
                 return StripOutcome::AppOff;
             }
         }
@@ -305,22 +310,35 @@ fn kept_reason(outcome: &StripOutcome) -> Option<&'static str> {
     match outcome {
         StripOutcome::Taken
         | StripOutcome::Rejected(Rejected::Stale | Rejected::Future | Rejected::BadTag) => None,
-        StripOutcome::Rejected(_) => Some("a bad frame"),
-        StripOutcome::AppOff => Some("its app is off"),
+        StripOutcome::Rejected(_) => Some("it holds a damaged message"),
+        StripOutcome::AppOff => Some("its app is off in config.toml"),
+    }
+}
+
+/// Why a message of the game did not count, in the words of the player.
+fn rejected_text(reason: &Rejected) -> &'static str {
+    match reason {
+        Rejected::NotAFrame => "the screenshot holds no readable message",
+        Rejected::BadTag => "your game and the desktop app don't match",
+        Rejected::Ambiguous => "both keys match it",
+        Rejected::OtherApp => "it came from the wrong addon",
+        Rejected::Stale => "it's from before the desktop app started",
+        Rejected::Future => "its time is in the future",
+        Rejected::BadRecords => "its contents are damaged",
     }
 }
 
 fn deleted_line(outcome: &StripOutcome) -> Option<&'static str> {
     match outcome {
         StripOutcome::Rejected(Rejected::Stale) => {
-            Some("deleted an old strip from before the bridge started")
+            Some("deleted the screenshot of that old message")
         }
         StripOutcome::Rejected(Rejected::Future) => {
-            Some("deleted a strip with a time in the future: check the clock of this computer")
+            Some("deleted its screenshot. Check the clock of this computer")
         }
-        StripOutcome::Rejected(Rejected::BadTag) => Some(
-            "deleted a strip signed with another key: run gnomish-relay setup, then type /reload in the game",
-        ),
+        StripOutcome::Rejected(Rejected::BadTag) => {
+            Some("deleted its screenshot. Run gnomish-relay setup, then type /reload in WoW")
+        }
         _ => None,
     }
 }
@@ -447,7 +465,9 @@ impl RelayLane {
             .client_build()
             .filter(|b| Some(*b) != build.as_deref())
         {
-            log(&format!("game build {new}: screenshots and slots work"));
+            log(&format!(
+                "game build {new}: screenshots and addon files work"
+            ));
         }
         if let Some(new) = self.relay.addon_version().filter(|v| Some(*v) != version) {
             log_version(App::Relay, new);
@@ -733,7 +753,10 @@ fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<(FrameTag, Vec<Rec
     for frame in saved::frames(text) {
         match (receive_for(app, &frame, keys, now()), frame_tag(&frame)) {
             (Ok(records), Some(tag)) => all.push((tag, records)),
-            (Err(reason), _) => log(&format!("{app:?} outbox rejected: {reason:?}")),
+            (Err(reason), _) => log(&format!(
+                "{app:?}: skipped a saved message: {}",
+                rejected_text(&reason)
+            )),
             (Ok(_), None) => log(&format!("{app:?} outbox frame with no tag")),
         }
     }

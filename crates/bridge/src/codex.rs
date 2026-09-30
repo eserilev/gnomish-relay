@@ -179,7 +179,7 @@ impl CodexAgent {
             CHECK_TIME,
         )?;
         if !login.success {
-            return Err("Codex needs a login.".into());
+            return Err("Codex isn't logged in. Run codex login.".into());
         }
         Ok(Report {
             name: "Codex".into(),

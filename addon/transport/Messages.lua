@@ -25,11 +25,11 @@ local PROTO = 1
 -- Room for the flags of Report(): `next`, `read` with up to 30 ids, `restored`, and
 -- the health flags.
 local REPORT_ROOM = 440
-local TOO_LONG = "Too long to send."
+local TOO_LONG = "Too long to send. Try a shorter message."
 local NOT_SENT = "Not sent."
-local BRIDGE_OFF = "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart."
+local BRIDGE_OFF = "Not sent: the desktop app isn't running. On your desktop, run gnomish-relay restart."
 local BAD_KEY =
-	"Not sent: the bridge does not know this key. On the desktop, run gnomish-relay setup, then type /reload."
+	"Not sent: your game and the desktop app don't match. On your desktop, run gnomish-relay setup, then type /reload."
 -- The bridge accepts a frame up to 300 s old (S11). Keep a margin for the screenshot.
 local FRESH_FOR = 270
 -- A later body can still hold the final reply of an answered message. The default store
@@ -392,7 +392,7 @@ local function ExplainStripOnce()
 		db.stripExplained = true
 		print(
 			ns.App.title
-				.. ": the colored bar at the top left carries your messages to the desktop. It shows for half a second."
+				.. ": the colored bar that flashes at the top left is how your messages reach the desktop app. That's normal."
 		)
 	end
 end

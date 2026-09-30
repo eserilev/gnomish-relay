@@ -832,7 +832,7 @@ fn diag_shows_a_moved_hook_with_the_fix_when_no_hook_is_on() {
     assert!(
         texts
             .iter()
-            .any(|t| t.contains("Claude moved: run hooks install · Codex off")),
+            .any(|t| t.contains("Claude moved: run gnomish-relay hooks install · Codex off")),
         "{texts:?}"
     );
 }

@@ -27,7 +27,7 @@ pub const MAX_REPLY: usize = 256 * 1024;
 pub const MAX_STEP: usize = 200;
 /// The prompt of a replayed exchange, on one line.
 pub const MAX_PROMPT: usize = 300;
-pub const NEW_SESSION: &str = "(New session: the agent could not resume the old one.)";
+pub const NEW_SESSION: &str = "(Started a new session: the old one couldn't be resumed.)";
 
 /// The last exchange of a saved session for an attach (SPEC.md 9.6): the prompt on the
 /// first line, the answer below. An empty session gives an empty text.
@@ -223,7 +223,7 @@ pub trait Agent: Send + Sync {
 
 /// Setup writes the echo agent only when it finds no agent, so its player needs this.
 pub const NO_AGENT: &str =
-    "No agent set up. Install claude or codex, then run: gnomish-relay setup";
+    "No agent yet. Install Claude Code or Codex, then run gnomish-relay setup.";
 
 /// Answers with the message itself. It proves the whole path through the game.
 pub struct Echo;
@@ -372,7 +372,7 @@ mod tests {
     fn the_echo_agent_says_how_to_set_up_a_real_agent() {
         assert_eq!(
             NO_AGENT,
-            "No agent set up. Install claude or codex, then run: gnomish-relay setup"
+            "No agent yet. Install Claude Code or Codex, then run gnomish-relay setup."
         );
     }
 

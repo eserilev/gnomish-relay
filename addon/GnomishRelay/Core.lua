@@ -65,7 +65,7 @@ function Relay.RuleAdded(chatId, line)
 	ns.BridgeSettings.MarkOld()
 	DEFAULT_CHAT_FRAME:AddMessage(
 		string.format(
-			"|cff%s|Hgnomishrelayrules|h[%s] whispers: [%s] Rule added: %s. Remove it in Settings.|h|r",
+			"|cff%s|Hgnomishrelayrules|h[%s] whispers: [%s] Always allowed now: %s. Click to manage your rules.|h|r",
 			ns.Store.db.whisperColor,
 			Relay.AgentName(chat.agent),
 			Relay.Plain(chat.name),
@@ -89,9 +89,9 @@ end
 -- The id comes from the bridge, so no agent text is in this line.
 local function DesktopText(chat, notice)
 	if notice.how == "command" then
-		return "Run: gnomish-relay approve " .. notice.id
+		return "Approve on your desktop: run gnomish-relay approve " .. notice.id
 	elseif notice.raise then
-		return string.format("Approve on your desktop: let %s work at %s.", Relay.AgentName(chat.agent), notice.raise)
+		return string.format("Approve on your desktop to let %s work at %s.", Relay.AgentName(chat.agent), notice.raise)
 	end
 	return "Approve on your desktop."
 end
@@ -126,7 +126,7 @@ function Relay.DiagLines()
 	table.insert(
 		lines,
 		string.format(
-			"Gnomish Relay: slot %d, %d left, reported %s, %d open, %d in outbox, bridge %s",
+			"Gnomish Relay: slot %d, %d left, reported %s, %d open, %d in outbox, desktop app %s",
 			s.nextSlot,
 			s.slotsLeft,
 			tostring(s.reported),
@@ -156,7 +156,9 @@ local function Command(arg)
 	elseif arg:match("^size %d+$") then
 		ns.Window.SetFontSize(tonumber(arg:match("%d+")))
 	else
-		print("/relay | /relay diag | /relay poll | /relay size <12-20> | /ai <message>")
+		print(
+			"Gnomish Relay commands: /relay opens the window, /relay diag, /relay poll, /relay size 12-20, /ai <message>"
+		)
 	end
 end
 
@@ -181,14 +183,16 @@ events:SetScript("OnEvent", function(_, event, name)
 		if missing then
 			print(
 				string.format(
-					"Gnomish Relay: this game version has no %s. The relay is off. On the desktop, run gnomish-relay update.",
+					"Gnomish Relay is off: this version of the game has no %s. On your desktop, run gnomish-relay update.",
 					missing
 				)
 			)
 			return
 		end
 		if not ns.key then
-			print("Gnomish Relay: run gnomish-relay setup. Get it at github.com/eserilev/gnomish-relay")
+			print(
+				"Gnomish Relay isn't set up yet. Get the desktop app at github.com/eserilev/gnomish-relay, then run gnomish-relay setup."
+			)
 			return
 		end
 		SetCVarValue("screenshotFormat", "png")
@@ -208,7 +212,7 @@ events:SetScript("OnEvent", function(_, event, name)
 		C_Timer.NewTicker(1, ns.Transport.Tick)
 		C_Timer.After(BRIDGE_WAIT, function()
 			if not ns.Transport.Online() then
-				print("Gnomish Relay: bridge not running. On the desktop, run gnomish-relay restart.")
+				print("Gnomish Relay: the desktop app isn't running. On your desktop, run gnomish-relay restart.")
 			end
 		end)
 	end
@@ -232,7 +236,7 @@ end)
 
 -- The key binding of Bindings.xml. WoW shows these names in its Key Bindings menu.
 BINDING_HEADER_GNOMISHRELAY = "Gnomish Relay"
-BINDING_NAME_GNOMISHRELAY_TOGGLE = "Open or close the window"
+BINDING_NAME_GNOMISHRELAY_TOGGLE = "Toggle window"
 function GnomishRelay_Toggle()
 	ns.Window.Toggle()
 end

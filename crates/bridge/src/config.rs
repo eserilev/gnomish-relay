@@ -57,9 +57,9 @@ impl Permission {
         match self {
             Permission::Ask => "It asks in the game before each edit and each command.",
             Permission::AutoEdit => {
-                "It edits files in the chat folder with no question, and asks in the game before each command."
+                "It edits files in the chat folder without asking, and asks in the game before each command."
             }
-            Permission::FullAuto => "It edits files and runs commands with no question.",
+            Permission::FullAuto => "It edits files and runs commands without asking.",
         }
     }
 
@@ -111,7 +111,7 @@ impl Config {
     pub fn require_relay(&self) -> Result<&RelayConfig> {
         self.relay
             .as_ref()
-            .context("the relay is off. Run: gnomish-relay setup --relay")
+            .context("coding agents are off. To turn them on, run gnomish-relay setup --relay")
     }
 }
 
@@ -723,7 +723,7 @@ pub fn read_text(dir: &Path) -> Result<String> {
     let path = dir.join(FILE);
     let meta = fs::symlink_metadata(&path).with_context(|| {
         format!(
-            "cannot read {}. Run `gnomish-relay setup <wow folder>`",
+            "can't read {}. To create it, run gnomish-relay setup <wow folder>",
             path.display()
         )
     })?;

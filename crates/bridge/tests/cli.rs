@@ -19,10 +19,13 @@ fn help_prints_the_usage_on_stdout_and_exits_with_success() {
 
         assert!(out.status.success(), "{flag}");
         let usage = String::from_utf8(out.stdout).unwrap();
-        assert!(usage.starts_with("usage:\n"), "{flag}: {usage}");
-        assert!(usage.contains("gnomish-relay rules "), "{usage}");
-        assert!(usage.contains("gnomish-relay rules remove <id>"), "{usage}");
-        assert!(usage.contains("gnomish-relay status "), "{usage}");
+        assert!(
+            usage.starts_with("Usage: gnomish-relay <command>\n"),
+            "{flag}: {usage}"
+        );
+        assert!(usage.contains("\n  rules "), "{usage}");
+        assert!(usage.contains("\n  rules remove <id>"), "{usage}");
+        assert!(usage.contains("\n  status "), "{usage}");
     }
 }
 
@@ -31,7 +34,7 @@ fn an_unknown_command_prints_the_usage_as_an_error() {
     let out = gnomish_relay(&["no-such-command"]);
 
     assert!(!out.status.success());
-    assert!(String::from_utf8(out.stderr).unwrap().contains("usage:"));
+    assert!(String::from_utf8(out.stderr).unwrap().contains("Usage:"));
 }
 
 /// The command in a fresh home, so it never reads the folders of the user.
@@ -65,9 +68,9 @@ fn approve_and_rules_with_nothing_open_say_so() {
     let rules = in_home(home.path(), &["rules"]);
 
     assert!(approve.status.success());
-    assert_eq!(stdout(&approve), "no tool call waits for the desktop\n");
+    assert_eq!(stdout(&approve), "Nothing is waiting for your approval.\n");
     assert!(rules.status.success());
-    assert_eq!(stdout(&rules), "no Always allow rules\n");
+    assert_eq!(stdout(&rules), "No Always allow rules yet.\n");
 }
 
 #[cfg(unix)]
@@ -80,7 +83,7 @@ fn an_answer_or_a_removal_of_something_unknown_is_an_error() {
 
     assert!(!deny.status.success());
     assert!(
-        stderr(&deny).contains("no open request a1b2c3d4e5f6"),
+        stderr(&deny).contains("no request a1b2c3d4e5f6 is waiting"),
         "{}",
         stderr(&deny)
     );
@@ -116,7 +119,7 @@ fn status_in_a_fresh_home_says_the_bridge_is_stopped() {
 
     assert!(out.status.success(), "{}", stderr(&out));
     assert!(
-        stdout(&out).starts_with("Bridge: stopped."),
+        stdout(&out).starts_with("Desktop app: stopped."),
         "{}",
         stdout(&out)
     );

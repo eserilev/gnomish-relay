@@ -281,7 +281,7 @@ impl Gate {
                 Ok(())
             }
             Step::Refuse => Err(Refusal::by_rule(
-                "It touches the config or data folder of Gnomish Relay, which the agent never reaches.",
+                "It touches the settings or data folder of Gnomish Relay, which agents can't reach.",
             )),
             Step::AskGame => {
                 let asking = Asking {
@@ -344,7 +344,7 @@ impl Gate {
         }
         crate::run::log(&format!("rule added: {}", offer.line));
         self.approvals.notice(&format!(
-            "Rule added: {}. Remove it in the Settings tab of the game, or run: gnomish-relay rules",
+            "Always allowed now: {}. To remove it, use Settings in the game or run gnomish-relay rules.",
             offer.line
         ));
     }
@@ -376,14 +376,14 @@ impl Gate {
         let opened = self
             .approvals
             .open(job.agent, job.cwd, &text, crate::run::now())
-            .map_err(|e| Refusal::by_rule(&format!("No desktop approval: {e:#}")))?;
+            .map_err(|e| Refusal::by_rule(&format!("Couldn't ask on your desktop: {e:#}")))?;
         let answer = wait_on_the_desktop(&self.approvals, &opened, None, turn);
         match answer {
             Answer::Desktop(true) => Ok(()),
-            Answer::Desktop(false) => Err(Refusal::by_rule("Denied on the desktop.")),
+            Answer::Desktop(false) => Err(Refusal::by_rule("Denied on your desktop.")),
             Answer::NewMessage => Err(Refusal::by_rule(NEW_MESSAGE)),
             Answer::Game(_) | Answer::None | Answer::Covered => {
-                Err(Refusal::by_rule("No answer on the desktop."))
+                Err(Refusal::by_rule("No answer on your desktop."))
             }
         }
     }
@@ -610,7 +610,7 @@ mod tests {
             let refusal = check(&s, &read(key.clone()), level, SHORT).unwrap_err();
 
             assert!(
-                refusal.reason().contains("config or data folder"),
+                refusal.reason().contains("settings or data folder"),
                 "{refusal:?}"
             );
         }
@@ -622,7 +622,7 @@ mod tests {
         for level in LEVELS {
             let refusal = check(&s, &read(s.config.join("strip.key")), level, SHORT).unwrap_err();
             assert!(
-                refusal.reason().contains("config or data folder"),
+                refusal.reason().contains("settings or data folder"),
                 "{refusal:?}"
             );
         }
@@ -646,7 +646,7 @@ mod tests {
         let s = setup();
         let call = read(s.home.join(".ssh").join("id_rsa"));
         let refusal = check(&s, &call, Permission::FullAuto, SHORT).unwrap_err();
-        assert_eq!(refusal.reason(), "No answer on the desktop.");
+        assert_eq!(refusal.reason(), "No answer on your desktop.");
         assert!(s.gate.approvals.list().is_empty());
     }
 
@@ -728,7 +728,7 @@ mod tests {
 
         let refusal = s.gate.check(&call, &job, &mut turn).unwrap_err();
 
-        assert_eq!(refusal.reason(), "No answer on the desktop.");
+        assert_eq!(refusal.reason(), "No answer on your desktop.");
         let lines: Vec<String> = events
             .try_iter()
             .map(|(_, _, event)| match event {
@@ -1029,6 +1029,6 @@ mod tests {
     fn deny_on_the_desktop_refuses_the_call() {
         let s = setup();
         let refusal = answer_on_the_desktop(&s, desktop::Verdict::Deny).unwrap_err();
-        assert_eq!(refusal.reason(), "Denied on the desktop.");
+        assert_eq!(refusal.reason(), "Denied on your desktop.");
     }
 }

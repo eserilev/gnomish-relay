@@ -28,28 +28,37 @@ use bridge::update;
 use protocol::slot::{Reply, Status};
 
 const USAGE: &str = "\
-usage:
-  gnomish-relay setup [folder] [--roots a,b] [--relay] [--new-key] [--autostart]
-                                     install the addons, the keys, the config, and the slots
-  gnomish-relay install              make the slot addons (game closed)
-  gnomish-relay run                  read strips, run the agents, publish the replies
-  gnomish-relay restart              stop the bridge and start it again, for example after a config edit
-  gnomish-relay status               show whether the bridge runs, the config, the sandbox, and the agent
-  gnomish-relay update               install the latest release and restart the bridge
-  gnomish-relay check-agent <name>   start an agent of the config and show what it offers
-  gnomish-relay approve [id]         list the tool calls that wait for the desktop, or allow one
-  gnomish-relay deny <id>            refuse a tool call that waits for the desktop
-  gnomish-relay rules                list the Always allow rules from the game
-  gnomish-relay rules remove <id>    remove one Always allow rule
-  gnomish-relay hooks install [--claude] [--codex]
-                                     show notifications from Claude Code and Codex in a terminal
-  gnomish-relay hooks remove [--claude] [--codex]
-                                     take the hooks of the notifications out again
-  gnomish-relay hooks status         show the hooks of each agent
-  gnomish-relay say <chat> <id> <text>
-                                     publish a reply to message <id> (from `/relay diag`)
-  gnomish-relay selftest collect [folder] [--out <repo>]
-                                     copy the results of the self-test addon into the repo (developers)";
+Usage: gnomish-relay <command>
+
+Set up
+  setup [folder] [--roots a,b] [--relay] [--new-key] [--autostart]
+                          Install the addons and set up the desktop app
+  install                 Recreate the addon files (close the game first)
+  update                  Install the latest version and restart the desktop app
+
+Run
+  run                     Run the desktop app in this terminal
+  restart                 Restart the desktop app, for example after you edit config.toml
+  status                  Check the desktop app, config.toml, the sandbox, and the agent
+  check-agent <name>      Start an agent from config.toml and show what it supports
+
+Approvals
+  approve [id]            List the requests that wait for your approval, or approve one
+  deny <id>               Deny a request
+  rules                   List your Always allow rules
+  rules remove <id>       Remove an Always allow rule
+
+Notifications
+  hooks install [--claude] [--codex]
+                          Get notified in WoW about Claude Code and Codex in a terminal
+  hooks remove [--claude] [--codex]
+                          Stop those notifications
+  hooks status            Show whether notifications are on
+
+Developers
+  say <chat> <id> <text>  Send a reply to message <id> (see /relay diag)
+  selftest collect [folder] [--out <repo>]
+                          Copy the results of the self-test addon into the repo";
 
 fn say(dirs: &Dirs, chat: &str, id: &str, text: &str) -> Result<()> {
     let reply = Reply {
@@ -93,7 +102,7 @@ fn approvals(dirs: &Dirs) -> Approvals {
 fn list_approvals(dirs: &Dirs) {
     let pending = approvals(dirs).list();
     if pending.is_empty() {
-        println!("no tool call waits for the desktop");
+        println!("Nothing is waiting for your approval.");
     }
     for line in pending.iter().flat_map(|p| p.lines(now())) {
         println!("{line}");
@@ -102,7 +111,11 @@ fn list_approvals(dirs: &Dirs) {
 
 fn answer_approval(dirs: &Dirs, id: &str, verdict: desktop::Verdict) -> Result<()> {
     approvals(dirs).answer(id, verdict)?;
-    println!("answered {id}");
+    let done = match verdict {
+        desktop::Verdict::Approve => "Approved",
+        desktop::Verdict::Deny => "Denied",
+    };
+    println!("{done} {id}.");
     Ok(())
 }
 
@@ -110,7 +123,7 @@ fn answer_approval(dirs: &Dirs, id: &str, verdict: desktop::Verdict) -> Result<(
 fn list_rules(dirs: &Dirs) {
     let rules = AlwaysRules::new(&dirs.data).list(now());
     if rules.is_empty() {
-        println!("no Always allow rules");
+        println!("No Always allow rules yet.");
     }
     for rule in rules {
         println!("{}", rule.line(now()));
@@ -119,9 +132,9 @@ fn list_rules(dirs: &Dirs) {
 
 fn remove_rule(dirs: &Dirs, id: &str) -> Result<()> {
     if !AlwaysRules::new(&dirs.data).remove(id, now())? {
-        bail!("no rule has the id {id}. Run: gnomish-relay rules");
+        bail!("no rule has the id {id}. To see the ids, run gnomish-relay rules");
     }
-    println!("removed {id}");
+    println!("Removed rule {id}.");
     Ok(())
 }
 
@@ -150,7 +163,7 @@ fn main() -> Result<()> {
         ["run"] => start::start(&Dirs::from_env()?),
         ["run", "--background"] => {
             let log = service::start_background(&Dirs::from_env()?, &std::env::current_exe()?)?;
-            println!("the bridge runs, and logs to {}", log.display());
+            println!("The desktop app is running. Log: {}", log.display());
             Ok(())
         }
         ["restart"] => service::restart(&Dirs::from_env()?, &std::env::current_exe()?),

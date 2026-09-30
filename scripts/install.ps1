@@ -25,5 +25,5 @@ if (($path -split ";") -notcontains $bin) {
 }
 # The new user PATH reaches only new terminals. This one gets it too.
 if (($env:Path -split ";") -notcontains $bin) { $env:Path = "$env:Path;$bin" }
-Write-Host "installed $bin\gnomish-relay.exe"
+Write-Host "Installed $bin\gnomish-relay.exe"
 & "$bin\gnomish-relay.exe" setup --autostart

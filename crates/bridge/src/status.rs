@@ -29,13 +29,13 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let config = match config::load(places.config_dir, places.home) {
         Ok(config) => config,
         Err(e) => {
-            lines.push(format!("Config: does not load. {e:#}"));
+            lines.push(format!("Config: has an error. {e:#}"));
             return lines;
         }
     };
-    lines.push("Config: loads".into());
+    lines.push("Config: OK".into());
     let Some(relay) = &config.relay else {
-        lines.push("Relay: off. To add coding agents: gnomish-relay setup --relay".into());
+        lines.push("Coding agents: off. To turn them on, run gnomish-relay setup --relay".into());
         return lines;
     };
     let gate = Gate::new(relay, places, Prompt::Off);
@@ -55,10 +55,12 @@ fn default_agent_off_service_path(relay: &RelayConfig, places: &Places) -> Optio
 
 pub fn bridge_line(bridge: &Result<Bridge>) -> String {
     match bridge {
-        Ok(Bridge::Stopped) => "Bridge: stopped. Start it: gnomish-relay restart".into(),
-        Ok(Bridge::Runs(Some(pid))) => format!("Bridge: runs (process {pid})"),
-        Ok(Bridge::Runs(None)) => "Bridge: runs".into(),
-        Err(e) => format!("Bridge: unknown. {e:#}"),
+        Ok(Bridge::Stopped) => {
+            "Desktop app: stopped. To start it, run gnomish-relay restart".into()
+        }
+        Ok(Bridge::Runs(Some(pid))) => format!("Desktop app: running (process {pid})"),
+        Ok(Bridge::Runs(None)) => "Desktop app: running".into(),
+        Err(e) => format!("Desktop app: can't tell whether it's running. {e:#}"),
     }
 }
 
@@ -76,10 +78,10 @@ pub fn last_strip(data_dir: &Path) -> Option<u32> {
 
 pub fn last_strip_line(last: Option<u32>, now: u32) -> String {
     let Some(last) = last else {
-        return "Last strip: none yet. Send a message in the game".into();
+        return "Last message from WoW: none yet. Send one in the game to test".into();
     };
     format!(
-        "Last strip: {} ago",
+        "Last message from WoW: {} ago",
         duration_text(now.saturating_sub(last))
     )
 }
@@ -124,13 +126,13 @@ pub fn sandbox_line(found: &SandboxFound) -> String {
     match found {
         SandboxFound::Tool(name) => format!("Sandbox: {name}"),
         SandboxFound::NotInstalled => {
-            "Sandbox: none. Install bubblewrap so that allowed commands run with no question".into()
+            "Sandbox: none. Install bubblewrap so allowed commands can run without asking".into()
         }
         SandboxFound::Blocked => "Sandbox: none. bwrap is installed, but the system blocks \
              its user namespaces (on Ubuntu 24.04, AppArmor does). Add an AppArmor profile \
-             for bwrap with userns, then run: gnomish-relay restart"
+             for bwrap with userns, then run gnomish-relay restart"
             .into(),
-        SandboxFound::NoneOnThisOs => "Sandbox: none. Every command asks in the game".into(),
+        SandboxFound::NoneOnThisOs => "Sandbox: none. Every command asks in the game first".into(),
     }
 }
 
@@ -144,15 +146,15 @@ pub fn agent_line(config: &RelayConfig, gate: &Gate) -> String {
         .get(name)
         .and_then(|spec| agent::check(name, spec, &cwd, gate));
     let Some(checked) = checked else {
-        return format!("Agent: none. {}", agent::NO_AGENT);
+        return "Agent: none. Install Claude Code or Codex, then run gnomish-relay setup".into();
     };
     match checked {
         Ok(report) => format!("Agent: {name} ({} {})", report.name, report.version),
         Err(e) if install::needs_login(&e) => match install::login_command(name) {
-            Some(login) => format!("Agent: {name} needs a login. Run: {login}"),
-            None => format!("Agent: {name} needs a login."),
+            Some(login) => format!("Agent: {name} isn't logged in. Run {login}"),
+            None => format!("Agent: {name} isn't logged in."),
         },
-        Err(e) => format!("Agent: {name} does not start: {e}"),
+        Err(e) => format!("Agent: {name} doesn't start: {e}"),
     }
 }
 
@@ -164,7 +166,7 @@ pub fn service_path_line(program: &str, service_path: Option<&str>) -> Option<St
         return None;
     }
     Some(format!(
-        "{program} is not on the PATH of the login service. Run: gnomish-relay restart"
+        "{program} isn't on the PATH that the desktop app gets at login. To fix it, run gnomish-relay restart in this shell"
     ))
 }
 
@@ -177,24 +179,27 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(
             last_strip_line(last_strip(dir.path()), 1000),
-            "Last strip: none yet. Send a message in the game"
+            "Last message from WoW: none yet. Send one in the game to test"
         );
 
         mark_strip(dir.path(), 1000).unwrap();
 
         assert_eq!(last_strip(dir.path()), Some(1000));
-        assert_eq!(last_strip_line(Some(1000), 1030), "Last strip: 30 s ago");
+        assert_eq!(
+            last_strip_line(Some(1000), 1030),
+            "Last message from WoW: 30 s ago"
+        );
         assert_eq!(
             last_strip_line(Some(1000), 1000 + 180),
-            "Last strip: 3 min ago"
+            "Last message from WoW: 3 min ago"
         );
         assert_eq!(
             last_strip_line(Some(1000), 1000 + 7200),
-            "Last strip: 2 h ago"
+            "Last message from WoW: 2 h ago"
         );
         assert_eq!(
             last_strip_line(Some(1000), 1000 + 3 * 86400),
-            "Last strip: 3 days ago"
+            "Last message from WoW: 3 days ago"
         );
     }
 
@@ -203,14 +208,14 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         assert_eq!(
             bridge_line(&lock::status(dir.path())),
-            "Bridge: stopped. Start it: gnomish-relay restart"
+            "Desktop app: stopped. To start it, run gnomish-relay restart"
         );
 
         let _lock = lock::take(dir.path()).unwrap();
 
         assert_eq!(
             bridge_line(&lock::status(dir.path())),
-            format!("Bridge: runs (process {})", std::process::id())
+            format!("Desktop app: running (process {})", std::process::id())
         );
     }
 
@@ -223,7 +228,9 @@ mod tests {
 
         assert_eq!(
             line.as_deref(),
-            Some("claude is not on the PATH of the login service. Run: gnomish-relay restart")
+            Some(
+                "claude isn't on the PATH that the desktop app gets at login. To fix it, run gnomish-relay restart in this shell"
+            )
         );
     }
 

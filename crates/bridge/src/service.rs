@@ -49,7 +49,7 @@ pub fn autostart(dirs: &Dirs) -> Result<()> {
         restart_process(dirs, &exe)?;
     } else if cfg!(target_os = "macos") {
         let log = load_launchd_agent(dirs, &exe)?;
-        println!("logs: {}", log.display());
+        println!("Log: {}", log.display());
     } else {
         write_systemd_unit(dirs, &exe)?;
         command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
@@ -121,7 +121,7 @@ enum BridgeLog {
 pub fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
     // A service restart succeeds even when the new bridge stops at once on a bad config.
     config::load(&dirs.config, &dirs.home).context(
-        "the bridge cannot start with this config.toml. Fix it, then run: gnomish-relay restart",
+        "config.toml has an error, so the desktop app can't start. Fix it, then run gnomish-relay restart",
     )?;
     let before = lock::status(&dirs.data)?;
     let log = restart_service(dirs, exe)?;
@@ -163,16 +163,16 @@ fn confirm_start(dirs: &Dirs, log: &BridgeLog, before: &Bridge) -> Result<()> {
         && *before == bridge
     {
         bail!(
-            "another bridge (pid {pid}) holds the lock. Stop it, then run: gnomish-relay restart"
+            "another copy of the desktop app (process {pid}) is still running. Stop it, then run gnomish-relay restart"
         );
     }
     if bridge != Bridge::Stopped {
-        println!("the bridge runs");
+        println!("The desktop app is running.");
         return Ok(());
     }
     match last_log_line(log) {
-        Some(line) => bail!("the bridge does not run. Its last log line: {line}"),
-        None => bail!("the bridge does not run, and its log is empty"),
+        Some(line) => bail!("the desktop app didn't start. Its last log line: {line}"),
+        None => bail!("the desktop app didn't start, and its log is empty"),
     }
 }
 
@@ -211,15 +211,17 @@ fn restart_process(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
     match lock::status(data)? {
         Bridge::Stopped => {}
         Bridge::Runs(None) => {
-            bail!("a bridge runs, but its process id is unknown. Stop it by hand")
+            bail!(
+                "the desktop app is running, but its process id is unknown. Stop it yourself, then run gnomish-relay restart"
+            )
         }
         Bridge::Runs(Some(pid)) => stop_process(pid)?,
     }
     if !lock::wait_until_stopped(data, std::time::Duration::from_secs(10))? {
-        bail!("the bridge does not stop");
+        bail!("the desktop app didn't stop");
     }
     let log = start_background(dirs, exe)?;
-    println!("logs: {}", log.display());
+    println!("Log: {}", log.display());
     Ok(log)
 }
 
@@ -255,7 +257,7 @@ pub fn start_background(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;
         child.creation_flags(CREATE_NO_WINDOW);
     }
-    child.spawn().context("cannot start the bridge")?;
+    child.spawn().context("can't start the desktop app")?;
     Ok(log_path)
 }
 
@@ -332,9 +334,9 @@ mod tests {
 
         let pid = std::process::id();
         assert!(
-            error
-                .to_string()
-                .contains(&format!("another bridge (pid {pid}) holds the lock")),
+            error.to_string().contains(&format!(
+                "another copy of the desktop app (process {pid}) is still running"
+            )),
             "{error}"
         );
     }

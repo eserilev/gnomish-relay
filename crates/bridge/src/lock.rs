@@ -64,7 +64,9 @@ pub fn take(dir: &Path) -> Result<BridgeLock> {
         Ok(()) => {}
         Err(TryLockError::WouldBlock) => {
             let id = pid(dir).map_or(String::new(), |id| format!(" (process {id})"));
-            bail!("another bridge runs{id}. To start this one, run: gnomish-relay restart");
+            bail!(
+                "the desktop app is already running{id}. To restart it, run gnomish-relay restart"
+            );
         }
         Err(TryLockError::Error(e)) => return Err(e).context("cannot lock the bridge"),
     }

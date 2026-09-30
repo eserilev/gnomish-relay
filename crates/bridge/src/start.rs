@@ -38,7 +38,7 @@ pub fn start(dirs: &Dirs) -> Result<()> {
     // Only `Key.lua`, never another file of the Timeways addon (SPEC.md 9.7, decision 15).
     if setup::repair_timeways_key(&dirs.config, &paths.addons)? == Some(install::Installed::Updated)
     {
-        println!("wrote the Timeways key again: type /reload in the game");
+        println!("Updated the Timeways key. Type /reload in WoW");
     }
     let relay = match config.relay {
         Some(relay) => Some(start_relay(dirs, relay, config.story.as_ref(), &paths)?),
@@ -60,7 +60,7 @@ pub fn start_relay(
 ) -> Result<(Policy, Agents, Raiser, BridgeSettings)> {
     let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
     if install::install_addon(&paths.addons, hex.trim())? != install::Installed::Unchanged {
-        println!("wrote the addon files again: type /reload in the game");
+        println!("Updated the Gnomish Relay addon. Type /reload in WoW");
     }
     let places = Places {
         config_dir: &dirs.config,
@@ -72,8 +72,8 @@ pub fn start_relay(
     gate.sandbox = gate.sandbox.with_game(private);
     gate.approvals.clear();
     let sandbox = gate.sandbox.summary();
-    println!("commands from the game run in: {sandbox}");
-    println!("the agents of the game run in: {}", gate.wall.summary());
+    println!("Commands from WoW run in: {sandbox}");
+    println!("Agents from WoW run in: {}", gate.wall.summary());
     let agents = agent::from_config(&relay, &gate);
     let raiser = Raiser {
         approvals: gate.approvals.clone(),
