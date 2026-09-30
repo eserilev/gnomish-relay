@@ -7,13 +7,16 @@ use anyhow::{Context, Result, bail};
 
 use crate::config;
 use crate::dirs::Dirs;
-use crate::fs_safe::{LogStart, make_private_dir, open_private_log, write_atomic};
+use crate::fs_safe::{LogStart, make_private_dir, open_private_log, write_atomic, write_private};
 use crate::install::{self, SYSTEMD_UNIT};
 use crate::lock::{self, Bridge};
+use crate::wsl::{self, Wsl};
+use crate::wsl_launcher;
 
 const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 /// Big enough for weeks of normal logs. A bigger log starts again.
 const MAX_LOG: u64 = 4 * 1024 * 1024;
+const LOG_FILE: &str = "bridge.log";
 
 fn command(program: &str, args: &[&str]) -> Result<()> {
     let status = std::process::Command::new(program)
@@ -26,26 +29,39 @@ fn command(program: &str, args: &[&str]) -> Result<()> {
     Ok(())
 }
 
+/// The Run key of the user needs no admin rights, unlike a scheduled task. The desktop
+/// app of Windows and the one in WSL2 share one entry, so only one starts.
+pub fn write_run_entry(value: &str) -> Result<()> {
+    command(
+        "reg",
+        &[
+            "add",
+            RUN_KEY,
+            "/v",
+            "Gnomish Relay",
+            "/t",
+            "REG_SZ",
+            "/d",
+            value,
+            "/f",
+        ],
+    )
+}
+
 /// Starts the bridge at each login, and now (SPEC.md 11.3).
 pub fn autostart(dirs: &Dirs) -> Result<()> {
     let exe = std::env::current_exe()?;
-    if cfg!(windows) {
-        // The Run key of the user needs no admin rights, unlike a scheduled task.
-        let run = format!("\"{}\" run --background", exe.display());
+    if let Some(wsl) = wsl::this() {
+        let distro = wsl_distro(&wsl)?;
+        let windows = windows_app()?;
         command(
-            "reg",
-            &[
-                "add",
-                RUN_KEY,
-                "/v",
-                "Gnomish Relay",
-                "/t",
-                "REG_SZ",
-                "/d",
-                &run,
-                "/f",
-            ],
+            &windows.to_string_lossy(),
+            &[wsl_launcher::AUTOSTART_COMMAND, distro],
         )?;
+        return restart(dirs, &exe);
+    }
+    if cfg!(windows) {
+        write_run_entry(&format!("\"{}\" run --background", exe.display()))?;
         restart_process(dirs, &exe)?;
     } else if cfg!(target_os = "macos") {
         let log = load_launchd_agent(dirs, &exe)?;
@@ -63,10 +79,7 @@ pub fn autostart(dirs: &Dirs) -> Result<()> {
 /// the agents that the shell finds.
 fn write_systemd_unit(dirs: &Dirs, exe: &Path) -> Result<()> {
     let path_var = std::env::var("PATH").unwrap_or_default();
-    let xdg: Vec<(&str, String)> = install::XDG_VARS
-        .iter()
-        .filter_map(|name| Some((*name, std::env::var(name).ok()?)))
-        .collect();
+    let xdg = xdg_vars();
     let dir = systemd_dir(dirs);
     std::fs::create_dir_all(&dir)?;
     write_atomic(
@@ -129,6 +142,9 @@ pub fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
 }
 
 fn restart_service(dirs: &Dirs, exe: &Path) -> Result<BridgeLog> {
+    if let Some(wsl) = wsl::this() {
+        return restart_in_wsl(dirs, exe, &wsl).map(BridgeLog::File);
+    }
     if cfg!(target_os = "linux") && systemd_dir(dirs).join(SYSTEMD_UNIT).is_file() {
         write_systemd_unit(dirs, exe)?;
         command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
@@ -139,6 +155,64 @@ fn restart_service(dirs: &Dirs, exe: &Path) -> Result<BridgeLog> {
         return load_launchd_agent(dirs, exe).map(BridgeLog::File);
     }
     restart_process(dirs, exe).map(BridgeLog::File)
+}
+
+/// `WSL_DISTRO_NAME` names the distro for the `Run` entry of Windows.
+fn wsl_distro(wsl: &Wsl) -> Result<&str> {
+    wsl.distro.as_deref().context(
+        "WSL_DISTRO_NAME isn't set, so Windows can't start the desktop app. Run gnomish-relay restart from a WSL terminal",
+    )
+}
+
+/// The Windows program that starts the desktop app in WSL2, from the Windows installer.
+fn windows_app() -> Result<PathBuf> {
+    let missing =
+        "the Windows part of Gnomish Relay is missing. Run the Windows installer in PowerShell";
+    let local = wsl::windows_folder("LOCALAPPDATA").context(missing)?;
+    let exe = local
+        .join("gnomish-relay")
+        .join("bin")
+        .join("gnomish-relay.exe");
+    if !exe.is_file() {
+        bail!("{missing}");
+    }
+    Ok(exe)
+}
+
+/// The Windows launcher starts the desktop app again after a stop. A second launcher
+/// exits at its lock, so this call is safe while one runs (SPEC.md 11.5).
+fn restart_in_wsl(dirs: &Dirs, exe: &Path, wsl: &Wsl) -> Result<PathBuf> {
+    let distro = wsl_distro(wsl)?;
+    write_wsl_start(dirs, exe)?;
+    let windows = windows_app()?;
+    make_private_dir(&dirs.data)?;
+    stop_bridge(&dirs.data)?;
+    command(
+        &windows.to_string_lossy(),
+        &[
+            wsl_launcher::RUN_COMMAND,
+            distro,
+            wsl_launcher::BACKGROUND_FLAG,
+        ],
+    )?;
+    Ok(dirs.data.join(LOG_FILE))
+}
+
+/// With the `PATH` of this shell, less its Windows folders, as for the systemd unit.
+fn write_wsl_start(dirs: &Dirs, exe: &Path) -> Result<()> {
+    let path_var = wsl::path_var().to_string_lossy().into_owned();
+    let file = dirs.home.join(install::WSL_START_FILE);
+    let folder = file.parent().context("the start file has no folder")?;
+    make_private_dir(folder)?;
+    let script = install::wsl_start_script(exe, &path_var, &xdg_vars());
+    write_private(folder, "wsl-start.sh", &script)
+}
+
+fn xdg_vars() -> Vec<(&'static str, String)> {
+    install::XDG_VARS
+        .iter()
+        .filter_map(|name| Some((*name, std::env::var(name).ok()?)))
+        .collect()
 }
 
 fn launchd_log(dirs: &Dirs) -> PathBuf {
@@ -206,8 +280,15 @@ fn last_log_line(log: &BridgeLog) -> Option<String> {
 /// A bridge that runs with no service gets stopped, and then `exe` starts in the
 /// background. Returns the log file.
 fn restart_process(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
-    let data = &dirs.data;
-    make_private_dir(data)?;
+    make_private_dir(&dirs.data)?;
+    stop_bridge(&dirs.data)?;
+    let log = start_background(dirs, exe)?;
+    println!("Log: {}", log.display());
+    Ok(log)
+}
+
+/// Stops the bridge of the data folder `data`, if one runs, and waits for its lock.
+pub fn stop_bridge(data: &Path) -> Result<()> {
     match lock::status(data)? {
         Bridge::Stopped => {}
         Bridge::Runs(None) => {
@@ -220,9 +301,7 @@ fn restart_process(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
     if !lock::wait_until_stopped(data, std::time::Duration::from_secs(10))? {
         bail!("the desktop app didn't stop");
     }
-    let log = start_background(dirs, exe)?;
-    println!("Log: {}", log.display());
-    Ok(log)
+    Ok(())
 }
 
 fn stop_process(pid: u32) -> Result<()> {
@@ -237,8 +316,33 @@ fn stop_process(pid: u32) -> Result<()> {
 
 /// Starts `run` as a new process with no console window, and its log in a file.
 pub fn start_background(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
+    let (_child, log) = spawn_logged(dirs, exe)?;
+    Ok(log)
+}
+
+/// `run` with its log in a file, as `start_background`, but it waits and gives the exit
+/// status. The launcher of WSL2 needs a process that lives as long as the bridge.
+pub fn run_logged(dirs: &Dirs, exe: &Path) -> Result<i32> {
+    let (mut child, _log) = spawn_logged(dirs, exe)?;
+    let status = child.wait().context("the desktop app didn't run")?;
+    Ok(status.code().unwrap_or(1))
+}
+
+/// Keeps a program that the bridge starts from opening a console window on Windows.
+pub fn hide_window(command: &mut std::process::Command) {
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    #[cfg(not(windows))]
+    let _ = command;
+}
+
+fn spawn_logged(dirs: &Dirs, exe: &Path) -> Result<(std::process::Child, PathBuf)> {
     make_private_dir(&dirs.data)?;
-    let log_path = dirs.data.join("bridge.log");
+    let log_path = dirs.data.join(LOG_FILE);
     let start = if std::fs::metadata(&log_path).is_ok_and(|m| m.len() > MAX_LOG) {
         LogStart::Fresh
     } else {
@@ -251,14 +355,9 @@ pub fn start_background(dirs: &Dirs, exe: &Path) -> Result<PathBuf> {
         .stdin(std::process::Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);
-    #[cfg(windows)]
-    {
-        use std::os::windows::process::CommandExt;
-        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
-        child.creation_flags(CREATE_NO_WINDOW);
-    }
-    child.spawn().context("can't start the desktop app")?;
-    Ok(log_path)
+    hide_window(&mut child);
+    let child = child.spawn().context("can't start the desktop app")?;
+    Ok((child, log_path))
 }
 
 #[cfg(test)]
@@ -319,6 +418,19 @@ mod tests {
 
         assert_eq!(log, dirs.data.join("bridge.log"));
         assert!(std::fs::metadata(&log).unwrap().len() < MAX_LOG);
+    }
+
+    /// `sh run` fails at once with 127: no file `run` in the working folder.
+    #[cfg(unix)]
+    #[test]
+    fn a_logged_run_waits_and_gives_the_exit_status() {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = dirs(root.path());
+
+        let status = run_logged(&dirs, Path::new("/bin/sh")).unwrap();
+
+        assert_eq!(status, 127);
+        assert!(dirs.data.join(LOG_FILE).is_file());
     }
 
     #[test]

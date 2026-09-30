@@ -740,9 +740,37 @@ pub fn systemd_dir(home: &Path) -> PathBuf {
     home.join(".config").join("systemd").join("user")
 }
 
+/// The start file of the desktop app under WSL, in the home folder. It has a fixed
+/// place, because the Windows side knows no `XDG_CONFIG_HOME` (SPEC.md 11.5).
+pub const WSL_START_FILE: &str = ".config/gnomish-relay/wsl-start.sh";
+
+/// A shell word that the shell reads as it is.
+fn sh_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// The start file under WSL. The launcher of Windows reads it with `.`, so it needs no
+/// mode for running. `xdg` holds the set ones of `XDG_VARS`.
+pub fn wsl_start_script(exe: &Path, path_var: &str, xdg: &[(&str, String)]) -> String {
+    let mut lines = vec![
+        "# Written by gnomish-relay setup. Windows runs it at sign-in (SPEC.md 11.5).".to_owned(),
+        format!("export PATH={}", sh_quote(path_var)),
+    ];
+    for (name, value) in xdg {
+        lines.push(format!("export {name}={}", sh_quote(value)));
+    }
+    lines.push(format!(
+        "exec {} run --log",
+        sh_quote(&exe.to_string_lossy())
+    ));
+    lines.join("\n") + "\n"
+}
+
 /// The login service file of setup on this OS, if there is one.
 pub fn service_file(home: &Path) -> Option<PathBuf> {
-    let file = if cfg!(target_os = "linux") {
+    let file = if wsl::this().is_some() {
+        home.join(WSL_START_FILE)
+    } else if cfg!(target_os = "linux") {
         systemd_dir(home).join(SYSTEMD_UNIT)
     } else if cfg!(target_os = "macos") {
         home.join("Library/LaunchAgents")
@@ -758,6 +786,9 @@ pub fn service_file(home: &Path) -> Option<PathBuf> {
 pub fn service_path_var(text: &str) -> Option<String> {
     if let Some(at) = text.find("Environment=\"PATH=") {
         return Some(systemd_unquoted(&text[at + "Environment=\"PATH=".len()..]));
+    }
+    if let Some(at) = text.find("export PATH='") {
+        return Some(sh_unquoted(&text[at + "export PATH='".len()..]));
     }
     let start = text.find("<key>PATH</key><string>")? + "<key>PATH</key><string>".len();
     let end = text[start..].find("</string>")?;
@@ -776,6 +807,13 @@ fn systemd_unquoted(text: &str) -> String {
         }
     }
     out
+}
+
+/// The text up to the closing quote at the end of its line, with the `'\''` of
+/// `sh_quote` undone.
+fn sh_unquoted(text: &str) -> String {
+    let end = text.find("'\n").unwrap_or(text.len());
+    text[..end].replace(r"'\''", "'")
 }
 
 fn xml_text(text: &str) -> String {
@@ -1309,6 +1347,32 @@ mod tests {
         assert_eq!(from_unit.as_deref(), Some(path));
         assert_eq!(from_plist.as_deref(), Some(path));
         assert_eq!(service_path_var("[Service]\nExecStart=x run\n"), None);
+    }
+
+    #[test]
+    fn the_wsl_start_file_sets_the_path_and_the_xdg_folders_then_runs_with_a_log() {
+        let exe = Path::new("/home/x/.local/bin/gnomish-relay");
+        let xdg = [("XDG_CONFIG_HOME", "/home/x/it's".to_owned())];
+
+        let script = wsl_start_script(exe, "/usr/bin:/home/x/.local/bin", &xdg);
+
+        assert_eq!(
+            script,
+            "# Written by gnomish-relay setup. Windows runs it at sign-in (SPEC.md 11.5).\n\
+             export PATH='/usr/bin:/home/x/.local/bin'\n\
+             export XDG_CONFIG_HOME='/home/x/it'\\''s'\n\
+             exec '/home/x/.local/bin/gnomish-relay' run --log\n"
+        );
+    }
+
+    #[test]
+    fn the_path_of_the_service_comes_back_from_the_wsl_start_file() {
+        let path = "/usr/bin:/home/x/it's \"odd\"";
+        let exe = Path::new("/opt/gnomish-relay");
+
+        let script = wsl_start_script(exe, path, &[]);
+
+        assert_eq!(service_path_var(&script).as_deref(), Some(path));
     }
 
     #[test]
