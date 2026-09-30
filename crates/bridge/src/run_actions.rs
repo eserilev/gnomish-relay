@@ -4,6 +4,7 @@
 use std::fs;
 use std::path::Path;
 
+use crate::folder_path::real_path;
 use crate::git_host::{GitError, GitHost, nul_parts};
 use crate::run::log;
 use crate::run_changes::{ChangeKind, Outcome, RunChanges, snapshot};
@@ -206,7 +207,7 @@ fn check_revert(git: &GitHost, run: &RunChanges) -> Result<(), String> {
 fn remove_new_file(top: &Path, path: &str) -> Result<(), String> {
     let file = top.join(path);
     let parent = file.parent().unwrap_or(top);
-    let real_parent = parent.canonicalize().map_err(|e| e.to_string())?;
+    let real_parent = real_path(parent).map_err(|e| e.to_string())?;
     if !real_parent.starts_with(top) {
         return Err(format!("{path} is behind a link"));
     }
@@ -297,7 +298,7 @@ mod tests {
     fn repo() -> Repo {
         let tmp = tempfile::tempdir().unwrap();
         let repo = Repo {
-            top: tmp.path().canonicalize().unwrap(),
+            top: real_path(tmp.path()).unwrap(),
             _tmp: tmp,
             git: GitHost::with_config(UserConfig::Skip).unwrap(),
         };

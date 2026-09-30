@@ -1,6 +1,6 @@
 //! Paths as bytes in the form of the proved folder resolver (S5): parts split at `/`.
 
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// The proved resolver (S5) knows only `/`. Windows also splits at `\`, and
 /// `canonicalize` there adds a `\\?\` prefix.
@@ -15,6 +15,24 @@ fn portable(path: &str, windows: bool) -> Vec<u8> {
 /// A path in the form that the folder check takes, on every OS.
 pub fn path_bytes(path: &Path) -> Vec<u8> {
     portable(&path.to_string_lossy(), cfg!(windows))
+}
+
+/// `canonicalize` with no `\\?\` before a drive on Windows, because git and many
+/// other programs refuse that prefix.
+pub fn real_path(path: &Path) -> std::io::Result<PathBuf> {
+    let real = path.canonicalize()?;
+    Ok(match real.to_str() {
+        Some(text) => PathBuf::from(without_verbatim(text)),
+        None => real,
+    })
+}
+
+/// A network path keeps its prefix, because it has no other form with the same meaning.
+fn without_verbatim(path: &str) -> &str {
+    match path.strip_prefix(r"\\?\") {
+        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => rest,
+        _ => path,
+    }
 }
 
 /// The resolver starts its result with `/`. On Windows the drive comes first.
@@ -112,6 +130,28 @@ mod tests {
         assert_eq!(native_folder(b"/C:/Code/x".to_vec(), true), b"C:/Code/x");
         assert_eq!(native_folder(b"/home/x".to_vec(), true), b"/home/x");
         assert_eq!(native_folder(b"/C:/x".to_vec(), false), b"/C:/x");
+    }
+
+    #[test]
+    fn a_verbatim_prefix_goes_only_before_a_drive() {
+        assert_eq!(without_verbatim(r"\\?\C:\Code\app"), r"C:\Code\app");
+        assert_eq!(
+            without_verbatim(r"\\?\UNC\server\share"),
+            r"\\?\UNC\server\share"
+        );
+        assert_eq!(without_verbatim("/home/x/Code"), "/home/x/Code");
+    }
+
+    #[test]
+    fn a_real_path_resolves_dots_and_has_no_verbatim_prefix() {
+        let tmp = tempfile::tempdir().unwrap();
+        std::fs::create_dir(tmp.path().join("a")).unwrap();
+
+        let real = real_path(&tmp.path().join("a/..")).unwrap();
+
+        assert_eq!(real, real_path(tmp.path()).unwrap());
+        assert!(real.is_absolute());
+        assert!(!real.to_string_lossy().starts_with(r"\\?\"));
     }
 
     #[test]
