@@ -1,0 +1,4 @@
+# The BigWigs packager reads this file in the folder that scripts/package-addon.sh makes
+# (SPEC.md 11.3), not in the repo root. That folder is the whole addon, so nothing moves.
+package-as: GnomishRelay
+enable-nolib-creation: no

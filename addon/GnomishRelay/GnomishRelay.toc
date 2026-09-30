@@ -2,6 +2,7 @@
 ## Title: Gnomish Relay
 ## Notes: Talk to your coding agents from the game.
 ## Version: 0.2.0
+## X-Curse-Project-ID: REPLACE_WITH_CURSEFORGE_PROJECT_ID
 ## SavedVariables: GnomishRelayDB
 
 App.lua

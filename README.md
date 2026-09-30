@@ -11,27 +11,36 @@ that speaks the Agent Client Protocol (ACP), on Windows, macOS, and Linux. No No
 
 ## Install
 
-1. Close WoW: Forever. The game only finds new addons when it starts.
-2. Run the installer:
+1. Get Gnomish Relay on CurseForge: <https://www.curseforge.com/wow/addons/REPLACE-WITH-CURSEFORGE-SLUG>.
+   You can skip this step: the desktop app installs the addon too.
+2. Close WoW: Forever. The game only finds new addons when it starts.
+3. Install the desktop app with one line:
    - Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh`
    - Windows (PowerShell): `irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex`
-3. Answer setup's questions. You only see the ones that apply to you:
+4. Answer setup's questions. You only see the ones that apply to you:
    - **WoW folder**: when setup finds no game, or more than one. Type a number from the list, or a path.
    - **Also set up Gnomish Relay?**: when you already have the Timeways addon but not Gnomish Relay. The default is no.
    - **Folders the agents can work in**: separate them with commas. Setup suggests the code folders it finds.
      It never suggests your home folder, because that holds `~/.ssh` and your browser profiles.
    - **Found aider. Add it as an agent?** (also for `llm`): only for a tool with no ACP mode. The default is no.
      Such a tool runs its own commands without asking, inside the sandbox.
-4. Start WoW and type `/relay`.
+5. Restart WoW and type `/relay`.
+
+The addon alone does nothing: each computer needs its own key, and the desktop app
+makes it. With no desktop app, the addon shows a window with the install line.
 
 Setup uses the agents you already have: `claude`, `codex`, `gemini`, `qwen`,
 `opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
 If you have none, replies just repeat your message until you add one (below).
 
 The installer downloads the desktop app, checks its SHA-256 sum, and runs
-`gnomish-relay setup --autostart`. Setup finds the game, installs the addon with a key
+`gnomish-relay setup --autostart`. Setup finds the game, installs the addon, writes a key
 that only this computer has, writes `config.toml`, and starts the desktop app each time
 you log in. Running it again is safe: it leaves alone whatever already works.
+
+CurseForge updates only the `GnomishRelay` folder. Your key and the addon files of the
+desktop app are in folders of their own (`GnomishRelay_Key`, `GnomishRelay_S0001`, and
+so on), so an update keeps them. Leave them on in the AddOns list.
 
 ## Timeways
 
@@ -191,6 +200,26 @@ the fake game acts as the real one (SPEC.md 14.3). Run it after each client patc
 The first time, collect asks for one more `/reload`: the first session has no saved
 file, so it cannot see the load order. `scripts/selftest-link.sh --remove` takes the
 self-test out of the game.
+
+## Maintainers: publish on CurseForge
+
+A version tag (`v*`) starts `.github/workflows/curseforge.yml`. It builds the addon zip
+with the shared transport as real files, and uploads it with the BigWigs packager. The
+zip holds only the `GnomishRelay` folder: never a key or the addon files of the desktop app.
+Once, before the first upload:
+
+1. On CurseForge, create a World of Warcraft addon project named Gnomish Relay.
+   Copy its Project ID, a number, from the About Project box of the project page.
+2. Put the number in place of `REPLACE_WITH_CURSEFORGE_PROJECT_ID` in the
+   `## X-Curse-Project-ID` line of `addon/GnomishRelay/GnomishRelay.toc`. Or, on GitHub,
+   add it as the repository variable `CURSEFORGE_PROJECT_ID`
+   (Settings, Secrets and variables, Actions, Variables).
+3. At <https://authors.curseforge.com/account/api-tokens>, make an API token. Add it on
+   GitHub as the repository secret `CF_API_KEY`.
+4. Put the link of the project in step 1 of Install.
+
+Without the number or the secret, the job still builds the zip, keeps it as an artifact
+of the run, and skips the upload. To test the zip, run `scripts/package-addon.sh dist`.
 
 ## Credits
 

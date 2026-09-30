@@ -126,3 +126,35 @@ fn a_second_desktop_install_after_an_update_changes_nothing() {
         install::Installed::Unchanged
     );
 }
+
+/// The zip for `CurseForge` holds the addon that the desktop app installs, and no key or slot.
+#[cfg(unix)]
+#[test]
+fn the_curseforge_package_is_the_built_in_addon_and_nothing_else() {
+    let out = tempfile::tempdir().unwrap();
+    let script = common::repo_path("scripts/package-addon.sh");
+
+    let made = std::process::Command::new("bash")
+        .arg(script)
+        .arg(out.path())
+        .status()
+        .unwrap();
+
+    assert!(made.success());
+    let dir = out.path().join(ADDON);
+    let mut names: Vec<String> = fs::read_dir(&dir)
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    let mut built: Vec<String> = ADDON_FILES.iter().map(|(n, _)| (*n).to_owned()).collect();
+    built.push(".pkgmeta".to_owned());
+    built.sort();
+    assert_eq!(names, built);
+    for (name, content) in ADDON_FILES {
+        assert_eq!(fs::read(dir.join(name)).unwrap(), content, "{name}");
+    }
+    let toc = read(&dir, &format!("{ADDON}.toc"));
+    assert!(toc.contains("\n## X-Curse-Project-ID: "), "{toc}");
+}

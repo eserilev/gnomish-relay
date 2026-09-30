@@ -2005,7 +2005,11 @@ The last lines say what setup found and the next action, for example "Agent: cla
 - Setup asks which folders the agents can use. It suggests the usual folders of code projects that hold a git repository, or the home folder. `--roots a,b` gives them with no question.
 - Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so. After the player installs an agent, a second setup adds its entry (12).
 - Later: winget, Homebrew, and the AUR point at the release.
-- The addon is also listed on CurseForge and Wago Addons, so players can find it. The listing points to the program: the addon alone does nothing, because each computer needs its own key.
+- The addon is also listed on CurseForge, so players can find it. The listing points to the program: the addon alone does nothing, because each computer needs its own key (7.3.2).
+  - A version tag also starts `.github/workflows/curseforge.yml`. `scripts/package-addon.sh` makes the `GnomishRelay` folder: the files of `addon/GnomishRelay` and of `addon/transport` as real files, and `.pkgmeta`. It never holds a key addon or a slot. The BigWigs packager ships only files that git tracks, so the job gives the folder a git repo of its own with the tag, and then runs the packager on it.
+  - The project id comes from the repository variable `CURSEFORGE_PROJECT_ID`, or else from `## X-Curse-Project-ID` in `GnomishRelay.toc`. The TOC holds a placeholder until the maintainer makes the project. With no numeric id, no `CF_API_KEY` secret, or no tag, the job skips the upload and keeps the zip as an artifact of the run.
+  - A test checks that the folder holds exactly the files that the desktop app installs.
+  - Later: Wago Addons.
 
 ## 12. Config
 
