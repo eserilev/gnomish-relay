@@ -9,6 +9,7 @@ use std::net::{TcpListener, TcpStream};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::thread;
+#[cfg(unix)]
 use std::time::Duration;
 
 use bridge::config_text::timeways_config;
