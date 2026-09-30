@@ -77,6 +77,18 @@ fn answers(story: &mut Story, count: usize) -> Vec<Reply> {
     all
 }
 
+fn wait_for_file(path: &std::path::Path) {
+    let start = Instant::now();
+    while !path.exists() {
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "no {}",
+            path.display()
+        );
+        std::thread::sleep(Duration::from_millis(10));
+    }
+}
+
 fn wait_until_ready(story: &mut Story) {
     let start = Instant::now();
     while !story.is_ready() {
@@ -229,15 +241,14 @@ fn a_second_answer_with_the_same_id_is_dropped() {
     let mut story = story("twice", dir.path());
     story.send(message(7, &question("x")));
 
-    let mut replies = answers(&mut story, 1);
-    std::thread::sleep(Duration::from_millis(200));
-    story.step();
-    replies.extend(story.take_replies());
+    let replies = answers(&mut story, 1);
     story.send(message(8, &question("y")));
+    // The program writes its second answer to 7 before its answer to 8.
     let next = answers(&mut story, 1);
 
     assert_eq!(replies.len(), 1);
     assert_eq!(reply(&replies[0])["text"], "first");
+    assert_eq!(next.len(), 1, "no second answer to 7");
     assert_eq!(next[0].0.id, MessageId(8), "the program goes on");
 }
 
@@ -326,17 +337,16 @@ fn a_late_events_seen_is_dropped_and_the_program_goes_on() {
     let mut story = Story::new(spec("late", dir.path(), Duration::from_secs(1)));
     story.send(message(7, EVENTS));
     let first = answers(&mut story, 1);
-    // The fake program answers after 2 seconds, so its events_seen comes in here.
-    std::thread::sleep(Duration::from_millis(1500));
-    story.step();
-    let late = story.take_replies();
+    wait_for_file(&dir.path().join("story/late-sent"));
 
     story.send(message(8, &question("x")));
+    // The late events_seen comes before the answer to 8.
     let second = answers(&mut story, 1);
 
     assert_eq!(first[0].1, Ok(String::new()));
-    assert!(
-        late.is_empty(),
+    assert_eq!(
+        second.len(),
+        1,
         "the late events_seen gives no second reply"
     );
     assert_eq!(second[0].0.id, MessageId(8));
@@ -563,10 +573,8 @@ fn an_answer_for_another_id_is_dropped() {
     let mut story = story("wrong-id", dir.path());
     story.send(message(7, &question("x")));
 
-    let mut answers = answers(&mut story, 1);
-    std::thread::sleep(Duration::from_millis(200));
-    story.step();
-    answers.extend(story.take_replies());
+    // The program writes the answer for the wrong id first.
+    let answers = answers(&mut story, 1);
 
     assert_eq!(answers.len(), 1);
     assert_eq!(answers[0].0.id, MessageId(7));

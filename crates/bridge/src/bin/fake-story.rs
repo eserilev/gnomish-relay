@@ -215,6 +215,10 @@ fn on_batch_end(script: &str, end: &Value) {
         _ => {}
     }
     send(&json!({ "type": "events_seen", "id": end["id"], "narrator": narrator(script) }));
+    if script == "late" {
+        // The test waits for this file, not for a fixed time.
+        let _ = std::fs::write("late-sent", "");
+    }
     if script == "bard" {
         // A bard call belongs to no batch. The third one finds two calls open.
         (1..=3).for_each(|call| {
