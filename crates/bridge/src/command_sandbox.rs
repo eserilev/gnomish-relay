@@ -13,6 +13,7 @@ use protocol::sbpl::sbpl_string;
 use serde::{Deserialize, Serialize};
 
 use crate::action_input::{DESKTOP_PATHS, DESKTOP_WRITES, resolve, resolved_bytes};
+use crate::agent_wall::scan_sockets;
 use crate::allow_hosts::HostList;
 use crate::forward::INNER_PORT;
 use crate::holder::{Holder, launch_socket, start_holder};
@@ -254,11 +255,13 @@ pub struct Shape {
 }
 
 impl Shape {
-    pub fn commands() -> Shape {
+    /// A socket at a path works across namespaces, for example the one of Docker, which
+    /// runs any program outside the sandbox.
+    pub fn commands(home: Option<&Path>) -> Shape {
         Shape {
             chat: ChatAccess::Write,
             home: HomeWrites::Refused,
-            more_hidden: Vec::new(),
+            more_hidden: home.map(scan_sockets).unwrap_or_default(),
         }
     }
 }
@@ -311,7 +314,8 @@ pub fn prepare(
     chat: &Path,
     tag: &str,
 ) -> Result<RunWalls, String> {
-    prepare_shaped(sandbox, guarded, chat, tag, &Shape::commands())
+    let shape = Shape::commands(sandbox.home.as_deref());
+    prepare_shaped(sandbox, guarded, chat, tag, &shape)
 }
 
 /// As `prepare`, with the walls of `shape`.
@@ -1411,6 +1415,20 @@ mod tests {
         std::fs::set_permissions(&git, std::fs::Permissions::from_mode(0o700)).unwrap();
         let error = result.err().unwrap();
         assert!(error.contains(&git.display().to_string()), "{error}");
+    }
+
+    /// A socket at a path works across namespaces, for example the one of Docker.
+    #[cfg(unix)]
+    #[test]
+    fn the_walls_of_a_command_hide_the_sockets_of_the_home_folder() {
+        let h = folders();
+        let docker = h.home.join(".docker/desktop");
+        std::fs::create_dir_all(&docker).unwrap();
+        let _socket = std::os::unix::net::UnixListener::bind(docker.join("docker.sock")).unwrap();
+
+        let run = run_walls(&h, &h.chat).unwrap();
+
+        assert!(run.walls.hidden.contains(&docker.join("docker.sock")));
     }
 
     #[cfg(unix)]
