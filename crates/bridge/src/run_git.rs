@@ -51,6 +51,7 @@ impl RunGit {
         let name = match plan {
             BranchPlan::Plain => return Ok((None, WorktreeChange::Same)),
             BranchPlan::Use(worktree) if worktree.exists() => {
+                chat_branch::check_link(&self.host, &worktree)?;
                 return Ok((Some(worktree), WorktreeChange::Same));
             }
             BranchPlan::Use(gone) => gone
@@ -108,6 +109,12 @@ impl RunGit {
 
     /// The blocks of the bridge under the reply. The test line comes from the events.
     pub fn end(&self, job: &Job, started: &Started) -> RunBlocks {
+        if let Some(worktree) = &started.worktree
+            && let Err(e) = chat_branch::check_link(&self.host, worktree)
+        {
+            log(&format!("{}: no blocks: {e}", job.chat));
+            return RunBlocks::default();
+        }
         let folder = Path::new(&started.folder);
         let branch = chat_branch::branch_info(&self.host, folder, started.worktree.as_ref());
         let ci = branch

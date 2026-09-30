@@ -405,7 +405,10 @@ fn commit_refuses_a_summary_of_two_chats_that_ran_at_once_in_one_folder() {
     let line = reply(&mut bridge, &w, 3);
 
     assert!(both);
-    assert!(line.contains("Another chat worked in this folder"), "{line}");
+    assert!(
+        line.contains("Another chat worked in this folder"),
+        "{line}"
+    );
     assert_eq!(git(&w.repo, &["rev-list", "--count", "HEAD"]).trim(), "1");
 }
 
@@ -471,6 +474,61 @@ fn discard_from_the_game_removes_the_worktree_and_the_branch() {
     assert!(line.contains("Discarded gnomish/gone."), "{line}");
     assert!(!w.code.join(".gnomish-worktrees").exists());
     assert_eq!(git(&w.repo, &["branch", "--list", "gnomish/*"]), "");
+}
+
+/// Another chat points the copy of `feature` at a git folder with a clean filter
+/// that leaves a mark. Returns the mark.
+fn move_the_commondir(w: &World) -> PathBuf {
+    let evil = w.code.join("evil");
+    fs::create_dir_all(&evil).unwrap();
+    git(&evil, &["init", "-q"]);
+    let mark = w.code.join("filter-ran");
+    let filter = format!("sh -c 'touch {}; cat'", mark.display());
+    git(&evil, &["config", "filter.x.clean", &filter]);
+    let admin = w.repo.join(".git/worktrees/feature");
+    fs::write(
+        admin.join("commondir"),
+        format!("{}/.git\n", evil.display()),
+    )
+    .unwrap();
+    let copy = w.code.join(".gnomish-worktrees/app/feature");
+    fs::write(copy.join(".gitattributes"), "* filter=x\n").unwrap();
+    mark
+}
+
+#[test]
+fn git_actions_on_a_copy_whose_commondir_moved_run_no_git_there() {
+    let mut w = world();
+    let mut bridge = bridge(&w);
+    send(&mut w, 1, "n;branch=1", "Feature", "write it");
+    reply(&mut bridge, &w, 1);
+    let mark = move_the_commondir(&w);
+
+    send(&mut w, 2, "git=commit:1", "app", "agent work");
+    let commit = reply(&mut bridge, &w, 2);
+    send(&mut w, 3, "git=discard", "app", "");
+    let discard = reply(&mut bridge, &w, 3);
+
+    assert!(commit.contains("won't run git there"), "{commit}");
+    assert!(discard.contains("won't run git there"), "{discard}");
+    assert!(w.code.join(".gnomish-worktrees/app/feature").is_dir());
+    assert!(!mark.exists());
+}
+
+#[test]
+fn a_run_in_a_copy_whose_commondir_moved_does_not_start() {
+    let mut w = world();
+    let mut bridge = bridge(&w);
+    send(&mut w, 1, "n;branch=1", "Feature", "write it");
+    reply(&mut bridge, &w, 1);
+    let mark = move_the_commondir(&w);
+
+    send(&mut w, 2, "branch=1", "Feature", "again");
+    let line = reply(&mut bridge, &w, 2);
+
+    assert!(line.contains("won't run git there"), "{line}");
+    assert_eq!(w.folders.lock().unwrap().len(), 1);
+    assert!(!mark.exists());
 }
 
 #[test]

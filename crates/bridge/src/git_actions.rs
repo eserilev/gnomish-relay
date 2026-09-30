@@ -97,6 +97,9 @@ fn done(reply: Result<String, String>, effect: Effect) -> Done {
 }
 
 pub fn perform(action: &GitAction, text: &str, context: &Context) -> Done {
+    if let Err(e) = check_copy(context) {
+        return done(Err(e), Effect::Nothing);
+    }
     match action {
         GitAction::Commit(id) => {
             let reply = context
@@ -115,6 +118,13 @@ pub fn perform(action: &GitAction, text: &str, context: &Context) -> Done {
         GitAction::Merge => done(merge(context), Effect::Nothing),
         GitAction::Discard => done(discard(context), Effect::Discarded),
         GitAction::Checks => done(checks(context), Effect::Nothing),
+    }
+}
+
+fn check_copy(context: &Context) -> Result<(), String> {
+    match context.worktree {
+        Some(worktree) => chat_branch::check_link(context.git, worktree),
+        None => Ok(()),
     }
 }
 

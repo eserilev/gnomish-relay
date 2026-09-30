@@ -40,6 +40,56 @@ impl ChatWorktree {
     }
 }
 
+/// Host git trusts the `.git` file of a copy and the files that it names. A run of
+/// another chat can rewrite them, so every git call on a copy checks the link first.
+/// A copy with no `.git` entry is gone, and has no link to check.
+pub fn check_link(git: &GitHost, worktree: &ChatWorktree) -> Result<(), String> {
+    let gone = fs::symlink_metadata(Path::new(&worktree.worktree).join(".git")).is_err();
+    if gone || link_is_intact(git, worktree) {
+        return Ok(());
+    }
+    Err(format!(
+        "The git files of {} point somewhere else now, so the desktop app won't run git there. Check that folder on your desktop.",
+        worktree.worktree
+    ))
+}
+
+/// `<copy>/.git` names `<common>/worktrees/<name>`, whose `commondir` names `<common>`
+/// and whose `gitdir` names `<copy>/.git`.
+fn link_is_intact(git: &GitHost, worktree: &ChatWorktree) -> bool {
+    let dot_git = Path::new(&worktree.worktree).join(".git");
+    let (Some(common), Some(admin), Ok(real_dot_git)) = (
+        common_dir(git, Path::new(&worktree.repo)),
+        named_path(&dot_git, "gitdir: "),
+        dot_git.canonicalize(),
+    ) else {
+        return false;
+    };
+    admin.parent() == Some(common.join("worktrees").as_path())
+        && named_path(&admin.join("commondir"), "").as_ref() == Some(&common)
+        && named_path(&admin.join("gitdir"), "").as_ref() == Some(&real_dot_git)
+}
+
+fn common_dir(git: &GitHost, top: &Path) -> Option<PathBuf> {
+    let common = git
+        .text(
+            top,
+            &["rev-parse", "--path-format=absolute", "--git-common-dir"],
+        )
+        .ok()?;
+    PathBuf::from(common).canonicalize().ok()
+}
+
+/// The real path that a one-line git file names, relative to the folder of the file.
+fn named_path(file: &Path, prefix: &str) -> Option<PathBuf> {
+    if !fs::symlink_metadata(file).ok()?.is_file() {
+        return None;
+    }
+    let text = fs::read_to_string(file).ok()?;
+    let named = text.strip_prefix(prefix)?.trim_end_matches(['\n', '\r']);
+    file.parent()?.join(named).canonicalize().ok()
+}
+
 /// The branch of a chat folder, for the `B` block of a reply.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct BranchInfo {
@@ -309,6 +359,10 @@ pub fn discard(git: &GitHost, worktree: &ChatWorktree) -> Result<String, String>
 /// nowhere else. Returns one log line for each part.
 pub fn remove_after_delete(git: &GitHost, worktree: &ChatWorktree) -> Vec<String> {
     let mut lines = Vec::new();
+    if let Err(e) = check_link(git, worktree) {
+        lines.push(format!("kept {}: {e}", worktree.worktree));
+        return lines;
+    }
     match is_clean(git, Path::new(&worktree.worktree)) {
         Ok(true) => match remove_worktree(git, worktree) {
             Ok(()) => lines.push(format!("removed {}", worktree.worktree)),
@@ -501,6 +555,55 @@ mod tests {
         let error = make(&repo.git, &walk(&repo), &ChatId::new("c1"), "x", &empty).unwrap_err();
 
         assert_eq!(error, NO_COMMITS);
+    }
+
+    #[test]
+    fn a_new_worktree_has_an_intact_link() {
+        let repo = repo();
+
+        let made = make_for(&repo, "link");
+
+        assert_eq!(check_link(&repo.git, &made), Ok(()));
+    }
+
+    #[test]
+    fn a_worktree_whose_git_file_names_another_git_folder_is_refused() {
+        let repo = repo();
+        let made = make_for(&repo, "moved");
+        let other = repo.root.join("evil");
+        run(&repo.git, &repo.root, &["init", "-q", "evil"]);
+        let dot_git = Path::new(&made.worktree).join(".git");
+        fs::write(&dot_git, format!("gitdir: {}/.git\n", other.display())).unwrap();
+
+        let error = check_link(&repo.git, &made).unwrap_err();
+
+        assert!(error.contains("won't run git there"), "{error}");
+    }
+
+    #[test]
+    fn a_worktree_whose_commondir_moved_is_refused() {
+        let repo = repo();
+        let made = make_for(&repo, "common");
+        let other = repo.root.join("evil");
+        run(&repo.git, &repo.root, &["init", "-q", "evil"]);
+        let admin = repo.top.join(".git/worktrees/common");
+        fs::write(
+            admin.join("commondir"),
+            format!("{}/.git\n", other.display()),
+        )
+        .unwrap();
+
+        assert!(check_link(&repo.git, &made).is_err());
+    }
+
+    #[test]
+    fn a_worktree_whose_back_link_names_another_folder_is_refused() {
+        let repo = repo();
+        let made = make_for(&repo, "back");
+        let admin = repo.top.join(".git/worktrees/back");
+        fs::write(admin.join("gitdir"), "/somewhere/else/.git\n").unwrap();
+
+        assert!(check_link(&repo.git, &made).is_err());
     }
 
     #[test]
