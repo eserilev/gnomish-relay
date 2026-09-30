@@ -154,6 +154,28 @@ impl Game {
         self.last_strip().into_iter().find(|r| r.id == id).unwrap()
     }
 
+    /// The first drawn object of the transcript whose text has `part`.
+    fn drawn_with(&self, part: &str) -> Table {
+        let root: Table = self.lua.globals().get("GnomishRelayTranscript").unwrap();
+        let drawn: Table = self
+            .wow
+            .get::<Function>("Drawn")
+            .unwrap()
+            .call(root)
+            .unwrap();
+        drawn
+            .sequence_values::<Table>()
+            .map(|d| d.unwrap())
+            .find(|d| {
+                d.get::<Option<String>>("text")
+                    .unwrap()
+                    .is_some_and(|t| t.contains(part))
+            })
+            .unwrap()
+            .get("object")
+            .unwrap()
+    }
+
     /// The texts that the transcript shows.
     fn texts(&self) -> Vec<String> {
         let root: Table = self.lua.globals().get("GnomishRelayTranscript").unwrap();
@@ -370,6 +392,48 @@ fn enter_in_the_commit_dialog_sends_a_git_message_with_the_commit_message() {
             .iter()
             .any(|t| t.contains(r#"Commit "fix the retry test""#))
     );
+}
+
+#[test]
+fn a_commit_draws_again_only_from_its_reply_down() {
+    let (game, _) = game_with_reply();
+    let first = game.drawn_with("fix the flaky test");
+    game.lua.globals().set("firstLine", first).unwrap();
+    game.run(
+        "firstSets = 0 \
+         local set = firstLine.SetText \
+         firstLine.SetText = function(self, ...) firstSets = firstSets + 1 return set(self, ...) end",
+    );
+
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+
+    assert_eq!(game.run("return firstSets").as_integer(), Some(0));
+    assert!(game.texts().join("\n").contains("Sending..."));
+}
+
+#[test]
+fn the_answer_to_a_commit_scrolls_to_the_bottom_as_a_new_entry() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+    let commit = game.last_id();
+    for _ in 0..30 {
+        game.send("more");
+    }
+    let bottom = game.run("return GnomishRelayScroll:GetVerticalScroll()");
+    game.run("GnomishRelayScroll:SetVerticalScroll(0)");
+
+    game.reply(commit, Status::Done, "Committed 2 files as a1b2c3d.");
+
+    let scroll = game.run("return GnomishRelayScroll:GetVerticalScroll()");
+    assert!(
+        scroll.as_integer() >= bottom.as_integer(),
+        "{scroll:?} {bottom:?}"
+    );
+    assert!(scroll.as_integer() > Some(0));
 }
 
 #[test]

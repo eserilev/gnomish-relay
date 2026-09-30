@@ -742,9 +742,18 @@ local function NewLink()
 	return button
 end
 
--- The next Show draws the whole chat again, for an old entry that changed.
-function Transcript.Invalidate()
-	drawn = { count = 0, tops = {}, marks = {}, chat = drawn.chat }
+-- An old entry changed. An entry that is not on screen draws later as it is now. A new
+-- entry below it still scrolls to the bottom.
+function Transcript.Redraw(entry)
+	local history = drawn.chat and drawn.chat.history or {}
+	if not IndexOf(history, entry) then
+		return
+	end
+	local grew = #history > drawn.count
+	RedrawFrom(entry)
+	if grew then
+		ScrollTo(contentHeight)
+	end
 end
 
 -- The next Show draws the whole chat again for the new width.

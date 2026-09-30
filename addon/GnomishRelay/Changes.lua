@@ -166,12 +166,16 @@ end
 
 -- The runs whose summary names this message, so a later draw shows the new state.
 local function Mark(chat, id, state)
+	local first
 	for _, entry in ipairs(chat.history) do
 		if entry.id == id and (entry.role == "agent" or entry.role == "error") then
 			entry.gitState = state
+			first = first or entry
 		end
 	end
-	ns.Transcript.Invalidate()
+	if first then
+		ns.Transcript.Redraw(first)
+	end
 end
 
 -- The bridge answered a git message. Only a done reply changes a summary or the branch.
