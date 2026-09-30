@@ -721,7 +721,11 @@ local function BuildActivity()
 	ui.cast:SetStatusBarTexture(STATUS_BAR)
 	ui.cast:SetStatusBarColor(1, 0.7, 0)
 	ui.cast:SetMinMaxValues(0, 1)
-	ui.cast.text = Label(ui.cast, "GameFontHighlightSmall", "CENTER", 0, 0)
+	-- A long waiting line gets cut with "...", so it never runs over the transcript.
+	ui.cast.text = ui.cast:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	ui.cast.text:SetPoint("LEFT", ui.cast, "LEFT", 4, 0)
+	ui.cast.text:SetPoint("RIGHT", ui.cast, "RIGHT", -4, 0)
+	ui.cast.text:SetWordWrap(false)
 	ui.nextCheck = Label(panel, "GameFontDisableSmall", "BOTTOMLEFT", 8, 8)
 	ui.cast:SetScript("OnUpdate", function(self, elapsed)
 		self.wait = (self.wait or 0) - elapsed

@@ -1425,6 +1425,21 @@ fn a_message_that_waits_for_other_chats_shows_it_on_a_still_grey_cast_bar() {
     );
 }
 
+/// The fake has no layout, so the test checks that the text is held at both ends of the bar.
+#[test]
+fn the_cast_bar_text_stays_inside_the_bar() {
+    let game = Game::start();
+
+    game.run("local ns = ... ns.Window.Open()");
+
+    let anchor = text_of(
+        &game,
+        "(function() local point, relative, _, x = GnomishRelayCast.text:GetPoint() \
+         return point .. ' ' .. tostring(relative == GnomishRelayCast) .. ' ' .. x end)()",
+    );
+    assert_eq!(anchor, "RIGHT true -4");
+}
+
 #[test]
 fn an_agent_line_like_a_waiting_line_after_the_first_line_stays_a_step() {
     let game = Game::start();
