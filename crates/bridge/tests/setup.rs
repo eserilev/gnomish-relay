@@ -10,12 +10,13 @@ use std::path::{Path, PathBuf};
 use bridge::app_files::key_addon_name;
 use bridge::config::Kind;
 use bridge::config_text::RelayPart;
-use bridge::install::{ADDON, Installed, KEY_FILE, TIMEWAYS, key_addon_lua};
+use bridge::install::{self, ADDON, Installed, KEY_FILE, TIMEWAYS, key_addon_lua};
 use bridge::model::ModelChoice;
 use bridge::model_setup::FoundModel;
 use bridge::receive::{KeySet, RELAY_KEY_FILE, TIMEWAYS_KEY_FILE};
 use bridge::setup::{
-    self, Changed, ConfigParts, Folders, KeyChoice, Relay, install_files, repair_timeways_key,
+    self, Changed, ConfigParts, Folders, KeyChoice, Relay, Timeways, install_files,
+    repair_timeways_key,
 };
 use bridge::slots::slot_name;
 use protocol::apps::App;
@@ -96,8 +97,11 @@ impl Computer {
     }
 }
 
+/// Timeways is on when its folder is there, as in a setup with no `--timeways`.
 fn install(computer: &Computer, relay: Relay, keys: KeyChoice) -> Changed {
-    install_files(&computer.folders, relay, keys).unwrap()
+    let folder = install::timeways_dir(&computer.folders.addons).is_some();
+    let timeways = setup::timeways_choice(folder, false);
+    install_files(&computer.folders, relay, timeways, keys).unwrap()
 }
 
 #[test]
@@ -251,7 +255,8 @@ fn equal_keys_stop_setup() {
     fs::write(computer.folders.config.join(RELAY_KEY_FILE), &key).unwrap();
     fs::write(computer.folders.config.join(TIMEWAYS_KEY_FILE), &key).unwrap();
 
-    let error = install_files(&computer.folders, Relay::Off, KeyChoice::Keep).unwrap_err();
+    let error =
+        install_files(&computer.folders, Relay::Off, Timeways::On, KeyChoice::Keep).unwrap_err();
 
     assert!(format!("{error:#}").contains("the same"), "{error:#}");
 }
@@ -277,6 +282,51 @@ fn the_bridge_writes_a_missing_timeways_key_again_and_no_file_of_timeways() {
         0,
         "the bridge never writes the TOC"
     );
+}
+
+#[test]
+fn setup_for_timeways_with_no_timeways_folder_writes_its_key_its_key_addon_and_its_slots() {
+    let computer = Computer::new(&[]);
+    let timeways = setup::timeways_choice(false, true);
+
+    let changed = install_files(&computer.folders, Relay::Off, timeways, KeyChoice::Keep).unwrap();
+
+    assert_eq!(timeways, Timeways::On);
+    assert_eq!(changed.timeways_key, Some(Installed::New));
+    assert!(changed.new_slots);
+    let key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
+    assert_eq!(
+        computer.key_addon(App::Timeways),
+        Some(key_addon_lua(App::Timeways, &key).unwrap())
+    );
+    assert!(computer.has_slots(App::Timeways));
+    assert!(
+        !computer.folders.addons.join(TIMEWAYS).exists(),
+        "setup never makes the Timeways folder"
+    );
+}
+
+#[test]
+fn with_no_timeways_folder_and_no_flag_setup_makes_nothing_for_timeways() {
+    assert_eq!(setup::timeways_choice(false, false), Timeways::Off);
+    assert_eq!(setup::timeways_choice(true, false), Timeways::On);
+}
+
+#[test]
+fn the_bridge_writes_a_missing_timeways_key_addon_also_with_no_timeways_folder() {
+    let computer = Computer::new(&[]);
+    install_files(&computer.folders, Relay::Off, Timeways::On, KeyChoice::Keep).unwrap();
+    fs::remove_file(computer.folders.addons.join("Timeways_Key").join(KEY_FILE)).unwrap();
+
+    let repaired = repair_timeways_key(&computer.folders.config, &computer.folders.addons);
+
+    assert_eq!(repaired.unwrap(), Some(Installed::Updated));
+    let key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
+    assert_eq!(
+        computer.key_addon(App::Timeways),
+        Some(key_addon_lua(App::Timeways, &key).unwrap())
+    );
+    assert!(!computer.folders.addons.join(TIMEWAYS).exists());
 }
 
 #[test]

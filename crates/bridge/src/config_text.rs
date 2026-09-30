@@ -5,7 +5,7 @@ use std::fmt::Write;
 use std::path::Path;
 
 use crate::config::Found;
-use crate::config_story::STORY_PATHS_NOTE;
+use crate::config_story::{NO_MODEL_NOTE, STORY_PATHS_NOTE};
 use crate::model_setup::{CLAUDE_MODEL, FoundModel};
 
 /// The relay part of a config: the folders of the agents and the agents that setup found.
@@ -109,7 +109,7 @@ fn sandbox_table(local_ports: &[u16]) -> String {
     text
 }
 
-fn model_lines(model: &FoundModel, prefix: &str) -> String {
+pub fn model_lines(model: &FoundModel, prefix: &str) -> String {
     match model {
         FoundModel::Claude => format!(
             "{prefix}model = \"claude\"\n{prefix}claude_model = {}\n",
@@ -132,10 +132,8 @@ pub fn story_table(models: &[FoundModel]) -> String {
          # lore_pack = \"~/.local/share/timeways/lore.sqlite\"\n",
     );
     let Some((first, others)) = models.split_first() else {
-        text.push_str(
-            "# No model found. Install claude, or start Ollama or LM Studio, then set:\n\
-             # model = \"claude\"\n",
-        );
+        text.push_str(NO_MODEL_NOTE);
+        text.push_str("\n# model = \"claude\"\n");
         return text;
     };
     text.push_str(&model_lines(first, ""));

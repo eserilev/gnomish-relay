@@ -13,6 +13,8 @@ use crate::hooks_install;
 use crate::install;
 use crate::model::ModelChoice;
 use crate::model_setup;
+use crate::ollama_install::{self, LOCAL_STORY_MODEL};
+use crate::program::find_program;
 use crate::relay_addon::{self, RelayAddon};
 use crate::service;
 use crate::setup::{self, KeyChoice};
@@ -52,16 +54,26 @@ fn chosen_game(answer: &str, games: &[PathBuf]) -> PathBuf {
 
 /// Reads one answer in a terminal. With no terminal, or an empty answer, the default.
 fn ask(question: &str, default: &str) -> Result<String> {
-    use std::io::{BufRead, IsTerminal, Write};
-    if !std::io::stdin().is_terminal() {
-        return Ok(default.to_owned());
+    let answer = read_answer(&format!("{question} [{default}]: "))?.unwrap_or_default();
+    Ok(if answer.is_empty() { default } else { &answer }.to_owned())
+}
+
+fn stdin_is_terminal() -> bool {
+    use std::io::IsTerminal;
+    std::io::stdin().is_terminal()
+}
+
+/// The trimmed answer to `prompt`, or `None` with no terminal.
+fn read_answer(prompt: &str) -> Result<Option<String>> {
+    use std::io::{BufRead, Write};
+    if !stdin_is_terminal() {
+        return Ok(None);
     }
-    print!("{question} [{default}]: ");
+    print!("{prompt}");
     std::io::stdout().flush()?;
     let mut answer = String::new();
     std::io::stdin().lock().read_line(&mut answer)?;
-    let answer = answer.trim();
-    Ok(if answer.is_empty() { default } else { answer }.to_owned())
+    Ok(Some(answer.trim().to_owned()))
 }
 
 /// `~/code` reads better in the config than the full path.
@@ -190,12 +202,13 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         Ok(text) => Some((text, config::load(&dirs.config, &dirs.home)?)),
         Err(_) => None,
     };
-    let timeways = install::timeways_dir(&addons).is_some();
+    let timeways_folder = install::timeways_dir(&addons).is_some();
+    let timeways = setup::timeways_choice(timeways_folder, args.timeways == TimewaysInstall::Asked);
     let found = setup::Found {
         relay_asked: args.relay_asked,
         config_has_relay: existing.as_ref().map(|(_, c)| c.relay.is_some()),
         relay_folder: addons.join(install::ADDON).exists(),
-        timeways_folder: timeways,
+        timeways,
     };
     let relay = match setup::relay_choice(&found) {
         setup::RelayChoice::Decided(relay) => relay,
@@ -206,11 +219,20 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         addons,
     };
     // The key addons and the slots first: they need nothing else, and a later step can fail.
-    let changed = setup::install_files(&folders, relay, args.keys)?;
+    let changed = setup::install_files(&folders, relay, timeways, args.keys)?;
     let addon = (relay == setup::Relay::On).then(|| relay_addon::find(&folders.addons));
     let config = setup_config(dirs, &wow, existing.as_ref(), relay, timeways, args.roots)?;
-    print_setup(dirs, &config, relay, timeways);
-    if wants_timeways_install(args.timeways, timeways, &config) {
+    print_setup(dirs, &config, relay);
+    let config = if timeways == setup::Timeways::On {
+        let config = setup_story_model(dirs, config);
+        if let Some(line) = story_line(&config) {
+            println!("{line}");
+        }
+        config
+    } else {
+        config
+    };
+    if wants_timeways_install(args.timeways, timeways_folder, &config) {
         setup_timeways(dirs, args.autostart);
     }
     if args.autostart == Autostart::On {
@@ -225,7 +247,10 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     if relay == setup::Relay::On {
         println!("{}", hooks_install::SETUP_HINT);
     }
-    println!("{}", final_line(&changed, relay, args.keys, addon));
+    let get_timeways = timeways_step(timeways, timeways_folder);
+    for line in final_lines(&changed, relay, args.keys, addon, get_timeways) {
+        println!("{line}");
+    }
     Ok(())
 }
 
@@ -317,7 +342,7 @@ fn setup_config(
     wow: &Path,
     existing: Option<&(String, Config)>,
     relay: setup::Relay,
-    timeways: bool,
+    timeways: setup::Timeways,
     roots_given: Option<&str>,
 ) -> Result<Config> {
     // Under WSL, a Windows agent on the PATH runs outside every wall (SPEC.md 11.5).
@@ -335,7 +360,7 @@ fn setup_config(
     } else {
         choose_harnesses(&path_var)?
     };
-    let wants_story = timeways && lacks_story;
+    let wants_story = timeways == setup::Timeways::On && lacks_story;
     // A local model is also for the agents: the relay part opens its port.
     let models = if wants_story || !roots.is_empty() {
         model_setup::find_models(&path_var)
@@ -386,7 +411,7 @@ fn choose_harnesses(path_var: &std::ffi::OsStr) -> Result<Vec<&'static str>> {
     Ok(chosen)
 }
 
-fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay, timeways: bool) {
+fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay) {
     match &config.relay {
         Some(relay_config) => {
             for line in relay_lines(dirs, relay_config) {
@@ -399,9 +424,6 @@ fn print_setup(dirs: &Dirs, config: &Config, relay: setup::Relay, timeways: bool
             println!("Coding agents: off. To turn them on, run gnomish-relay setup --relay");
         }
         None => {}
-    }
-    if timeways {
-        println!("{}", story_line(config));
     }
 }
 
@@ -416,32 +438,184 @@ fn relay_lines(dirs: &Dirs, config: &RelayConfig) -> Vec<String> {
     ]
 }
 
-fn story_line(config: &Config) -> String {
+/// With no model, the offer of a free local model already said what to do.
+fn story_line(config: &Config) -> Option<String> {
     let model = config.story.as_ref().map(|story| &story.model.choice);
-    match model {
-        Some(ModelChoice::Claude { model, .. }) => format!(
+    match model? {
+        ModelChoice::Claude { model, .. } => Some(format!(
             "Story model: claude ({})",
             model.as_deref().unwrap_or("default")
-        ),
-        Some(ModelChoice::Local(local)) => format!("Story model: local {}", local.model),
-        _ => {
-            "Story model: none. Set model in [story] of config.toml, then run gnomish-relay restart"
-                .into()
+        )),
+        ModelChoice::Local(local) => Some(format!("Story model: local {}", local.model)),
+        ModelChoice::None => None,
+    }
+}
+
+fn story_has_model(config: &Config) -> bool {
+    story_line(config).is_some()
+}
+
+const NO_MODEL: &str =
+    "No AI model found. Timeways works without one, but it writes no story text.";
+const OFFER: &str =
+    "Install a free local model? It runs on this computer and needs about 2 GB. [Y/n]: ";
+const LATER: &str = "To install it later, run gnomish-relay setup --timeways";
+const LATER_IN_A_TERMINAL: &str =
+    "To install a free local model, run gnomish-relay setup --timeways in a terminal";
+
+/// An empty answer takes the default, which is yes.
+fn said_yes(answer: &str) -> bool {
+    answer.is_empty() || answer.eq_ignore_ascii_case("y") || answer.eq_ignore_ascii_case("yes")
+}
+
+/// A: the first model that the player has. C: with none, the offer of a free local
+/// model (SPEC.md 11.6). A failed step prints one line, and setup goes on.
+fn setup_story_model(dirs: &Dirs, config: Config) -> Config {
+    if story_has_model(&config) {
+        return config;
+    }
+    let models = model_setup::find_models(&wsl::path_var());
+    let Some(found) = models.first() else {
+        return offer_local_model(dirs, config);
+    };
+    match setup::write_story_model(&dirs.config, found, &dirs.home) {
+        Ok(new) => new,
+        Err(e) => {
+            println!("Story model: couldn't set it. {}", sentence_of(&e));
+            config
         }
     }
 }
 
-/// A missing or unfit relay addon comes last, so it is also the last line of the
-/// installers (SPEC.md 11.3).
-fn final_line(
+fn sentence_of(error: &anyhow::Error) -> String {
+    timeways_install::sentence(&format!("{error:#}"))
+}
+
+/// Never a download of 2 GB with no yes, so no terminal means no.
+fn offer_local_model(dirs: &Dirs, config: Config) -> Config {
+    let os = ollama_install::Os::this();
+    println!("{NO_MODEL}");
+    if !stdin_is_terminal() {
+        println!("{LATER_IN_A_TERMINAL}");
+        return config;
+    }
+    println!(
+        "Setup can install Ollama with its official installer: {}",
+        ollama_install::installer(os).shown
+    );
+    let answer = match read_answer(OFFER) {
+        Ok(answer) => answer.unwrap_or_default(),
+        Err(_) => "n".into(),
+    };
+    if !said_yes(&answer) {
+        println!("{LATER}");
+        return config;
+    }
+    match install_local_model(dirs, os) {
+        Ok(new) => new,
+        Err(e) => {
+            println!(
+                "Story model: couldn't install the free local model. {} {TRY_AGAIN}",
+                sentence_of(&e)
+            );
+            config
+        }
+    }
+}
+
+/// Only a failed test of the model leaves it in the config: it's installed.
+fn install_local_model(dirs: &Dirs, os: ollama_install::Os) -> Result<Config> {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let curl = find_program("curl", &path, cfg!(windows)).context("Couldn't find curl")?;
+    let ollama = ollama_install::Ollama {
+        curl,
+        url: model_setup::OLLAMA.into(),
+    };
+    if ollama_install::server_answers(&ollama) {
+        println!("Ollama is already running.");
+    } else {
+        install_ollama(&ollama, os)?;
+    }
+    pull_with_progress(&ollama)?;
+    let model = model_setup::FoundModel::Local {
+        url: ollama.url.clone(),
+        model: LOCAL_STORY_MODEL.into(),
+    };
+    let config = setup::write_story_model(&dirs.config, &model, &dirs.home)?;
+    println!("Testing the model…");
+    if let Err(e) = ollama_install::check_answer(&config) {
+        println!(
+            "Story model: {LOCAL_STORY_MODEL} is installed, but it didn't answer a test. {} \
+             Check that Ollama is running, then run gnomish-relay restart",
+            sentence_of(&e)
+        );
+    }
+    Ok(config)
+}
+
+/// The installer goes into a private temp folder that goes away after the install.
+fn install_ollama(ollama: &ollama_install::Ollama, os: ollama_install::Os) -> Result<()> {
+    let mut builder = tempfile::Builder::new();
+    builder.prefix("gnomish-relay-ollama-");
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        builder.permissions(std::fs::Permissions::from_mode(0o700));
+    }
+    let folder = builder.tempdir().context("Couldn't make a temp folder")?;
+    println!("Downloading the Ollama installer…");
+    let installer = ollama_install::download_installer(&ollama.curl, os, folder.path())?;
+    match os {
+        ollama_install::Os::LinuxOrMac => {
+            println!("Installing Ollama. It can ask for your password.");
+        }
+        ollama_install::Os::Windows => println!("Installing Ollama…"),
+    }
+    ollama_install::install_and_start(ollama, installer, ollama_install::START_WAIT)
+}
+
+fn pull_with_progress(ollama: &ollama_install::Ollama) -> Result<()> {
+    use std::io::Write;
+    println!("Downloading {LOCAL_STORY_MODEL}…");
+    let mut shown = None;
+    let result = ollama_install::pull(ollama, LOCAL_STORY_MODEL, &mut |done, all| {
+        if shown != Some(done) {
+            print!("\rDownloading {LOCAL_STORY_MODEL}: {done} MB of {all} MB");
+            let _ = std::io::stdout().flush();
+            shown = Some(done);
+        }
+    });
+    if shown.is_some() {
+        println!();
+    }
+    result
+}
+
+// TODO: add the link when the Timeways project on CurseForge has one.
+const GET_TIMEWAYS: &str = "Get the Timeways addon on CurseForge, then restart WoW.";
+
+/// Setup for Timeways can come before its addon, which players get from `CurseForge`.
+fn timeways_step(timeways: setup::Timeways, folder: bool) -> Option<&'static str> {
+    (timeways == setup::Timeways::On && !folder).then_some(GET_TIMEWAYS)
+}
+
+/// A missing addon comes last, so it is also the last line of the installers (SPEC.md
+/// 11.3). The next step of each addon replaces "All set".
+fn final_lines(
     changed: &setup::Changed,
     relay: setup::Relay,
     keys: KeyChoice,
     addon: Option<RelayAddon>,
-) -> &'static str {
-    addon
-        .and_then(relay_addon::next_step)
-        .unwrap_or_else(|| last_line(changed, relay, keys))
+    timeways_step: Option<&'static str>,
+) -> Vec<&'static str> {
+    let steps: Vec<&'static str> = [addon.and_then(relay_addon::next_step), timeways_step]
+        .into_iter()
+        .flatten()
+        .collect();
+    if steps.is_empty() {
+        return vec![last_line(changed, relay, keys)];
+    }
+    steps
 }
 
 /// WoW finds a new addon folder only at launch, and a new key only after a `/reload`.
@@ -480,6 +654,46 @@ pub fn install_slots(dirs: &Dirs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_empty_answer_or_yes_installs_the_local_model_and_any_other_answer_does_not() {
+        for yes in ["", "y", "Y", "yes", "YES"] {
+            assert!(said_yes(yes), "{yes:?}");
+        }
+        for no in ["n", "no", "N", "maybe", "yess"] {
+            assert!(!said_yes(no), "{no:?}");
+        }
+    }
+
+    #[test]
+    fn the_offer_names_the_size_and_the_default_and_each_no_names_the_command_for_later() {
+        assert!(OFFER.contains("about 2 GB"));
+        assert!(OFFER.ends_with("[Y/n]: "));
+        assert!(LATER.ends_with("run gnomish-relay setup --timeways"));
+        assert!(LATER_IN_A_TERMINAL.contains("run gnomish-relay setup --timeways in a terminal"));
+    }
+
+    #[test]
+    fn the_story_line_names_the_model_and_says_nothing_with_no_model() {
+        let home = tempfile::tempdir().unwrap();
+        let wow = home.path().join("wow");
+        let parse = |text: &str| config::parse(text, home.path()).unwrap();
+        let none = parse(&crate::config_text::timeways_config(&wow, &[]));
+        let local = parse(&crate::config_text::timeways_config(
+            &wow,
+            &[model_setup::FoundModel::Local {
+                url: model_setup::OLLAMA.into(),
+                model: LOCAL_STORY_MODEL.into(),
+            }],
+        ));
+
+        assert_eq!(story_line(&none), None);
+        assert!(!story_has_model(&none));
+        assert_eq!(
+            story_line(&local).as_deref(),
+            Some("Story model: local llama3.2:3b")
+        );
+    }
 
     #[test]
     fn setup_takes_the_folder_the_roots_and_the_flags_in_any_order() {
@@ -683,16 +897,19 @@ mod tests {
     fn a_missing_relay_addon_replaces_the_last_line_with_the_curseforge_link() {
         let new = changed(true, Some(install::Installed::New));
 
-        let line = final_line(
+        let lines = final_lines(
             &new,
             setup::Relay::On,
             KeyChoice::Keep,
             Some(RelayAddon::Missing),
+            None,
         );
 
         assert_eq!(
-            line,
-            "Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW."
+            lines,
+            [
+                "Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW."
+            ]
         );
     }
 
@@ -705,16 +922,42 @@ mod tests {
         let fit = Some(RelayAddon::Installed(VersionFit::Supported));
 
         assert_eq!(
-            final_line(&new, on, keep, old),
-            "Update Gnomish Relay in the CurseForge app, then restart WoW."
+            final_lines(&new, on, keep, old, None),
+            ["Update Gnomish Relay in the CurseForge app, then restart WoW."]
         );
         assert_eq!(
-            final_line(&new, on, keep, fit),
-            "All set. Restart WoW, then type /relay"
+            final_lines(&new, on, keep, fit, None),
+            ["All set. Restart WoW, then type /relay"]
         );
         assert_eq!(
-            final_line(&new, setup::Relay::Off, keep, None),
-            "All set. Restart WoW to load the addon"
+            final_lines(&new, setup::Relay::Off, keep, None, None),
+            ["All set. Restart WoW to load the addon"]
         );
+    }
+
+    #[test]
+    fn setup_for_timeways_with_no_timeways_folder_ends_with_the_curseforge_step() {
+        let new = changed(false, Some(install::Installed::New));
+        let (off, keep) = (setup::Relay::Off, KeyChoice::Keep);
+
+        assert_eq!(
+            timeways_step(setup::Timeways::On, false),
+            Some(GET_TIMEWAYS)
+        );
+        assert_eq!(timeways_step(setup::Timeways::On, true), None);
+        assert_eq!(timeways_step(setup::Timeways::Off, false), None);
+        assert_eq!(
+            final_lines(&new, off, keep, None, Some(GET_TIMEWAYS)),
+            ["Get the Timeways addon on CurseForge, then restart WoW."]
+        );
+        let both = final_lines(
+            &new,
+            setup::Relay::On,
+            keep,
+            Some(RelayAddon::Missing),
+            Some(GET_TIMEWAYS),
+        );
+        assert_eq!(both.len(), 2);
+        assert_eq!(both[1], GET_TIMEWAYS, "the Timeways step is the last line");
     }
 }
