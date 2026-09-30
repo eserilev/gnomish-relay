@@ -11,7 +11,7 @@ use crate::lane::{ChatId, Lane, LaneState, MessageId, NotAdmitted};
 use crate::relay::Outcome;
 
 /// The reply to each message until the story program runs (SPEC.md 9.7, step 5).
-pub const NO_STORY: &str = "Timeways story program not running.";
+pub const NO_STORY: &str = "Timeways isn't running on your computer. Run gnomish-relay restart.";
 const NO_FOLDER: &str = "Timeways takes no folder.";
 const RESTARTED: &str = "Stopped: the bridge restarted.";
 
@@ -211,7 +211,7 @@ mod tests {
         assert!(body.starts_with("Timeways_SlotData = {"));
         assert!(
             body.contains(
-                r#"id = 1, status = "error", text = "Timeways story program not running.""#
+                r#"id = 1, status = "error", text = "Timeways isn't running on your computer. Run gnomish-relay restart.""#
             )
         );
     }
