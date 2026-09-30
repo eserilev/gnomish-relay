@@ -155,3 +155,35 @@ fn status_of_a_working_setup_shows_the_sandbox_and_the_agent() {
     assert!(lines[3].starts_with("Sandbox: "), "{lines:?}");
     assert_eq!(lines[4], "Agent: claude (Claude Code 9.9.9)");
 }
+
+#[test]
+fn status_with_no_relay_addon_says_to_get_it_on_curseforge() {
+    let computer = Computer::new();
+    computer.write_config("claude", &fake_claude("reply"));
+
+    let lines = computer.status();
+
+    assert_eq!(
+        lines[5],
+        "Addon: missing. Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW."
+    );
+}
+
+#[test]
+fn status_with_the_relay_addon_of_this_repo_says_it_is_ok() {
+    let computer = Computer::new();
+    computer.write_config("claude", &fake_claude("reply"));
+    let addon = computer
+        .home
+        .path()
+        .join("wow/Interface/AddOns/GnomishRelay");
+    fs::create_dir_all(&addon).unwrap();
+    let app_lua =
+        fs::read(Path::new(env!("CARGO_MANIFEST_DIR")).join("../../addon/GnomishRelay/App.lua"))
+            .unwrap();
+    fs::write(addon.join("App.lua"), app_lua).unwrap();
+
+    let lines = computer.status();
+
+    assert_eq!(lines[5], "Addon: OK");
+}

@@ -2072,12 +2072,12 @@ mod tests {
     }
 
     #[test]
-    fn a_relay_addon_older_than_the_bridge_is_asked_to_reload() {
+    fn a_relay_addon_older_than_the_bridge_is_updated_in_the_curseforge_app() {
         let mut relay = relay();
         let frame = [record("relay", 0, "h;ver=0", ""), record("c1", 1, "", "hi")];
         assert_eq!(relay.on_frame(&frame, NOW)[1], Outcome::WrongVersion);
         let body = String::from_utf8(relay.body(NOW)).unwrap();
-        assert!(body.contains(crate::versions::RELOAD_RELAY), "{body}");
+        assert!(body.contains(crate::relay_addon::UPDATE_ADDON), "{body}");
     }
 
     #[test]

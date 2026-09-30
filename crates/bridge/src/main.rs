@@ -33,7 +33,7 @@ Usage: gnomish-relay <command>
 
 Set up
   setup [folder] [--roots a,b] [--relay] [--new-key] [--autostart]
-                          Install the addons and set up the desktop app
+                          Set up the desktop app for your game
   install                 Recreate the addon files (close the game first)
   update                  Install the latest version and restart the desktop app
 

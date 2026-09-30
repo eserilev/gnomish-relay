@@ -1,4 +1,4 @@
-//! `gnomish-relay run`: the config, the keys, a repair of the addon files, and the
+//! `gnomish-relay run`: the config, the keys, a repair of the key addons, and the
 //! agents, then the run loop.
 
 use anyhow::Result;
@@ -50,7 +50,7 @@ pub fn start(dirs: &Dirs) -> Result<()> {
     run(paths, relay, keys, story)
 }
 
-/// An addon app can replace the addon folder and drop the key (SPEC.md 11.3).
+/// The key addon comes back when it is missing. `CurseForge` owns the relay addon (SPEC.md 11.3).
 pub fn start_relay(
     dirs: &Dirs,
     relay: RelayConfig,
@@ -60,7 +60,7 @@ pub fn start_relay(
     let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
     print_changed(
         "Gnomish Relay",
-        install::install_relay(&paths.addons, hex.trim())?,
+        install::write_relay_keys(&paths.addons, hex.trim())?,
     );
     let places = Places {
         config_dir: &dirs.config,
@@ -126,7 +126,7 @@ mod tests {
         [wow]\npath = \"~/wow\"\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n";
 
     #[test]
-    fn a_relay_start_writes_the_addon_and_its_key_addon_and_keeps_the_policy_of_the_config() {
+    fn a_relay_start_writes_the_key_addon_and_no_relay_addon_and_keeps_the_policy_of_the_config() {
         let home = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(home.path().join("Code")).unwrap();
         let dirs = Dirs {
@@ -150,7 +150,7 @@ mod tests {
 
         let key_addon = paths.addons.join("GnomishRelay_Key");
         assert!(key_addon.join(install::KEY_FILE).is_file());
-        assert!(paths.addons.join(install::ADDON).join("Core.lua").is_file());
+        assert!(!paths.addons.join(install::ADDON).exists());
         assert_eq!(parts.policy.default_agent, "echo");
         assert!(parts.raiser.free_commands.is_empty());
         assert_eq!(parts.max_parallel_runs, 3);

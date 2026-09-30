@@ -82,6 +82,7 @@ pub mod public_ip;
 pub mod raise;
 pub mod receive;
 pub mod relay;
+pub mod relay_addon;
 pub mod reply;
 pub mod run;
 pub mod run_actions;

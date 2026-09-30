@@ -1,6 +1,7 @@
-//! An addon app such as `CurseForge` replaces the whole `GnomishRelay` folder at each
-//! update. The key addon and the slots live next to it, so the relay keeps working
-//! (SPEC.md 7.3.2). The fake game loads the files from the disk, as WoW does.
+//! Players get the `GnomishRelay` folder only from `CurseForge`, and its app replaces the
+//! whole folder at each update. The key addon and the slots live next to it, so the relay
+//! keeps working (SPEC.md 7.3.2 and 11.3). The fake game loads the files from the disk, as
+//! WoW does.
 
 // Clippy sees helper functions outside `#[test]` as normal code, so its test exceptions miss them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -11,18 +12,18 @@ use std::fs;
 use std::path::Path;
 
 use bridge::app_files::key_addon_name;
-use bridge::install::{self, ADDON, ADDON_FILES, KEY_FILE};
+use bridge::install::{self, ADDON, KEY_FILE};
 use bridge::slots::{BODY_FILE, LIVE_FILE, RESTORE_FILE, publish_reply, slot_name};
-use common::{fake_game, game_lua, install_window, measured, start_addon};
+use common::{addon_file, fake_game, game_lua, install_window, measured, repo_file, start_addon};
 use mlua::{Lua, Table, Value};
 use protocol::apps::App;
 use protocol::slot::{Reply, Status};
 
 const KEY_HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
 
-/// What the desktop app writes: the addon, the key addon, the slots, and one reply.
+/// What the desktop app writes: the key addon, the slots, and one reply.
 fn desktop_install(addons: &Path, now: u32) {
-    install::install_relay(addons, KEY_HEX).unwrap();
+    install::write_relay_keys(addons, KEY_HEX).unwrap();
     install_window(addons, App::Relay);
     let reply = Reply {
         chat: b"c1".to_vec(),
@@ -33,14 +34,46 @@ fn desktop_install(addons: &Path, now: u32) {
     publish_reply(addons, reply, 1, now).unwrap();
 }
 
-/// An update of an addon app: the folder goes away, and the packaged files come back.
-fn addon_app_update(addons: &Path) {
+const TOC: &str = "GnomishRelay.toc";
+
+/// The files of the addon that its TOC does not list: WoW reads `Bindings.xml` by itself,
+/// the transcript loads the font, and the font license goes with the font.
+const UNLISTED_FILES: [&str; 3] = [
+    "Bindings.xml",
+    "JetBrainsMono-Regular.ttf",
+    "JetBrainsMono-OFL.txt",
+];
+
+fn toc_files() -> Vec<String> {
+    let toc = repo_file(&format!("addon/{ADDON}/{TOC}"));
+    let is_file = |line: &&str| !line.is_empty() && !line.starts_with('#');
+    toc.lines().filter(is_file).map(str::to_owned).collect()
+}
+
+/// An update of the `CurseForge` app: the folder goes away, and the files of the TOC come back.
+fn curseforge_update(addons: &Path) {
     let dir = addons.join(ADDON);
-    fs::remove_dir_all(&dir).unwrap();
+    let _ = fs::remove_dir_all(&dir);
     fs::create_dir(&dir).unwrap();
-    for (name, content) in ADDON_FILES {
-        fs::write(dir.join(name), content).unwrap();
+    fs::write(dir.join(TOC), repo_file(&format!("addon/{ADDON}/{TOC}"))).unwrap();
+    for name in toc_files() {
+        fs::write(dir.join(&name), addon_file(ADDON, &name)).unwrap();
     }
+}
+
+fn files_in(dir: &Path) -> Vec<(String, Vec<u8>)> {
+    let mut files: Vec<(String, Vec<u8>)> = fs::read_dir(dir)
+        .unwrap()
+        .flatten()
+        .map(|e| {
+            (
+                e.file_name().to_string_lossy().into_owned(),
+                fs::read(e.path()).unwrap(),
+            )
+        })
+        .collect();
+    files.sort();
+    files
 }
 
 fn read(dir: &Path, file: &str) -> String {
@@ -92,7 +125,7 @@ fn an_update_that_replaces_the_addon_folder_keeps_the_key_and_the_slots() {
     let now = 1_790_211_079;
     desktop_install(&addons, now);
 
-    addon_app_update(&addons);
+    curseforge_update(&addons);
     let (lua, ns) = start_game_from_disk(&addons, now);
     let online = || -> bool {
         lua.load("local ns = ... return ns.Transport.Online()")
@@ -113,24 +146,24 @@ fn an_update_that_replaces_the_addon_folder_keeps_the_key_and_the_slots() {
 }
 
 #[test]
-fn a_second_desktop_install_after_an_update_changes_nothing() {
+fn a_desktop_install_after_a_curseforge_update_changes_no_file_of_the_addon() {
     let root = tempfile::tempdir().unwrap();
     let addons = root.path().join("AddOns");
     fs::create_dir(&addons).unwrap();
-    install::install_relay(&addons, KEY_HEX).unwrap();
+    install::write_relay_keys(&addons, KEY_HEX).unwrap();
+    curseforge_update(&addons);
+    let before = files_in(&addons.join(ADDON));
 
-    addon_app_update(&addons);
+    let again = install::write_relay_keys(&addons, KEY_HEX).unwrap();
 
-    assert_eq!(
-        install::install_relay(&addons, KEY_HEX).unwrap(),
-        install::Installed::Unchanged
-    );
+    assert_eq!(again, install::Installed::Unchanged);
+    assert_eq!(files_in(&addons.join(ADDON)), before);
 }
 
-/// The zip for `CurseForge` holds the addon that the desktop app installs, and no key or slot.
+/// The zip for `CurseForge` holds what the addon needs, and no key, slot, or self-test.
 #[cfg(unix)]
 #[test]
-fn the_curseforge_package_is_the_built_in_addon_and_nothing_else() {
+fn the_curseforge_package_holds_exactly_the_files_that_the_addon_needs() {
     let out = tempfile::tempdir().unwrap();
     let script = common::repo_path("scripts/package-addon.sh");
 
@@ -142,19 +175,23 @@ fn the_curseforge_package_is_the_built_in_addon_and_nothing_else() {
 
     assert!(made.success());
     let dir = out.path().join(ADDON);
-    let mut names: Vec<String> = fs::read_dir(&dir)
-        .unwrap()
-        .flatten()
-        .map(|e| e.file_name().to_string_lossy().into_owned())
-        .collect();
-    names.sort();
-    let mut built: Vec<String> = ADDON_FILES.iter().map(|(n, _)| (*n).to_owned()).collect();
-    built.push(".pkgmeta".to_owned());
-    built.sort();
-    assert_eq!(names, built);
-    for (name, content) in ADDON_FILES {
-        assert_eq!(fs::read(dir.join(name)).unwrap(), content, "{name}");
+    let mut needed = toc_files();
+    needed.extend(UNLISTED_FILES.map(str::to_owned));
+    needed.extend([TOC.to_owned(), ".pkgmeta".to_owned()]);
+    needed.sort();
+    let packaged = files_in(&dir);
+    let names: Vec<&str> = packaged.iter().map(|(name, _)| name.as_str()).collect();
+    assert_eq!(names, needed);
+    for (name, content) in &packaged {
+        let shared = common::repo_path(&format!("addon/transport/{name}"));
+        let source = if shared.exists() {
+            shared
+        } else {
+            common::repo_path(&format!("addon/{ADDON}/{name}"))
+        };
+        assert_eq!(content, &fs::read(source).unwrap(), "{name}");
     }
-    let toc = read(&dir, &format!("{ADDON}.toc"));
+    let toc = read(&dir, TOC);
     assert!(toc.contains("\n## X-Curse-Project-ID: "), "{toc}");
+    assert!(!toc.lines().any(|line| line == KEY_FILE), "{toc}");
 }

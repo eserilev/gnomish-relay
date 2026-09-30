@@ -54,6 +54,8 @@ If a line shows a problem, it also says how to fix it. See also
   app each time you log in.
 - Setup uses the agents it finds on your computer: `claude`, `codex`, `gemini`, `qwen`,
   `opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
+- If the addon is missing or too old, setup ends with a line that says what to get or
+  update in the CurseForge app. The desktop app never installs the addon itself.
 - You can run it again at any time. It leaves alone whatever already works.
 - To install without the login service, add `--no-autostart`:
   `curl -fsSL …/install.sh | sh -s -- --no-autostart`.
@@ -229,7 +231,8 @@ First, run `gnomish-relay status`. It checks every part, and says what to fix.
 
 | What you see | Likely cause | Fix |
 |---|---|---|
-| Gnomish Relay isn't in the AddOns list | The addon isn't installed. | Install it from [CurseForge](https://www.curseforge.com/projects/1719624), then restart WoW. |
+| Gnomish Relay isn't in the AddOns list, or `status` says "Addon: missing" | The addon isn't installed. | Install it from [CurseForge](https://www.curseforge.com/projects/1719624), then restart WoW. |
+| `gnomish-relay status` says "Addon: too old" | CurseForge hasn't updated the addon yet. | Update Gnomish Relay in the CurseForge app, then restart WoW. |
 | A "Gnomish Relay Setup" window instead of the chat | The desktop app isn't installed, or WoW started before it. | Follow [Install](#install), then restart WoW. |
 | "Desktop app offline", or "the desktop app isn't running" | The desktop app stopped. | Run `gnomish-relay restart`. |
 | "Your game and the desktop app don't match" | The key changed, for example after a new setup. | Run `gnomish-relay setup`, then type `/reload` in WoW. |
