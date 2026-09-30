@@ -8,6 +8,7 @@ mod common;
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -29,15 +30,20 @@ use protocol::apps::App;
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 
 /// An agent that writes one file into the folder of its run, and tells what it saw. It
-/// can also report the output of a command.
+/// can also report the output of a command. While `hold` is set, a run waits before it
+/// writes.
 struct Editor {
     folders: Arc<Mutex<Vec<String>>>,
     output: Option<String>,
+    hold: Arc<AtomicBool>,
 }
 
 impl Agent for Editor {
     fn run(&self, job: &Job, control: &Control) -> Run {
         self.folders.lock().unwrap().push(job.cwd.clone());
+        while self.hold.load(Ordering::SeqCst) {
+            std::thread::sleep(Duration::from_millis(10));
+        }
         fs::write(
             Path::new(&job.cwd).join("agent.txt"),
             format!("{}\n", job.text),
@@ -62,6 +68,7 @@ struct World {
     accounts: PathBuf,
     data: PathBuf,
     folders: Arc<Mutex<Vec<String>>>,
+    hold: Arc<AtomicBool>,
     frames: Vec<Vec<u8>>,
 }
 
@@ -98,6 +105,7 @@ fn world() -> World {
         accounts,
         data,
         folders: Arc::default(),
+        hold: Arc::default(),
         frames: Vec::new(),
     }
 }
@@ -126,6 +134,7 @@ fn bridge_with(w: &World, output: Option<&str>, ci: CiChecks) -> Bridge {
     let editor = Editor {
         folders: Arc::clone(&w.folders),
         output: output.map(str::to_owned),
+        hold: Arc::clone(&w.hold),
     };
     let agents = [("claude".to_owned(), Arc::new(editor) as Arc<dyn Agent>)].into();
     let keys = KeySet::new(StripKey::from_hex(&hex(KEY)).unwrap(), None).unwrap();
@@ -166,7 +175,11 @@ fn answer_on_the_desktop(
 
 /// Sends one message of the chat `c1` from the folder `app`, as a reload outbox does.
 fn send(w: &mut World, id: u32, flags: &str, name: &str, text: &str) {
-    let payload = format!("tok\x1fc1\x1f{id}\x1fapp\x1f{flags}\x1f{name}\x1f{text}");
+    send_in(w, "c1", id, flags, name, text);
+}
+
+fn send_in(w: &mut World, chat: &str, id: u32, flags: &str, name: &str, text: &str) {
+    let payload = format!("tok\x1f{chat}\x1f{id}\x1fapp\x1f{flags}\x1f{name}\x1f{text}");
     w.frames.push(signed_frame(now(), payload.as_bytes(), KEY));
     let dir = w.accounts.join("ACCOUNT1/SavedVariables");
     fs::create_dir_all(&dir).unwrap();
@@ -342,6 +355,35 @@ fn an_own_branch_works_in_a_worktree_next_to_the_repository() {
         line.contains(r"\010B\031gnomish/fix-it\0311\031main"),
         "{line}"
     );
+}
+
+fn worktrees(w: &World) -> usize {
+    fs::read_dir(w.code.join(".gnomish-worktrees/app")).map_or(0, Iterator::count)
+}
+
+#[test]
+fn a_message_that_waits_for_the_limit_makes_no_worktree_until_it_starts() {
+    let mut w = world();
+    let mut bridge = bridge(&w).with_max_runs(1);
+    w.hold.store(true, Ordering::SeqCst);
+    send_in(&mut w, "c1", 1, "n;branch=1", "One", "one");
+    send_in(&mut w, "c2", 2, "n;branch=1", "Two", "two");
+
+    let folders = Arc::clone(&w.folders);
+    let started = common::step_until_within(&mut bridge, Duration::from_secs(30), || {
+        !folders.lock().unwrap().is_empty()
+    });
+    for _ in 0..20 {
+        bridge.step();
+    }
+    let while_waiting = worktrees(&w);
+    w.hold.store(false, Ordering::SeqCst);
+    reply(&mut bridge, &w, 1);
+    reply(&mut bridge, &w, 2);
+
+    assert!(started);
+    assert_eq!(while_waiting, 1);
+    assert_eq!(worktrees(&w), 2);
 }
 
 #[test]
