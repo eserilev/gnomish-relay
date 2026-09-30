@@ -466,7 +466,7 @@ An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts i
 *The startup files are read-only for the agent.* The agent keeps its file writes, so it could write code that runs later outside the wall, with the full network. The wall binds each of these read-only, when it exists:
 
 - The shells: `~/.bashrc`, `~/.bash_profile`, `~/.bash_login`, `~/.bash_logout`, `~/.profile`, `~/.zshrc`, `~/.zprofile`, `~/.zshenv`, `~/.zlogin`, `~/.zlogout`, `~/.config/zsh`, `~/.oh-my-zsh/custom`, `~/.config/fish`.
-- The desktop and the session: `~/.config/systemd/user`, `~/.local/share/systemd/user`, `~/.config/autostart`, `~/.config/environment.d`, `~/.pam_environment`, `~/.xprofile`, `~/.xinitrc`, `~/.config/plasma-workspace/env`.
+- The desktop and the session: `~/.config/systemd/user`, `~/.local/share/systemd/user`, `~/.config/autostart`, `~/.config/environment.d`, `~/.pam_environment`, `~/.xprofile`, `~/.xinitrc`, `~/.config/plasma-workspace/env`, and the start file of WSL2, `~/.config/gnomish-relay/wsl-start.sh` (11.5).
 - Programs early on `PATH`: `~/.local/bin` and `~/.cargo/bin`.
 - Tools that run code from their config: `~/.ssh`, `~/.gitconfig`, `~/.config/git`, `~/.cargo/config.toml`, `~/.npmrc`, `~/.config/pip`, `~/.pip`, `~/.pypirc`, `~/.vimrc`, `~/.config/nvim`, `~/.config/direnv`, `~/.gnupg`, `~/.config/Code/User`.
 - The config of the agents, which starts programs in a terminal session later: `~/.claude/settings.json`, `~/.claude/settings.local.json`, `~/.claude/CLAUDE.md`, the folders `hooks`, `commands`, `agents`, `skills`, and `plugins` in `~/.claude`, and `config.toml`, `hooks.json`, and the folder `rules` in `~/.codex`. A rule in `rules` runs a command outside the sandbox of Codex. When the bridge has `CLAUDE_CONFIG_DIR` or `CODEX_HOME` set to an absolute path, the same names in that folder are read-only too, and so are the ones in the folders that the last `hooks` command saved (10.5). A service of the bridge lacks the variables of a shell rc file, so only that file names a moved folder there.
@@ -489,7 +489,7 @@ An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts i
 
 *macOS* (decided by the user: a spike first). The spike on the macOS runner of CI on 2026-09-27: inside a Seatbelt profile that denies the network, `sandbox-exec` fails with "sandbox_apply: Operation not permitted" (the test `seatbelt_cannot_start_inside_a_seatbelt_wall`). A Seatbelt wall on the agent would break the command sandbox of the bridge and the sandbox of Codex, so the agent has no wall on macOS, and the first reply carries the notice of no wall. If that test ever fails, nesting works, and macOS can get a wall.
 
-*Windows.* No wall, as for commands (6.6.4, "Windows"). The setup recommends WSL2.
+*Windows.* No wall, as for commands (6.6.4, "Windows"). Under WSL2, the wall of Linux applies, and it keeps the Windows drives read-only (11.5).
 
 *Timeways.* The story program already has no network. The model calls of `model_claude.rs` run `claude -p` with no tools; they go into the same wall with the hosts of `claude`. The local route (`model_local.rs`) is `curl` of the bridge to `local_url`, not agent code, and stays as it is.
 
@@ -525,7 +525,7 @@ What each backend and OS enforces:
 
 | Backend | Linux | macOS | Windows |
 |---|---|---|---|
-| Claude | The sandbox of the bridge (`bwrap`) around each command | The sandbox of the bridge (`sandbox-exec`) around each command | None: fallback. Under WSL2, as Linux. |
+| Claude | The sandbox of the bridge (`bwrap`) around each command | The sandbox of the bridge (`sandbox-exec`) around each command | None: fallback. Under WSL2, as Linux (11.5). |
 | Codex (`codex app-server`) | Its own sandbox: `read-only` at `ask`, `workspace-write` otherwise | The same | Its own Windows sandbox |
 | Other ACP agents | None: they ask at most (6.6.3) | None | None |
 | `command` | The sandbox of the bridge (`bwrap`) around the whole harness | The sandbox of the bridge (`sandbox-exec`) around the whole harness | None: the bridge does not start it |
@@ -555,7 +555,7 @@ What each backend and OS enforces:
 
 What works in the spike: a launch with a profile (a SID with no profile gives "file not found", and `rappct` 0.13.3 falls back to such a SID with no error when the profile has no description); writes only where a grant names a capability SID of the command; no read of the home folder; no internet with no capability; a connection to an AF_UNIX socket in a folder with a grant; and loopback between two processes of one AppContainer. `cmd.exe` and native tools such as `curl.exe` run.
 
-So Windows keeps the fallback, and the bridge has no `rappct` dependency. The setup recommends Codex, which has its own Windows sandbox, or Claude under WSL2, where the sandbox is `bwrap`. A later Windows backend needs a shell that starts in an AppContainer, or a sandbox of another kind, for example a separate user of the OS. A low-integrity token blocks writes but still reads `~/.ssh`, and a virtual machine for each command is too slow. The source of the spike is commit `265414d` on the branch `spike-appcontainer` (CI run 36286834623), not on `main`: code with no caller costs readability.
+So Windows keeps the fallback, and the bridge has no `rappct` dependency. The setup recommends Codex, which has its own Windows sandbox, or Claude under WSL2, where the sandbox is `bwrap` (11.5). A later Windows backend needs a shell that starts in an AppContainer, or a sandbox of another kind, for example a separate user of the OS. A low-integrity token blocks writes but still reads `~/.ssh`, and a virtual machine for each command is too slow. The source of the spike is commit `265414d` on the branch `spike-appcontainer` (CI run 36286834623), not on `main`: code with no caller costs readability.
 
 **One launch step for every tool.** The wrapper asks `command_sandbox::launch` how to start a command inside the walls of the run. The tools of the sandbox are the variants of `Sandbox` (`bwrap`, `sandbox-exec`, none), and `launch` gives a `Launch` for each one. `bwrap` and `sandbox-exec` are a program with its arguments. A Windows backend adds a variant to `Sandbox` and to `Launch`, one arm in `detect`, `launch`, and the start of the wrapper, and nothing else: the Claude backend, the gate, and the walls stay as they are.
 
@@ -2152,7 +2152,7 @@ The development machine runs Wayland with XWayland. The home file system is ext4
 - **File system:** any file system works except FAT32 and exFAT. (`wow-claude` says NTFS. That line comes from `wow-forever-codex`, which stores 65,535 font files. It has no reason in `wow-claude`.)
 - **HDR** is not tested.
 - **The `claude` command on Windows** is `claude.cmd` in some installs. The bridge finds the path with the `which` crate.
-- **Claude on native Windows has no sandbox** for its commands (6.6.4, "Windows"). Every command asks in the game. For commands that run with no question, use Codex, which has its own Windows sandbox, or Claude under WSL2.
+- **Claude on native Windows has no sandbox** for its commands (6.6.4, "Windows"). Every command asks in the game. For commands that run with no question, use Codex, which has its own Windows sandbox, or the desktop app and Claude under WSL2 (11.5).
 
 ### 11.3 Install
 
@@ -2171,7 +2171,7 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
 4. **Write the config**, once. With the relay on, it has an `[agents.<name>]` entry for each known agent on `PATH`: `claude` (as `kind = "claude"`), `codex` (as `kind = "codex"`), and the ACP agents of 9.2. The default agent is the first one it finds, in the order of `KNOWN_AGENTS` in `install.rs`. With none, it is `echo`. Each entry gets `permission = "auto-edit"`. For each harness with no ACP mode on `PATH` (aider and `llm`), setup asks "Found aider. Add it as an agent? It runs its own commands without asking, inside the sandbox. (y/N)", and adds a `kind = "command"` entry with its preset only on a yes. With no terminal, the answer is no. A harness that has an ACP mode (gemini, goose, opencode) gets its ACP entry, which asks about its tool calls. A local model that answers on the loopback (Ollama on 11434, LM Studio on 1234) puts its port into `[sandbox] local_ports`, so an agent that uses it reaches it from its wall (6.6.4).
    - Why `auto-edit` (decided with an advisor on 2026-09-26): the config is the ceiling of every chat (S6), and the addon asks for `auto-edit`. With `ask` in the config, the player got a game popup for each edit and could not change that from the game. At `auto-edit`, edits inside the chat folder run, and each command still asks in the game unless the allow table covers it. The `desktop` and `deny` answers do not change. Every kind gets the same level, so the rule is simple. An ACP agent at `auto-edit` also edits the chat folder with no popup when it asks. `echo` has no tools. The config also gets a commented example of the allow table (12): setup allows no command. With a Timeways folder, the config gets a `[story]` section with the model that setup finds (9.7, decision 15). With the relay off, the config has no relay part, and setup asks no folder question.
 5. **Make the slot addons**: `GnomishRelay_S0001` to `S1000` with the relay on, and `Timeways_S0001` to `S1000` (with `## Dependencies: Timeways`) with a Timeways folder. WoW finds a new addon only at launch, so after new slots the game needs a restart. Setup says so.
-6. **Start the bridge at login**, with `--autostart`. A service starts with almost no `PATH`, so the service file gets the `PATH` of the shell of setup. On Linux the unit also gets `XDG_CONFIG_HOME` and `XDG_DATA_HOME` of the shell when they are set, so the service, the hook, `status`, and `restart` use the same config and data folders. `restart` writes it again with the `PATH` of its shell, so an agent installed later in a new folder is found after a restart. `check-agent` and `status` say when the program of an agent is not on the `PATH` of the service: "<program> is not on the PATH of the login service. Run: gnomish-relay restart". The config keeps the bare program name, not its absolute path: a version manager such as nvm or volta moves the path at each upgrade, and a script agent such as `claude` under npm still needs its interpreter on the `PATH` of the service. The service: a systemd user service on Linux in `~/.config/systemd/user`, where the user manager reads it also when a shell rc file sets `XDG_CONFIG_HOME`, a launchd agent on macOS (log in `~/Library/Logs/gnomish-relay.log`), and a `Run` entry of the user on Windows, which needs no admin rights. On Windows, `run --background` starts the bridge with no console window, with its log in the data folder.
+6. **Start the bridge at login**, with `--autostart`. A service starts with almost no `PATH`, so the service file gets the `PATH` of the shell of setup. On Linux the unit also gets `XDG_CONFIG_HOME` and `XDG_DATA_HOME` of the shell when they are set, so the service, the hook, `status`, and `restart` use the same config and data folders. `restart` writes it again with the `PATH` of its shell, so an agent installed later in a new folder is found after a restart. `check-agent` and `status` say when the program of an agent is not on the `PATH` of the service: "<program> is not on the PATH of the login service. Run: gnomish-relay restart". The config keeps the bare program name, not its absolute path: a version manager such as nvm or volta moves the path at each upgrade, and a script agent such as `claude` under npm still needs its interpreter on the `PATH` of the service. The service: a systemd user service on Linux in `~/.config/systemd/user`, where the user manager reads it also when a shell rc file sets `XDG_CONFIG_HOME`, a launchd agent on macOS (log in `~/Library/Logs/gnomish-relay.log`), and a `Run` entry of the user on Windows, which needs no admin rights. On Windows, `run --background` starts the bridge with no console window, with its log in the data folder. Under WSL2, a `Run` entry of Windows starts the desktop app in the distro and keeps the distro alive (11.5).
 
 The order is key, addon, slots, config, then autostart: the addon and the slots need nothing else. A failed autostart prints one line, and setup goes on.
 With no code folder found, the folder question has no default: the home folder holds `~/.ssh` and the browser profiles.
@@ -2251,10 +2251,93 @@ The manifest:
 
 **The config.** After the programs and a pack, setup sets `program` and `lore_pack` in `[story]`, with `~/` for a path in the home folder. It replaces the lines of both keys, also the commented ones of 12, and keeps every other line. A config with no `[story]` gets one at its end. As in 11.3, setup checks the new text with the config loader before it writes. With no pack, setup sets neither key: they go together (12).
 
-**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. `--no-autostart` turns it off.
+**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. `--no-autostart` turns it off. `install.ps1` sets up the desktop app in WSL2 unless the player says no or gives `--no-wsl` (11.5).
 
 - Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh -s -- --timeways`
 - Windows: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways`
+
+### 11.5 Windows with WSL2
+
+Native Windows has no sandbox for the commands of Claude (6.6.4, "Windows"). So a Windows player can run the whole desktop app inside WSL2, as a Linux program, with the `bwrap` sandbox of Linux. WoW stays on Windows. The user approved this path on 2026-09-30.
+
+**Why the whole desktop app, and not only the agent.** The permission hook, the `--sandbox-run` wrapper, the holder, the proxy, and the agent wall are Linux code. They talk over Unix sockets, and a Unix socket does not connect a process in WSL2 to a Windows process. So all of them run in WSL2, and the Windows desktop app does not run.
+
+**Detection.** The desktop app runs under WSL when `/proc/sys/kernel/osrelease` holds `microsoft` (in any case), or when `WSL_DISTRO_NAME` is set. The distro is the value of `WSL_DISTRO_NAME`. The desktop app can start Windows programs (interop) when `/proc/sys/fs/binfmt_misc/WSLInterop` or `WSLInterop-late` exists. WSL1 is not supported: it has no namespaces, so `bwrap` fails its probe there.
+
+**The game folders.** WSL2 mounts each Windows drive under `/mnt/<letter>` (drvfs). The Linux desktop app reads `Screenshots` and `WTF`, and writes `Interface/AddOns`, through these mounts.
+
+- Setup looks for the game as on Windows: `Program Files (x86)/World of Warcraft` and `Program Files/World of Warcraft` on each drive under `/mnt`, and the paths in `ProgramData/Battle.net/Agent/product.db` of each drive.
+- A Windows path, from `product.db` or from `setup <folder>`, maps to WSL: `C:\Games\World of Warcraft` is `/mnt/c/Games/World of Warcraft`. The drive letter goes to lower case, and each `\` becomes `/`. Setup does not read another mount root (`root` of `[automount]` in `/etc/wsl.conf`). With another root, give the Linux path to `setup <folder>`.
+- The watcher polls with `read_dir` every 250 ms (8.2). inotify sees no change that Windows makes on drvfs, so a poll is the right way. Each poll crosses to Windows (9P), so it costs more than on ext4. The folder stays small, because the bridge deletes each strip.
+- drvfs shows no Unix modes by default: its `metadata` option is off, so each file shows as mode 0777, and `chmod` changes nothing. No private file of the bridge lies there. The config folder and the data folder are in the Linux home, so the modes of 6.2 rule 14 hold. The addon files and the key addon lie on drvfs, and every Windows program of the user can read them, as on native Windows.
+- `symlink_metadata` shows a Windows link or a junction as a link, so the link checks of 6.2 rule 7 hold on drvfs.
+- The atomic rename works on drvfs: WSL replaces the target in one step. WoW reads an addon file only when it loads it, so the rename seldom meets an open file.
+
+**Chat folders.** `allowed_roots` are Linux paths, and the folder list of the game shows Linux paths. A project in the Linux home is fast, so setup suggests the folders there. A project under `/mnt/c` works, but git, builds, and the walk of the chat folder (6.6.4) are many times slower on drvfs.
+
+**`PATH`.** WSL adds the Windows `PATH` to the Linux `PATH`. There, a Windows `claude` from npm runs Windows Node, outside every wall. So under WSL, setup and the start file drop each `PATH` entry under `/mnt/`, and an agent must be a Linux install. The bridge finds `powershell.exe` and `cmd.exe` in `Windows/System32` of the first drive that has them.
+
+**The sandbox.** Commands run in `bwrap` as on Linux (6.6.4). The installer installs `bubblewrap` as root through `wsl.exe -u root`, so the player types no password. The probe and the AppArmor hint of 11.1 stay: the probe decides, whatever the distro.
+
+- `--ro-bind / /` also binds the Windows drives read-only, so a command writes no Windows file.
+- The `desktop` paths of 6.6.3 are also hidden in the Windows home folder, for example `/mnt/c/Users/<you>/.ssh` and `/mnt/c/Users/<you>/.aws`. The bridge learns the folder once at start, from `%USERPROFILE%` through `cmd.exe`. Credential stores of Windows with other names, such as the browser profiles in `AppData`, stay readable. DPAPI protects the browser ones, and a command cannot call Windows.
+- The agent wall binds each Windows drive read-only, and then binds back the chat folder and the temp folders of the run when they lie on one. Why: the agent keeps its writes to the Linux home ("Where the wall is"), but a Windows file can run later with no wall: a file in the Startup folder, a PowerShell profile, or the `gnomish-relay.exe` that starts the desktop app. So the agent writes no Windows file outside its chat folder.
+- A command and the agent cannot start a Windows program: `/run` is empty in both walls, so the interop socket in `/run/WSL` is gone, and `WSL_INTEROP` is not on the allowlist (6.2 rule 12).
+- A limit: WSL talks to Windows over `AF_VSOCK`, and a network namespace does not cover it. A program that speaks the protocol of WSL could reach Windows from a wall. This is not checked (17).
+
+**The desktop dialog** (6.6.3). With interop, the bridge shows the MessageBox of the Windows build, through `powershell.exe`. WSL passes an environment variable to a Windows program only when `WSLENV` names it, so the bridge adds `GNOMISH_NOTICE` to `WSLENV`. A notice uses the toast of Windows the same way. With no interop, the dialogs of Linux apply (WSLg gives `zenity` a display), and `gnomish-relay approve` is always there. A limit: when the request ends first, the bridge stops the Linux side of the call, but the Windows box stays until the player closes it, and that answer counts for nothing.
+
+**Start at login.** WSL2 stops a distro a few seconds after the last Windows process that uses it ends. A systemd service in the distro does not keep it alive. So a Windows process keeps the desktop app running:
+
+- The `Run` entry "Gnomish Relay" of the Windows user runs `"%LOCALAPPDATA%\gnomish-relay\bin\gnomish-relay.exe" wsl-run <distro> --background`. It is the same entry as the one of the Windows desktop app (11.3), so only one of the two starts. The Windows program starts `wsl-run <distro>` again with no console window, and exits.
+- `wsl-run <distro>` takes a lock on `bridge.lock` in the `wsl` folder of the Windows data folder, so a second copy exits at once. Then it runs `wsl.exe -d <distro> --exec /bin/sh -c 'exec "$HOME/.config/gnomish-relay/wsl-start.sh"'` with no console window, and waits. When that ends, it waits 3 seconds and starts it again. The running `wsl.exe` keeps the distro alive.
+- `wsl-start.sh` sets the `PATH` of setup with no Windows entry, and `XDG_CONFIG_HOME` and `XDG_DATA_HOME` when they are set, then runs `exec <program> run --log`. `run --log` starts `run` with its log in `bridge.log` of the data folder, as `run --background` does, waits for it, and exits with its status. The file has mode 0700 and lies at a fixed place in the home folder, as the systemd unit does (11.3), because the Windows side knows no `XDG_CONFIG_HOME`. The agent wall keeps it read-only (6.6.4, "The startup files are read-only for the agent").
+- Why this way (decided on 2026-09-30):
+  - A `Run` entry or a scheduled task that runs `wsl.exe` itself shows a console window for the whole session, and a click on its close box stops the desktop app.
+  - `conhost.exe --headless` hides that window, but it has no documentation. A VBScript hides it too, but Windows is removing VBScript.
+  - A systemd service needs systemd on in the distro, and still needs a Windows process that keeps the distro alive.
+  - The Windows program already starts the Windows desktop app with no window (`CREATE_NO_WINDOW`), and a `Run` entry needs no admin rights.
+- `setup --autostart` under WSL writes `wsl-start.sh`. Then it runs `gnomish-relay.exe wsl-autostart <distro>` through interop. That command writes the `Run` entry, stops a Windows desktop app that runs (two desktop apps fight over the game folder, 8.4), and starts `wsl-run`. Then setup waits for the desktop app as `restart` does. The Linux side finds the Windows program at `%LOCALAPPDATA%\gnomish-relay\bin\gnomish-relay.exe`, from `cmd.exe /c echo %LOCALAPPDATA%`. With no Windows program, or no interop, setup prints "Desktop app: can't start at login (the Windows part of Gnomish Relay is missing. Run the Windows installer in PowerShell)".
+- `restart` under WSL writes `wsl-start.sh` again, stops the desktop app, and runs `gnomish-relay.exe wsl-run <distro> --background`. A `wsl-run` that runs already starts the desktop app again after its 3 seconds, and the new one exits at its lock. `restart` then waits for the lock as in 11.3.
+- `wsl --shutdown` stops the desktop app, and `wsl-run` starts the distro again 3 seconds later. To stop the desktop app for good, end `gnomish-relay.exe` in the Task Manager, and turn off "Gnomish Relay" in Settings > Apps > Startup.
+
+**Status.** `gnomish-relay status` in WSL prints "Running in WSL2 (distro Ubuntu)" after the line of the desktop app, and the sandbox line as on Linux. Its check of the agent on the `PATH` of the login service reads `wsl-start.sh`.
+
+**The install flow.** `install.ps1` holds the Windows steps. The decisions that tests can reach are in Rust.
+
+1. The player runs the Windows one-liner (11.3). `install.ps1` installs `gnomish-relay.exe` as before. Under WSL2 it is the launcher of the desktop app.
+2. Unless the player gave `--no-wsl` (or `-NoWsl`, or set `GNOMISH_NO_WSL=1`), it asks once: "Protect your computer with the Linux sandbox? This uses WSL2 (Windows' built-in Linux). First-time setup needs a restart. (Y/n)". An empty answer is yes. No keeps the Windows desktop app of today, where every command asks.
+3. It finds the default distro with `wsl.exe --exec sh -c 'echo "$WSL_DISTRO_NAME"; uname -r'`. This works in every language of Windows, unlike the text of `wsl.exe --status`. A release with no `WSL2` in it is WSL1: the installer says "Your Linux runs on WSL1. Run: wsl --set-version <distro> 2", and stops.
+4. With no distro, it runs `wsl.exe --install` as admin (`Start-Process -Verb RunAs`, so Windows asks the player once). Then it looks for the distro again: a Windows that has the virtual machine part already needs no restart. Else it saves itself as `install.ps1` in the bin folder, adds a `RunOnce` entry that runs it again at the next sign-in with the same arguments, and says "Restart Windows to finish. The installer continues after you sign in."
+5. With WSL2:
+   1. It installs `bubblewrap` as root with `apt-get`, when `bwrap` is missing. With no `apt-get`, it says "Install bubblewrap in <distro> with its package manager, then run gnomish-relay restart in <distro>."
+   2. It installs Claude Code in the distro with its native installer (`curl -fsSL https://claude.ai/install.sh | bash`) when `claude` is missing, then opens `claude` once so the player logs in: "Log in to Claude, then type /exit.". The first `wsl.exe` call of a new distro asks for a Linux user name and password first. For Codex, the player installs it in the distro and runs setup again.
+   3. It runs `install.sh` in the distro, in a login shell so `~/.local/bin` is on `PATH`, with the arguments of the player. `install.sh` runs `setup --autostart`: it finds WoW under `/mnt`, writes the addons and the config, and starts the desktop app through `wsl-autostart`.
+6. Setup prints its summary as on Linux: "Sandbox: bwrap", the agent and its login, and "All set. Restart WoW, then type /relay". The installer adds "The desktop app runs in WSL2 (<distro>)".
+
+**Limits.**
+
+- Hooks of terminal sessions (10) reach the desktop app only from Claude Code and Codex in WSL2. A native Windows terminal session writes to the spool of the Windows data folder, which no desktop app reads.
+- The Windows desktop app and the one in WSL2 have their own config, keys, and chats. After the switch, WoW needs a `/reload` for the new key, and setup says so.
+
+**Tests.** No test can run WSL2: the Windows runners of GitHub have no nested virtualization. Unit tests cover each pure part: the detection from fake `/proc` files and variables, the path mapping, the search of the game under a fake mount root, the `PATH` filter, the text of `wsl-start.sh`, the `Run` entry and the `wsl.exe` arguments, the dialog under WSL with its `WSLENV`, the status line, the read-only drives of the agent wall, and the hidden paths of the Windows home. The manual test below covers the rest.
+
+**Manual test on Windows 11.** Use a Windows 11 computer with WoW Forever, no WSL, and no Gnomish Relay.
+
+1. In PowerShell, run the one-liner of 11.3. It installs `gnomish-relay.exe` and asks "Protect your computer with the Linux sandbox? ...". Press Enter.
+2. Windows asks for admin rights for `wsl --install`. Click Yes. A second window installs WSL and Ubuntu. The installer says "Restart Windows to finish. The installer continues after you sign in."
+3. Restart and sign in. A PowerShell window opens by itself and goes on. Ubuntu asks for a new Linux user name and password. Enter them.
+4. The installer installs bubblewrap with no password, then Claude Code, then opens `claude`. Log in, then type `/exit`.
+5. `install.sh` runs, and setup prints `WoW: /mnt/c/Program Files (x86)/World of Warcraft/_classic_beta_`, then asks for the folders of the agents. Accept a folder in the Linux home, or type one, for example `~/code`.
+6. The last lines show "Sandbox: bwrap", "Agent: claude (Claude Code <version>)", "Desktop app: on, starts at login", "All set. Restart WoW, then type /relay", and "The desktop app runs in WSL2 (Ubuntu)". No console window stays open.
+7. Open Ubuntu from the Start menu and run `gnomish-relay status`. It shows "Desktop app: running (process <pid>)", "Running in WSL2 (distro Ubuntu)", and "Sandbox: bwrap".
+8. Start WoW, type `/relay`, and send "hi". The reply comes.
+9. Ask the agent to run `cat ~/.ssh/id_ed25519; cat /mnt/c/Users/<you>/.ssh/id_ed25519; touch /mnt/c/Users/<you>/x; cmd.exe /c echo hi`. Each part fails: no such file for the two keys, a read-only file system for `touch`, and an error for `cmd.exe`.
+10. Ask the agent for a command that needs your approval on the desktop, for example one that reads `.env` in the chat folder. A Windows message box "Gnomish Relay" opens with Yes = Approve and No = Deny. Click No. The game shows the denial.
+11. In Ubuntu, run `gnomish-relay restart`. It prints "The desktop app is running." within 10 seconds.
+12. Sign out of Windows and sign in again. With no terminal open, the desktop app runs: `/relay` in WoW works, and `gnomish-relay status` in a new Ubuntu window shows it running.
+13. In PowerShell, run `wsl --shutdown`. After about 5 seconds, `/relay` in WoW works again.
+14. Run the one-liner again with `--no-wsl`. It sets up the Windows desktop app. The `Run` entry now starts the Windows one, and `gnomish-relay status` in PowerShell shows "Sandbox: none".
 
 ## 12. Config
 
@@ -2925,6 +3008,8 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 
 18. **Done: git in a chat (9.11, 6.6.6).** An own branch in a worktree for each chat, with Merge and Discard; a change summary with Commit and Revert at the end of each run; and the test line and the CI checks of the branch. **Next:** a test in the real game.
 
+19. **Windows with WSL2 (11.5).** The desktop app runs in WSL2 with the `bwrap` sandbox, and a Windows `Run` entry keeps it alive. **Next:** the manual test of 11.5 on a real Windows 11 computer.
+
 Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
 ## 16. Development environment
@@ -2937,6 +3022,7 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 
 ## 17. Open questions
 
+- Can a program in a `bwrap` wall under WSL2 reach Windows over `AF_VSOCK` (11.5)? If so, a seccomp filter that refuses `socket(AF_VSOCK, ...)` closes the way.
 - When can Windows get a sandbox for the commands of Claude (6.6.4, "Windows")? Try the AppContainer again when `msys-2.0.dll` starts in an AppContainer (microsoft/mxc issue 1061), or when Claude Code runs its commands through a shell other than MSYS2.
 - What does `permissions.<profile>.filesystem.deny_read` of Codex take, so that Codex can hide the `deny` and `desktop` paths (6.6.4)?
 - Not planned now (voice, 13.3): does `C_VoiceChat.SpeakText` have any voices under Wine? A spike calls `C_VoiceChat.GetTtsVoices()` in the game.
