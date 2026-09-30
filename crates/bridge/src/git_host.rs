@@ -90,10 +90,15 @@ impl GitHost {
             .prefix("gnomish-relay-git-")
             .tempdir()
             .context("cannot make the private folder for git")?;
-        Ok(GitHost {
+        let host = GitHost {
             hooks_off,
             user_config,
-        })
+        };
+        let version = host
+            .text(host.scratch(), &["--version"])
+            .map_err(|e| anyhow::anyhow!("git doesn't start: {e}"))?;
+        check_version(&version)?;
+        Ok(host)
     }
 
     /// A private folder that lives as long as this host, for a copy of an index.
@@ -187,6 +192,26 @@ impl GitHost {
             _ => Err(error_of(&output)),
         }
     }
+}
+
+/// Merge needs `merge-tree --write-tree`, which came in git 2.38 (SPEC.md 9.11).
+fn check_version(text: &str) -> Result<()> {
+    let (major, minor) = version_of(text).context("git gives no version")?;
+    if (major, minor) < (2, 38) {
+        anyhow::bail!(
+            "git {major}.{minor} is older than 2.38, so chats get no own branch and no change summary"
+        );
+    }
+    Ok(())
+}
+
+/// `git version 2.39.2.windows.1` gives `(2, 39)`.
+fn version_of(text: &str) -> Option<(u32, u32)> {
+    let number = text.trim().strip_prefix("git version ")?;
+    let mut parts = number.split(['.', ' ']);
+    let major = parts.next()?.parse().ok()?;
+    let minor = parts.next()?.parse().ok()?;
+    Some((major, minor))
 }
 
 #[cfg(unix)]
@@ -303,6 +328,35 @@ mod tests {
         let unborn = git.yes(dir.path(), &["rev-parse", "-q", "--verify", "HEAD"]);
 
         assert_eq!(unborn, Ok(false));
+    }
+
+    #[test]
+    fn a_git_older_than_2_38_is_refused() {
+        let error = check_version("git version 2.34.1\n").unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "git 2.34 is older than 2.38, so chats get no own branch and no change summary"
+        );
+    }
+
+    #[test]
+    fn a_git_of_2_38_or_newer_is_taken() {
+        for text in [
+            "git version 2.38.0",
+            "git version 2.39.2.windows.1",
+            "git version 2.39.3 (Apple Git-145)",
+            "git version 3.0.0",
+        ] {
+            assert!(check_version(text).is_ok(), "{text}");
+        }
+    }
+
+    #[test]
+    fn a_version_line_that_is_not_git_is_refused() {
+        for text in ["", "hello", "git version x.y", "git version 2"] {
+            assert!(check_version(text).is_err(), "{text}");
+        }
     }
 
     #[test]
