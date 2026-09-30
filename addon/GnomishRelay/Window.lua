@@ -981,6 +981,10 @@ end
 -- The key binding "Search chat": the window on its chat, with the search open.
 function Window.OpenSearch()
 	Window.Open()
+	-- With no key, Open shows the first-run window and builds nothing to search.
+	if not frame or not frame:IsShown() then
+		return
+	end
 	ui.tab = "chats"
 	ui.picking = false
 	ns.Browser.Close()

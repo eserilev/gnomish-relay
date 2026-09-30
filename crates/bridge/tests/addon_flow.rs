@@ -2581,6 +2581,21 @@ fn with_no_key_the_commands_open_the_first_run_window_and_nothing_errors() {
     );
 }
 
+#[test]
+fn with_no_key_the_search_binding_opens_the_first_run_window_and_nothing_errors() {
+    let game = start_with_no_key_addon();
+    game.run("GnomishRelaySetupClose:GetScript('OnClick')()");
+
+    game.run("GnomishRelay_Search()");
+
+    assert_eq!(
+        setup_window_title(&game),
+        "Gnomish Relay needs its desktop app"
+    );
+    let search_open = game.run("local ns = ... return ns.Search.IsOpen() == true");
+    assert_eq!(search_open.as_boolean(), Some(false));
+}
+
 /// A key addon that is new since launch loads only after a restart (SPEC.md 7.2, rule 1).
 #[test]
 fn a_player_who_had_a_key_is_asked_to_restart() {
