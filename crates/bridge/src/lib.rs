@@ -51,6 +51,7 @@ pub mod iso_time;
 pub mod lane;
 #[cfg(unix)]
 pub mod launch;
+pub mod line;
 pub mod lock;
 pub mod model;
 pub mod model_claude;

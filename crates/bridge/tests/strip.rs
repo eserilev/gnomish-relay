@@ -5,6 +5,7 @@
 
 mod common;
 
+use bridge::line::{self, Color, MODES, Mode};
 use bridge::strip::{Image, MAX_SIDE, read_with};
 use common::{HEIGHT, WIDTH, encode_png, scene, screenshot_png, strip_rows};
 use png::{BitDepth, ColorType};
@@ -112,4 +113,54 @@ fn an_image_over_the_size_limit_is_refused_before_decoding() {
     let data = vec![0; (MAX_SIDE as usize + 1) * 3];
     let png_bytes = encode_png(MAX_SIDE + 1, 1, ColorType::Rgb, BitDepth::Eight, &data);
     assert!(Image::from_png(&png_bytes).is_err());
+}
+
+/// A 1280x720 scene with the line of `frame` drawn at the corner, as a PNG.
+fn line_png(frame: &[u8], mode: Mode) -> Vec<u8> {
+    let (width, p) = (WIDTH as usize, mode.pixels());
+    let mut rgb = vec![70u8; width * HEIGHT as usize * 3];
+    for (r, row) in line::rows(frame, mode).iter().enumerate() {
+        for (c, color) in row.iter().enumerate() {
+            paint(&mut rgb, width, (c * p, r * p), p, *color);
+        }
+    }
+    encode_png(WIDTH, HEIGHT, ColorType::Rgb, BitDepth::Eight, &rgb)
+}
+
+fn paint(rgb: &mut [u8], width: usize, (x0, y0): (usize, usize), size: usize, color: Color) {
+    for y in y0..y0 + size {
+        for x in x0..x0 + size {
+            let at = (y * width + x) * 3;
+            rgb[at..at + 3].copy_from_slice(&color);
+        }
+    }
+}
+
+#[test]
+fn a_line_in_every_mode_reads_back_through_a_png() {
+    for mode in MODES {
+        let png_bytes = line_png(&frame(b"a line at the corner"), mode);
+        assert_eq!(
+            payload_of(&png_bytes).as_deref(),
+            Some(b"a line at the corner".as_slice()),
+            "{}",
+            mode.name()
+        );
+    }
+}
+
+#[test]
+fn the_largest_frame_reads_back_as_a_line_in_every_mode() {
+    let payload = vec![b'y'; 3200];
+    for mode in MODES {
+        let png_bytes = line_png(&frame(&payload), mode);
+        assert_eq!(payload_of(&png_bytes).unwrap(), payload, "{}", mode.name());
+    }
+}
+
+#[test]
+fn a_line_with_a_broken_frame_is_not_a_strip() {
+    let mut wire = frame(b"damaged");
+    wire[12] ^= 1;
+    assert!(payload_of(&line_png(&wire, MODES[0])).is_none());
 }
