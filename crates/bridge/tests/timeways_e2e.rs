@@ -67,17 +67,30 @@ ns.App = {
 const TIMEWAYS_LINK: &str = r#"
 local _, ns = ...
 local CHAT = { id = "story" }
+local claimed = {}
 ns.replies = {}
 ns.Link = {
 	Fits = function(text)
 		return ns.Messages.Fits(CHAT, text)
 	end,
 	Send = function(text)
-		return ns.Messages.Send(CHAT, text) ~= nil
+		local message = ns.Messages.Send(CHAT, text)
+		return message and message.id
 	end,
+	Claim = function(id, handler)
+		claimed[id] = handler
+	end,
+	ShowError = function() end,
 }
-ns.Messages.OnReply = function(_, _, status, text)
+-- The story code of the addon; the test reads the replies from `ns.replies` instead.
+ns.OnReply = function() end
+ns.Messages.OnReply = function(_, id, status, text)
 	table.insert(ns.replies, status .. ": " .. text)
+	local handler = claimed[id]
+	claimed[id] = nil
+	if handler then
+		handler(status, text)
+	end
 end
 ns.Messages.Init()
 C_Timer.NewTicker(1, ns.Messages.Tick)
@@ -484,8 +497,8 @@ fn assert_sandbox_note_only_without_sandbox(outcome: &Outcome) {
     );
 }
 
-/// The files that the bridge writes outside the game folder.
-const BRIDGE_FILES: &[&str] = &["state.json", "timeways/state.json"];
+/// The files that the bridge writes outside the game folder; `last-strip` is for `status`.
+const BRIDGE_FILES: &[&str] = &["state.json", "timeways/state.json", "last-strip"];
 
 fn is_expected_file(machine: &Machine, path: &Path) -> bool {
     let bridge_file = BRIDGE_FILES.iter().any(|f| path == machine.data.join(f));
