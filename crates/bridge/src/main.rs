@@ -1,5 +1,6 @@
 //! The `gnomish-relay` command.
 
+#[cfg(unix)]
 use std::path::Path;
 
 use anyhow::{Context, Result, bail};
