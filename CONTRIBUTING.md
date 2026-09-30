@@ -1,7 +1,7 @@
 # Contributing to Gnomish Relay
 
-Thanks for helping. This guide covers how to build the project, run the checks, keep the
-tests in step with the real game, and publish a release.
+Thanks for helping. This guide covers how to report a bug, build the project, run the
+checks, and submit a change.
 
 Before you change code, read two files:
 
@@ -9,6 +9,14 @@ Before you change code, read two files:
 - [`CLAUDE.md`](CLAUDE.md): the rules for code, comments, tests, and commits.
 
 [`VERIFICATION.md`](VERIFICATION.md) covers the proofs of the protocol core.
+
+## Report a bug
+
+[Open an issue](https://github.com/eserilev/gnomish-relay/issues). Include:
+
+- what you did, what you expected, and what happened instead;
+- the output of `gnomish-relay status`;
+- your OS, and the lines of the log around the problem (see "Where the log is" in the README).
 
 ## Build from source
 
@@ -62,35 +70,13 @@ The first time, collect asks for one more `/reload`: the first session has no sa
 yet, so it can't see the load order. To take the self-test out of the game, run
 `scripts/selftest-link.sh --remove`.
 
-## Publish a release
+## Submit a change
 
-A version tag (`v*`) does the whole release:
-
-- `.github/workflows/release.yml` tests the tagged commit on Linux, macOS, and Windows,
-  builds the desktop app for each OS, and publishes the GitHub release.
-- `.github/workflows/curseforge.yml` builds the addon zip and uploads it to CurseForge with
-  the BigWigs packager. The zip holds only the `GnomishRelay` folder, with the shared
-  transport files copied in: never a key or the desktop app's addon files.
-
-To publish:
-
-1. Set the version in `Cargo.toml` and in `addon/GnomishRelay/GnomishRelay.toc` (`## Version`).
-   The release job refuses a tag that doesn't match both.
-2. Commit, then tag and push:
-   ```sh
-   git tag -a v0.3.0 -m "Release 0.3.0"
-   git push origin main v0.3.0
-   ```
-
-### CurseForge setup
-
-This is done once, and it's done already:
-
-- The CurseForge project ID is 1719624. It's in the `## X-Curse-Project-ID` line of
-  `addon/GnomishRelay/GnomishRelay.toc`. A repository variable `CURSEFORGE_PROJECT_ID`
-  overrides it.
-- An API token from <https://authors.curseforge.com/#/settings/api-tokens> is the
-  repository secret `CF_API_KEY`.
-
-Without the ID or the secret, the job still builds the zip, keeps it as an artifact of the
-run, and skips the upload. To test the zip locally, run `scripts/package-addon.sh dist`.
+1. For a bigger change, open an issue first, so we can agree on the design.
+2. Fork the repo, and make a branch for your change.
+3. Write a failing test first, then the change. Every rule in `SPEC.md` has a named test.
+4. If the change affects behavior, update `SPEC.md` in the same commit.
+5. Run `scripts/check-all.sh`, and make it pass.
+6. Write one change per commit, with a one-line message in the imperative, for example
+   "Refuse a strip with a bad tag". See `CLAUDE.md` for the full rules.
+7. Open a pull request against `main`, and say what the change does and how you tested it.

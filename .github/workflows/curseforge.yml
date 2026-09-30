@@ -28,7 +28,7 @@ jobs:
           if [[ $GITHUB_REF_TYPE == tag && $id =~ ^[0-9]+$ && -n $CF_API_KEY ]]; then
             echo "args=-p $id" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::No CurseForge upload: set the secret CF_API_KEY and a numeric project id (see CONTRIBUTING.md, CurseForge setup)."
+            echo "::notice::No CurseForge upload: set the secret CF_API_KEY and a numeric project id (see docs/RELEASING.md, CurseForge setup)."
             echo "args=-d" >> "$GITHUB_OUTPUT"
           fi
       # The packager ships only files that git tracks. So the folder gets a repo of its

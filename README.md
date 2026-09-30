@@ -254,7 +254,7 @@ the output of `gnomish-relay status`.
 
 ## Contributing
 
-To build from source, run the checks, or publish a release, see
+To report a bug, build from source, or submit a change, see
 [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## License
