@@ -72,6 +72,10 @@ globals:
     property: full-write
   GnomishRelay_Toggle:
     property: full-write
+  BINDING_NAME_GNOMISHRELAY_SEARCH:
+    property: full-write
+  GnomishRelay_Search:
+    property: full-write
 structs:
   BitLib:
     band: {args: [{type: number}, {type: "..."}]}

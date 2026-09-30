@@ -235,11 +235,15 @@ hooksecurefunc("SetItemRef", function(link)
 	end
 end)
 
--- The key binding of Bindings.xml. WoW shows these names in its Key Bindings menu.
+-- The key bindings of Bindings.xml. WoW shows these names in its Key Bindings menu.
 BINDING_HEADER_GNOMISHRELAY = "Gnomish Relay"
 BINDING_NAME_GNOMISHRELAY_TOGGLE = "Toggle window"
 function GnomishRelay_Toggle()
 	ns.Window.Toggle()
+end
+BINDING_NAME_GNOMISHRELAY_SEARCH = "Search chat"
+function GnomishRelay_Search()
+	ns.Window.OpenSearch()
 end
 
 SLASH_GNOMISHRELAY1 = "/relay"

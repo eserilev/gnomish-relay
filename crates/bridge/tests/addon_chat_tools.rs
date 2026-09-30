@@ -32,6 +32,7 @@ const FILES: &[&str] = &[
     "Notices.lua",
     "Blocks.lua",
     "Pins.lua",
+    "Search.lua",
     "QuickActions.lua",
     "QuickBar.lua",
     "QuickEditor.lua",
@@ -713,6 +714,181 @@ fn pins_stay_after_a_reload_and_each_chat_has_its_own() {
         game.text("return GnomishRelayPinnedButton.label:GetText()"),
         "Pinned 0"
     );
+}
+
+// Search
+
+/// The first text of the entry that the gold band marks.
+fn marked(game: &Game) -> String {
+    let find: Function = game
+        .lua
+        .load(
+            "local wow = ... \
+             if not GnomishRelayMark:IsShown() then return 'nothing' end \
+             local drawn, top = wow.Drawn(GnomishRelayTranscript) \
+             for _, d in ipairs(drawn) do \
+               if d.object == GnomishRelayMark then top = d.y + 2 end \
+             end \
+             for _, d in ipairs(drawn) do \
+               if d.y == top and d.text then return d.text end \
+             end",
+        )
+        .into_function()
+        .unwrap();
+    find.call(game.wow.clone()).unwrap()
+}
+
+fn search_for(game: &Game, text: &str) {
+    game.click("GnomishRelaySearchButton");
+    game.run(&format!("GnomishRelaySearchBox:SetText({text:?})"));
+}
+
+fn search_count(game: &Game) -> String {
+    game.text("return GnomishRelaySearchCount:GetText()")
+}
+
+/// Three exchanges: the word "flaky" is in the first reply and in the last message.
+fn three_exchanges(game: &Game) {
+    game.exchange("why does ci fail?", "A flaky test.");
+    game.exchange("and the docs?", "They are fine.");
+    game.exchange("fix the flaky one", "Fixed.");
+}
+
+#[test]
+fn search_opens_a_bar_with_the_focus_in_place_of_the_quick_actions() {
+    let game = Game::start();
+
+    game.click("GnomishRelaySearchButton");
+
+    assert!(game.shown("GnomishRelaySearch"));
+    assert!(!game.shown("GnomishRelayQuickBar"));
+    let focused = game.run("return GnomishRelaySearchBox:HasFocus()");
+    assert_eq!(focused.as_boolean(), Some(true));
+    assert_eq!(
+        game.text("return GnomishRelaySearchHint:GetText()"),
+        "Search this chat"
+    );
+}
+
+#[test]
+fn a_search_ignores_case_and_jumps_to_the_newest_match() {
+    let game = Game::start();
+    three_exchanges(&game);
+
+    search_for(&game, "FLAKY");
+
+    assert_eq!(search_count(&game), "2 of 2");
+    assert_eq!(marked(&game), "|cff69ccf0[You]|r: fix the flaky one");
+}
+
+#[test]
+fn previous_and_next_step_through_the_matches_and_wrap_around() {
+    let game = Game::start();
+    three_exchanges(&game);
+    search_for(&game, "flaky");
+
+    game.click("GnomishRelaySearchPrevious");
+    assert_eq!(search_count(&game), "1 of 2");
+    assert!(marked(&game).starts_with("|cffff7d0a[Claude]"));
+
+    game.click("GnomishRelaySearchPrevious");
+    assert_eq!(search_count(&game), "2 of 2");
+
+    game.click("GnomishRelaySearchNext");
+    assert_eq!(search_count(&game), "1 of 2");
+}
+
+#[test]
+fn a_search_with_no_match_says_so_and_marks_nothing() {
+    let game = Game::start();
+    three_exchanges(&game);
+
+    search_for(&game, "banana");
+
+    assert_eq!(search_count(&game), "No matches");
+    assert_eq!(marked(&game), "nothing");
+}
+
+#[test]
+fn a_match_in_the_closed_part_of_a_long_reply_opens_it() {
+    let game = Game::start();
+    game.exchange("fix it", LONG);
+    game.exchange("thanks", "You're welcome.");
+
+    search_for(&game, "last line");
+
+    assert!(game.shows("The last line."));
+    assert!(game.shows("Show less"));
+}
+
+#[test]
+fn enter_gives_the_keys_back_and_keeps_the_bar() {
+    let game = Game::start();
+    three_exchanges(&game);
+    search_for(&game, "flaky");
+
+    game.run("GnomishRelaySearchBox:GetScript('OnEnterPressed')(GnomishRelaySearchBox)");
+
+    let focused = game.run("return GnomishRelaySearchBox:HasFocus()");
+    assert_eq!(focused.as_boolean(), Some(false));
+    assert!(game.shown("GnomishRelaySearch"));
+    assert_eq!(search_count(&game), "2 of 2");
+}
+
+#[test]
+fn escape_closes_the_search_and_removes_the_mark() {
+    let game = Game::start();
+    three_exchanges(&game);
+    search_for(&game, "flaky");
+
+    game.run("GnomishRelaySearchBox:GetScript('OnEscapePressed')(GnomishRelaySearchBox)");
+
+    assert!(!game.shown("GnomishRelaySearch"));
+    assert_eq!(marked(&game), "nothing");
+    assert!(game.shown("GnomishRelayQuickBar"));
+    let focused = game.run("return GnomishRelaySearchBox:HasFocus()");
+    assert_eq!(focused.as_boolean(), Some(false));
+}
+
+#[test]
+fn close_and_a_change_of_chat_close_the_search() {
+    let game = Game::start();
+    three_exchanges(&game);
+    search_for(&game, "flaky");
+    game.click("GnomishRelaySearchClose");
+    assert!(!game.shown("GnomishRelaySearch"));
+
+    search_for(&game, "flaky");
+    game.run("local ns = ... ns.Window.NewChat() ns.Window.CloseBrowser()");
+
+    assert!(!game.shown("GnomishRelaySearch"));
+}
+
+#[test]
+fn the_search_bar_comes_before_the_reload_banner() {
+    let game = Game::start();
+    game.run(
+        "local ns = ... table.insert(ns.Messages.Db().outbox, { chat = 'c', id = 1 }) \
+         ns.Window.Refresh()",
+    );
+
+    game.click("GnomishRelaySearchButton");
+
+    assert!(game.shown("GnomishRelaySearch"));
+    assert!(!game.shown("GnomishRelayBanner"));
+}
+
+#[test]
+fn the_search_key_binding_opens_the_window_and_the_search() {
+    let game = Game::start();
+    game.run("GnomishRelayFrame:Hide()");
+
+    game.run("GnomishRelay_Search()");
+
+    assert!(game.shown("GnomishRelayFrame"));
+    assert!(game.shown("GnomishRelaySearch"));
+    let focused = game.run("return GnomishRelaySearchBox:HasFocus()");
+    assert_eq!(focused.as_boolean(), Some(true));
 }
 
 #[test]

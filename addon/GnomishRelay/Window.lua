@@ -52,6 +52,10 @@ end
 local function MarkSelected(chatId)
 	local chat = ns.Store.Chat(chatId)
 	if chat then
+		-- A search finds text in one chat, so another chat closes it.
+		if chat ~= Selected() then
+			ns.Search.Close()
+		end
 		ns.Store.db.selected = chat.id
 		chat.unread = nil
 	end
@@ -253,7 +257,8 @@ local function RefreshStatus(chat)
 		ui.agent:SetText("")
 	end
 	ui.folderButton:SetShown(chat ~= nil)
-	ui.banner:SetShown(ns.Transport.NeedsReload())
+	-- The player asked for the search, so its bar comes before the banner.
+	ui.banner:SetShown(ns.Transport.NeedsReload() and not ns.Search.IsOpen())
 	ui.bannerText:SetText(BannerText(#ns.Store.db.outbox))
 end
 
@@ -371,9 +376,12 @@ local function RefreshPages()
 	ns.DiagTab.Refresh()
 end
 
--- The quick actions use the room of the banner, and give way to it and to the counter.
-local function RefreshQuickBar()
-	local room = ui.tab == "chats" and not ui.picking and not ui.banner:IsShown() and not ui.count:IsShown()
+-- The row above the input: the search bar while it is open, else the quick actions. The
+-- quick actions give way to the banner and to the byte counter.
+local function RefreshInputRow()
+	local chats = ui.tab == "chats" and not ui.picking
+	ns.Search.Show(chats)
+	local room = chats and not ns.Search.IsOpen() and not ui.banner:IsShown() and not ui.count:IsShown()
 	ns.QuickBar.Refresh(room)
 end
 
@@ -390,8 +398,9 @@ local function RefreshChats(chat)
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
-	RefreshQuickBar()
+	RefreshInputRow()
 	ui.pinned:SetShown(not ui.picking)
+	ui.searchButton:SetShown(not ui.picking)
 	ns.Pins.Refresh()
 end
 
@@ -411,7 +420,7 @@ function Window.Refresh()
 			part:Hide()
 		end
 		ns.Browser.Show(false)
-		RefreshQuickBar()
+		RefreshInputRow()
 	end
 end
 
@@ -583,7 +592,7 @@ local function RefreshInputHelp()
 	elseif left then
 		ui.count:SetText(string.format("%d left", left))
 	end
-	RefreshQuickBar()
+	RefreshInputRow()
 end
 
 local function BuildInputHelp()
@@ -615,6 +624,7 @@ local function BuildCenter()
 	ui.agent = Label(frame, "GameFontNormal", "TOPLEFT", left, -64)
 	BuildFolderButton(left + 170)
 	ui.pinned = ns.Pins.Build(frame, left, -61)
+	ui.searchButton = ns.Search.Build(frame, left + 6, 46, ui.pinned)
 
 	local log = Inset(frame, left, -84, width, 72)
 	Stretch(log, left, -84)
@@ -931,7 +941,7 @@ local function Build()
 	BuildActivity()
 	BuildTabs()
 	BuildPages()
-	ui.chatParts = { ui.agent, ui.folderButton, ui.pinned, ui.activity[1], ui.activity[2] }
+	ui.chatParts = { ui.agent, ui.folderButton, ui.pinned, ui.searchButton, ui.activity[1], ui.activity[2] }
 	frame:Hide()
 end
 
@@ -952,6 +962,15 @@ function Window.Open(chatId)
 	end
 	frame:Show()
 	Window.Refresh()
+end
+
+-- The key binding "Search chat": the window on its chat, with the search open.
+function Window.OpenSearch()
+	Window.Open()
+	ui.tab = "chats"
+	ui.picking = false
+	ns.Browser.Close()
+	ns.Search.Open()
 end
 
 function Window.Toggle()
