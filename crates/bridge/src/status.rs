@@ -129,7 +129,7 @@ pub fn sandbox_line(found: &SandboxFound) -> String {
     match found {
         SandboxFound::Tool(name) => format!("Sandbox: {name}"),
         SandboxFound::NotInstalled => {
-            "Sandbox: none. Install bubblewrap so allowed commands can run without asking".into()
+            "Sandbox: none. Install bubblewrap so commands can run without asking".into()
         }
         SandboxFound::Blocked => "Sandbox: none. bwrap is installed, but the system blocks \
              its user namespaces (on Ubuntu 24.04, AppArmor does). Add an AppArmor profile \

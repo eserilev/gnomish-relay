@@ -364,8 +364,9 @@ mod tests {
     fn setup_says_the_level_of_the_default_agent_and_where_to_change_it() {
         assert_eq!(
             level_line_of("auto-edit"),
-            "Permissions: auto-edit. It edits files in the chat folder without asking, and asks in \
-             the game before each command. To change it, edit permission in /c/config.toml"
+            "Permissions: auto-edit. It edits files in the chat folder without asking. Claude Code \
+             also runs commands in the sandbox without asking. Risky commands, and the commands of \
+             other agents, ask in the game first. To change it, edit permission in /c/config.toml"
         );
         assert!(
             level_line_of("ask")

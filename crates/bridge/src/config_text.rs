@@ -56,7 +56,7 @@ fn agent_tables(agents: &[Found]) -> String {
     text
 }
 
-/// Every agent edits the chat folder with no question, and asks before each command.
+/// Every agent gets `auto-edit` (SPEC.md 9.3).
 /// With no agent found, the echo agent.
 fn relay_tables(relay: &RelayPart) -> String {
     let mut text = agent_tables(relay.agents);

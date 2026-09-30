@@ -144,8 +144,14 @@ The agent now shows in the agent list of a new chat.
 | Level | Edits files in the chat's folder | Runs commands |
 |---|---|---|
 | `ask` | Asks you first | Asks you first |
-| `auto-edit` | On its own | Asks you first |
+| `auto-edit` (default) | On its own | On its own inside the sandbox. Asks you first for risky commands. |
 | `full-auto` | On its own | On its own, inside the sandbox |
+
+At `auto-edit`, risky commands still ask you first: commands that run other commands
+(`xargs`, `sh`, `python`), network tools (`curl`, `ssh`), `git push`, publishing (`npm publish`),
+`rm -r`, scripts such as `./build.sh`, and tools that download and run code (`npx`, `docker`).
+Every command asks when there's no sandbox: on Windows, on Linux without a working `bwrap`, and
+with Codex or other ACP agents (see [How your computer is protected](#how-your-computer-is-protected)).
 
 Some actions always ask on your desktop, whatever the level: for example reading `~/.ssh`,
 writing outside the chat's folder, or a chat in a new folder. A dialog with **Approve** and
@@ -163,7 +169,9 @@ gnomish-relay deny <id>        # deny one
 
 ### Let trusted commands run without asking
 
-At `auto-edit` and `full-auto`, commands that match a rule run without asking.
+At `auto-edit` and `full-auto`, commands that match a rule run without asking. With Claude
+Code in the sandbox, most commands already run on their own at `auto-edit`, so a rule matters
+mostly for Codex and for scripts such as `./build.sh`.
 
 - **From the game:** click **Always allow** on a popup.
 - **In `config.toml`:**
@@ -187,12 +195,14 @@ Where a command runs depends on your OS and your agent (`SPEC.md` 6.6.4):
 
 - **Inside the sandbox**, a command can write only to the chat's folder and a temp folder.
   It can't see `~/.ssh`, the desktop app's keys, or your other credential folders. It can
-  only reach the package hosts you allow.
+  only reach the package hosts you allow. That's why Claude Code's commands run on their own
+  at `auto-edit`: the sandbox, not a popup, keeps them in bounds.
 - **Linux without a working `bwrap`** acts like Windows: every command asks.
 - **On macOS**, a command can read (never write) each repository's `.git/config`, because git
   can't run without it. If a remote URL there holds a token, keep the token in a credential
   helper instead.
 - **Codex's sandbox** lets a command read the whole disk, `~/.ssh` included, but gives it no network.
+  So Codex's commands ask you first at `auto-edit`, unless a rule allows them.
 - **Other ACP agents** run their commands themselves, with no sandbox, so every tool call
   asks you first.
 - **On Windows**, use Codex for commands that run without asking, or try the experimental

@@ -92,10 +92,10 @@ pub fn raise_text(agent: &str, level: Permission, commands: Commands) -> String 
         ),
         (Permission::AutoEdit | Permission::Ask, _) => format!(
             "A chat from WoW asks for more access. Allow {agent} to edit files in the chat \
-             folder without asking, in every chat from WoW? Commands still ask in the \
-             game, unless you added an Always rule there. This writes \
-             permission = \"{word}\" to config.toml. Approve only if you just sent a message \
-             from WoW."
+             folder without asking, in every chat from WoW? Claude Code also runs commands \
+             inside the sandbox without asking. Risky commands still ask in the game. This \
+             writes permission = \"{word}\" to config.toml. Approve only if you just sent a \
+             message from WoW."
         ),
     }
 }
@@ -398,7 +398,7 @@ mod tests {
         assert!(text.contains("never asks for this by itself"), "{text}");
         let text = raise_text("claude", Permission::AutoEdit, Commands::Ask);
         assert!(
-            text.contains("Commands still ask in the game, unless you added an Always rule there."),
+            text.contains("Risky commands still ask in the game."),
             "{text}"
         );
         let text = raise_text("aider", Permission::AutoEdit, Commands::NoQuestion);

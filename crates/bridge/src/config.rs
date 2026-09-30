@@ -58,7 +58,9 @@ impl Permission {
         match self {
             Permission::Ask => "It asks in the game before each edit and each command.",
             Permission::AutoEdit => {
-                "It edits files in the chat folder without asking, and asks in the game before each command."
+                "It edits files in the chat folder without asking. Claude Code also runs commands \
+                 in the sandbox without asking. Risky commands, and the commands of other agents, \
+                 ask in the game first."
             }
             Permission::FullAuto => "It edits files and runs commands without asking.",
         }
