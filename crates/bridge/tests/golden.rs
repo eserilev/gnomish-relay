@@ -97,6 +97,7 @@ fn lua_vector(dir: &std::path::Path, frame_id: u16, payload: &[u8]) -> Vector {
             unix: Some(1_790_300_000),
             ui_parent_scale: Some(1.0),
             strip_effective_scale: Some(1.0),
+            mode: None,
         },
         width: 1280,
         height: 720,

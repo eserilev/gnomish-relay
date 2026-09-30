@@ -30,6 +30,13 @@ local function Clear()
 	_G[ns.App.live] = nil
 end
 
+-- The strip line of the body goes to Strip.lua, so no app needs code for it (SPEC.md 7.1.3).
+local function TakeLine(data)
+	if type(data) == "table" then
+		ns.Strip.TakeLine(data.line)
+	end
+end
+
 -- Returns whether the slot loaded, then its body, restore bundle, and live file. A
 -- value that is left from an earlier load never counts, so each global starts empty.
 function Slots.Load(n)
@@ -39,5 +46,6 @@ function Slots.Load(n)
 	local loaded = C_AddOns.LoadAddOn(name)
 	local data, restore, live = _G[ns.App.slotData], _G[ns.App.restore], _G[ns.App.live]
 	Clear()
+	TakeLine(data)
 	return loaded, data, restore, live
 end

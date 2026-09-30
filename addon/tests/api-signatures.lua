@@ -1092,6 +1092,12 @@ return {
 				{ Name = "normalizedRotationPoint", Type = "vector2", Mixin = "Vector2DMixin", Nilable = true },
 			},
 		},
+		["SimpleTextureBaseAPI:SetSnapToPixelGrid"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "snap", Type = "bool", Nilable = false, Default = false },
+			},
+		},
 		["SimpleTextureBaseAPI:SetTexture"] = {
 			SecretArguments = "AllowedWhenTainted",
 			Arguments = {

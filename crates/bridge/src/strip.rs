@@ -1,8 +1,10 @@
-//! Finds the strip in a screenshot and reads its bytes (SPEC.md 7.1).
+//! Finds the strip in a screenshot and reads its bytes (SPEC.md 7.1 and 7.1.3).
 
 use anyhow::{Context, Result, bail};
 use protocol::cell::decode_cells;
 use protocol::frame::decode_frame;
+
+use crate::line;
 
 /// Checked in the PNG header, before the pixels are decoded (SPEC.md 6.2, rule 9).
 pub const MAX_SIDE: u32 = 4096;
@@ -52,8 +54,12 @@ impl Image {
         (self.width, self.height)
     }
 
-    /// Bit 2 is red, bit 1 is green, bit 0 is blue. Each channel is on at 128 or more.
-    fn cell(&self, x: usize, y: usize) -> Option<u8> {
+    /// `None` when `rgb` does not hold 3 bytes for each pixel.
+    pub fn from_rgb(width: usize, height: usize, rgb: Vec<u8>) -> Option<Image> {
+        (rgb.len() == width * height * 3).then_some(Image { width, height, rgb })
+    }
+
+    pub fn pixel(&self, x: usize, y: usize) -> Option<[u8; 3]> {
         if x >= self.width || y >= self.height {
             return None;
         }
@@ -61,9 +67,18 @@ impl Image {
         let [red, green, blue] = self.rgb.get(at..at + 3)? else {
             return None;
         };
-        let on = |channel: u8| u8::from(channel >= 128);
-        Some(on(*red) << 2 | on(*green) << 1 | on(*blue))
+        Some([*red, *green, *blue])
     }
+
+    fn cell(&self, x: usize, y: usize) -> Option<u8> {
+        self.pixel(x, y).map(full_color_cell)
+    }
+}
+
+/// Bit 2 is red, bit 1 is green, bit 0 is blue. Each channel is on at 128 or more.
+pub fn full_color_cell([red, green, blue]: [u8; 3]) -> u8 {
+    let on = |channel: u8| u8::from(channel >= 128);
+    on(red) << 2 | on(green) << 1 | on(blue)
 }
 
 /// The cell size in pixels. UI scaling makes it fractional, for example 3.875.
@@ -127,8 +142,9 @@ fn data(image: &Image, grid: Grid) -> Option<Vec<u8>> {
     decode_cells(&cells)
 }
 
-/// The bytes of the data rows. The bytes run past the end of the frame, and the frame
-/// header gives the real length.
+/// The bytes of the strip: the line at the corner first (SPEC.md 7.1.3), then the grid
+/// of the old strip. The bytes run past the end of the frame, and the frame header gives
+/// the real length.
 ///
 /// The calibration rows fix the cell width but not the row height. The frame checksum
 /// rules out most heights, but it does not cover the tag: a wrong height can read the
@@ -137,8 +153,11 @@ fn data(image: &Image, grid: Grid) -> Option<Vec<u8>> {
 /// comes back, so the caller can log why it fails.
 pub fn read_with(image: &Image, accept: impl Fn(&[u8]) -> bool) -> Option<Vec<u8>> {
     let mut first = None;
-    let readings = grids(image)
-        .filter_map(|grid| data(image, grid))
+    let line = line::read(image).map(|(_, bytes)| bytes);
+    let grid = grids(image).filter_map(|grid| data(image, grid));
+    let readings = line
+        .into_iter()
+        .chain(grid)
         .filter(|bytes| decode_frame(bytes).is_ok());
     for bytes in readings {
         if accept(&bytes) {

@@ -13,6 +13,7 @@ pub mod allow_hosts;
 pub mod always_offer;
 pub mod always_rules;
 pub mod app_files;
+pub mod calibration;
 pub mod check_agent;
 pub mod claude;
 pub mod claude_sessions;
@@ -51,6 +52,8 @@ pub mod iso_time;
 pub mod lane;
 #[cfg(unix)]
 pub mod launch;
+pub mod line;
+pub mod line_choice;
 pub mod lock;
 pub mod model;
 pub mod model_claude;

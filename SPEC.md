@@ -657,7 +657,7 @@ Signals (7.4) do not work on the tested client.
 
 ### 7.1 Strip: game to bridge
 
-The addon draws a strip in the top-left corner of the screen.
+The addon draws a strip in the top-left corner of the screen. The line of 7.1.3 is its smallest form.
 Then the addon calls `Screenshot()` from a timer. WoW saves a PNG in `_classic_beta_/Screenshots`.
 The bridge watches that folder, decodes the strip, and deletes the file.
 
@@ -683,7 +683,7 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - The MAC covers magic to checksum. It stops fake strips (6.3).
 - `len` is at most 3200. The addon refuses longer text and tells the user.
 
-**Cells:**
+**Cells.** This part is the old strip. It stays as the fallback of the line (7.1.3).
 
 - Each cell carries 3 bits, most significant bit first.
 - Bit 2 is red, bit 1 is green, bit 0 is blue. Each channel is fully on or fully off, so there are 8 colors.
@@ -779,6 +779,64 @@ A `/reload` resets the globals of all addons together, so no holder stays from a
 The addon reads and writes the value with `rawget` and `rawset`, so a metatable has no effect. A value or a field of a wrong type counts as missing.
 
 **Versions.** The Timeways copy of the transport is pinned to a relay tag, so two versions of `Strip.lua` can run at the same time. A new shape of the value needs a new global name.
+
+#### 7.1.3 The line: a strip of 1-pixel cells
+
+**Status: built (2026-09-29). It waits for its first self-test in the real game.** The old strip (7.1) is 800 by up to 200 pixels, and its size changes with each message. Players see it in play. The line is the smallest strip that reads exactly: cells of 1 physical pixel, in a line 1 pixel tall at the top-left corner. The old strip stays as the fallback.
+
+**Modes.** A mode is a cell size and a number of bits per cell. The self-test measures each mode (14.3.1), and the addon draws the smallest mode that reads exactly.
+
+| Mode | Cell size | Bits per cell | Bits per channel | Levels of a channel |
+|---|---|---|---|---|
+| 1 | 1 px | 24 | 8 | 0 to 255 |
+| 2 | 1 px | 12 | 4 | 0, 17, ..., 255 |
+| 3 | 1 px | 6 | 2 | 0, 85, 170, 255 |
+| 4 | 2 px | 24 | 8 | 0 to 255 |
+| 5 | 2 px | 12 | 4 | 0, 17, ..., 255 |
+| 6 | 2 px | 6 | 2 | 0, 85, 170, 255 |
+
+The table is in the order of preference: all 1-pixel modes come first, because the height matters most to the player.
+
+**The line.**
+
+- A row has 200 cells. The line starts at pixel (0, 0). Row `r` starts at `y = r × size`.
+- The cells, in order: the marker (10 cells), the check (12 bytes), then the frame (7.1). The frame bytes do not change: the same frame, checksum, and tag.
+- Zero bytes pad the frame to a multiple of 3 bytes. Black cells fill the last row, so each row is 200 cells wide.
+- So the width is fixed, and a long frame adds rows. At 24 bits, one row holds a frame of up to 558 bytes. The largest frame (3221 bytes) takes 6 rows at 24 bits, 11 at 12 bits, and 22 at 6 bits. Why a fixed width: a player sees a steady shape, and most frames fit one row. A width that follows the frame changes with each message, which is what the player asked to stop.
+- **The marker** is 10 cells of full colors (each channel 0 or 255, 3 bits as in 7.1): `7 0 4 2 1 6 5 3`, then the mode `m`, then `7 − m`. Every mode draws full colors exactly, so the reader finds the marker before it knows the mode.
+- **The check** is the 12 bytes `01 23 45 67 89 AB CD EF FE DC BA 98`, packed as the frame. It holds every level of every channel in all three bit counts. A reader that gets them wrong has the wrong mode or a changed picture.
+- **Packing.** Three bytes are 24 bits: 1, 2, or 4 cells. The bits go most significant first. In each cell, the first third of the bits is red, then green, then blue. A channel of `k` bits with level `L` has the value `L × 255 / (2^k − 1)`.
+
+**The addon draws it.**
+
+- The strip frame ignores the parent scale and has the scale `768 / h`, where `h` is the height from `GetPhysicalScreenSize()`. So one UI unit is one physical pixel. `PixelUtil.GetPixelToUIUnitFactor` of the Forever client computes the same factor. The addon does not call `PixelUtil`: the formula is one line, and it has no second use.
+- Each cell is a texture of `size × size` units at a whole-unit offset, with `SetColorTexture(r / 255, g / 255, b / 255)` and `SetSnapToPixelGrid(true)`. The snap rounds a float error of the scale to the nearest pixel.
+
+**The reader.** For each cell size, 1 and then 2, the reader reads the 10 marker cells at the top-left corner. It reads cell `c` of row `r` at pixel `(c × size + size / 2, r × size + size / 2)`, with integer division. The marker must match exactly, and the mode must have this cell size. Then the check must read back exactly. A channel value `v` reads as level `round(v × (2^k − 1) / 255)`. Then the reader reads the frame from the rest of the rows, and the frame must decode (7.1). With no line, the reader searches the grid of the old strip, as before.
+
+**How the mode reaches the addon.** The bridge and the self-test use the channels that exist:
+
+1. `gnomish-relay selftest collect` (14.3.1) writes the result into `strip-line.json` in the data folder of the bridge: the mode, and the physical screen size of the self-test. With no mode that reads exactly, it removes the file.
+2. At each publish, the bridge reads the file. The file is at most 1 KiB. The mode must be 1 to 6, and each side of the screen 1 to 16384 pixels. A file that fails counts as no file, and the bridge logs each new error once. The bridge adds one line after the body of each app (7.3): `GnomishRelay_SlotData.line = {mode = 1, width = 2560, height = 1440}`. The line holds only decimal numbers, as the key check does, so S9 still covers the table.
+3. `Slots.lua` hands the line of each loaded body to `Strip.lua`. It keeps a line with a known mode and two numbers in the saved variables of the app, as `stripLine`. A body with no line removes `stripLine`.
+4. The reader finds the mode in the marker. So the bridge needs no state for it, and a strip of either shape reads.
+
+`Slots.lua` and `Strip.lua` are shared transport files (9.7), so Timeways gets the line with its next pin of the transport, and its code does not change.
+
+**Fallback.** The addon draws the old strip in each of these cases:
+
+- It has no `stripLine`: the self-test never ran, it found no clean mode, or the bridge has not sent the line yet.
+- The physical screen size is not the size of `stripLine`. A new resolution needs a new self-test.
+- The strip carries the same frame id as the last line, and the id is not 0. This is a retry of a message (7.1, "Strip lifetime"), so the line did not reach the bridge. The retry uses the old strip, which always reads.
+- Two different frame ids needed such a retry in this UI session. The line then stays off until the next `/reload`. A retry can also come from a bridge that was off, so a `/reload` tries the line again.
+
+**Decisions.** The implementer chose these (2026-09-29):
+
+- The packing lives in the bridge reader (`crates/bridge/src/line.rs`) and in `Codec.lua`, with differential tests between them, as `addon_codec.rs` does for the frame. The proved core (`crates/protocol`) does not change: the frame bytes, the checksum, and the tag are the same, and S1 and S3 still cover them. The reader of the line is untrusted input, so the `screenshot` fuzz target covers it.
+- A cell of 2 pixels is the next step after 1 pixel. A cell of 3 pixels or more would be as tall as the old strip row, so the old strip covers it.
+- The self-test measures the modes, not the relay addon. A test of the modes at each login would add 6 shots and 6 flashes of color to each session.
+
+**Tests.** `line.rs` and `calibration.rs` have unit tests for each mode, the marker, the check, and each verdict. `tests/strip.rs` reads a line of each mode through a PNG. `tests/addon_codec.rs` compares `Codec.LineRows` with `line::rows`. The fake game keeps each shot as rectangles of physical pixels (`picturesOf`), so `tests/strip_line.rs` draws the line of `Strip.lua` into a PNG, reads it in every mode, and checks each fallback. `tests/selftest.rs` runs the self-test in the fake game and collect on its pictures: sharp pictures choose mode 1, and blurred pictures keep the old strip with a verdict for each mode.
 
 ### 7.2 Why each channel works
 
@@ -2382,6 +2440,21 @@ The run starts 5 seconds after `PLAYER_ENTERING_WORLD`, when the saved results d
 | Timing | `C_Timer.After` for 0, 0.01, 0.1, and 1 second, 10 steps of a ticker, the order of three timers that are due together, and `GetTime` against `time()`. |
 | Screenshots (7.1) | For each shot: the time from `Screenshot()` to each event, and when "Screen captured" shows. |
 | Golden strips | Payloads of 0, 1, 62, 137, 500, and 3200 bytes, and two records as the relay sends them. With 62 and 137, the tag sits alone in the last row (7.1). One more strip hides right after its `Screenshot()` call: it tells whether the picture comes from the call or from the end of the frame. |
+| Line modes (7.1.3) | One line in each of the 6 modes, with a test payload of gradients and edges. |
+
+**The line modes (7.1.3).** The run draws one line in each of the 6 modes, through the real `Strip.lua`: it sets `stripLine` of the self-test to the mode and the current physical screen size for the shot, and removes it after. Each line carries the same test payload of 924 bytes: the values 0 to 255 in each channel as gradients (each channel counts in its own direction and step), flat runs of the bytes `00`, `FF`, `55`, and `AA` (each one gives one flat color in every mode, and `55` and `AA` are the mid levels that gamma moves), and black and white cells for sharp edges. The payload fills 7 rows at 6 bits, so the edges also run across rows.
+
+Collect judges each mode by its screenshot. It judges every screenshot of the run for each mode, and keeps the best verdict: clean, then a failure, then not found. A screenshot counts for a mode only when it shows the marker of that mode, at the cell size of the mode or at any cell width from 0.5 to 4 pixels. Collect compares each cell with the frame that the self-test signed. Each mode gets one verdict:
+
+| Verdict | What collect saw | What it tells the player |
+|---|---|---|
+| clean | The marker at the right cell size, and every channel of every cell within a quarter of a level step of its value (24 bits: exact; 12 bits: 4; 6 bits: 21). | The mode works. |
+| not found | No screenshot of the run shows the marker of the mode. A blur of 1-pixel cells also ends here: the marker mixes with its neighbors. | The line did not draw, or blur or scale hides it. |
+| scale | The marker shows at another cell size. | The screenshot is scaled: a render scale below 100%, or a physical screen size that is not the screenshot size. |
+| blur | Every wrong value sits next to a cell of another value. A blur changes nothing inside a flat run. | Neighbor pixels mix: anti-aliasing, a render scale, or an upscaler. |
+| color shift | A wrong value also sits inside a flat run. | The game changes colors: gamma, brightness, or a color filter. |
+
+The report prints one line for each mode, with the largest error, then the chosen mode: the first clean mode in the order of 7.1.3. Collect writes it into `strip-line.json` (7.1.3), and the bridge sends it to the addons with the next publish. The line shots that read also become golden vectors.
 
 **The public test key** is the 32 bytes `gnomish-relay public test key 01`. It signs only the golden strips, never a message. Each strip has the frame time 1790211079 and its own frame id, so each vector is reproducible.
 
@@ -2391,6 +2464,7 @@ The run starts 5 seconds after `PLAYER_ENTERING_WORLD`, when the saved results d
 2. It scans the `Screenshots` folder for PNGs from the time of the run. It decodes each one with the real bridge reader and the test key, and keeps a file only when its time, frame id, and payload match a shot. It never takes a path from the saved file.
 3. It writes `tests/fixtures/forever-<build>.json`: the measurements, and the behavior of the fake game that follows from them. It deletes the placeholder fixture.
 4. It writes `tests/vectors/<build>/`: each PNG, `manifest.json` with each payload and the key, and the raw saved file, which shows how WoW writes saved variables.
+5. It judges each line mode, prints the report, and writes `strip-line.json` into the data folder of the bridge (7.1.3). This is the only file that it writes outside the repo.
 
 It reads no key and no config of the relay, and it never deletes a screenshot. A running bridge leaves the test strips alone: it checks each strip that fails its keys against the test key, and keeps and logs a test strip.
 
@@ -2405,6 +2479,7 @@ It reads no key and no config of the relay, and it never deletes a screenshot. A
 1. Close the game, and run `scripts/selftest-link.sh`.
 2. Start the game and log in. When the chat says "done", type `/reload`.
 3. Run `gnomish-relay selftest collect` in the repo, run the tests, and commit `tests/fixtures` and `tests/vectors`.
+4. After a new resolution, run steps 1 to 3 again: the line fits one physical screen size.
 
 The first run ever needs one more `/reload`: its first session has no saved file, so it cannot see the load order. Collect says so.
 
