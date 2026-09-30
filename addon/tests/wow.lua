@@ -240,6 +240,10 @@ function methods:GetPoint()
 	end
 end
 
+function methods:SetResizeBounds(minWidth, minHeight, maxWidth, maxHeight)
+	self.resizeBounds = { minWidth, minHeight, maxWidth, maxHeight }
+end
+
 function methods:SetClampRectInsets(left, right, top, bottom)
 	self.clampInsets = { left, right, top, bottom }
 end

@@ -5,7 +5,9 @@ local _, ns = ...
 local Window = {}
 ns.Window = Window
 
+-- The least size. The grip makes the window bigger, up to the size of the screen.
 local WIDTH, HEIGHT = 900, 560
+local GRIP = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-"
 local SIDE = 200
 local TILE_HEIGHT = 48
 local TAB_WIDTH = 74
@@ -63,6 +65,11 @@ local function Inset(parent, left, top, width, bottom, name)
 	inset:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", left, bottom)
 	inset:SetWidth(width)
 	return inset
+end
+
+-- The inset keeps `right` from the right edge of the window, so it grows with the window.
+local function Stretch(inset, right, top)
+	inset:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -right, top)
 end
 
 local function Label(parent, font, point, x, y)
@@ -559,6 +566,11 @@ local function BuildInputHelp()
 	ui.input:SetScript("OnEditFocusLost", RefreshInputHelp)
 end
 
+-- The transcript is the center inset less 8 at each side and 6 at the top and bottom.
+local function TranscriptSize()
+	return frame:GetWidth() - 2 * SIDE - 28 - 16, frame:GetHeight() - 84 - 72 - 12
+end
+
 local function BuildCenter()
 	local left = SIDE + 14
 	local width = WIDTH - 2 * SIDE - 28
@@ -567,11 +579,12 @@ local function BuildCenter()
 	BuildFolderButton(left + 170)
 
 	local log = Inset(frame, left, -84, width, 72)
+	Stretch(log, left, -84)
 	ui.log = log
-	-- The inset is HEIGHT - 84 - 72 high, less 6 at the top and the bottom.
-	ns.Transcript.Build(log, width - 16, HEIGHT - 84 - 72 - 12)
+	ns.Transcript.Build(log, TranscriptSize())
 
 	ui.picker = Inset(frame, left, -84, width, 16)
+	Stretch(ui.picker, left, -84)
 	ui.pickNote = ui.picker:CreateFontString("GnomishRelayPickNote", "OVERLAY", "GameFontDisable")
 	ui.pickNote:SetPoint("TOPLEFT", ui.picker, "TOPLEFT", 12, -12)
 	ui.pickRows = PickRows(ui.picker, "GnomishRelayPick", width, Window.Resume)
@@ -602,7 +615,8 @@ local function BuildCenter()
 
 	ui.input = CreateFrame("EditBox", "GnomishRelayInput", frame, "InputBoxTemplate")
 	ui.input:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", left + 6, 16)
-	ui.input:SetSize(width - 6, 24)
+	ui.input:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -left, 16)
+	ui.input:SetHeight(24)
 	ui.input:SetAutoFocus(false)
 	ui.input:SetMaxBytes(MAX_INPUT)
 	ui.input:SetFont(BODY_FONT, ns.Store.db.fontSize, "")
@@ -631,7 +645,10 @@ local function ShowStepTooltip(row)
 end
 
 local function BuildActivity()
-	local panel = Inset(frame, WIDTH - SIDE - 6, -84, SIDE, 44)
+	local panel = CreateFrame("Frame", nil, frame, "InsetFrameTemplate")
+	panel:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -6, -84)
+	panel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -6, 44)
+	panel:SetWidth(SIDE)
 	local title = Label(frame, "GameFontNormal", "TOPRIGHT", -SIDE + 60, -64)
 	title:SetText("Activity")
 	ui.activity = { panel, title }
@@ -758,6 +775,8 @@ local function BuildPages()
 	local width = WIDTH - SIDE - 20
 	ui.settings = Inset(frame, left, -60, width, 16)
 	ui.diag = Inset(frame, left, -60, width, 16)
+	Stretch(ui.settings, 6, -60)
+	Stretch(ui.diag, 6, -60)
 	ns.SettingsTab.Build(ui.settings)
 	ns.DiagTab.Build(ui.diag)
 	ui.settings:Hide()
@@ -772,9 +791,45 @@ local function BuildBridgeLight()
 	ui.bridgeDot:SetPoint("RIGHT", ui.bridge, "LEFT", -4, 0)
 end
 
+local function SavedSize()
+	local saved = ns.Store.db.windowSize
+	if type(saved) ~= "table" or type(saved.width) ~= "number" or type(saved.height) ~= "number" then
+		return WIDTH, HEIGHT
+	end
+	return math.max(WIDTH, saved.width), math.max(HEIGHT, saved.height)
+end
+
+-- The transcript lays out its entries for one width, so a new size draws it again.
+local function EndSizing()
+	SavePosition()
+	ns.Store.db.windowSize = { width = frame:GetWidth(), height = frame:GetHeight() }
+	ns.Transcript.Resize(TranscriptSize())
+	Window.Refresh()
+end
+
+local function BuildGrip()
+	frame:SetResizable(true)
+	frame:SetResizeBounds(
+		WIDTH,
+		HEIGHT,
+		math.max(WIDTH, UIParent:GetWidth() - TAB_WIDTH),
+		math.max(HEIGHT, UIParent:GetHeight())
+	)
+	local grip = CreateFrame("Button", "GnomishRelayResizeGrip", frame)
+	grip:SetSize(16, 16)
+	grip:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -2, 2)
+	grip:SetNormalTexture(GRIP .. "Up")
+	grip:SetHighlightTexture(GRIP .. "Highlight")
+	grip:SetPushedTexture(GRIP .. "Down")
+	grip:SetScript("OnMouseDown", function()
+		frame:StartSizing("BOTTOMRIGHT")
+	end)
+	grip:SetScript("OnMouseUp", EndSizing)
+end
+
 local function Build()
 	frame = CreateFrame("Frame", "GnomishRelayFrame", UIParent, "PortraitFrameTemplate")
-	frame:SetSize(WIDTH, HEIGHT)
+	frame:SetSize(SavedSize())
 	PlaceFrame()
 	frame:SetMovable(true)
 	frame:EnableMouse(true)
@@ -796,6 +851,7 @@ local function Build()
 	end
 
 	BuildBridgeLight()
+	BuildGrip()
 	ui.chats = Inset(frame, 6, -60, SIDE, 30, "GnomishRelayChats")
 	ui.chats:EnableMouseWheel(true)
 	ui.chats:SetScript("OnMouseWheel", function(_, delta)

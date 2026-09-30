@@ -461,7 +461,7 @@ end
 -- The drawn entries are still the start of the history. A history over its limit drops
 -- its first entry, and then the whole chat draws again.
 local function OnlyNewEntries(chat, history)
-	if drawn.chatId ~= (chat and chat.id) or drawn.fontSize ~= FontSize() then
+	if drawn.chatId ~= (chat and chat.id) or drawn.fontSize ~= FontSize() or drawn.width ~= width then
 		return false
 	end
 	return drawn.count == 0 or (history[1] == drawn.first and history[drawn.count] == drawn.last)
@@ -472,12 +472,12 @@ local function Clear(chat)
 		ReleaseAll(pool)
 	end
 	contentHeight = 0
-	drawn = { count = 0, chatId = chat and chat.id, fontSize = FontSize() }
+	drawn = { count = 0, chatId = chat and chat.id, fontSize = FontSize(), width = width }
 	open = {}
 end
 
 -- Drawing costs time, so only new entries draw. The whole chat draws again only when
--- the chat or the font size changes.
+-- the chat, the font size, or the width changes.
 function Transcript.Show(chat)
 	local history = chat and chat.history or {}
 	if not OnlyNewEntries(chat, history) then
@@ -532,14 +532,21 @@ local function NewPutBack()
 	return button
 end
 
--- `parent` is the inset of the log. The size is fixed, so the layout needs no frame sizes.
-function Transcript.Build(parent, w, h)
+-- The next Show draws the whole chat again for the new width.
+function Transcript.Resize(w, h)
 	width, viewHeight = w, h
+	ui.scroll:SetSize(w, h)
+	ui.child:SetWidth(w)
+end
+
+-- `parent` is the inset of the log. The window gives the size, so the layout needs no
+-- frame sizes.
+function Transcript.Build(parent, w, h)
 	ui.scroll = CreateFrame("ScrollFrame", "GnomishRelayScroll", parent)
 	ui.scroll:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -6)
-	ui.scroll:SetSize(w, h)
 	ui.child = CreateFrame("Frame", "GnomishRelayTranscript", ui.scroll)
-	ui.child:SetSize(w, 1)
+	ui.child:SetHeight(1)
+	Transcript.Resize(w, h)
 	ui.scroll:SetScrollChild(ui.child)
 	ui.scroll:EnableMouseWheel(true)
 	ui.scroll:SetScript("OnMouseWheel", function(self, delta)

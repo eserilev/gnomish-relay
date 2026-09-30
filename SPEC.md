@@ -2020,6 +2020,7 @@ The window follows the classic Guild & Communities frame, and uses the built-in 
 The mockup is the reference for the layout.
 
 - **Frame:** the dark metal frame, a black title bar with the gold title "Gnomish Relay", and gold-framed red minimize and close buttons.
+- **Size:** a grip at the bottom-right corner resizes the window, from 900 × 560 up to the size of the screen. The saved variables keep the size. The transcript, the input, and the Settings and Diag pages grow with the window. The chat column and the Activity column keep their width. The transcript draws again at the end of a resize, not during it.
 - **Bridge light:** at the right of the title bar, so every tab shows it: a dot and a label. "Checking the bridge" in grey until the first poll, "Bridge online" in green, "Bridge slow" in amber, and "Bridge offline" in red (7.4). A channel problem (7.8) or a version mismatch (7.7) shows here in red too.
 - **Portrait:** a round emblem at the top-left corner: a red pipe wrench on a brass cog. It is our own drawing, shipped as a texture.
 - **Left column:** one tile per chat, with the agent as the shield icon. The selected tile glows green. A gold "!" marks a new reply. An orange "?" marks a chat whose permission popup waits for the player. The last tiles are "Start a New Chat" and "Resume". When the tiles do not fit in the column, the mouse wheel scrolls them, and a new chat scrolls to the end. A new chat starts in the default folder, and its center shows the empty transcript. Resume shows the picker of 9.6 in the center: a gold heading for each folder, then one row per session with its title, its agent, and its age, or a green "open" for an active session. A right-click on a chat tile asks `Delete "<name>"?`, or `Stop and delete "<name>"?` while the agent works, with **Delete** and **Cancel**. The question is a dialog of the game (`StaticPopupDialogs`), so it has the border of the game, and Escape closes it.
@@ -2100,7 +2101,7 @@ They also check the SHA code against both kinds of `bit` results: unsigned as in
 
 The folder also holds `Bindings.xml`, the key binding of 13.1. The game reads it from the folder by itself, so the TOC does not list it.
 
-**Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place of the window, and the agent and level of new chats. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
+**Settings of the addon.** The saved variables hold the font size, the reply line, its color and its sound, the place and the size of the window, and the agent and level of new chats. They apply at once, and the bridge never sees them. A chosen agent that the last settings list does not have gives the `default_agent` of the list.
 
 Still to come: the agent dropdown in the header, and the emblem texture.
 

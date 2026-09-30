@@ -705,6 +705,36 @@ fn the_title_bar_shows_the_bridge_light_on_every_tab() {
     );
 }
 
+fn size_of(game: &Game, name: &str) -> (i64, i64) {
+    let frame: Table = game.lua.globals().get(name).unwrap();
+    (frame.get("width").unwrap(), frame.get("height").unwrap())
+}
+
+#[test]
+fn the_grip_resizes_the_window_within_bounds_and_the_size_stays_after_a_reload() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    let bounds: Vec<i64> = game
+        .run("return GnomishRelayFrame.resizeBounds")
+        .as_table()
+        .unwrap()
+        .sequence_values()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(bounds[..2], [900, 560], "the first size is the least");
+
+    game.run(
+        "GnomishRelayFrame:SetSize(1200, 700) \
+         GnomishRelayResizeGrip:GetScript('OnMouseUp')(GnomishRelayResizeGrip)",
+    );
+    assert_eq!(size_of(&game, "GnomishRelayTranscript").0, 1200 - 900 + 456);
+
+    let game = game.reload();
+    game.run("local ns = ... ns.Window.Open()");
+    assert_eq!(size_of(&game, "GnomishRelayFrame"), (1200, 700));
+    assert_eq!(size_of(&game, "GnomishRelayTranscript").0, 756);
+}
+
 #[test]
 fn a_click_on_the_whisper_link_opens_that_chat() {
     let game = Game::start();

@@ -269,6 +269,20 @@ return {
 				{ Name = "blendMode", Type = "BlendMode", Nilable = true },
 			},
 		},
+		["SimpleButtonAPI:SetNormalTexture"] = {
+			CheckAllowChangeParent = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "asset", Type = "TextureAsset", Nilable = false },
+			},
+		},
+		["SimpleButtonAPI:SetPushedTexture"] = {
+			CheckAllowChangeParent = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "asset", Type = "TextureAsset", Nilable = false },
+			},
+		},
 		["SimpleButtonAPI:SetText"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			SecretArgumentsAddAspect = { Enum.SecretAspect.Text },
@@ -590,6 +604,21 @@ return {
 				{ Name = "movable", Type = "bool", Nilable = false },
 			},
 		},
+		["SimpleFrameAPI:SetResizable"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "resizable", Type = "bool", Nilable = false },
+			},
+		},
+		["SimpleFrameAPI:SetResizeBounds"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "minWidth", Type = "uiUnit", Nilable = false },
+				{ Name = "minHeight", Type = "uiUnit", Nilable = false },
+				{ Name = "maxWidth", Type = "uiUnit", Nilable = true },
+				{ Name = "maxHeight", Type = "uiUnit", Nilable = true },
+			},
+		},
 		["SimpleFrameAPI:SetScale"] = {
 			IsProtectedFunction = true,
 			SecretArguments = "AllowedWhenUntainted",
@@ -615,6 +644,14 @@ return {
 		["SimpleFrameAPI:Show"] = {
 			IsProtectedFunction = true,
 			Arguments = {},
+		},
+		["SimpleFrameAPI:StartSizing"] = {
+			IsProtectedFunction = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "resizePoint", Type = "FramePoint", Nilable = true },
+				{ Name = "alwaysStartFromMouse", Type = "bool", Nilable = false, Default = false },
+			},
 		},
 		["SimpleFrameAPI:StopMovingOrSizing"] = {
 			IsProtectedFunction = true,
