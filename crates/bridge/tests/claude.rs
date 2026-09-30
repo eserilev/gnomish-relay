@@ -511,3 +511,14 @@ fn with_no_sandbox_a_game_run_sets_no_shell_prefix() {
     assert_eq!(settings["sandbox"]["enabled"], false);
     assert!(settings.get("env").is_none());
 }
+
+#[test]
+fn a_game_run_asks_for_a_summary_before_a_long_reply() {
+    let flags = bridge::claude::game_run_flags(None);
+
+    let at = flags
+        .iter()
+        .position(|f| f == "--append-system-prompt")
+        .expect("the flag is there");
+    assert_eq!(flags[at + 1], bridge::agent::SUMMARY_FIRST);
+}

@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionId,
-    SessionInfo, exchange_text,
+    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SUMMARY_FIRST,
+    SessionId, SessionInfo, exchange_text,
 };
 use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
 use crate::config::{Kind, Permission};
@@ -60,6 +60,7 @@ pub fn thread_settings(cwd: &str, level: Permission) -> Value {
         "sandbox": sandbox(level),
         "approvalPolicy": APPROVAL_POLICY,
         "approvalsReviewer": "user",
+        "developerInstructions": SUMMARY_FIRST,
         "config": {
             "web_search": "disabled",
             "sandbox_workspace_write": { "exclude_slash_tmp": true },
@@ -686,6 +687,15 @@ mod tests {
             assert_ne!(settings["sandbox"], "danger-full-access");
         }
         assert_eq!(sandbox(Permission::Ask), "read-only");
+    }
+
+    #[test]
+    fn a_thread_asks_for_a_summary_before_a_long_reply() {
+        let settings = thread_settings("/w", Permission::AutoEdit);
+        assert_eq!(
+            settings["developerInstructions"],
+            crate::agent::SUMMARY_FIRST
+        );
     }
 
     #[test]
