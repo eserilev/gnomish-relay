@@ -15,6 +15,7 @@ use bridge::desktop::{self, Approvals, Prompt};
 #[cfg(unix)]
 use bridge::forward;
 use bridge::fs_safe::write_atomic;
+use bridge::fs_safe::{LogStart, open_private_log};
 use bridge::gate::{Gate, Places};
 use bridge::install;
 use bridge::lock::{self, Bridge};
@@ -227,7 +228,7 @@ fn restart(exe: &Path) -> Result<()> {
 /// A bridge that runs with no service gets stopped, and then `exe` starts in the background.
 fn restart_process(exe: &Path) -> Result<()> {
     let data = data_dir()?;
-    std::fs::create_dir_all(&data)?;
+    bridge::fs_safe::make_private_dir(&data)?;
     match lock::status(&data)? {
         Bridge::Stopped => {}
         Bridge::Runs(None) => {
@@ -279,15 +280,14 @@ const MAX_LOG: u64 = 4 * 1024 * 1024;
 /// Starts `run` as a new process with no console window, and its log in a file.
 fn start_background(exe: &Path) -> Result<PathBuf> {
     let dir = data_dir()?;
-    std::fs::create_dir_all(&dir)?;
+    bridge::fs_safe::make_private_dir(&dir)?;
     let log_path = dir.join("bridge.log");
-    let too_big = std::fs::metadata(&log_path).is_ok_and(|m| m.len() > MAX_LOG);
-    let log = std::fs::OpenOptions::new()
-        .create(true)
-        .append(!too_big)
-        .write(true)
-        .truncate(too_big)
-        .open(&log_path)?;
+    let start = if std::fs::metadata(&log_path).is_ok_and(|m| m.len() > MAX_LOG) {
+        LogStart::Fresh
+    } else {
+        LogStart::Append
+    };
+    let log = open_private_log(&log_path, start)?;
     let mut child = std::process::Command::new(exe);
     child
         .arg("run")
@@ -633,7 +633,7 @@ fn install() -> Result<()> {
 fn start() -> Result<()> {
     let config = load_config()?;
     let state = data_dir()?;
-    std::fs::create_dir_all(&state).with_context(|| format!("cannot make {}", state.display()))?;
+    bridge::fs_safe::make_private_dir(&state)?;
     let _lock = lock::take(&state)?;
     let paths = Paths {
         state,

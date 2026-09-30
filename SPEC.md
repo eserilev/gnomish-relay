@@ -97,7 +97,7 @@ So the bridge bounds what any message from the game can do (6.6).
 11. The bridge never starts a process through a shell. It passes the command as an argument list.
 12. The bridge gives each agent process only an allowlist of environment variables (`PATH`, `HOME`, `LANG`, `TERM`, and the variables in the agent config). All others, for example API keys of other tools, stay out.
 13. The bridge writes prompt files with mode 0600 in a private folder, and deletes them after the run.
-14. Setup writes `config.toml` with mode 0600. The bridge refuses a config that other users can write, because the config sets the ceiling of every game message. The strip key is in its own file, `strip.key`, with mode 0600.
+14. Setup writes `config.toml` with mode 0600. The bridge refuses a config that other users can write, because the config sets the ceiling of every game message. The strip key is in its own file, `strip.key`, with mode 0600. Each private file (`config.toml`, the keys, `state.json`, `rules.json`, and the walls files of the sandbox) has mode 0600 from the moment that the bridge makes its temp file, so no chmod comes after the rename. The bridge opens `bridge.log` with mode 0600 and never through a link. The config folder and the data folder have mode 0700, also when an older bridge made them with the umask.
 15. The bridge escapes control characters and newlines in `bridge.log`, so a prompt cannot fake a log line.
 16. The bridge sends a restore bundle only in answer to a hello with a valid MAC.
 

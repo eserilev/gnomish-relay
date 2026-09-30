@@ -8,7 +8,7 @@ use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
-use crate::fs_safe::write_atomic;
+use crate::fs_safe::write_private;
 use crate::history::History;
 use crate::lane::LaneState;
 pub use crate::lane::{SavedRecord, SavedStatus};
@@ -54,8 +54,9 @@ pub fn load<T: DeserializeOwned>(dir: &Path) -> Result<Option<T>> {
     Ok(Some(state))
 }
 
+/// Mode 0600: it holds the chats and the replay store.
 pub fn save<T: Serialize>(dir: &Path, state: &T) -> Result<()> {
-    write_atomic(dir, FILE, &serde_json::to_vec(state)?)
+    write_private(dir, FILE, &serde_json::to_string(state)?)
 }
 
 #[cfg(test)]
@@ -99,6 +100,19 @@ mod tests {
             restore_for: Some("new".into()),
             ..State::default()
         }
+    }
+
+    /// It holds the chats and the replay store.
+    #[cfg(unix)]
+    #[test]
+    fn the_state_file_has_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+
+        save(dir.path(), &state()).unwrap();
+
+        let meta = fs::metadata(dir.path().join(FILE)).unwrap();
+        assert_eq!(meta.permissions().mode() & 0o777, 0o600);
     }
 
     #[test]

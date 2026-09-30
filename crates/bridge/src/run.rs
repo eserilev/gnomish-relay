@@ -7,7 +7,7 @@ use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 
 use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal};
 use crate::config::{Permission, Policy};
@@ -610,7 +610,7 @@ fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<Vec<Record>> {
 impl TimewaysLane {
     fn open(paths: &Paths) -> Result<TimewaysLane> {
         let dir = paths.state.join(TIMEWAYS_DIR);
-        std::fs::create_dir_all(&dir).with_context(|| format!("cannot make {}", dir.display()))?;
+        crate::fs_safe::make_private_dir(&dir)?;
         let timeways = match state::load(&dir)? {
             Some(saved) => Timeways::from_state(saved),
             None => Timeways::new(),

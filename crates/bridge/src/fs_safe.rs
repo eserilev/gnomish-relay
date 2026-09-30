@@ -1,8 +1,8 @@
 //! File writes that never follow a symbolic link (SPEC.md 6.2, rule 7).
 
-use std::fs::{self, OpenOptions};
+use std::fs::{self, File, OpenOptions};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
@@ -30,26 +30,96 @@ enum Durability {
     Cached,
 }
 
+/// Who can read a new file. Windows has no mode: its files inherit the folder rights.
+#[derive(Clone, Copy)]
+enum Readers {
+    /// The umask decides.
+    Anyone,
+    /// Mode 0600 from the start.
+    Owner,
+}
+
 /// Replaces `dir/name` in one step. A reader sees the old file or the new one, never half.
 pub fn write_atomic(dir: &Path, name: &str, bytes: &[u8]) -> Result<()> {
-    write(dir, name, bytes, Durability::Synced)
+    write(dir, name, bytes, Durability::Synced, Readers::Anyone)
 }
 
 /// Mode 0600: a key signs strips, and the config sets the ceiling of every game message.
 pub fn write_private(dir: &Path, name: &str, text: &str) -> Result<()> {
-    write_atomic(dir, name, text.as_bytes())?;
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(dir.join(name), fs::Permissions::from_mode(0o600))?;
-    }
-    Ok(())
+    write(
+        dir,
+        name,
+        text.as_bytes(),
+        Durability::Synced,
+        Readers::Owner,
+    )
 }
 
 /// `write_atomic` with no sync. A sync costs milliseconds on Windows, so this is for
 /// many files that a second run of the same command writes again.
 pub fn write_atomic_unsynced(dir: &Path, name: &str, bytes: &[u8]) -> Result<()> {
-    write(dir, name, bytes, Durability::Cached)
+    write(dir, name, bytes, Durability::Cached, Readers::Anyone)
+}
+
+/// Mode 0700, also for a folder that an older bridge made with the umask. The data and
+/// config folders hold keys, chats, and the replay store.
+pub fn make_private_dir(path: &Path) -> Result<()> {
+    let mut builder = fs::DirBuilder::new();
+    builder.recursive(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::DirBuilderExt;
+        builder.mode(0o700);
+    }
+    builder
+        .create(path)
+        .with_context(|| format!("cannot make {}", path.display()))?;
+    check_real_dir(path)?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o700))?;
+    }
+    Ok(())
+}
+
+/// How a log file opens.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub enum LogStart {
+    Append,
+    /// A log that grew too big starts again.
+    Fresh,
+}
+
+/// Mode 0600, and never through a link: the log names each chat and each prompt.
+pub fn open_private_log(path: &Path, start: LogStart) -> Result<File> {
+    if fs::symlink_metadata(path).is_ok_and(|m| m.file_type().is_symlink()) {
+        bail!(
+            "{} is a symbolic link. The bridge does not write through links.",
+            path.display()
+        );
+    }
+    let mut options = OpenOptions::new();
+    options
+        .create(true)
+        .write(true)
+        .append(start == LogStart::Append)
+        .truncate(start == LogStart::Fresh);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    let file = options
+        .open(path)
+        .with_context(|| format!("cannot open {}", path.display()))?;
+    // The mode of `open` counts only for a new file. This one changes the open file.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        file.set_permissions(fs::Permissions::from_mode(0o600))?;
+    }
+    Ok(file)
 }
 
 /// `write_atomic` that skips a file that already holds `bytes`. A slot publish writes 90
@@ -68,17 +138,15 @@ fn file_holds(path: &Path, bytes: &[u8]) -> bool {
     is_file && fs::read(path).is_ok_and(|old| old == bytes)
 }
 
-fn write(dir: &Path, name: &str, bytes: &[u8], durability: Durability) -> Result<()> {
+fn write(
+    dir: &Path,
+    name: &str,
+    bytes: &[u8],
+    durability: Durability,
+    readers: Readers,
+) -> Result<()> {
     check_real_dir(dir)?;
-    let tmp = dir.join(format!(".{name}.tmp"));
-    // A crash can leave the temp file behind. Removing a link removes only the link.
-    let _ = fs::remove_file(&tmp);
-    // `create_new` fails if anything, a link too, already has the name.
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&tmp)
-        .with_context(|| format!("cannot create {}", tmp.display()))?;
+    let (mut file, tmp) = create_temp(dir, name, readers)?;
     file.write_all(bytes)?;
     if let Durability::Synced = durability {
         file.sync_all()?;
@@ -86,6 +154,26 @@ fn write(dir: &Path, name: &str, bytes: &[u8], durability: Durability) -> Result
     drop(file);
     let path = dir.join(name);
     fs::rename(&tmp, &path).with_context(|| format!("cannot replace {}", path.display()))
+}
+
+fn create_temp(dir: &Path, name: &str, readers: Readers) -> Result<(File, PathBuf)> {
+    let tmp = dir.join(format!(".{name}.tmp"));
+    // A crash can leave the temp file behind. Removing a link removes only the link.
+    let _ = fs::remove_file(&tmp);
+    let mut options = OpenOptions::new();
+    // `create_new` fails if anything, a link too, already has the name.
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    if let Readers::Owner = readers {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    #[cfg(not(unix))]
+    let _ = readers;
+    let file = options
+        .open(&tmp)
+        .with_context(|| format!("cannot create {}", tmp.display()))?;
+    Ok((file, tmp))
 }
 
 #[cfg(test)]
@@ -196,6 +284,96 @@ mod tests {
     fn a_missing_folder_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         assert!(write_atomic(&dir.path().join("nope"), "a.lua", b"x").is_err());
+    }
+
+    #[cfg(unix)]
+    fn mode(path: &Path) -> u32 {
+        use std::os::unix::fs::PermissionsExt;
+        fs::symlink_metadata(path).unwrap().permissions().mode() & 0o777
+    }
+
+    /// A chmod after the rename leaves a moment when others read the file, and it
+    /// follows a link that takes the place of the file.
+    #[cfg(unix)]
+    #[test]
+    fn a_private_temp_file_has_mode_0600_from_the_start() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let (_file, tmp) = create_temp(dir.path(), "a.key", Readers::Owner).unwrap();
+
+        assert_eq!(mode(&tmp), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_write_replaces_an_old_file_that_others_could_read() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("a.key");
+        fs::write(&path, "old").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        write_private(dir.path(), "a.key", "new").unwrap();
+
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "new");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_folder_has_mode_0700_also_when_it_was_open_before() {
+        use std::os::unix::fs::PermissionsExt;
+        let root = tempfile::tempdir().unwrap();
+        let new = root.path().join("a/b");
+        let old = root.path().join("old");
+        fs::create_dir(&old).unwrap();
+        fs::set_permissions(&old, fs::Permissions::from_mode(0o755)).unwrap();
+
+        make_private_dir(&new).unwrap();
+        make_private_dir(&old).unwrap();
+
+        assert_eq!(mode(&new), 0o700);
+        assert_eq!(mode(&old), 0o700);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_private_log_has_mode_0600_and_keeps_its_lines() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.log");
+        fs::write(&path, "old\n").unwrap();
+        fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
+
+        let mut log = open_private_log(&path, LogStart::Append).unwrap();
+        log.write_all(b"new\n").unwrap();
+
+        assert_eq!(mode(&path), 0o600);
+        assert_eq!(fs::read_to_string(&path).unwrap(), "old\nnew\n");
+    }
+
+    #[test]
+    fn a_fresh_log_starts_empty() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("bridge.log");
+        fs::write(&path, "old\n").unwrap();
+
+        open_private_log(&path, LogStart::Fresh).unwrap();
+
+        assert_eq!(fs::read_to_string(&path).unwrap(), "");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_log_that_is_a_link_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("target");
+        fs::write(&target, "other file").unwrap();
+        let link = dir.path().join("bridge.log");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert!(open_private_log(&link, LogStart::Append).is_err());
+        assert_eq!(fs::read_to_string(&target).unwrap(), "other file");
     }
 
     #[cfg(unix)]

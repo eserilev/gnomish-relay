@@ -13,7 +13,7 @@ use anyhow::{Context, Result};
 use protocol::always::is_plain_word;
 use serde::{Deserialize, Serialize};
 
-use crate::fs_safe::write_private;
+use crate::fs_safe::{make_private_dir, write_private};
 use crate::run::log;
 
 pub const FILE: &str = "rules.json";
@@ -174,7 +174,7 @@ pub fn save(dir: &Path, rules: &[Rule]) -> Result<()> {
             .map(serde_json::to_value)
             .collect::<Result<_, _>>()?,
     };
-    fs::create_dir_all(dir).with_context(|| format!("cannot make {}", dir.display()))?;
+    make_private_dir(dir)?;
     write_private(dir, FILE, &serde_json::to_string_pretty(&file)?)
 }
 
