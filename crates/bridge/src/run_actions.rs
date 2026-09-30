@@ -9,6 +9,7 @@ use crate::run::log;
 use crate::run_changes::{ChangeKind, Outcome, RunChanges, snapshot};
 
 const NO_MESSAGE: &str = "Commit needs a message.";
+const NOTHING_LEFT: &str = "Nothing to commit: the files of this summary are gone.";
 const NESTED_REPO: &str =
     "This run made a git repository inside the folder, so Commit is off. Use git on your desktop.";
 const ODD_NAMES: &str =
@@ -60,7 +61,10 @@ pub fn commit(git: &GitHost, run: &RunChanges, message: &str) -> Result<String, 
     let merging = git
         .yes(top, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])
         .unwrap_or(false);
-    let paths = run.paths();
+    let paths = paths_git_can_take(git, top, &run.paths())?;
+    if paths.is_empty() && !merging {
+        return Err(NOTHING_LEFT.into());
+    }
     let result = if merging {
         git.bytes(top, &["add", "-A"])
             .and_then(|_| git.bytes(top, &["commit", "-q", "--no-verify", "-m", message]))
@@ -88,6 +92,25 @@ pub fn commit(git: &GitHost, run: &RunChanges, message: &str) -> Result<String, 
         "Committed {} as {short} on {branch}.",
         files(paths.len())
     ))
+}
+
+/// A path that is neither on disk nor in the index, such as an untracked file that the
+/// run removed, makes `git add -- <path>` fail for every path.
+fn paths_git_can_take<'a>(
+    git: &GitHost,
+    top: &Path,
+    paths: &[&'a str],
+) -> Result<Vec<&'a str>, String> {
+    let listed = git
+        .bytes(top, &with_paths(&["ls-files", "-z"], paths))
+        .map_err(|e| format!("Couldn't commit: {e}"))?;
+    let indexed = nul_parts(&listed);
+    let on_disk = |p: &str| fs::symlink_metadata(top.join(p)).is_ok();
+    Ok(paths
+        .iter()
+        .copied()
+        .filter(|p| on_disk(p) || indexed.contains(&p.as_bytes()))
+        .collect())
 }
 
 /// A commit records a new repository as a gitlink. Plain git on the desktop then runs in
@@ -343,6 +366,34 @@ mod tests {
         assert_eq!(error, NESTED_REPO);
         let tree = repo.run(&["ls-tree", "-r", "HEAD"]);
         assert!(!tree.contains("160000"), "{tree}");
+    }
+
+    #[test]
+    fn commit_skips_an_untracked_file_that_the_run_removed() {
+        let repo = repo();
+        repo.write("notes.txt", "the user's notes\n");
+        let run = repo.run_that(|r| {
+            r.write("a.txt", "agent\n");
+            fs::remove_file(r.top.join("notes.txt")).unwrap();
+        });
+
+        let reply = commit(&repo.git, &run, "agent work").unwrap();
+
+        assert!(reply.starts_with("Committed 1 file as "), "{reply}");
+        let shown = repo.run(&["show", "--name-only", "--format=%s", "HEAD"]);
+        assert_eq!(shown.trim(), "agent work\n\na.txt");
+    }
+
+    #[test]
+    fn commit_of_a_summary_whose_files_are_all_gone_says_so() {
+        let repo = repo();
+        let run = repo.run_that(|r| r.write("new.txt", "new\n"));
+        fs::remove_file(repo.top.join("new.txt")).unwrap();
+
+        assert_eq!(
+            commit(&repo.git, &run, "agent work"),
+            Err(NOTHING_LEFT.into())
+        );
     }
 
     #[test]
