@@ -3322,7 +3322,10 @@ fn the_whisper_line_shows_the_plain_words_of_a_rendered_reply() {
 #[test]
 fn a_long_transcript_scrolls_to_the_newest_entry_and_the_wheel_scrolls_up() {
     let game = Game::start();
-    rendered_reply(&game, &"line\n\n".repeat(60));
+    game.run("local ns = ... ns.Window.Open()");
+    for _ in 0..40 {
+        game.send("line");
+    }
 
     let scroll: Table = game.lua.globals().get("GnomishRelayScroll").unwrap();
     let bottom: i64 = scroll.get("scroll").unwrap();

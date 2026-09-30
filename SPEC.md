@@ -2175,7 +2175,7 @@ The files marked "shared" are in `addon/transport` (9.7, decision 14). They read
 | `Transport.lua` | The relay on top of `Messages.lua`: the coding flags, the session list, the folder tree request, Stop, Delete and its `d` records, the restore bundle, the live file, and the permission answers. |
 | `Notices.lua` | The notifications of terminal sessions (10.4): the list, the filter, the chat line, the sound, Clear, and the faster polls. |
 | `Blocks.lua` | Splits a rendered reply (7.3.1) into blocks and fields, and gives its plain words. |
-| `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks. |
+| `Transcript.lua` | The transcript of the window: a scroll frame that stacks entries and draws blocks, and the summary of a long reply. |
 | `Folders.lua` | The folder tree of 9.9: the parser, the relative folders, the filter, the recent folders, and the name rules. |
 | `Browser.lua` | The folder browser of 9.9 in the center of the window. |
 | `BridgeSettings.lua` | The settings list of 13.4: the parser, the cache, and the agent of a new chat. |

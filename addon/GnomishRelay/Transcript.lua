@@ -26,12 +26,19 @@ local WHEEL_STEP = 40
 local STATUS_WIDTH = 80
 -- Four no-break spaces: SimpleHTML drops normal spaces at the start of a line.
 local INDENT = ("\194\160"):rep(4)
+-- A reply over either limit shows its summary first (SPEC.md 13.1).
+local LONG_BLOCKS = 8
+local LONG_BYTES = 800
 
 local ui = {}
 local width, viewHeight
 local contentHeight = 0
--- What the scroll child shows now: the chat, the font size, and the entries drawn.
-local drawn = { count = 0 }
+-- What the scroll child shows now: the chat, the font size, and the entries drawn. For
+-- entry i, `tops[i]` is its y and `marks[i]` the pool counts before it, so a draw can
+-- start again from it.
+local drawn = { count = 0, tops = {}, marks = {} }
+-- The long replies that the player opened. An entry that the history drops goes too.
+local opened = setmetatable({}, { __mode = "k" })
 -- The drawn messages with no final reply, each with the line of its delivery state.
 local open = {}
 
@@ -364,16 +371,61 @@ local function DrawBlocks(blocks, x, y)
 	return y
 end
 
-local function DrawRendered(prefix, text, y)
+local function DrawLink(text, action, x, y)
+	local button = Acquire(ui.pools.link)
+	button.action = action
+	button.label:SetText(string.format("|cff%s%s|r", LINK, text))
+	button:SetSize(button.label:GetUnboundedStringWidth() + 4, 16)
+	Place(button, x, y)
+	return button
+end
+
+local function BlockBytes(block)
+	if block.kind == "row" then
+		return #table.concat(block.cells)
+	end
+	return #(block.text or "")
+end
+
+local function IsLong(blocks)
+	if #blocks > LONG_BLOCKS then
+		return true
+	end
+	local bytes = 0
+	for _, block in ipairs(blocks) do
+		bytes = bytes + BlockBytes(block)
+	end
+	return bytes > LONG_BYTES
+end
+
+-- The agent writes a summary paragraph first. An agent that does not gets its first two blocks.
+local function Summary(blocks)
+	if blocks[1].kind == "paragraph" then
+		return { blocks[1] }
+	end
+	return { blocks[1], blocks[2] }
+end
+
+local function DrawRendered(entry, prefix, y)
 	y = TextLine(prefix, 0, y, width)
-	return DrawBlocks(ns.Blocks.Parse(text), PAD, y + 2)
+	local blocks = ns.Blocks.Parse(entry.text)
+	if not IsLong(blocks) then
+		return DrawBlocks(blocks, PAD, y + 2)
+	end
+	local isOpen = opened[entry] == true
+	y = DrawBlocks(isOpen and blocks or Summary(blocks), PAD, y + 2)
+	DrawLink(isOpen and "Show less" or "Show more", function()
+		Transcript.Toggle(entry)
+	end, PAD, y)
+	return y + 18
 end
 
 -- If anything fails while it draws, the reply shows as plain text.
-local function DrawReply(prefix, text, y)
+local function DrawReply(entry, prefix, y)
+	local text = entry.text
 	if ns.Blocks.IsRendered(text) then
 		local mark = Mark()
-		local ok, bottom = pcall(DrawRendered, prefix, text, y)
+		local ok, bottom = pcall(DrawRendered, entry, prefix, y)
 		if ok then
 			return bottom
 		end
@@ -415,7 +467,7 @@ local function DrawMessage(entry, y)
 	local line = Acquire(ui.pools.status)
 	line:SetWidth(STATUS_WIDTH)
 	Place(line, width - STATUS_WIDTH, y)
-	table.insert(open, { entry = entry, line = line })
+	table.insert(open, { entry = entry, line = line, index = drawn.count })
 	return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width - STATUS_WIDTH)
 end
 
@@ -449,7 +501,7 @@ local function DrawEntry(chat, entry, y)
 		return DrawError(chat, entry, y)
 	end
 	local agent = entry.agent or chat.agent
-	return DrawReply(Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), entry.text, y)
+	return DrawReply(entry, Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), y)
 end
 
 local function ScrollTo(offset)
@@ -471,8 +523,43 @@ local function Clear(chat)
 		ReleaseAll(pool)
 	end
 	contentHeight = 0
-	drawn = { count = 0, chatId = chat and chat.id, fontSize = FontSize(), width = width }
+	drawn = {
+		count = 0,
+		tops = {},
+		marks = {},
+		chat = chat,
+		chatId = chat and chat.id,
+		fontSize = FontSize(),
+		width = width,
+	}
 	open = {}
+end
+
+-- Gives back the widgets of entry `from` and of every entry below it.
+local function ForgetFrom(from)
+	ReleaseSince(drawn.marks[from])
+	for i = #open, 1, -1 do
+		if open[i].index >= from then
+			table.remove(open, i)
+		end
+	end
+	drawn.count = from - 1
+	contentHeight = drawn.tops[from]
+end
+
+-- Draws the entries after the drawn ones, and returns the new bottom.
+local function DrawNew(chat, history)
+	local y = contentHeight
+	for i = drawn.count + 1, #history do
+		drawn.tops[i], drawn.marks[i] = y, Mark()
+		drawn.count = i
+		y = DrawEntry(chat, history[i], y) + GAP
+	end
+	drawn.count, drawn.first, drawn.last = #history, history[1], history[#history]
+	UpdateDelivery()
+	contentHeight = y
+	ui.child:SetHeight(math.max(y, 1))
+	return y
 end
 
 -- Drawing costs time, so only new entries draw. The whole chat draws again only when
@@ -486,15 +573,35 @@ function Transcript.Show(chat)
 		UpdateDelivery()
 		return
 	end
-	local y = contentHeight
-	for i = drawn.count + 1, #history do
-		y = DrawEntry(chat, history[i], y) + GAP
+	ScrollTo(DrawNew(chat, history))
+end
+
+local function IndexOf(history, entry)
+	for i = 1, drawn.count do
+		if history[i] == entry then
+			return i
+		end
 	end
-	drawn.count, drawn.first, drawn.last = #history, history[1], history[#history]
-	UpdateDelivery()
-	contentHeight = y
-	ui.child:SetHeight(math.max(y, 1))
-	ScrollTo(y)
+end
+
+-- Draws again from `entry` down, and keeps the scroll where it is.
+local function RedrawFrom(entry)
+	local chat = drawn.chat
+	local history = chat and chat.history or {}
+	local i = OnlyNewEntries(chat, history) and IndexOf(history, entry)
+	if i then
+		ForgetFrom(i)
+	else
+		Clear(chat)
+	end
+	local offset = ui.scroll:GetVerticalScroll()
+	DrawNew(chat, history)
+	ScrollTo(offset)
+end
+
+function Transcript.Toggle(entry)
+	opened[entry] = not opened[entry] or nil
+	RedrawFrom(entry)
 end
 
 local function NewTexture(layer, r, g, b, a)
@@ -531,6 +638,16 @@ local function NewResend()
 	return button
 end
 
+local function NewLink()
+	local button = CreateFrame("Button", nil, ui.child)
+	button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	button.label:SetPoint("LEFT", button, "LEFT", 0, 0)
+	button:SetScript("OnClick", function(self)
+		self.action()
+	end)
+	return button
+end
+
 -- The next Show draws the whole chat again for the new width.
 function Transcript.Resize(w, h)
 	width, viewHeight = w, h
@@ -556,6 +673,7 @@ function Transcript.Build(parent, w, h)
 		cell = NewPool(NewFontString("GameFontHighlightSmall")),
 		status = NewPool(NewFontString("GameFontDisableSmall")),
 		resend = NewPool(NewResend),
+		link = NewPool(NewLink),
 		html = NewPool(NewHtml),
 		code = NewPool(NewCodeBox),
 		rule = NewPool(NewTexture("ARTWORK", 0.6, 0.5, 0.2, 0.8)),
