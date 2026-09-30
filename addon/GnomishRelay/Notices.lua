@@ -177,6 +177,22 @@ local function Line(text)
 	)
 end
 
+-- "3 agents finished: a, b, c", or "3 agents done (1 failed): a, b, c".
+local function GroupText(done)
+	local repos, failed = {}, 0
+	for _, n in ipairs(done) do
+		table.insert(repos, n.repo ~= "" and n.repo or Notices.Agent(n))
+		if n.kind == "failed" then
+			failed = failed + 1
+		end
+	end
+	local list = table.concat(repos, ", ")
+	if failed == 0 then
+		return string.format("%d agents finished: %s", #done, list)
+	end
+	return string.format("%d agents done (%d failed): %s", #done, failed, list)
+end
+
 local function ChatLines(new)
 	local done = {}
 	for _, n in ipairs(new) do
@@ -190,11 +206,7 @@ local function ChatLines(new)
 		local n = done[1]
 		Line(string.format("%s %s: %s", Tag(n), DoneText(n), Notices.Cut(n.text, SNIPPET)))
 	elseif #done > 1 then
-		local repos = {}
-		for _, n in ipairs(done) do
-			table.insert(repos, n.repo ~= "" and n.repo or Notices.Agent(n))
-		end
-		Line(string.format("%d agents finished: %s", #done, table.concat(repos, ", ")))
+		Line(GroupText(done))
 	end
 end
 

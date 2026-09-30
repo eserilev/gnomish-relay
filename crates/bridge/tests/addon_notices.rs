@@ -387,6 +387,24 @@ fn three_finished_notices_of_one_poll_share_one_line() {
 }
 
 #[test]
+fn a_shared_line_with_a_failed_notice_counts_the_failed_ones() {
+    let game = Game::start();
+
+    game.publish_and_poll(
+        0,
+        2,
+        &[
+            notice(1, NoticeKind::Failed, "lighthouse", 300, "overloaded"),
+            finished(2, "gnomish-relay", 100),
+        ],
+    );
+
+    let lines = game.lines_with("agents done");
+    assert_eq!(lines.len(), 1, "{:?}", game.printed());
+    assert!(lines[0].contains("2 agents done (1 failed): lighthouse, gnomish-relay"));
+}
+
+#[test]
 fn a_long_text_is_cut_at_120_bytes_and_never_inside_a_doubled_pipe() {
     let game = Game::start();
     let text = format!("{}||x", "a".repeat(119));
