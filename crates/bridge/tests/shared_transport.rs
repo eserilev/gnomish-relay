@@ -39,6 +39,7 @@ const SHARED: &[&str] = &[
 ];
 const RELAY_FILES: &[&str] = &[
     "App.lua",
+    "KeyHandoff.lua",
     "Sha256.lua",
     "Codec.lua",
     "Saved.lua",
@@ -60,6 +61,7 @@ const RELAY_FILES: &[&str] = &[
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",
+    "SetupNeeded.lua",
     "Core.lua",
 ];
 /// The App.lua of the test addon: the Timeways names of SPEC.md 9.7, decision 5.

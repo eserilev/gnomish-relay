@@ -11,6 +11,9 @@ ns.KeyHandoff = KeyHandoff
 
 local KEY_HEX_LENGTH = 64
 
+-- Where the key came in, for /relay diag: "file load", an event name, or "missing".
+KeyHandoff.step = "missing"
+
 local function IsKeyHex(value)
 	return type(value) == "string" and #value == KEY_HEX_LENGTH and value:match("^%x+$") ~= nil
 end
@@ -39,4 +42,17 @@ function KeyHandoff.Take()
 	return Bytes(hex)
 end
 
-ns.key = KeyHandoff.Take()
+-- Nobody has tested LoadAddOn during the file load of another addon in the Forever
+-- client. So the app tries again at its ADDON_LOADED and at PLAYER_LOGIN. The first key
+-- wins, and each try clears the global in the same call that reads it.
+function KeyHandoff.Try(step)
+	if ns.key then
+		return
+	end
+	ns.key = KeyHandoff.Take()
+	if ns.key then
+		KeyHandoff.step = step
+	end
+end
+
+KeyHandoff.Try("file load")

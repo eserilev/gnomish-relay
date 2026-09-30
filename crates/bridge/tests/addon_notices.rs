@@ -16,6 +16,7 @@ use protocol::slot::slot_body;
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 const FILES: &[&str] = &[
     "App.lua",
+    "KeyHandoff.lua",
     "Sha256.lua",
     "Codec.lua",
     "Saved.lua",
@@ -37,6 +38,7 @@ const FILES: &[&str] = &[
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",
+    "SetupNeeded.lua",
     "Core.lua",
 ];
 const TOAST_SOUND: i64 = 18019;

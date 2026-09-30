@@ -47,6 +47,10 @@ local wow = {
 	-- The Key.lua text of each key addon (SPEC.md 7.3.2), by addon name. A key addon
 	-- that is not here is missing.
 	keyAddons = {},
+	-- The event in which LoadAddOn of a key addon works: nil for always, "never", or an
+	-- event name. Outside every event is the file load.
+	keyAddonWorksAt = nil,
+	event = nil,
 	reloads = 0,
 	combat = false,
 	textures = {},
@@ -442,11 +446,14 @@ function methods:Click()
 end
 
 function wow.Fire(event, ...)
+	local outer = wow.event
+	wow.event = event
 	for _, f in ipairs(wow.frames) do
 		if f.events and f.events[event] and f.scripts.OnEvent then
 			f.scripts.OnEvent(f, event, ...)
 		end
 	end
+	wow.event = outer
 end
 
 local function Under(o, root)
@@ -776,9 +783,14 @@ end
 
 -- A slot runs the body, the restore file, and the live file that the test put there,
 -- one time per UI session. A slot of another app runs the files of that app.
+local function KeyAddonWorksNow()
+	local at = wow.keyAddonWorksAt
+	return at == nil or at == wow.event
+end
+
 local function IsMissing(name)
 	if name:match("_Key$") then
-		return wow.keyAddons[name] == nil
+		return wow.keyAddons[name] == nil or not KeyAddonWorksNow()
 	end
 	return not wow.slotsInstalled or wow.missingAddOns[name]
 end

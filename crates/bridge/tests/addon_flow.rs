@@ -2356,6 +2356,74 @@ fn setup_window_title(game: &Game) -> String {
     )
 }
 
+/// A game whose `LoadAddOn` of the key addon works only in `event`, or never.
+fn start_with_key_addon_from(event: &str) -> Game {
+    Game::start_with(|wow| wow.set("keyAddonWorksAt", event).unwrap())
+}
+
+fn key_step(game: &Game) -> String {
+    game.run("local ns = ... return table.concat(ns.Relay.DiagLines(), '\\n')")
+        .to_string()
+        .unwrap()
+        .lines()
+        .find_map(|line| {
+            line.strip_prefix("Gnomish Relay: key loaded at ")
+                .map(str::to_owned)
+        })
+        .unwrap_or_default()
+}
+
+#[test]
+fn a_key_addon_that_loads_only_at_addon_loaded_still_gives_the_key() {
+    let game = start_with_key_addon_from("ADDON_LOADED");
+
+    let key = game.run("local ns = ... return ns.key");
+
+    assert_eq!(key.as_string().unwrap().as_bytes(), KEY);
+    assert_eq!(key_step(&game), "ADDON_LOADED");
+    assert!(game.run("return rawget(_G, 'GnomishRelayKey')").is_nil());
+}
+
+#[test]
+fn a_key_addon_that_loads_only_at_player_login_still_gives_the_key() {
+    let game = start_with_key_addon_from("PLAYER_LOGIN");
+
+    let key = game.run("local ns = ... return ns.key");
+
+    assert_eq!(key.as_string().unwrap().as_bytes(), KEY);
+    assert_eq!(key_step(&game), "PLAYER_LOGIN");
+    assert_eq!(setup_window_title(&game), "");
+    assert!(game.run("return rawget(_G, 'GnomishRelayKey')").is_nil());
+}
+
+#[test]
+fn a_key_addon_that_never_loads_shows_the_first_run_window_and_signs_nothing() {
+    let game = start_with_key_addon_from("never");
+
+    game.run("SlashCmdList.GNOMISHRELAYASK('hello')");
+    game.advance(300.0);
+
+    assert!(game.run("local ns = ... return ns.key").is_nil());
+    assert_eq!(
+        setup_window_title(&game),
+        "Gnomish Relay needs its desktop app"
+    );
+    assert_eq!(game.shots(), 0);
+    game.run("SlashCmdList.GNOMISHRELAY('diag')");
+    assert!(
+        game.printed()
+            .contains(&"Gnomish Relay: key loaded at missing".into()),
+        "{:?}",
+        game.printed()
+    );
+}
+
+#[test]
+fn a_key_addon_that_loads_at_once_says_file_load() {
+    let game = Game::start();
+    assert_eq!(key_step(&game), "file load");
+}
+
 #[test]
 fn the_relay_takes_its_key_from_the_key_addon() {
     let game = Game::start();

@@ -112,6 +112,11 @@ local function LastMessage(chat)
 	end
 end
 
+-- The first run in the real game tells which try of KeyHandoff.lua found the key.
+local function KeyLine()
+	return "Gnomish Relay: key loaded at " .. ns.KeyHandoff.step
+end
+
 -- The lines of /relay diag. The Diag tab shows them too.
 function Relay.DiagLines()
 	local lines = {}
@@ -136,6 +141,7 @@ function Relay.DiagLines()
 		)
 	)
 	table.insert(lines, ns.Health.Line())
+	table.insert(lines, KeyLine())
 	return lines
 end
 
@@ -147,7 +153,9 @@ end
 
 local function Command(arg)
 	arg = strtrim(arg or "")
-	if not ns.key then
+	if not ns.key and arg == "diag" then
+		print(KeyLine())
+	elseif not ns.key then
 		ns.SetupNeeded.Toggle()
 	elseif arg == "" then
 		ns.Window.Toggle()
@@ -181,10 +189,12 @@ events:RegisterEvent("PLAYER_LOGIN")
 events:RegisterEvent("PLAYER_REGEN_ENABLED")
 events:SetScript("OnEvent", function(_, event, name)
 	if event == "ADDON_LOADED" and name == addonName then
+		ns.KeyHandoff.Try("ADDON_LOADED")
 		ns.Store.Load()
 	elseif event == "PLAYER_REGEN_ENABLED" then
 		ns.Notices.CombatEnded()
 	elseif event == "PLAYER_LOGIN" then
+		ns.KeyHandoff.Try("PLAYER_LOGIN")
 		local missing = ns.Health.Missing()
 		if missing then
 			print(
