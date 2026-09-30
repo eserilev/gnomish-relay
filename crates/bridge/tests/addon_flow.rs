@@ -958,7 +958,31 @@ fn an_outbox_frame_that_the_bridge_never_takes_asks_to_be_sent_again() {
 }
 
 #[test]
-fn a_message_that_was_not_sent_shows_a_relay_line_and_can_put_its_text_back() {
+fn resend_sends_a_failed_message_again_at_once_in_the_same_session() {
+    let game = Game::start();
+    game.send("stuck in the outbox");
+    game.advance(900.0);
+    game.run("local ns = ... ns.Window.Open()");
+
+    let lines = texts(&transcript(&game));
+    assert_eq!(
+        lines.get(2).map(String::as_str),
+        Some("|cff69ccf0Resend|r"),
+        "{lines:?}"
+    );
+    game.run("GnomishRelayResend1:Click()");
+
+    let open = game
+        .run("local ns = ... local n = 0 for _, item in ipairs(ns.Store.Open()) do if item.message.text == 'stuck in the outbox' then n = n + 1 end end return n")
+        .as_integer()
+        .unwrap();
+    assert_eq!(open, 1);
+    let input: Table = game.lua.globals().get("GnomishRelayInput").unwrap();
+    assert_eq!(input.get::<Option<String>>("text").unwrap(), None);
+}
+
+#[test]
+fn after_a_reload_resend_puts_the_text_in_the_input_for_enter() {
     let game = Game::start();
     game.send("stuck in the outbox");
     let game = game.reload();
@@ -971,8 +995,8 @@ fn a_message_that_was_not_sent_shows_a_relay_line_and_can_put_its_text_back() {
         format!("|cff9d9d9d[Relay]: {BRIDGE_OFF}|r"),
         "{lines:?}"
     );
-    assert_eq!(lines[2], "|cff69ccf0Put the text back|r");
-    game.run("GnomishRelayPutBack1:Click()");
+    assert_eq!(lines[2], "|cff69ccf0Resend|r");
+    game.run("GnomishRelayResend1:Click()");
     let input: Table = game.lua.globals().get("GnomishRelayInput").unwrap();
     assert_eq!(input.get::<String>("text").unwrap(), "stuck in the outbox");
     assert!(
@@ -993,7 +1017,7 @@ fn a_stored_frame_too_old_at_login_asks_to_be_sent_again() {
     game.advance(2.0);
     assert_eq!(
         last_entry(&game).get::<String>("text").unwrap(),
-        "Not sent. Send it again."
+        "Not sent."
     );
 }
 

@@ -24,7 +24,7 @@ local PROTO = 1
 -- the health flags.
 local REPORT_ROOM = 440
 local TOO_LONG = "Too long to send."
-local NOT_SENT = "Not sent. Send it again."
+local NOT_SENT = "Not sent."
 local BRIDGE_OFF = "Not sent: the bridge is not running. On the desktop, run gnomish-relay restart."
 local BAD_KEY =
 	"Not sent: the bridge does not know this key. On the desktop, run gnomish-relay setup, then type /reload."
@@ -443,6 +443,13 @@ function Messages.Queue(chat, message)
 	Messages.ShowNextStrip()
 	Messages.OnChange()
 	return message
+end
+
+-- Only text from our own code can be signed again; the saved variables can be changed
+-- by any addon (SPEC.md 6.6.1). So a message from before a /reload has none.
+function Messages.PrivateText(id)
+	local record = state.private[id]
+	return record and record.text
 end
 
 -- Returns nil for a message that does not fit in one strip.

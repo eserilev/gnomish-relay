@@ -419,11 +419,10 @@ local function DrawMessage(entry, y)
 	return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width - STATUS_WIDTH)
 end
 
--- The text goes back into the input, not out: the player sees what is sent again.
-local function DrawPutBack(text, y)
-	local button = Acquire(ui.pools.putBack)
-	button.saved = text
-	button.label:SetText(string.format("|cff%sPut the text back|r", LINK))
+local function DrawResend(message, y)
+	local button = Acquire(ui.pools.resend)
+	button.message = message
+	button.label:SetText(string.format("|cff%sResend|r", LINK))
 	button:SetSize(button.label:GetUnboundedStringWidth() + 4, 16)
 	Place(button, 0, y + 2)
 	return y + 20
@@ -434,7 +433,7 @@ local function DrawError(chat, entry, y)
 	y = TextLine(string.format("|cff%s[Relay]: %s|r", GREY, ns.Relay.Plain(entry.text)), 0, y, width)
 	local message = entry.id and ns.Store.Message(chat, entry.id)
 	if message and not message.attach and message.text ~= "" then
-		y = DrawPutBack(message.text, y)
+		y = DrawResend(message, y)
 	end
 	return y
 end
@@ -519,15 +518,15 @@ local function NewFontString(template, font)
 	end
 end
 
-local putBacks = 0
+local resends = 0
 
-local function NewPutBack()
-	putBacks = putBacks + 1
-	local button = CreateFrame("Button", "GnomishRelayPutBack" .. putBacks, ui.child)
+local function NewResend()
+	resends = resends + 1
+	local button = CreateFrame("Button", "GnomishRelayResend" .. resends, ui.child)
 	button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	button.label:SetPoint("LEFT", button, "LEFT", 0, 0)
 	button:SetScript("OnClick", function(self)
-		ns.Window.PutBack(self.saved)
+		ns.Window.Resend(self.message)
 	end)
 	return button
 end
@@ -556,7 +555,7 @@ function Transcript.Build(parent, w, h)
 		text = NewPool(NewFontString("GameFontHighlight", ChatFontNormal)),
 		cell = NewPool(NewFontString("GameFontHighlightSmall")),
 		status = NewPool(NewFontString("GameFontDisableSmall")),
-		putBack = NewPool(NewPutBack),
+		resend = NewPool(NewResend),
 		html = NewPool(NewHtml),
 		code = NewPool(NewCodeBox),
 		rule = NewPool(NewTexture("ARTWORK", 0.6, 0.5, 0.2, 0.8)),

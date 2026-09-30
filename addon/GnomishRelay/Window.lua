@@ -490,9 +490,16 @@ function Window.Send(text)
 	return true
 end
 
-function Window.PutBack(text)
+-- After a /reload only the saved variables hold the text, and those are never signed
+-- again (SPEC.md 6.6.1). So the text goes into the input, and Enter sends it.
+function Window.Resend(message)
+	local text = ns.Messages.PrivateText(message.id)
+	if text then
+		Window.Send(text)
+		return
+	end
 	if ui.input then
-		ui.input:SetText(text)
+		ui.input:SetText(message.text)
 		ui.input:SetFocus()
 	end
 end
