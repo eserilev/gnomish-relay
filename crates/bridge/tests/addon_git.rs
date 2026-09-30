@@ -459,6 +459,25 @@ fn a_failed_commit_brings_the_buttons_back() {
 }
 
 #[test]
+fn a_commit_that_is_not_sent_brings_the_buttons_back() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+    assert!(!game.shown("GnomishRelayChangeButton1"));
+
+    for _ in 0..20 {
+        game.advance(30.0);
+    }
+    game.run("local ns = ... ns.Window.Refresh()");
+
+    let texts = game.texts().join("\n");
+    assert!(texts.contains("Not sent"), "{texts}");
+    assert!(!texts.contains("Sending..."), "{texts}");
+    assert!(game.shown("GnomishRelayChangeButton1"));
+}
+
+#[test]
 fn an_agent_text_can_never_draw_a_change_block() {
     let game = Game::start();
     game.send("go");
