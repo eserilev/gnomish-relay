@@ -16,7 +16,7 @@ use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy};
 use bridge::daily_usage;
 use bridge::desktop::{Approvals, Prompt, Verdict};
-use bridge::folder_path::path_bytes;
+use bridge::folder_path::{path_bytes, real_path};
 use bridge::gate::Gate;
 use bridge::ids::hex;
 use bridge::line_choice::{self, LineChoice};
@@ -1054,7 +1054,9 @@ struct Trusting {
 /// A bridge in the home folder of `f`, with the one root `~/Code`, whose folder
 /// requests answer through `approvals` (SPEC.md 9.12).
 fn trusting_bridge(f: &Dirs, approvals: &Approvals) -> Trusting {
-    let home = f.state.parent().unwrap().canonicalize().unwrap();
+    // As in `start`: `canonicalize` puts `\\?\` before the home on Windows, and then no
+    // folder shows as `~`.
+    let home = real_path(f.state.parent().unwrap()).unwrap();
     let code = home.join("Code");
     fs::create_dir_all(&code).unwrap();
     let config_dir = home.join("config");
