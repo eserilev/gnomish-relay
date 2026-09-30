@@ -240,6 +240,13 @@ function Changes.CloseCommit()
 	ui.target = nil
 end
 
+-- A deleted chat takes its open Commit dialog with it.
+function Changes.Forget(chat)
+	if ui.target and ui.target.chat == chat then
+		Changes.CloseCommit()
+	end
+end
+
 local function Commit()
 	local text = strtrim(ui.message:GetText() or "")
 	local target = ui.target
@@ -256,10 +263,6 @@ function Changes.AskCommit(chat, entry)
 	ui.dialog:Show()
 	ui.message:SetFocus()
 	RefreshCommit()
-end
-
-function Changes.CommitShown()
-	return ui.dialog ~= nil and ui.dialog:IsShown()
 end
 
 local buttons = 0
@@ -314,6 +317,7 @@ local function BuildDialog()
 	cancel:SetText("Cancel")
 	cancel:SetScript("OnClick", Changes.CloseCommit)
 	dialog:Hide()
+	table.insert(UISpecialFrames, "GnomishRelayCommit")
 	ui.dialog = dialog
 end
 

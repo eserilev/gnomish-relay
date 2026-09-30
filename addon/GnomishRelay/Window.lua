@@ -769,6 +769,7 @@ StaticPopupDialogs.GNOMISHRELAY_DELETE = {
 	OnAccept = function(_, chatId)
 		local chat = ns.Store.Chat(chatId)
 		if chat then
+			ns.Changes.Forget(chat)
 			ns.Transport.Delete(chat)
 		end
 	end,
@@ -930,6 +931,10 @@ local function Build()
 	frame:SetScript("OnDragStop", SavePosition)
 	frame:SetScript("OnShow", Window.Refresh)
 	table.insert(UISpecialFrames, "GnomishRelayFrame")
+	-- The Commit dialog sits on UIParent, so it outlives the window unless we close it.
+	frame:HookScript("OnHide", function()
+		ns.Changes.CloseCommit()
+	end)
 
 	if frame.SetTitle then
 		frame:SetTitle("Gnomish Relay")

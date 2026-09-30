@@ -373,6 +373,42 @@ fn enter_in_the_commit_dialog_sends_a_git_message_with_the_commit_message() {
 }
 
 #[test]
+fn escape_closes_the_commit_dialog() {
+    let (game, _) = game_with_reply();
+
+    let listed = game.run(
+        "for _, name in ipairs(UISpecialFrames) do \
+           if name == 'GnomishRelayCommit' then return true end end return false",
+    );
+
+    assert_eq!(listed.as_boolean(), Some(true));
+}
+
+#[test]
+fn closing_the_window_closes_the_commit_dialog() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+
+    game.run("GnomishRelayFrame:Hide()");
+
+    assert!(!game.shown("GnomishRelayCommit"));
+}
+
+#[test]
+fn deleting_the_chat_closes_its_commit_dialog() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+
+    game.run(&format!(
+        "local ns = ... ns.Window.AskDelete({:?})",
+        game.chat_id()
+    ));
+    game.press_in_dialog("button1");
+
+    assert!(!game.shown("GnomishRelayCommit"));
+}
+
+#[test]
 fn an_empty_commit_message_sends_nothing_and_keeps_the_dialog() {
     let (game, _) = game_with_reply();
     game.run("GnomishRelayChangeButton1:Click()");
@@ -593,10 +629,15 @@ fn the_answer_to_checks_with_no_checks_says_so_with_no_empty_line() {
 
     let texts = game.texts();
     assert!(
-        texts.iter().any(|t| t == "CI: no checks on this pull request"),
+        texts
+            .iter()
+            .any(|t| t == "CI: no checks on this pull request"),
         "{texts:?}"
     );
-    assert!(!texts.iter().any(|t| t.contains("[Relay]: |r")), "{texts:?}");
+    assert!(
+        !texts.iter().any(|t| t.contains("[Relay]: |r")),
+        "{texts:?}"
+    );
 }
 
 #[test]
