@@ -70,6 +70,7 @@ fuzz_target!(|data: &[u8]| {
         read_only: vec![read_only.clone()],
         sockets: vec![socket.clone()],
         local_ports: vec![5432],
+        windows_drives: Vec::new(),
     };
 
     let (options, command) = read(&wall_args(
