@@ -12,6 +12,7 @@ use crate::app_files::{key_addon_name, key_global};
 use crate::config::{Found, Kind};
 use crate::fs_safe::{check_real_dir, make_private_dir, write_atomic_unsynced, write_private};
 use crate::ids::random_hex;
+use crate::wsl;
 
 pub const ADDON: &str = "GnomishRelay";
 pub const TIMEWAYS: &str = "Timeways";
@@ -206,7 +207,20 @@ pub fn addons_dir(game: &Path) -> PathBuf {
 /// The `_classic_beta_` folder of a folder that the user gives: that folder, or the
 /// one inside it. A dragged path comes with quotes.
 pub fn game_folder(given: &str) -> PathBuf {
-    let path = PathBuf::from(given.trim().trim_matches(|c| c == '"' || c == '\''));
+    game_folder_under(given, windows_root())
+}
+
+/// Under WSL, the folder where the Windows drives are.
+pub fn windows_root() -> Option<&'static Path> {
+    wsl::this().map(|_| Path::new(wsl::MOUNT_ROOT))
+}
+
+/// `game_folder`, where a Windows path such as `C:\Games\WoW` maps under
+/// `windows_root` (SPEC.md 11.5).
+pub fn game_folder_under(given: &str, windows_root: Option<&Path>) -> PathBuf {
+    let text = given.trim().trim_matches(|c| c == '"' || c == '\'');
+    let mapped = windows_root.and_then(|root| wsl::windows_to_wsl(root, text));
+    let path = mapped.unwrap_or_else(|| PathBuf::from(text));
     if path.file_name().is_some_and(|n| n == GAME) {
         return path;
     }
@@ -317,6 +331,9 @@ pub fn find_games(home: &Path) -> Vec<PathBuf> {
             let db = join_all(&prefix, &["drive_c"]).join(join_all(Path::new(""), &PRODUCT_DB));
             let found = read_product_db(&db);
             installs.extend(found.iter().filter_map(|path| in_prefix(&prefix, path)));
+        }
+        if let Some(root) = windows_root() {
+            installs.extend(windows_installs(root));
         }
     }
     let mut games: Vec<PathBuf> = Vec::new();
@@ -652,6 +669,20 @@ pub fn find_agents(path: &OsStr) -> Vec<Found<'static>> {
         .collect()
 }
 
+/// The install places of each Windows drive under WSL, and the paths of its
+/// `product.db` (SPEC.md 11.5).
+pub fn windows_installs(root: &Path) -> Vec<PathBuf> {
+    let mut installs = Vec::new();
+    for drive in wsl::drives(root) {
+        for programs in ["Program Files (x86)", "Program Files"] {
+            installs.push(drive.join(programs).join(WOW));
+        }
+        let found = read_product_db(&join_all(&drive, &PRODUCT_DB));
+        installs.extend(found.iter().filter_map(|p| wsl::windows_to_wsl(root, p)));
+    }
+    installs
+}
+
 /// The folders of the bridge move with these. A shell rc file sets them for setup, but
 /// not for the service, so the unit carries them.
 pub const XDG_VARS: [&str; 2] = ["XDG_CONFIG_HOME", "XDG_DATA_HOME"];
@@ -831,6 +862,47 @@ mod tests {
         );
         let given = format!("\"{}\"", root.path().join("World of Warcraft").display());
         assert_eq!(game_folder(&given), game);
+    }
+
+    #[test]
+    fn under_wsl_a_given_windows_folder_maps_to_its_drive() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("d/Games/World of Warcraft").join(GAME);
+        fs::create_dir_all(&game).unwrap();
+
+        let found = game_folder_under(r#""D:\Games\World of Warcraft""#, Some(root.path()));
+
+        assert_eq!(found, game);
+        let linux = root.path().join("d/Games").to_string_lossy().into_owned();
+        assert_eq!(
+            game_folder_under(&linux, Some(root.path())),
+            PathBuf::from(linux)
+        );
+    }
+
+    #[test]
+    fn under_wsl_the_game_is_found_in_program_files_and_in_product_db() {
+        let root = tempfile::tempdir().unwrap();
+        let c = root.path().join("c");
+        let db_dir = c.join("ProgramData/Battle.net/Agent");
+        fs::create_dir_all(&db_dir).unwrap();
+        fs::write(
+            db_dir.join("product.db"),
+            b"\n\x05wow_classic\x12)E:/Games/World of Warcraft\x1a\x02enUS",
+        )
+        .unwrap();
+        fs::create_dir_all(root.path().join("wsl")).unwrap();
+
+        let installs = windows_installs(root.path());
+
+        assert_eq!(
+            installs,
+            [
+                c.join("Program Files (x86)").join(WOW),
+                c.join("Program Files").join(WOW),
+                root.path().join("e/Games").join(WOW),
+            ]
+        );
     }
 
     #[test]

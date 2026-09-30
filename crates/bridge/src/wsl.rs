@@ -99,6 +99,15 @@ pub fn linux_path(path: &OsStr, root: &Path) -> OsString {
     std::env::join_paths(kept).unwrap_or_default()
 }
 
+/// The `PATH` of this process, with no Windows folder under WSL.
+pub fn path_var() -> OsString {
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    match this() {
+        Some(_) => linux_path(&path, Path::new(MOUNT_ROOT)),
+        None => path,
+    }
+}
+
 /// A program of Windows, such as `cmd.exe`, in `Windows/System32` of the first drive
 /// that has it. The `PATH` of the bridge holds no Windows folder.
 pub fn windows_program(root: &Path, name: &str) -> Option<PathBuf> {
