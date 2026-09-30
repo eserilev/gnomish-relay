@@ -166,6 +166,7 @@ impl ClaudeAgent {
             .map(|w| w.claude_vars(&self.gate.sandbox.wrapper))
             .unwrap_or_default();
         vars.extend(agent_env(Kind::Claude, Walled::of(wall.as_ref())));
+        let git = walls.as_ref().map(|w| w.git.clone());
         let started = AgentProcess::start_in(
             &self.command,
             &args,
@@ -202,7 +203,10 @@ impl ClaudeAgent {
             .as_ref()
             .map(RunWall::made_startup_files)
             .unwrap_or_default();
-        let after = made_notice(&made, self.wall.home.as_deref());
+        let after = both(
+            made_notice(&made, self.wall.home.as_deref()),
+            git.and_then(|g| g.notice()),
+        );
         Run {
             reply: reply.map(|reply| with_notes(reply, &notes, after)),
             session,
@@ -511,6 +515,13 @@ pub fn tool_call(request: &Request, cwd: &Path, home: &Path) -> Call {
         },
         tool if SESSION_TOOLS.contains(&tool) => Call::files(&[], &[], text, title),
         _ => Call::unknown(text, title),
+    }
+}
+
+fn both(first: Option<String>, second: Option<String>) -> Option<String> {
+    match (first, second) {
+        (Some(a), Some(b)) => Some(format!("{a}\n\n{b}")),
+        (a, b) => a.or(b),
     }
 }
 

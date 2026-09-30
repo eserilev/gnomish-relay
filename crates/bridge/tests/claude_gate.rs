@@ -368,6 +368,35 @@ fn a_command_from_the_game_writes_its_chat_folder_and_nothing_outside() {
     assert!(!home.chat.join("../escape.txt").exists());
 }
 
+#[cfg(unix)]
+#[test]
+fn a_command_that_makes_a_git_folder_gets_a_notice_after_the_reply() {
+    let mut home = home("");
+    let Some(sandbox) = real_sandbox() else {
+        return;
+    };
+    home.gate.sandbox = sandbox;
+    let command =
+        "mkdir -p .git/modules/lib && touch .git/modules/lib/HEAD .git/modules/lib/config";
+
+    let reply = call(
+        &home,
+        "Bash",
+        &json!({ "command": command }),
+        Permission::FullAuto,
+    );
+
+    assert!(
+        reply.starts_with("allow: Allowed by Gnomish Relay.\n\n"),
+        "{reply}"
+    );
+    assert!(reply.contains(".git/modules/lib/config"), "{reply}");
+    assert!(
+        reply.contains("Check them before you run git there."),
+        "{reply}"
+    );
+}
+
 #[test]
 fn rm_r_asks_in_the_game_at_auto_edit_and_runs_at_full_auto() {
     let home = home("commands = [\"rm *\"]");

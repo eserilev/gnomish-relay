@@ -381,6 +381,61 @@ fn a_command_cannot_change_the_config_or_hooks_of_a_submodule() {
     assert!(!module.join("hooks/pre-commit").exists());
 }
 
+/// Git on the host reads a new `commondir` or `config.worktree`, and runs the
+/// `core.fsmonitor` of the config that it names.
+#[test]
+fn a_command_cannot_make_a_missing_git_file_that_git_on_the_host_trusts() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    fs::write(m.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    let w = walls(&m, tool);
+
+    let commondir = run(&w, &m, "echo ../../evil > .git/commondir");
+    let worktree = run(
+        &w,
+        &m,
+        "echo '[core] fsmonitor = evil' > .git/config.worktree",
+    );
+
+    assert!(!commondir.ok, "{}", commondir.out);
+    assert!(!worktree.ok, "{}", worktree.out);
+    assert_eq!(
+        fs::read_to_string(m.chat.join(".git/commondir")).unwrap(),
+        ".\n"
+    );
+    assert_eq!(
+        fs::read_to_string(m.chat.join(".git/config.worktree")).unwrap(),
+        ""
+    );
+}
+
+#[test]
+fn a_git_commit_in_the_sandbox_lands_in_the_repository() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let init = Command::new("git")
+        .args(["init", "-q"])
+        .current_dir(&m.chat)
+        .status();
+    assert!(init.unwrap().success());
+    let w = walls(&m, tool);
+
+    let ran = run(
+        &w,
+        &m,
+        "git add notes.txt && git -c user.name=a -c user.email=a@b commit -q -m first && git log --format=%s",
+    );
+
+    assert!(ran.ok, "{}", ran.out);
+    assert!(ran.out.contains("first"), "{}", ran.out);
+    let log = Command::new("git")
+        .args(["log", "--format=%s"])
+        .current_dir(&m.chat)
+        .output()
+        .unwrap();
+    assert_eq!(String::from_utf8_lossy(&log.stdout), "first\n");
+}
+
 #[test]
 fn a_move_of_the_folder_above_a_hidden_file_shows_no_secret() {
     let Some(tool) = tool() else { return };

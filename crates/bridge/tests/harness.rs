@@ -415,6 +415,28 @@ fn only_the_writes_of_the_harness_to_the_chat_folder_stay_and_it_never_sees_the_
 }
 
 #[test]
+fn a_harness_that_makes_a_git_folder_gets_a_notice_after_the_reply() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let module = m.chat.join(".git/modules/lib");
+    fs::create_dir_all(&module).unwrap();
+    let agent = agent(&m, tool, &["probe", "{prompt}"]);
+    let probes = format!(
+        "write={} write={}",
+        module.join("HEAD").display(),
+        module.join("config").display(),
+    );
+
+    let reply = probe(&m, &agent, Permission::AutoEdit, &probes);
+
+    assert!(reply.starts_with("write=ok write=ok\n\n"), "{reply}");
+    assert!(
+        reply.contains(&module.join("config").display().to_string()),
+        "{reply}"
+    );
+}
+
+#[test]
 fn at_ask_the_harness_cannot_change_the_chat_folder() {
     let Some(tool) = tool() else { return };
     let m = machine();
