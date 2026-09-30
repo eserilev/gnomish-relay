@@ -82,6 +82,34 @@ pub enum Kind {
     Folder,
 }
 
+impl Kind {
+    fn word(self) -> &'static str {
+        match self {
+            Kind::ToolCall => "tool call",
+            Kind::Raise => "raise",
+            Kind::Merge => "merge",
+            Kind::Folder => "folder",
+        }
+    }
+}
+
+/// One log line for each request. The popup text stays out: it holds the raw command and
+/// the words of the agent (SPEC.md 6.6.3, "The log of requests").
+fn request_line(pending: &Pending, summary: &str) -> String {
+    let asks = if summary.is_empty() {
+        String::new()
+    } else {
+        format!(": {summary}")
+    };
+    format!(
+        "desktop request {id} ({kind}): {agent} in {folder}{asks}. To approve, run gnomish-relay approve {id}",
+        id = pending.id,
+        kind = pending.kind.word(),
+        agent = pending.agent,
+        folder = pending.folder,
+    )
+}
+
 /// An answer from the desktop.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Verdict {
@@ -249,9 +277,17 @@ impl Approvals {
         }
     }
 
-    /// Writes a new request, and shows a dialog when the desktop has one.
-    pub fn open(&self, agent: &str, folder: &str, text: &str, now: u32) -> Result<Opened> {
-        self.open_kind(agent, folder, text, now, Kind::ToolCall)
+    /// Writes a new request, and shows a dialog when the desktop has one. `summary` goes to
+    /// the log in place of `text`.
+    pub fn open(
+        &self,
+        agent: &str,
+        folder: &str,
+        text: &str,
+        summary: &str,
+        now: u32,
+    ) -> Result<Opened> {
+        self.open_kind(agent, folder, text, now, Kind::ToolCall, summary)
     }
 
     /// A request to write a higher level for `agent` into `config_file`.
@@ -262,17 +298,17 @@ impl Approvals {
         text: &str,
         now: u32,
     ) -> Result<Opened> {
-        self.open_kind(agent, config_file, text, now, Kind::Raise)
+        self.open_kind(agent, config_file, text, now, Kind::Raise, "")
     }
 
     /// A request to add `folder` to the roots of `config.toml`.
     pub fn open_folder(&self, agent: &str, folder: &str, text: &str, now: u32) -> Result<Opened> {
-        self.open_kind(agent, folder, text, now, Kind::Folder)
+        self.open_kind(agent, folder, text, now, Kind::Folder, "")
     }
 
     /// A request to merge a chat branch in the repository `repo`.
     pub fn open_merge(&self, repo: &str, text: &str, now: u32) -> Result<Opened> {
-        self.open_kind("git", repo, text, now, Kind::Merge)
+        self.open_kind("git", repo, text, now, Kind::Merge, "")
     }
 
     fn open_kind(
@@ -282,6 +318,7 @@ impl Approvals {
         text: &str,
         now: u32,
         kind: Kind,
+        summary: &str,
     ) -> Result<Opened> {
         self.ready_dir()?;
         let id = new_id()?;
@@ -295,10 +332,7 @@ impl Approvals {
             wait_minutes: self.wait.as_secs().div_ceil(60),
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
-        eprintln!(
-            "{now} waiting for your approval: run gnomish-relay approve {id} ({})",
-            text.escape_debug()
-        );
+        log(&request_line(&pending, summary));
         let tool = match self.prompt {
             Prompt::Dialog => dialog::find_tool(),
             Prompt::Off => None,
@@ -456,7 +490,7 @@ mod tests {
     fn an_open_request_is_listed_until_it_closes() {
         let (_data, approvals) = approvals();
         let id = approvals
-            .open("claude", "/w/app", "cat ~/.ssh/id_rsa", 7)
+            .open("claude", "/w/app", "cat ~/.ssh/id_rsa", "command cat", 7)
             .unwrap()
             .id;
         let listed = approvals.list();
@@ -468,9 +502,49 @@ mod tests {
     }
 
     #[test]
+    fn the_log_line_of_a_request_has_its_kind_and_summary_and_no_popup_text() {
+        let (_data, approvals) = approvals();
+        let text = "cat ~/.ssh/id_rsa\nthe agent says: Bash: read the secret";
+        approvals
+            .open("claude", "/w/app", text, "command cat", 7)
+            .unwrap();
+        let pending = approvals.list().remove(0);
+
+        let line = request_line(&pending, "command cat");
+
+        assert_eq!(
+            line,
+            format!(
+                "desktop request {id} (tool call): claude in /w/app: command cat. \
+                 To approve, run gnomish-relay approve {id}",
+                id = pending.id
+            )
+        );
+    }
+
+    #[test]
+    fn the_log_line_of_a_raise_names_its_kind_and_its_file() {
+        let (_data, approvals) = approvals();
+        approvals
+            .open_raise("claude", "/c/config.toml", "A chat from WoW asks", 7)
+            .unwrap();
+        let pending = approvals.list().remove(0);
+
+        let line = request_line(&pending, "");
+
+        assert!(
+            line.starts_with(&format!(
+                "desktop request {} (raise): claude in /c/config.toml. To approve",
+                pending.id
+            )),
+            "{line}"
+        );
+    }
+
+    #[test]
     fn approve_and_deny_answer_an_open_request_once() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
         assert_eq!(approvals.answer_of(&id), None);
         approvals.answer(&id, Verdict::Deny).unwrap();
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Deny));
@@ -481,7 +555,7 @@ mod tests {
     #[test]
     fn an_unknown_or_malformed_id_gets_no_answer() {
         let (_data, approvals) = approvals();
-        approvals.open("claude", "/w", "x", 1).unwrap();
+        approvals.open("claude", "/w", "x", "", 1).unwrap();
         assert!(approvals.answer("0123456789ab", Verdict::Approve).is_err());
         assert!(approvals.answer("../../etc", Verdict::Approve).is_err());
     }
@@ -491,7 +565,7 @@ mod tests {
     fn a_request_file_is_private() {
         use std::os::unix::fs::PermissionsExt;
         let (data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
         let path = data.path().join(FOLDER).join(format!("{id}.json"));
         let mode = fs::metadata(path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600);
@@ -500,7 +574,7 @@ mod tests {
     #[test]
     fn clear_removes_the_requests_of_an_old_bridge() {
         let (_data, approvals) = approvals();
-        approvals.open("claude", "/w", "x", 1).unwrap();
+        approvals.open("claude", "/w", "x", "", 1).unwrap();
         approvals.clear();
         assert!(approvals.list().is_empty());
     }
@@ -508,7 +582,7 @@ mod tests {
     #[test]
     fn a_file_that_is_not_a_request_is_not_listed() {
         let (data, approvals) = approvals();
-        approvals.open("claude", "/w", "x", 1).unwrap();
+        approvals.open("claude", "/w", "x", "", 1).unwrap();
         let dir = data.path().join(FOLDER);
         fs::write(dir.join("0123456789ab.json"), "not json").unwrap();
         fs::write(
@@ -533,7 +607,7 @@ mod tests {
     #[test]
     fn a_click_on_approve_in_the_dialog_answers_the_request() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
         let answer = approvals.watch(&id, &fake("echo approve"));
         assert_eq!(answer, Some(Verdict::Approve));
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Approve));
@@ -543,7 +617,7 @@ mod tests {
     #[test]
     fn a_dismissed_dialog_denies() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
         assert_eq!(approvals.watch(&id, &fake("exit 0")), Some(Verdict::Deny));
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Deny));
     }
@@ -552,7 +626,7 @@ mod tests {
     #[test]
     fn the_first_answer_wins_and_stops_the_dialog() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
         approvals.answer(&id, Verdict::Deny).unwrap();
         let started = std::time::Instant::now();
         assert_eq!(approvals.watch(&id, &fake("sleep 30; echo approve")), None);
@@ -564,7 +638,7 @@ mod tests {
     #[test]
     fn a_closed_request_stops_its_dialog() {
         let (_data, approvals) = approvals();
-        let id = approvals.open("claude", "/w", "x", 1).unwrap().id;
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
         let closing = approvals.clone();
         let closed = id.clone();
         std::thread::spawn(move || {
@@ -578,7 +652,7 @@ mod tests {
     #[test]
     fn with_no_dialog_the_request_says_that_only_the_command_answers() {
         let (_data, approvals) = approvals();
-        let opened = approvals.open("claude", "/w", "x", 1).unwrap();
+        let opened = approvals.open("claude", "/w", "x", "", 1).unwrap();
         assert_eq!(opened.prompted, Prompted::CommandLine);
     }
 
@@ -677,7 +751,7 @@ mod tests {
     #[test]
     fn a_request_counts_down_the_minutes_before_its_wait_ends() {
         let (_data, approvals) = approvals();
-        approvals.open("claude", "/w", "x", 1000).unwrap();
+        approvals.open("claude", "/w", "x", "", 1000).unwrap();
         let mut pending = approvals.list().remove(0);
         assert_eq!(
             pending.minutes_left(1000),
@@ -700,6 +774,7 @@ mod tests {
                 "claude",
                 "/w/app",
                 "rm -rf build\nthe agent says: Bash",
+                "command rm",
                 1000,
             )
             .unwrap();
@@ -724,7 +799,7 @@ mod tests {
         let data = tempfile::tempdir().unwrap();
         let approvals = Approvals::new(data.path(), Prompt::Off).with_wait(Duration::from_mins(10));
 
-        approvals.open("claude", "/w", "x", 1).unwrap();
+        approvals.open("claude", "/w", "x", "", 1).unwrap();
 
         assert_eq!(approvals.list()[0].wait_minutes, 10);
     }
@@ -735,7 +810,7 @@ mod tests {
     fn live_a_real_dialog_asks_on_this_desktop() {
         let (_data, approvals) = approvals();
         let text = "echo <b>not bold</b> & done\nthe agent says: Bash";
-        let id = approvals.open("claude", "/w/app", text, 1).unwrap().id;
+        let id = approvals.open("claude", "/w/app", text, "", 1).unwrap().id;
         let tool = dialog::find_tool().expect("no dialog tool here");
         let pending = &approvals.list()[0];
         let answer = approvals.watch(&id, &dialog::dialog(tool, &dialog_text(pending)));

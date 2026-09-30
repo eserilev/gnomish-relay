@@ -19,6 +19,7 @@ use crate::command_sandbox::CommandSandbox;
 use crate::config::{Permission, RelayConfig};
 use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Topic, Waiting};
 use crate::dirs::Dirs;
+use crate::request_log;
 use crate::roots::Roots;
 use crate::turn::{Answer, Turn};
 
@@ -325,7 +326,7 @@ impl Gate {
                 };
                 self.ask_game(&asking, &rules, turn)
             }
-            Step::AskDesktop => self.ask_desktop(call, job, turn),
+            Step::AskDesktop => self.ask_desktop(call, job, &chat, turn),
         }
     }
 
@@ -387,6 +388,13 @@ impl Gate {
         if !turn.listening() {
             return Err(Refusal::by_rule(NOT_FROM_THE_GAME));
         }
+        let call = asking.call;
+        let summary = request_log::summary(&call.tool, &call.title, asking.chat);
+        crate::run::log(&request_log::game_line(
+            asking.job.agent,
+            asking.job.cwd,
+            &summary,
+        ));
         let offer = self.offer(asking, rules);
         let choices = game_choices(offer.as_ref().map(|o| o.line.clone()));
         let covered = || self.now_covered(asking);
@@ -405,11 +413,18 @@ impl Gate {
     }
 
     /// The game shows a notice with no buttons: only the desktop answers.
-    fn ask_desktop(&self, call: &Call, job: &Job, turn: &mut Turn) -> Result<(), Refusal> {
+    fn ask_desktop(
+        &self,
+        call: &Call,
+        job: &Job,
+        chat: &Path,
+        turn: &mut Turn,
+    ) -> Result<(), Refusal> {
         let text = String::from_utf8_lossy(&call.text).into_owned();
+        let summary = request_log::summary(&call.tool, &call.title, chat);
         let opened = self
             .approvals
-            .open(job.agent, job.cwd, &text, crate::run::now())
+            .open(job.agent, job.cwd, &text, &summary, crate::run::now())
             .map_err(|e| Refusal::by_rule(&format!("Couldn't ask on your desktop: {e:#}")))?;
         let answer = wait_on_the_desktop(&self.approvals, &opened, Topic::Action, turn);
         match answer {
