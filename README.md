@@ -1,8 +1,6 @@
 <p align="center">
-  <img src="images/logo-400.png" alt="Gnomish Relay logo: a brass gnome device with a glowing teal core" width="200">
+  <img src="images/title-1200.jpg" alt="Gnomish Relay" width="720">
 </p>
-
-<h1 align="center">Gnomish Relay</h1>
 
 <p align="center"><b>Stay productive IRL while you grind in Azeroth.</b></p>
 
