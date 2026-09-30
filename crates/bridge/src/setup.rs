@@ -9,6 +9,7 @@ use anyhow::{Context, Result};
 use protocol::apps::App;
 
 use crate::config::{self, Config};
+use crate::config_story;
 use crate::config_text::{self, RelayPart};
 use crate::fs_safe::{make_private_dir, write_private};
 use crate::install::{self, Installed};
@@ -230,6 +231,14 @@ pub fn write_config(dir: &Path, text: &str, home: &Path) -> Result<Config> {
     make_private_dir(dir)?;
     write_private(dir, config::FILE, text)?;
     Ok(config)
+}
+
+/// Puts `model` into `[story]` of the config (SPEC.md 11.6).
+pub fn write_story_model(dir: &Path, model: &FoundModel, home: &Path) -> Result<Config> {
+    let file = dir.join(config::FILE);
+    let text =
+        fs::read_to_string(&file).with_context(|| format!("cannot read {}", file.display()))?;
+    write_config(dir, &config_story::with_story_model(&text, model), home)
 }
 
 /// The level that the config gives the default agent, and how to change it. The
