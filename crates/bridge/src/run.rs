@@ -344,7 +344,7 @@ impl RelayLane {
         if let Err(e) = open_spool(&spool) {
             log(&format!("no notifications from terminal sessions: {e:#}"));
         }
-        let (terminal, problem) = TerminalSessions::load(&paths.state);
+        let (terminal, problem) = TerminalSessions::load(&paths.state, now());
         if let Some(problem) = problem {
             log(&problem);
         }

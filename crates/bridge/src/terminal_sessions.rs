@@ -2,16 +2,17 @@
 //! 10.3). The proved `apply_event` and `expire` of `protocol` change the table. The table
 //! and the id counter live in `notices.json`, so a restart keeps them.
 
+use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 use protocol::live::{Notice, NoticeKind, Notices, Source as LiveSource, prepare_notices};
 use protocol::notice::{MAX_REPO, MAX_TEXT, notice_text};
-use protocol::sessions::{Event, EventKind, Session, apply_event, expire};
+use protocol::sessions::{Event, EventKind, MAX_SESSIONS, Session, apply_event, expire};
 use serde::{Deserialize, Serialize};
 
 use crate::fs_safe::{read_at_most, write_private};
-use crate::spool::{Source, SpoolEvent, SpoolFile};
+use crate::spool::{Source, SpoolEvent, SpoolFile, is_session_id};
 
 pub const STATE_FILE: &str = "notices.json";
 /// 32 sessions with 700 bytes each fit well below this.
@@ -142,11 +143,77 @@ fn read_saved(dir: &Path) -> Result<Saved> {
     Ok(serde_json::from_slice(&bytes)?)
 }
 
+/// Ids run ahead of the Unix time only when events come faster than one a second.
+const FUTURE_SLACK: u32 = 86_400;
+
+fn not_far_ahead(value: u32, now: u32) -> bool {
+    value <= now.saturating_add(FUTURE_SLACK)
+}
+
+/// `notice_text` doubles each `|`, so a text that it made comes back the same from one
+/// more pass over its single pipes. Any other text is not one that it made.
+fn made_by_notice_text(text: &str, max: usize) -> bool {
+    notice_text(&single_pipes(text.as_bytes()), max) == text.as_bytes()
+}
+
+fn single_pipes(bytes: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < bytes.len() {
+        out.push(bytes[i]);
+        let doubled = bytes[i] == b'|' && bytes.get(i + 1) == Some(&b'|');
+        i += if doubled { 2 } else { 1 };
+    }
+    out
+}
+
+fn notice_is_sound(notice: &SavedNotice, now: u32) -> bool {
+    not_far_ahead(notice.id, now)
+        && made_by_notice_text(&notice.repo, MAX_REPO)
+        && made_by_notice_text(&notice.text, MAX_TEXT)
+}
+
+/// Any local process of the user can change the file. S40 and S41 hold for a loaded
+/// session only when it passes the checks of a new event.
+fn session_is_sound(session: &SavedSession, now: u32) -> bool {
+    is_session_id(&session.id)
+        && not_far_ahead(session.last, now)
+        && not_far_ahead(session.turn_started, now)
+        && session
+            .notice
+            .as_ref()
+            .is_none_or(|n| notice_is_sound(n, now))
+}
+
+/// The sound sessions with unique ids, at most `MAX_SESSIONS` of them, the newest kept.
+fn sound_sessions(saved: Vec<SavedSession>, now: u32) -> Vec<SavedSession> {
+    let mut sound: Vec<SavedSession> = saved
+        .into_iter()
+        .filter(|s| session_is_sound(s, now))
+        .collect();
+    sound.sort_by_key(|s| std::cmp::Reverse(s.last));
+    let mut seen = HashSet::new();
+    sound.retain(|s| seen.insert(s.id.clone()));
+    sound.truncate(MAX_SESSIONS);
+    sound.reverse();
+    sound
+}
+
+/// A new id is above every loaded one, so it never repeats an id that the addon showed.
+fn sound_last_id(saved: u32, sessions: &[SavedSession], now: u32) -> u32 {
+    let last = if not_far_ahead(saved, now) { saved } else { 0 };
+    let notice_ids = sessions
+        .iter()
+        .filter_map(|s| s.notice.as_ref())
+        .map(|n| n.id);
+    notice_ids.fold(last, u32::max)
+}
+
 impl TerminalSessions {
     /// A missing file is a first start. A damaged file loses the notices, and says why.
-    pub fn load(dir: &Path) -> (TerminalSessions, Option<String>) {
+    pub fn load(dir: &Path, now: u32) -> (TerminalSessions, Option<String>) {
         let first_start = !dir.join(STATE_FILE).exists();
-        let (saved, problem) = match read_saved(dir) {
+        let (saved, mut problem) = match read_saved(dir) {
             Ok(saved) => (saved, None),
             Err(_) if first_start => (Saved::default(), None),
             Err(e) => (
@@ -154,12 +221,21 @@ impl TerminalSessions {
                 Some(format!("{STATE_FILE} is damaged: {e:#}")),
             ),
         };
-        let sessions = TerminalSessions {
-            table: saved.sessions.into_iter().map(from_saved).collect(),
-            last_id: saved.last_id,
+        let count = saved.sessions.len();
+        let sessions = sound_sessions(saved.sessions, now);
+        let dropped = count - sessions.len();
+        if dropped > 0 {
+            problem = Some(format!("{STATE_FILE}: dropped {dropped} damaged sessions"));
+        }
+        if !not_far_ahead(saved.last_id, now) {
+            problem = Some(format!("{STATE_FILE}: dropped a last id from the future"));
+        }
+        let terminal = TerminalSessions {
+            last_id: sound_last_id(saved.last_id, &sessions, now),
+            table: sessions.into_iter().map(from_saved).collect(),
             dir: dir.to_owned(),
         };
-        (sessions, problem)
+        (terminal, problem)
     }
 
     pub fn save(&self) -> Result<()> {
@@ -233,7 +309,7 @@ fn copy_notice(n: &Notice) -> Notice {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use protocol::sessions::{MAX_SESSIONS, SESSION_SECONDS, TURN_SECONDS};
+    use protocol::sessions::{SESSION_SECONDS, TURN_SECONDS};
 
     const NOW: u32 = 1_790_300_000;
 
@@ -250,7 +326,7 @@ mod tests {
 
     fn fresh() -> (tempfile::TempDir, TerminalSessions) {
         let dir = tempfile::tempdir().unwrap();
-        let (sessions, problem) = TerminalSessions::load(dir.path());
+        let (sessions, problem) = TerminalSessions::load(dir.path(), NOW);
         assert_eq!(problem, None);
         (dir, sessions)
     }
@@ -330,7 +406,7 @@ mod tests {
         sessions.apply(&file("s2", SpoolEvent::Waiting, "Allow Bash?"), NOW + 1);
         sessions.save().unwrap();
 
-        let (mut again, problem) = TerminalSessions::load(dir.path());
+        let (mut again, problem) = TerminalSessions::load(dir.path(), NOW);
         again.apply(&file("s3", SpoolEvent::Waiting, "z"), NOW);
 
         assert_eq!(problem, None);
@@ -344,9 +420,90 @@ mod tests {
     fn a_damaged_file_starts_empty_and_says_so() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(dir.path().join(STATE_FILE), b"{").unwrap();
-        let (sessions, problem) = TerminalSessions::load(dir.path());
+        let (sessions, problem) = TerminalSessions::load(dir.path(), NOW);
         assert!(problem.unwrap().contains("damaged"));
         assert_eq!(sessions.notices().open, 0);
+    }
+
+    fn saved_notice(id: u32, text: &str) -> serde_json::Value {
+        serde_json::json!({ "id": id, "at": NOW, "source": "claude", "kind": "waiting",
+                            "repo": "r", "took": 0, "text": text })
+    }
+
+    fn saved_session(id: &str, last: u32, notice: &serde_json::Value) -> serde_json::Value {
+        serde_json::json!({ "id": id, "turn_started": 0, "last": last, "notice": notice })
+    }
+
+    fn load_saved(
+        last_id: u32,
+        sessions: &[serde_json::Value],
+    ) -> (TerminalSessions, Option<String>) {
+        let dir = tempfile::tempdir().unwrap();
+        let saved = serde_json::json!({ "last_id": last_id, "sessions": sessions });
+        std::fs::write(dir.path().join(STATE_FILE), saved.to_string()).unwrap();
+        TerminalSessions::load(dir.path(), NOW)
+    }
+
+    #[test]
+    fn a_saved_pipe_stays_doubled_once_after_each_restart() {
+        let (dir, mut sessions) = fresh();
+        sessions.apply(&file("s1", SpoolEvent::Waiting, "a|b"), NOW);
+        sessions.save().unwrap();
+
+        let (again, problem) = TerminalSessions::load(dir.path(), NOW);
+        again.save().unwrap();
+        let (third, _) = TerminalSessions::load(dir.path(), NOW);
+
+        assert_eq!(problem, None);
+        assert_eq!(third.notices().list[0].text, b"a||b");
+    }
+
+    #[test]
+    fn a_loaded_notice_that_notice_text_did_not_make_is_dropped() {
+        let (sessions, problem) = load_saved(
+            NOW,
+            &[
+                saved_session("s1", NOW, &saved_notice(NOW - 3, "a|Hitem:1|h[x]|h")),
+                saved_session("s2", NOW, &saved_notice(NOW - 2, "a\u{202E}b")),
+                saved_session("s3", NOW, &saved_notice(NOW - 1, "tab\there")),
+                saved_session("bad id!", NOW, &serde_json::Value::Null),
+                saved_session("s4", NOW, &saved_notice(NOW, "fine || text")),
+            ],
+        );
+
+        let notices = sessions.notices();
+        assert_eq!(notices.open, 1);
+        assert_eq!(notices.list[0].text, b"fine || text");
+        assert!(problem.unwrap().contains("dropped 4 damaged sessions"));
+    }
+
+    #[test]
+    fn a_loaded_table_that_does_not_fit_is_cut_to_32_sessions() {
+        let mut saved: Vec<serde_json::Value> = (0..40u32)
+            .map(|n| saved_session(&format!("s{n}"), NOW - 100 + n, &serde_json::Value::Null))
+            .collect();
+        saved.push(saved_session("s39", NOW - 200, &serde_json::Value::Null));
+
+        let (sessions, problem) = load_saved(NOW, &saved);
+
+        assert_eq!(sessions.notices().open as usize, MAX_SESSIONS);
+        assert!(sessions.table.iter().all(|s| s.last >= NOW - 100 + 8));
+        assert!(problem.is_some());
+    }
+
+    #[test]
+    fn a_saved_id_far_in_the_future_is_dropped_so_new_ids_still_grow() {
+        let (mut sessions, problem) = load_saved(
+            u32::MAX,
+            &[saved_session("s1", NOW, &saved_notice(u32::MAX, "x"))],
+        );
+
+        sessions.apply(&file("s2", SpoolEvent::Waiting, "y"), NOW);
+        sessions.apply(&file("s3", SpoolEvent::Waiting, "z"), NOW);
+
+        let ids: Vec<u32> = sessions.notices().list.iter().map(|n| n.id).collect();
+        assert_eq!(ids, [NOW, NOW + 1]);
+        assert!(problem.is_some());
     }
 
     #[test]
