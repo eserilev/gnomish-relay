@@ -36,7 +36,7 @@ fn gate() -> Gate {
 fn job(dir: &tempfile::TempDir, permission: Permission, text: &str) -> Job {
     Job {
         token: "tok".into(),
-        chat: ChatId("c1".into()),
+        chat: ChatId::new("c1"),
         id: MessageId(1),
         agent: "codex".into(),
         permission,

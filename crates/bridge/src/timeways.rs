@@ -106,7 +106,7 @@ impl Timeways {
         }
         let message = StoryMessage {
             token: text(&r.token),
-            chat: ChatId(text(&r.chat)),
+            chat: ChatId::new(text(&r.chat)),
             id: MessageId(r.id),
             name: text(&r.name),
             text: text(&r.text),

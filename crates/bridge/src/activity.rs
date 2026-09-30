@@ -193,7 +193,7 @@ impl Activity {
             .steps
             .iter()
             .map(|s| Progress {
-                chat: s.chat.0.as_bytes().to_vec(),
+                chat: s.chat.as_bytes().to_vec(),
                 id: s.id.0,
                 lines: s
                     .level
@@ -232,7 +232,7 @@ impl Asked {
     fn to_request(&self) -> Request {
         Request {
             request: self.request.as_bytes().to_vec(),
-            chat: self.chat.0.as_bytes().to_vec(),
+            chat: self.chat.as_bytes().to_vec(),
             id: self.id.0,
             text: self.text.clone(),
             options: self
@@ -255,7 +255,7 @@ mod tests {
     use protocol::live::OptionKind;
 
     fn chat() -> ChatId {
-        ChatId("c1".into())
+        ChatId::new("c1")
     }
 
     fn choices() -> Vec<Choice> {
@@ -313,7 +313,7 @@ mod tests {
         let request = activity.ask(&chat(), MessageId(7), b"cargo test".to_vec(), choices(), 1);
         assert!(!activity.answer(&chat(), &answer(&request, 0, b"rm -rf ~")));
         assert!(!activity.answer(&chat(), &answer(&request, 2, b"cargo test")));
-        assert!(!activity.answer(&ChatId("c2".into()), &answer(&request, 0, b"cargo test")));
+        assert!(!activity.answer(&ChatId::new("c2"), &answer(&request, 0, b"cargo test")));
         assert!(activity.take_answers().is_empty());
         assert!(activity.is_open(&request));
     }
@@ -466,7 +466,7 @@ mod tests {
         assert!(!activity.waits(&chat()));
         let request = activity.ask(&chat(), MessageId(7), b"make".to_vec(), choices(), 1);
         assert!(activity.waits(&chat()));
-        assert!(!activity.waits(&ChatId("c2".into())));
+        assert!(!activity.waits(&ChatId::new("c2")));
         activity.answer(&chat(), &answer(&request, 0, b"make"));
         assert!(!activity.waits(&chat()));
     }

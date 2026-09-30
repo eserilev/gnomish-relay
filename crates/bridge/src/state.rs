@@ -72,7 +72,7 @@ mod tests {
                 seen: vec![("tok".into(), 7)],
                 records: vec![SavedRecord {
                     token: "tok".into(),
-                    chat: ChatId("c1".into()),
+                    chat: ChatId::new("c1"),
                     id: MessageId(7),
                     status: SavedStatus::Done,
                     text: "done \"quoted\"\n".into(),
@@ -82,7 +82,7 @@ mod tests {
             },
             waiting: vec![Job {
                 token: "tok".into(),
-                chat: ChatId("c1".into()),
+                chat: ChatId::new("c1"),
                 id: MessageId(8),
                 agent: "claude".into(),
                 permission: crate::config::Permission::AutoEdit,

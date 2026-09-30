@@ -95,7 +95,7 @@ pub fn free_commands_note(name: &str) -> String {
 impl CommandAgent {
     fn prompt(&self, job: &Job, control: &Control) -> Result<String, String> {
         let access = chat_access(job.permission);
-        let walls = self.walls(&job.cwd, access, &format!("chat {}", job.chat.0))?;
+        let walls = self.walls(&job.cwd, access, &format!("chat {}", job.chat))?;
         let input = harness_args::input_of(&self.command);
         let prompt_file = walls.walls.temp.join(PROMPT_FILE);
         if input == Input::File {

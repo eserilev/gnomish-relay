@@ -366,7 +366,7 @@ impl Relay {
     }
 
     fn on_record(&mut self, r: &Record, now: u32) -> Outcome {
-        let chat = ChatId(text(&r.chat));
+        let chat = ChatId::new(text(&r.chat));
         if flags::transport(&r.flags).hello {
             return Outcome::Control;
         }
@@ -772,7 +772,7 @@ impl Relay {
                 l.id.clone(),
                 age.to_string(),
                 if age < ACTIVE_FOR { "1" } else { "0" }.to_owned(),
-                chat.map_or(String::new(), |s| s.chat.0.clone()),
+                chat.map_or(String::new(), |s| s.chat.to_string()),
                 field(&l.folder),
                 field(name),
                 field(cut_chars(&l.title, MAX_TITLE)),
@@ -1305,7 +1305,7 @@ mod tests {
         relay.on_frame(&[record("c1", 1, "", "long task")], NOW);
         relay.next_job().unwrap();
         relay.on_frame(&[record("c1", 0, "stop", "")], NOW);
-        assert_eq!(relay.take_cancels(), [ChatId("c1".into())]);
+        assert_eq!(relay.take_cancels(), [ChatId::new("c1")]);
         assert!(relay.take_cancels().is_empty());
     }
 
@@ -1377,7 +1377,7 @@ mod tests {
 
         relay.on_tagged_frame([7; 8], &stop, NOW + 361);
 
-        assert_eq!(relay.take_cancels(), [ChatId("c1".into())]);
+        assert_eq!(relay.take_cancels(), [ChatId::new("c1")]);
     }
 
     fn open_notice() -> Notice {
@@ -1401,7 +1401,7 @@ mod tests {
             [Outcome::Accepted]
         );
 
-        assert_eq!(relay.take_interrupts(), [ChatId("c1".into())]);
+        assert_eq!(relay.take_interrupts(), [ChatId::new("c1")]);
         assert!(relay.take_cancels().is_empty(), "no Stop");
     }
 
@@ -1414,7 +1414,7 @@ mod tests {
 
         relay.on_frame(&[record("c1", 2, "", "no, do this")], NOW);
 
-        assert_eq!(relay.take_interrupts(), [ChatId("c1".into())]);
+        assert_eq!(relay.take_interrupts(), [ChatId::new("c1")]);
     }
 
     #[test]
@@ -1598,7 +1598,7 @@ mod tests {
         let running = relay.next_job().unwrap();
 
         relay.on_frame(&[record("c1", 0, "d", "")], NOW);
-        assert_eq!(relay.take_cancels(), [ChatId("c1".into())]);
+        assert_eq!(relay.take_cancels(), [ChatId::new("c1")]);
         relay.keep_session(&running, Some("s1".into()));
         relay.finish(&running, Err("Stopped.".into()));
 

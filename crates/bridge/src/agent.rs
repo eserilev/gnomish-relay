@@ -395,7 +395,7 @@ mod tests {
         assert_eq!(names, ["claude", "codex", "echo", "gemini"]);
         let job = Job {
             token: "t".into(),
-            chat: ChatId("c".into()),
+            chat: ChatId::new("c"),
             id: MessageId(1),
             agent: "echo".into(),
             permission: Permission::Ask,

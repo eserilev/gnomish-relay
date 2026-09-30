@@ -97,7 +97,7 @@ impl History {
 impl ChatLog {
     fn to_restore(&self) -> Chat {
         Chat {
-            id: self.chat.0.as_bytes().to_vec(),
+            id: self.chat.as_bytes().to_vec(),
             name: self.name.as_bytes().to_vec(),
             agent: self.agent.as_bytes().to_vec(),
             cwd: self.cwd.as_bytes().to_vec(),
@@ -126,7 +126,7 @@ mod tests {
 
     fn log(chat: &str) -> ChatLog {
         ChatLog {
-            chat: ChatId(chat.into()),
+            chat: ChatId::new(chat),
             name: "lighthouse".into(),
             agent: "claude".into(),
             cwd: "Code/x".into(),
@@ -139,12 +139,7 @@ mod tests {
         let mut history = History::default();
         for id in 0..8 {
             history.add_message(log("c1"), MessageId(id), "ask");
-            history.add_reply(
-                &ChatId("c1".into()),
-                Speaker::Agent,
-                MessageId(id),
-                "answer",
-            );
+            history.add_reply(&ChatId::new("c1"), Speaker::Agent, MessageId(id), "answer");
         }
         let chats = history.to_restore();
         assert_eq!(chats.len(), 1);
@@ -158,8 +153,8 @@ mod tests {
         for n in 0..=MAX_CHATS {
             history.add_message(log(&format!("c{n}")), MessageId(1), "ask");
         }
-        history.add_reply(&ChatId("c1".into()), Speaker::Agent, MessageId(1), "late");
-        history.add_reply(&ChatId("c0".into()), Speaker::Agent, MessageId(1), "gone");
+        history.add_reply(&ChatId::new("c1"), Speaker::Agent, MessageId(1), "late");
+        history.add_reply(&ChatId::new("c0"), Speaker::Agent, MessageId(1), "gone");
 
         let ids: Vec<Vec<u8>> = history.to_restore().into_iter().map(|c| c.id).collect();
         assert_eq!(ids.len(), MAX_CHATS);

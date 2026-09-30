@@ -93,7 +93,7 @@ fn ask_spec(spec: StorySpec, questions: &[String]) -> Vec<String> {
         let question = serde_json::json!({ "type": "lore_asked", "at": 1, "question": text });
         story.send(StoryMessage {
             token: "tok".into(),
-            chat: ChatId("story".into()),
+            chat: ChatId::new("story"),
             id: MessageId(id),
             name: String::new(),
             text: question.to_string(),

@@ -16,7 +16,23 @@ use crate::versions::update_text;
 const MAX_TOKENS: usize = 16;
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-pub struct ChatId(pub String);
+pub struct ChatId(String);
+
+impl ChatId {
+    pub fn new(id: impl Into<String>) -> ChatId {
+        ChatId(id.into())
+    }
+
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.as_bytes()
+    }
+}
+
+impl std::fmt::Display for ChatId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub struct MessageId(pub u32);
@@ -257,7 +273,7 @@ impl Lane {
             .records
             .iter()
             .map(|e| Reply {
-                chat: e.chat.0.as_bytes().to_vec(),
+                chat: e.chat.as_bytes().to_vec(),
                 id: e.id.0,
                 status: e.status,
                 text: e.text.as_bytes().to_vec(),
@@ -328,7 +344,7 @@ mod tests {
     const NOW: u32 = 1_790_211_079;
 
     fn chat() -> ChatId {
-        ChatId("c1".into())
+        ChatId::new("c1")
     }
 
     #[test]

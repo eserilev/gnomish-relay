@@ -134,7 +134,7 @@ impl ClaudeAgent {
         session: &mut Option<String>,
     ) -> Result<String, String> {
         let (resume, note) = self.resumable(job);
-        let mut walls = self.walls(&job.cwd, &format!("chat {}", job.chat.0))?;
+        let mut walls = self.walls(&job.cwd, &format!("chat {}", job.chat))?;
         let note = note.or_else(|| {
             walls
                 .is_none()
@@ -178,7 +178,7 @@ impl ClaudeAgent {
         let mut binds = vec![Path::new(&job.cwd)];
         binds.extend(walls.map(|w| w.walls.temp.as_path()));
         self.wall
-            .prepare(&binds, &format!("agent of chat {}", job.chat.0))
+            .prepare(&binds, &format!("agent of chat {}", job.chat))
     }
 
     fn start(

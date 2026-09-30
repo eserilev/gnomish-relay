@@ -206,7 +206,7 @@ fn agent(m: &Machine, tool: Sandbox, template: &[&str]) -> CommandAgent {
 fn blank_job() -> Job {
     Job {
         token: "tok".into(),
-        chat: ChatId("c1".into()),
+        chat: ChatId::new("c1"),
         id: MessageId(1),
         agent: "fake".into(),
         permission: Permission::AutoEdit,

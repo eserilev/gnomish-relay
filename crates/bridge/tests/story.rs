@@ -58,7 +58,7 @@ fn story(script: &str, dir: &Path) -> Story {
 fn message(id: u32, text: &str) -> StoryMessage {
     StoryMessage {
         token: "tok".into(),
-        chat: ChatId("story".into()),
+        chat: ChatId::new("story"),
         id: MessageId(id),
         name: String::new(),
         text: text.into(),

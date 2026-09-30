@@ -186,7 +186,7 @@ fn gate(m: &Machine) -> Gate {
 fn job(m: &Machine, text: &str) -> Job {
     Job {
         token: "tok".into(),
-        chat: ChatId("c1".into()),
+        chat: ChatId::new("c1"),
         id: MessageId(1),
         agent: "fake".into(),
         permission: Permission::AutoEdit,

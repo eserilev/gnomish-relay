@@ -430,7 +430,7 @@ impl RelayLane {
     fn start_run(&mut self, job: Job) {
         log(&format!(
             "run {} #{} with {} at {:?}",
-            job.chat.0, job.id.0, job.agent, job.permission
+            job.chat, job.id.0, job.agent, job.permission
         ));
         let finished = self.finished.clone();
         // The policy refuses an agent that the config does not have, so this is a guard.
@@ -488,7 +488,7 @@ impl RelayLane {
         if !job.new_folder {
             return Ok(());
         }
-        log(&format!("new folder for {} #{}", job.chat.0, job.id.0));
+        log(&format!("new folder for {} #{}", job.chat, job.id.0));
         make_folder(&self.walk, Path::new(&job.cwd)).map_err(|e| e.text())
     }
 
@@ -556,7 +556,7 @@ impl RelayLane {
 
     fn signal(&self, chat: &ChatId, reason: StopReason) {
         if let Some(stop) = self.stops.get(chat) {
-            log(&format!("stop {}: {reason:?}", chat.0));
+            log(&format!("stop {chat}: {reason:?}"));
             stop.request_for(reason);
         }
     }
@@ -566,7 +566,7 @@ impl RelayLane {
             match event {
                 Event::Progress(line) => self.relay.step(&chat, id, line),
                 Event::Desktop(notice) => {
-                    log(&format!("{} #{}: {}", chat.0, id.0, notice.line()));
+                    log(&format!("{} #{}: {}", chat, id.0, notice.line()));
                     self.relay.desktop(&chat, id, notice);
                 }
                 Event::Withdrawn => {
@@ -578,7 +578,7 @@ impl RelayLane {
                     let request = self
                         .relay
                         .ask(&chat, id, question.text, question.choices, now());
-                    log(&format!("ask {} #{} as {request}", chat.0, id.0));
+                    log(&format!("ask {} #{} as {request}", chat, id.0));
                     self.answers.insert(request, question.answer);
                 }
                 Event::Raised {
@@ -623,7 +623,7 @@ impl RelayLane {
                     continue;
                 }
             };
-            log(&format!("done {} #{}", job.chat.0, job.id.0));
+            log(&format!("done {} #{}", job.chat, job.id.0));
             self.stops.remove(&job.chat);
             self.relay.keep_session(&job, run.session);
             self.relay.finish(&job, run.reply);

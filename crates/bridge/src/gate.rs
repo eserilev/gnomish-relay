@@ -687,7 +687,7 @@ mod tests {
         let s = setup();
         let run = crate::relay::Job {
             token: "tok".into(),
-            chat: ChatId("c1".into()),
+            chat: ChatId::new("c1"),
             id: MessageId(1),
             agent: "claude".into(),
             permission: Permission::AutoEdit,
@@ -786,7 +786,7 @@ mod tests {
         use crate::relay::{ChatId, MessageId, Session, Work};
         let run = crate::relay::Job {
             token: "tok".into(),
-            chat: ChatId("c1".into()),
+            chat: ChatId::new("c1"),
             id: MessageId(1),
             agent: "claude".into(),
             permission: job.level,

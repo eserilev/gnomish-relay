@@ -215,7 +215,7 @@ mod tests {
     fn job() -> Job {
         Job {
             token: "tok".into(),
-            chat: ChatId("c1".into()),
+            chat: ChatId::new("c1"),
             id: MessageId(1),
             agent: "claude".into(),
             permission: Permission::Ask,
