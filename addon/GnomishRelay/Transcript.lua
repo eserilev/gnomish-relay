@@ -521,8 +521,13 @@ local function RelayWords(text)
 	return ns.Relay.Plain(text)
 end
 
+-- The answer to Checks is only blocks, and its blocks say it all.
 local function RelayLine(text, y)
-	return TextLine(string.format("|cff%s[Relay]: %s|r", GREY, RelayWords(text)), 0, y, width)
+	local words = RelayWords(text)
+	if words == "" and ns.Blocks.Git(text) then
+		return y
+	end
+	return TextLine(string.format("|cff%s[Relay]: %s|r", GREY, words), 0, y, width)
 end
 
 -- An error comes from the relay, not from the agent, so it has its own grey line. An

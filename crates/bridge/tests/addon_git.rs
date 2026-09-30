@@ -574,6 +574,32 @@ fn the_answer_to_checks_shows_the_ci_line() {
 }
 
 #[test]
+fn the_answer_to_checks_with_no_checks_says_so_with_no_empty_line() {
+    let game = Game::start();
+    game.send("go");
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "\x1bM1\nB\x1fmain\x1f0\x1f\np\x1fDone.\n",
+    );
+    game.run("GnomishRelayGitChecks:Click()");
+    game.advance(1.0);
+
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "\x1bM1\nC\x1f0\x1f0\x1f0\x1f\n",
+    );
+
+    let texts = game.texts();
+    assert!(
+        texts.iter().any(|t| t == "CI: no checks on this pull request"),
+        "{texts:?}"
+    );
+    assert!(!texts.iter().any(|t| t.contains("[Relay]: |r")), "{texts:?}");
+}
+
+#[test]
 fn show_more_above_a_reply_with_changes_leaves_one_change_block() {
     let game = Game::start();
     game.send("explain it");

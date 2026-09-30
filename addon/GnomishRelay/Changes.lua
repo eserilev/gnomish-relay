@@ -69,6 +69,9 @@ function Changes.TestsText(tests)
 end
 
 function Changes.CiText(ci)
+	if (ci.passed or 0) + (ci.failed or 0) + (ci.running or 0) == 0 then
+		return "CI: no checks on this pull request"
+	end
 	local text = "CI: " .. Tally({ { ci.passed, "passed" }, { ci.failed, "failed", true }, { ci.running, "running" } })
 	if ci.names ~= "" then
 		text = text .. " (" .. ci.names .. ")"
