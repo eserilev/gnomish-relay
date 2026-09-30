@@ -9,6 +9,8 @@ use crate::run::log;
 use crate::run_changes::{ChangeKind, Outcome, RunChanges, snapshot};
 
 const NO_MESSAGE: &str = "Commit needs a message.";
+const NESTED_REPO: &str =
+    "This run made a git repository inside the folder, so Commit is off. Use git on your desktop.";
 const ODD_NAMES: &str =
     "A file name in this summary isn't UTF-8, so the game can't name it. Use git on your desktop.";
 
@@ -52,6 +54,9 @@ pub fn commit(git: &GitHost, run: &RunChanges, message: &str) -> Result<String, 
         return Err(NO_MESSAGE.into());
     }
     let top = Path::new(&run.top);
+    if has_new_repository(git, run)? {
+        return Err(NESTED_REPO.into());
+    }
     let merging = git
         .yes(top, &["rev-parse", "-q", "--verify", "MERGE_HEAD"])
         .unwrap_or(false);
@@ -83,6 +88,37 @@ pub fn commit(git: &GitHost, run: &RunChanges, message: &str) -> Result<String, 
         "Committed {} as {short} on {branch}.",
         files(paths.len())
     ))
+}
+
+/// A commit records a new repository as a gitlink. Plain git on the desktop then runs in
+/// it with its own config, which the agent wrote (SPEC.md 6.6.4).
+fn has_new_repository(git: &GitHost, run: &RunChanges) -> Result<bool, String> {
+    let top = Path::new(&run.top);
+    let now = snapshot(git, top).map_err(|e| format!("Couldn't commit: {e}"))?;
+    let raw = git
+        .bytes(
+            top,
+            &[
+                "diff-tree",
+                "-r",
+                "-z",
+                "--raw",
+                "--no-renames",
+                &run.start.tree,
+                &now.tree,
+            ],
+        )
+        .map_err(|e| format!("Couldn't commit: {e}"))?;
+    // With -z, each change is a header part and then a path part.
+    Ok(nul_parts(&raw).into_iter().step_by(2).any(is_new_gitlink))
+}
+
+/// A `--raw` header is `:<old mode> <new mode> ...`, and a gitlink has mode 160000.
+fn is_new_gitlink(header: &[u8]) -> bool {
+    let mut modes = header.split(|b| *b == b' ');
+    let old = modes.next().unwrap_or_default();
+    let new = modes.next().unwrap_or_default();
+    old != b":160000" && new == b"160000"
 }
 
 /// git says "nothing to commit" on its output, after a line about the branch.
@@ -276,6 +312,37 @@ mod tests {
         commit(&repo.git, &run, "agent work").unwrap();
 
         assert_eq!(repo.run(&["status", "--porcelain"]), "M  b.txt\n");
+    }
+
+    #[test]
+    fn commit_refuses_a_git_repository_that_the_run_made() {
+        let repo = repo();
+        let run = repo.run_that(|r| {
+            r.write("a.txt", "agent\n");
+            r.write("sub/x", "x\n");
+            let sub = r.top.join("sub");
+            for args in [
+                &["init", "-q"][..],
+                &["-c", "user.email=t@t", "-c", "user.name=t", "add", "x"][..],
+                &[
+                    "-c",
+                    "user.email=t@t",
+                    "-c",
+                    "user.name=t",
+                    "commit",
+                    "-qm",
+                    "s",
+                ][..],
+            ] {
+                r.git.bytes(&sub, args).unwrap();
+            }
+        });
+
+        let error = commit(&repo.git, &run, "agent work").unwrap_err();
+
+        assert_eq!(error, NESTED_REPO);
+        let tree = repo.run(&["ls-tree", "-r", "HEAD"]);
+        assert!(!tree.contains("160000"), "{tree}");
     }
 
     #[test]
