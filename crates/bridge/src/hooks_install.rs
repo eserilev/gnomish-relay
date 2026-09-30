@@ -77,7 +77,7 @@ fn folder_of(files: &HookFiles) -> PathBuf {
         .unwrap_or_default()
 }
 
-fn save_folders(data: &Path, all: &[HookFiles]) -> Result<()> {
+pub(crate) fn save_folders(data: &Path, all: &[HookFiles]) -> Result<()> {
     let folder = |source| all.iter().find(|f| f.source == source).map(folder_of);
     let (Some(claude), Some(codex)) = (folder(Source::Claude), folder(Source::Codex)) else {
         return Ok(());
@@ -87,16 +87,19 @@ fn save_folders(data: &Path, all: &[HookFiles]) -> Result<()> {
     write_private(data, SAVED_FOLDERS, &text)
 }
 
+/// The folders of Claude Code and Codex that the last `hooks` command used.
+pub fn saved_folders(data: &Path) -> Option<(PathBuf, PathBuf)> {
+    let bytes = fs::read(data.join(SAVED_FOLDERS)).ok()?;
+    let saved: SavedFolders = serde_json::from_slice(&bytes).ok()?;
+    Some((saved.claude, saved.codex))
+}
+
 /// The files that the last `hooks` command used, else the ones of `var`.
 pub fn files_for_bridge(home: &Path, data: &Path, var: EnvVar) -> Vec<HookFiles> {
-    let saved = fs::read(data.join(SAVED_FOLDERS)).ok();
-    let Some(saved) = saved.and_then(|b| serde_json::from_slice::<SavedFolders>(&b).ok()) else {
+    let Some((claude, codex)) = saved_folders(data) else {
         return HookFiles::both(home, var);
     };
-    vec![
-        HookFiles::claude_in(&saved.claude),
-        HookFiles::codex_in(&saved.codex),
-    ]
+    vec![HookFiles::claude_in(&claude), HookFiles::codex_in(&codex)]
 }
 
 pub fn agent_name(source: Source) -> &'static str {

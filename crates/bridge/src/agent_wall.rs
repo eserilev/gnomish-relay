@@ -14,6 +14,7 @@ use crate::allow_hosts::{Defaults, HostList};
 use crate::config::Kind;
 use crate::dirs::{EnvVar, claude_dir, codex_dir};
 use crate::forward::{FORWARD_FLAG, INNER_PORT, ports_arg};
+use crate::hooks_install::saved_folders;
 use crate::ids::random_hex;
 use crate::proxy::{Proxy, ProxySettings};
 use crate::story_sandbox::{self, Sandbox};
@@ -135,6 +136,22 @@ impl AgentDirs {
             codex: default_and_moved(home.join(".codex"), codex_dir(home, var)),
         }
     }
+
+    /// The folders that the last `hooks` command used. A service of the bridge lacks the
+    /// variables of a shell rc file, so only this file names a moved folder there.
+    pub fn add_saved(&mut self, data: &Path) {
+        let Some((claude, codex)) = saved_folders(data) else {
+            return;
+        };
+        add_absolute(&mut self.claude, claude);
+        add_absolute(&mut self.codex, codex);
+    }
+}
+
+fn add_absolute(folders: &mut Vec<PathBuf>, folder: PathBuf) {
+    if folder.is_absolute() && !folders.contains(&folder) {
+        folders.push(folder);
+    }
 }
 
 /// A relative folder has no fixed place, so the wall cannot bind it.
@@ -208,10 +225,11 @@ impl AgentWall {
         };
         let var = |name: &str| std::env::var_os(name).map(PathBuf::from);
         let home = var("HOME");
-        let agent_dirs = home
+        let mut agent_dirs = home
             .as_deref()
             .map(|home| AgentDirs::of(home, &var))
             .unwrap_or_default();
+        agent_dirs.add_saved(data_dir);
         AgentWall::new(
             tool,
             std::env::current_exe().unwrap_or_default(),
@@ -905,6 +923,24 @@ mod tests {
         }
         assert!(!paths.contains(&PathBuf::from("/home/x/.claude.json")));
         assert!(!paths.contains(&PathBuf::from("/home/x/.claude/projects")));
+    }
+
+    #[test]
+    fn a_folder_that_the_hooks_command_saved_is_read_only_too() {
+        let data = tempfile::tempdir().unwrap();
+        let home = Path::new("/home/x");
+        let moved = |name: &str| (name == "CODEX_HOME").then(|| PathBuf::from("/cfg/codex"));
+        let used = crate::hooks_install::HookFiles::both(home, &moved);
+        crate::hooks_install::save_folders(data.path(), &used).unwrap();
+        let mut dirs = AgentDirs::of(home, &|_| None);
+
+        dirs.add_saved(data.path());
+
+        assert_eq!(dirs.claude, [home.join(".claude")]);
+        assert_eq!(
+            dirs.codex,
+            [home.join(".codex"), PathBuf::from("/cfg/codex")]
+        );
     }
 
     #[test]
