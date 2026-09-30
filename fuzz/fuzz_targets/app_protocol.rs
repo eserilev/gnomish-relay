@@ -1,13 +1,14 @@
 //! Any line of the story program, and any batch of the addon (SPEC.md 9.8): reading
 //! never panics, a forwarded line is JSON, and a reply for the game is one JSON line
-//! with every `|` doubled that the slot writer keeps whole.
+//! with every `|` doubled that the slot writer keeps whole. A narrator line and a notice
+//! keep their limit.
 #![no_main]
 
 use app_protocol::addon_lines::{forwarded_line, read_batch};
 use app_protocol::model_answer::clean_answer;
 use app_protocol::story_lines::{
-    Body, CallId, FromStory, MAX_ANSWER_LINE, MAX_PROMPT, RequestId, model_answered_line,
-    model_failed_line, read_line, reply_text,
+    Body, CallId, FromStory, MAX_ANSWER_LINE, MAX_COMPANION, MAX_PROMPT, RequestId,
+    model_answered_line, model_failed_line, read_line, reply_text,
 };
 use libfuzzer_sys::fuzz_target;
 use protocol::slot::{Reply, Status, prepare_replies};
@@ -68,6 +69,10 @@ fuzz_target!(|data: &[u8]| {
             ..
         }) => {
             assert!(data.len() <= MAX_ANSWER_LINE);
+            for side in [&answer.narrator, &answer.notice].into_iter().flatten() {
+                assert!(side.len() <= MAX_COMPANION, "a side line keeps its limit");
+                assert!(!side.chars().any(char::is_control), "on one line");
+            }
             if let Body::Journal { content, .. } = &answer.body {
                 assert!(
                     !content.contains_key("note"),

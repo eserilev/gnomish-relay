@@ -182,6 +182,13 @@ fn on_reply_line(script: &str, line: &Value) {
             "type": "lore_answer", "id": line["id"], "text": "story", "passages": [],
             "narrator": narrator(script),
         })),
+        "notice" | "long-notice" if line["type"] == "lore_asked" => {
+            let mut reply = json!({
+                "type": "lore_answer", "id": line["id"], "text": "story", "passages": [],
+            });
+            add_notice(script, &mut reply);
+            send(&reply);
+        }
         "model" => send(&json!({ "type": "model_call", "call": 1, "prompt": "tell a story" })),
         "model-crash" => {
             send(&json!({ "type": "model_call", "call": 1, "prompt": "tell a story" }));
@@ -192,7 +199,7 @@ fn on_reply_line(script: &str, line: &Value) {
         "probe" => probe(line),
         "too-long" => too_long(line),
         _ if line["type"] == "journal_asked" => journal(line),
-        _ if line["type"] == "talk_asked" => talk(line),
+        _ if line["type"] == "talk_asked" => talk(script, line),
         _ => answer(line, &format!("story: {}", question(line))),
     }
 }
@@ -202,6 +209,17 @@ fn narrator(script: &str) -> Value {
         "narrator" => json!("A wolf howls."),
         "long-narrator" => json!("c".repeat(1001)),
         _ => Value::Null,
+    }
+}
+
+/// Only the notice scripts send a notice, so every other script is an old story program.
+fn add_notice(script: &str, message: &mut Value) {
+    match script {
+        "notice" => {
+            message["notice"] = json!("You already have 3 tasks. Finish |cffff0000one first.");
+        }
+        "long-notice" => message["notice"] = json!("n".repeat(1001)),
+        _ => {}
     }
 }
 
@@ -220,7 +238,9 @@ fn on_batch_end(script: &str, end: &Value) {
         "late" => std::thread::sleep(Duration::from_secs(2)),
         _ => {}
     }
-    send(&json!({ "type": "events_seen", "id": end["id"], "narrator": narrator(script) }));
+    let mut seen = json!({ "type": "events_seen", "id": end["id"], "narrator": narrator(script) });
+    add_notice(script, &mut seen);
+    send(&seen);
     if script == "late" {
         // The test waits for this file, not for a fixed time.
         let _ = std::fs::write("late-sent", "");
@@ -233,12 +253,12 @@ fn on_batch_end(script: &str, end: &Value) {
     }
 }
 
-fn talk(line: &Value) {
+fn talk(script: &str, line: &Value) {
     let npc = line["npc"].as_str().unwrap_or_default();
     let text = line["text"].as_str().unwrap_or_default();
-    send(
-        &json!({ "type": "talk_answer", "id": line["id"], "npc": npc, "text": format!("{npc}: {text}") }),
-    );
+    let mut reply = json!({ "type": "talk_answer", "id": line["id"], "npc": npc, "text": format!("{npc}: {text}") });
+    add_notice(script, &mut reply);
+    send(&reply);
 }
 
 /// Stops at the end of its input, as the protocol asks: the bridge is gone.

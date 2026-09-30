@@ -320,6 +320,57 @@ fn a_narrator_line_that_is_too_long_is_dropped_and_the_rest_stays() {
     assert_eq!(reply(&answers[1])["narrator"], Value::Null);
 }
 
+const TALK: &str =
+    "{\"type\":\"talk_asked\",\"at\":3,\"npc\":\"Marshal Dughan\",\"text\":\"Any work?\"}";
+
+#[test]
+fn a_notice_reaches_the_reply_of_events_lore_and_talk_with_every_pipe_doubled() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("notice", dir.path());
+    story.send(message(7, EVENTS));
+    story.send(message(8, &question("x")));
+    story.send(message(9, TALK));
+
+    let answers = answers(&mut story, 3);
+
+    let notice = "You already have 3 tasks. Finish ||cffff0000one first.";
+    for (answer, kind) in answers
+        .iter()
+        .zip(["events_seen", "lore_answer", "talk_answer"])
+    {
+        assert_eq!(reply(answer)["type"], kind);
+        assert_eq!(reply(answer)["notice"], notice, "{kind}");
+    }
+}
+
+#[test]
+fn a_notice_that_is_too_long_is_dropped_and_the_rest_stays() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("long-notice", dir.path());
+    story.send(message(7, EVENTS));
+    story.send(message(8, TALK));
+
+    let answers = answers(&mut story, 2);
+
+    assert_events_seen(&answers[0]);
+    assert!(reply(&answers[0]).get("notice").is_none());
+    assert_eq!(reply(&answers[1])["text"], "Marshal Dughan: Any work?");
+    assert!(reply(&answers[1]).get("notice").is_none());
+}
+
+#[test]
+fn a_story_program_that_sends_no_notice_gets_replies_with_no_notice() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("echo", dir.path());
+    story.send(message(7, EVENTS));
+    story.send(message(8, TALK));
+
+    let answers = answers(&mut story, 2);
+
+    assert!(reply(&answers[0]).get("notice").is_none());
+    assert!(reply(&answers[1]).get("notice").is_none());
+}
+
 #[test]
 fn a_batch_of_events_with_no_events_seen_ends_done_and_empty_at_its_deadline() {
     let dir = tempfile::tempdir().unwrap();

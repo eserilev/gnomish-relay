@@ -16,6 +16,8 @@ pub const MAX_LINE: usize = 1024 * 1024;
 pub const MAX_ANSWER_LINE: usize = 24_576;
 pub const MAX_PROMPT: usize = 256 * 1024;
 pub const MAX_COMPANION: usize = 1000;
+/// A notice has the limit of a narrator line.
+const MAX_NOTICE: usize = MAX_COMPANION;
 /// The note that the bridge adds to a reply when the story program runs with no sandbox.
 pub const NO_SANDBOX: &str = "The Timeways story program runs with no sandbox here.";
 const MAX_JOURNAL_DEPTH: usize = 6;
@@ -172,16 +174,25 @@ impl Body {
     }
 }
 
-/// A checked answer. `narrator` is a line of the narrator, if any.
+/// A checked answer. `narrator` is a line of the narrator, and `notice` a line of
+/// Timeways itself, for example "You already have 3 tasks.".
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Answer {
     pub body: Body,
     pub narrator: Option<String>,
+    pub notice: Option<String>,
 }
 
-/// A narrator line over its limit loses only that line; the rest of the answer stays.
+/// The optional lines of an answer, beside its body.
+struct SideLines {
+    narrator: Option<String>,
+    notice: Option<String>,
+}
+
+/// A narrator line or a notice over its limit loses only that line; the rest of the
+/// answer stays.
 #[derive(Debug, PartialEq, Eq, Clone, Copy)]
-pub enum NarratorCheck {
+pub enum LineCheck {
     Kept,
     Dropped,
 }
@@ -199,6 +210,8 @@ enum Wire {
         passages: Vec<Passage>,
         #[serde(default)]
         narrator: Option<String>,
+        #[serde(default)]
+        notice: Option<String>,
     },
     TalkAnswer {
         id: RequestId,
@@ -206,11 +219,15 @@ enum Wire {
         text: Option<String>,
         #[serde(default)]
         narrator: Option<String>,
+        #[serde(default)]
+        notice: Option<String>,
     },
     EventsSeen {
         id: RequestId,
         #[serde(default)]
         narrator: Option<String>,
+        #[serde(default)]
+        notice: Option<String>,
     },
     ModelCall {
         call: CallId,
@@ -229,7 +246,8 @@ pub enum FromStory {
     Answer {
         id: RequestId,
         answer: Option<Answer>,
-        narrator: NarratorCheck,
+        narrator: LineCheck,
+        notice: LineCheck,
     },
     /// The bridge runs the model and answers by `call`, with `model_answered` or
     /// `model_failed`.
@@ -244,7 +262,7 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
         return Err(BadLine::TooLong);
     }
     let value: Value = serde_json::from_slice(bytes).map_err(|_| BadLine::Shape)?;
-    let (id, body, narrator) = if is_journal(&value) {
+    let (id, body, side) = if is_journal(&value) {
         read_journal(value)?
     } else {
         // From the raw bytes, so a key given twice is an error.
@@ -259,25 +277,45 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
                 text,
                 passages,
                 narrator,
-            } => (id, Body::LoreAnswer { text, passages }, narrator),
+                notice,
+            } => (
+                id,
+                Body::LoreAnswer { text, passages },
+                SideLines { narrator, notice },
+            ),
             Wire::TalkAnswer {
                 id,
                 npc,
                 text,
                 narrator,
-            } => (id, Body::TalkAnswer { npc, text }, narrator),
-            Wire::EventsSeen { id, narrator } => (id, Body::EventsSeen, narrator),
+                notice,
+            } => (
+                id,
+                Body::TalkAnswer { npc, text },
+                SideLines { narrator, notice },
+            ),
+            Wire::EventsSeen {
+                id,
+                narrator,
+                notice,
+            } => (id, Body::EventsSeen, SideLines { narrator, notice }),
         }
     };
     if !body_fits(&body) {
         return Err(BadLine::Text);
     }
-    let (narrator, check) = checked_narrator(narrator);
-    let answer = (bytes.len() <= MAX_ANSWER_LINE).then_some(Answer { body, narrator });
+    let (narrator, narrator_check) = checked_side_line(side.narrator, MAX_COMPANION);
+    let (notice, notice_check) = checked_side_line(side.notice, MAX_NOTICE);
+    let answer = (bytes.len() <= MAX_ANSWER_LINE).then_some(Answer {
+        body,
+        narrator,
+        notice,
+    });
     Ok(FromStory::Answer {
         id,
         answer,
-        narrator: check,
+        narrator: narrator_check,
+        notice: notice_check,
     })
 }
 
@@ -285,9 +323,9 @@ fn is_journal(value: &Value) -> bool {
     value.get("type").and_then(Value::as_str) == Some("journal")
 }
 
-/// Only `id`, `page`, `pages`, and `narrator` have a fixed shape. The rest is bounded
-/// JSON, which the bridge writes again from the checked value.
-fn read_journal(value: Value) -> Result<(RequestId, Body, Option<String>), BadLine> {
+/// Only `id`, `page`, `pages`, `narrator`, and `notice` have a fixed shape. The rest is
+/// bounded JSON, which the bridge writes again from the checked value.
+fn read_journal(value: Value) -> Result<(RequestId, Body, SideLines), BadLine> {
     let Value::Object(mut content) = value else {
         return Err(BadLine::Shape);
     };
@@ -295,11 +333,8 @@ fn read_journal(value: Value) -> Result<(RequestId, Body, Option<String>), BadLi
     let id = content.remove("id").and_then(|v| v.as_u64());
     let page = content.remove("page").as_ref().and_then(as_u32);
     let pages = content.remove("pages").as_ref().and_then(as_u32);
-    let narrator = match content.remove("narrator") {
-        None | Some(Value::Null) => None,
-        Some(Value::String(line)) => Some(line),
-        Some(_) => return Err(BadLine::Shape),
-    };
+    let narrator = optional_string(content.remove("narrator"))?;
+    let notice = optional_string(content.remove("notice"))?;
     let (Some(id), Some(page), Some(pages)) = (id, page, pages) else {
         return Err(BadLine::Shape);
     };
@@ -322,7 +357,15 @@ fn read_journal(value: Value) -> Result<(RequestId, Body, Option<String>), BadLi
         pages,
         content,
     };
-    Ok((RequestId(id), body, narrator))
+    Ok((RequestId(id), body, SideLines { narrator, notice }))
+}
+
+fn optional_string(value: Option<Value>) -> Result<Option<String>, BadLine> {
+    match value {
+        None | Some(Value::Null) => Ok(None),
+        Some(Value::String(line)) => Ok(Some(line)),
+        Some(_) => Err(BadLine::Shape),
+    }
 }
 
 fn as_u32(value: &Value) -> Option<u32> {
@@ -363,10 +406,10 @@ fn journal_strings_fit(value: &Value) -> bool {
     }
 }
 
-fn checked_narrator(narrator: Option<String>) -> (Option<String>, NarratorCheck) {
-    match narrator {
-        Some(line) if !is_short(&line, MAX_COMPANION) => (None, NarratorCheck::Dropped),
-        kept => (kept, NarratorCheck::Kept),
+fn checked_side_line(line: Option<String>, max: usize) -> (Option<String>, LineCheck) {
+    match line {
+        Some(line) if !is_short(&line, max) => (None, LineCheck::Dropped),
+        kept => (kept, LineCheck::Kept),
     }
 }
 
@@ -397,6 +440,9 @@ struct Reply<'a> {
     #[serde(flatten)]
     body: Body,
     narrator: Option<String>,
+    /// Only when set, so the reply to an old story program stays as it was.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    notice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<&'a str>,
 }
@@ -408,6 +454,7 @@ pub fn reply_text(answer: &Answer, note: Option<&str>) -> Option<String> {
     let reply = Reply {
         body: game_safe(&answer.body),
         narrator: answer.narrator.as_deref().map(game_text),
+        notice: answer.notice.as_deref().map(game_text),
         note,
     };
     let line = serde_json::to_string(&reply).ok()?;
@@ -506,14 +553,22 @@ mod tests {
                 passages,
             },
             narrator: None,
+            notice: None,
         }
     }
 
-    fn read_answer(line: &[u8]) -> (Option<Answer>, NarratorCheck) {
+    fn read_answer(line: &[u8]) -> (Option<Answer>, LineCheck) {
         match read_line(line) {
             Ok(FromStory::Answer {
                 answer, narrator, ..
             }) => (answer, narrator),
+            other => panic!("not an answer: {other:?}"),
+        }
+    }
+
+    fn read_notice(line: &[u8]) -> (Option<Answer>, LineCheck) {
+        match read_line(line) {
+            Ok(FromStory::Answer { answer, notice, .. }) => (answer, notice),
             other => panic!("not an answer: {other:?}"),
         }
     }
@@ -565,7 +620,8 @@ mod tests {
             Ok(FromStory::Answer {
                 id: RequestId(3),
                 answer: Some(lore(Some("Goblins [1]."), vec![passage])),
-                narrator: NarratorCheck::Kept,
+                narrator: LineCheck::Kept,
+                notice: LineCheck::Kept,
             })
         );
         let null = br#"{"type":"lore_answer","id":3,"text":null,"passages":[]}"#;
@@ -783,20 +839,110 @@ mod tests {
             serde_json::json!({ "type": "events_seen", "id": 5, "narrator": narrator }).to_string()
         };
         let (kept, check) = read_answer(line(&"c".repeat(1000)).as_bytes());
-        assert_eq!(check, NarratorCheck::Kept);
+        assert_eq!(check, LineCheck::Kept);
         assert_eq!(kept.unwrap().narrator.map(|c| c.len()), Some(1000));
 
         let (dropped, check) = read_answer(line(&"c".repeat(1001)).as_bytes());
-        assert_eq!(check, NarratorCheck::Dropped);
+        assert_eq!(check, LineCheck::Dropped);
         assert_eq!(
             dropped.unwrap(),
             Answer {
                 body: Body::EventsSeen,
-                narrator: None
+                narrator: None,
+                notice: None,
             }
         );
         let (_, check) = read_answer(line("a\nb").as_bytes());
-        assert_eq!(check, NarratorCheck::Dropped);
+        assert_eq!(check, LineCheck::Dropped);
+    }
+
+    fn with_notice(line: &str, notice: Value) -> String {
+        let mut line: Value = serde_json::from_str(line).unwrap();
+        line["notice"] = notice;
+        line.to_string()
+    }
+
+    const EVENTS_SEEN: &str = r#"{"type":"events_seen","id":5}"#;
+    const LORE: &str = r#"{"type":"lore_answer","id":3,"text":null,"passages":[]}"#;
+
+    #[test]
+    fn events_seen_talk_lore_and_journal_read_a_notice() {
+        let talk = talk_answer("n", None);
+        for line in [EVENTS_SEEN, LORE, &talk, JOURNAL] {
+            let line = with_notice(line, "You already have 3 tasks.".into());
+
+            let answer = answer_of(line.as_bytes()).unwrap();
+
+            assert_eq!(
+                answer.notice.as_deref(),
+                Some("You already have 3 tasks."),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_answer_with_no_notice_or_a_null_notice_has_none() {
+        let null = with_notice(EVENTS_SEEN, Value::Null);
+        assert_eq!(answer_of(null.as_bytes()).unwrap().notice, None);
+        assert_eq!(answer_of(EVENTS_SEEN.as_bytes()).unwrap().notice, None);
+        let journal = with_notice(JOURNAL, Value::Null);
+        assert_eq!(answer_of(journal.as_bytes()).unwrap().notice, None);
+    }
+
+    #[test]
+    fn a_notice_of_1000_bytes_stays_and_a_longer_one_is_dropped_alone() {
+        let line = |notice: &str| with_notice(EVENTS_SEEN, notice.into());
+
+        let (kept, check) = read_notice(line(&"n".repeat(1000)).as_bytes());
+        assert_eq!(check, LineCheck::Kept);
+        assert_eq!(kept.unwrap().notice.map(|n| n.len()), Some(1000));
+
+        for bad in ["n".repeat(1001), "a\nb".to_owned()] {
+            let (dropped, check) = read_notice(line(&bad).as_bytes());
+            assert_eq!(check, LineCheck::Dropped);
+            assert_eq!(dropped.unwrap().body, Body::EventsSeen);
+        }
+    }
+
+    #[test]
+    fn a_journal_notice_over_its_limit_is_dropped_alone() {
+        let line = with_notice(JOURNAL, "n".repeat(1001).into());
+
+        let (answer, check) = read_notice(line.as_bytes());
+
+        assert_eq!(check, LineCheck::Dropped);
+        assert_eq!(answer.unwrap().notice, None);
+    }
+
+    #[test]
+    fn a_notice_that_is_not_a_string_is_refused() {
+        for line in [EVENTS_SEEN, LORE, JOURNAL] {
+            let line = with_notice(line, 7.into());
+            assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
+        }
+    }
+
+    #[test]
+    fn the_reply_carries_the_notice_with_every_pipe_doubled() {
+        let answer = Answer {
+            body: Body::EventsSeen,
+            narrator: None,
+            notice: Some("Finish |cffff0000one first.".into()),
+        };
+        assert_eq!(
+            reply_text(&answer, None).unwrap(),
+            r#"{"type":"events_seen","narrator":null,"notice":"Finish ||cffff0000one first."}"#
+        );
+    }
+
+    #[test]
+    fn a_reply_with_no_notice_has_no_notice_key_as_before() {
+        let answer = answer_of(EVENTS_SEEN.as_bytes()).unwrap();
+        assert_eq!(
+            reply_text(&answer, None).unwrap(),
+            r#"{"type":"events_seen","narrator":null}"#
+        );
     }
 
     #[test]
@@ -919,6 +1065,7 @@ mod tests {
         let answer = Answer {
             body: Body::EventsSeen,
             narrator: Some("A wolf howls.".into()),
+            notice: None,
         };
         assert_eq!(
             reply_text(&answer, None).unwrap(),

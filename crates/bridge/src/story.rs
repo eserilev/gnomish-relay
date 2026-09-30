@@ -14,7 +14,7 @@ use std::time::{Duration, Instant};
 use anyhow::Context;
 use app_protocol::addon_lines::{AddonLine, Refused, forwarded_line, read_batch};
 use app_protocol::story_lines::{
-    self, Answer, Asked, BadLine, CallId, FromStory, NO_SANDBOX, NarratorCheck, RequestId,
+    self, Answer, Asked, BadLine, CallId, FromStory, LineCheck, NO_SANDBOX, RequestId,
     batch_end_line, hello_line, model_answered_line, model_failed_line, reply_text,
 };
 
@@ -376,7 +376,12 @@ impl Story {
                     id,
                     answer,
                     narrator,
-                }) => self.take_answer(id, answer.as_ref(), narrator),
+                    notice,
+                }) => {
+                    log_dropped(id, "narrator line", narrator);
+                    log_dropped(id, "notice", notice);
+                    self.take_answer(id, answer.as_ref());
+                }
                 Ok(FromStory::ModelCall { call, prompt }) => {
                     self.start_model_call(&process, call, prompt);
                 }
@@ -403,10 +408,7 @@ impl Story {
     /// `None` is an answer line over its limit: an error, never a cut line. An answer for
     /// an id that already ended is late, and goes. An id that the bridge never gave is a
     /// bad line.
-    fn take_answer(&mut self, id: RequestId, answer: Option<&Answer>, narrator: NarratorCheck) {
-        if narrator == NarratorCheck::Dropped {
-            log(&format!("timeways: dropped the narrator line of #{}", id.0));
-        }
+    fn take_answer(&mut self, id: RequestId, answer: Option<&Answer>) {
         let Some(waiting) = self.sent.remove(&id) else {
             if id.0 < self.next_id {
                 log(&format!("timeways: dropped a late answer for #{}", id.0));
@@ -559,6 +561,12 @@ impl Story {
         let due = self.warning == Warning::Due;
         self.warning = Warning::Given;
         due
+    }
+}
+
+fn log_dropped(id: RequestId, what: &str, check: LineCheck) {
+    if check == LineCheck::Dropped {
+        log(&format!("timeways: dropped the {what} of #{}", id.0));
     }
 }
 
