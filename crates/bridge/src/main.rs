@@ -43,6 +43,8 @@ usage:
   gnomish-relay check-agent <name>   start an agent of the config and show what it offers
   gnomish-relay approve [id]         list the tool calls that wait for the desktop, or allow one
   gnomish-relay deny <id>            refuse a tool call that waits for the desktop
+  gnomish-relay rules                list the Always allow rules from the game
+  gnomish-relay rules remove <id>    remove one Always allow rule
   gnomish-relay say <chat> <id> <text>
                                      publish a reply to message <id> (from `/relay diag`)
   gnomish-relay selftest collect [folder] [--out <repo>]
@@ -928,6 +930,10 @@ fn forward_then(socket: &str, ports: &str, child: std::process::Command) -> Resu
 fn main() -> Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     match args.iter().map(String::as_str).collect::<Vec<_>>()[..] {
+        ["help" | "--help" | "-h"] => {
+            println!("{USAGE}");
+            Ok(())
+        }
         ["setup", ref rest @ ..] => setup(rest),
         ["install"] => install(),
         ["run"] => start(),
