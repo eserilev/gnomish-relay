@@ -19,6 +19,7 @@ use protocol::record::Record;
 use protocol::version::version_fit;
 
 use crate::action_input::resolve;
+use crate::daily_usage::{DailyUsage, cap_text};
 use crate::folder_walk::{self, Snapshot, Walk};
 use crate::line_choice::{LineChoice, LineFile, with_line};
 use crate::new_folder::{make_folder, real_chat_folder};
@@ -33,6 +34,7 @@ use crate::status;
 use crate::story::{Story, StorySpec};
 use crate::terminal_sessions::TerminalSessions;
 use crate::timeways::{NO_STORY, Timeways};
+use crate::usage::Usage;
 use crate::vectors::is_test_strip;
 use crate::versions::update_text;
 
@@ -142,6 +144,9 @@ struct RelayLane {
     /// Strips with a bad tag since the last good relay strip. The game shows a key
     /// mismatch only through this count.
     bad_tags: u32,
+    /// The tokens and the cost of each day, and the cap of the config (SPEC.md 9.10).
+    usage: DailyUsage,
+    cost_cap: Option<f64>,
     /// The terminal sessions of the hooks, and the spool folder that brings their events.
     terminal: TerminalSessions,
     spool: PathBuf,
@@ -191,6 +196,15 @@ impl Bridge {
     pub fn with_raises(mut self, raiser: Raiser) -> Bridge {
         if let Some(relay) = &mut self.relay {
             relay.raiser = Some(raiser);
+        }
+        self
+    }
+
+    /// At this cost in a UTC day, no new run starts (SPEC.md 9.10).
+    #[must_use]
+    pub fn with_cost_cap(mut self, cap: Option<f64>) -> Bridge {
+        if let Some(relay) = &mut self.relay {
+            relay.cost_cap = cap;
         }
         self
     }
@@ -379,6 +393,10 @@ impl RelayLane {
         if let Some(problem) = problem {
             log(&problem);
         }
+        let (usage, problem) = DailyUsage::load(&paths.state);
+        if let Some(problem) = problem {
+            log(&problem);
+        }
         Ok(RelayLane {
             relay,
             files: LaneFiles::new(paths.state.clone(), &paths.accounts, App::Relay),
@@ -394,6 +412,8 @@ impl RelayLane {
             raises: RaiseGuard::default(),
             settings: BridgeSettings::default(),
             bad_tags: 0,
+            usage,
+            cost_cap: None,
             terminal,
             spool,
             notices_changed: false,
@@ -508,6 +528,7 @@ impl RelayLane {
                 Work::ListSessions => self.start_list(job),
                 Work::ListFolders => self.start_folder_list(job),
                 Work::ListSettings => {
+                    self.settings.usage_today = self.usage.today(now());
                     let rules = self.settings.rules.lines(now());
                     let hooks = self.settings.hook_lines();
                     self.relay
@@ -527,15 +548,17 @@ impl RelayLane {
             "run {} #{} with {} at {:?}",
             job.chat, job.id.0, job.agent, job.permission
         ));
-        let finished = self.finished.clone();
+        if let Some(cap) = self.cap_reached(&job) {
+            log(&format!(
+                "{} #{}: the daily cost cap stops it",
+                job.chat, job.id.0
+            ));
+            self.end_at_once(job, cap_text(cap));
+            return;
+        }
         // The policy refuses an agent that the config does not have, so this is a guard.
         let Some(agent) = self.agents.get(&job.agent).map(Arc::clone) else {
-            let run = Run {
-                reply: Err(BAD_AGENT.into()),
-                session: None,
-                usage: None,
-            };
-            let _ = finished.send(Finished::Run(job, run));
+            self.end_at_once(job, BAD_AGENT.into());
             return;
         };
         let control = Control {
@@ -553,16 +576,12 @@ impl RelayLane {
         let job = match real {
             Ok(cwd) => Job { cwd, ..job },
             Err(refused) => {
-                let run = Run {
-                    reply: Err(refused),
-                    session: None,
-                    usage: None,
-                };
-                let _ = finished.send(Finished::Run(job, run));
+                self.end_at_once(job, refused);
                 return;
             }
         };
         let raise = self.raise_for(&job);
+        let finished = self.finished.clone();
         thread::spawn(move || {
             let mut job = job;
             if let Some((raiser, level)) = raise {
@@ -579,6 +598,24 @@ impl RelayLane {
             };
             let _ = finished.send(Finished::Run(job, run));
         });
+    }
+
+    /// A run that never starts ends as an error, through the same path as a run.
+    fn end_at_once(&self, job: Job, error: String) {
+        let run = Run {
+            reply: Err(error),
+            session: None,
+            usage: None,
+        };
+        let _ = self.finished.send(Finished::Run(job, run));
+    }
+
+    /// The cap, when the cost of today reached it. A list and an attach call no model,
+    /// so the cap never stops them (SPEC.md 9.10).
+    fn cap_reached(&self, job: &Job) -> Option<f64> {
+        let cap = self.cost_cap?;
+        let reached = job.work == Work::Prompt && self.usage.cap_reached(now(), cap);
+        reached.then_some(cap)
     }
 
     /// The folder is made before the run, so the agent starts in it (SPEC.md 9.9).
@@ -724,11 +761,23 @@ impl RelayLane {
             log(&format!("done {} #{}", job.chat, job.id.0));
             self.stops.remove(&job.chat);
             self.relay.keep_session(&job, run.session);
-            self.relay.finish(&job, run.reply);
+            self.count_usage(run.usage);
+            self.relay
+                .finish_with_usage(&job, run.reply, run.usage.as_ref());
             // A request of a run that ended gets no answer: its run stopped waiting.
             let relay = &self.relay;
             self.answers.retain(|request, _| relay.is_asked(request));
             self.files.changed = true;
+        }
+    }
+
+    /// Each report counts for its day, also the report of a run that failed.
+    fn count_usage(&mut self, usage: Option<Usage>) {
+        let Some(usage) = usage else {
+            return;
+        };
+        if let Err(e) = self.usage.add(now(), usage) {
+            log(&format!("cannot save the usage of today: {e:#}"));
         }
     }
 
@@ -949,6 +998,7 @@ pub struct RelayParts {
     pub raiser: Raiser,
     pub settings: BridgeSettings,
     pub max_parallel_runs: usize,
+    pub daily_cost_cap_usd: Option<f64>,
 }
 
 /// With no relay part, `relay` is `None`, and the bridge serves Timeways alone.
@@ -963,7 +1013,8 @@ pub fn run(
         Some(parts) => Bridge::new(paths, parts.policy, keys, parts.agents)?
             .with_raises(parts.raiser)
             .with_settings(parts.settings)
-            .with_max_runs(parts.max_parallel_runs),
+            .with_max_runs(parts.max_parallel_runs)
+            .with_cost_cap(parts.daily_cost_cap_usd),
         None => Bridge::without_relay(paths, keys)?,
     };
     if let Some(spec) = story {

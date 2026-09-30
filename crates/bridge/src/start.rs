@@ -97,6 +97,7 @@ pub fn start_relay(
         raiser,
         settings,
         max_parallel_runs: relay.max_parallel_runs,
+        daily_cost_cap_usd: relay.daily_cost_cap_usd,
     })
 }
 

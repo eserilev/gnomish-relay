@@ -29,9 +29,10 @@ use crate::history::{ChatLog, History, Speaker};
 pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
 use crate::new_folder::{NewFolderError, is_folder_name};
-use crate::reply::render_reply;
+use crate::reply::{render_reply, with_usage};
 use crate::settings_list::{BridgeSettings, HookLine, settings_reply};
 use crate::state::State;
+use crate::usage::Usage;
 
 const BAD_FOLDER: &str =
     "That folder isn't allowed. Pick another one, or add it to allowed_roots in config.toml.";
@@ -803,16 +804,30 @@ impl Relay {
     }
 
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
+        self.finish_with_usage(job, result, None);
+    }
+
+    /// A done reply with a report of the agent shows its usage line (SPEC.md 9.10).
+    pub fn finish_with_usage(
+        &mut self,
+        job: &Job,
+        result: Result<String, String>,
+        usage: Option<&Usage>,
+    ) {
         self.activity.end(&job.chat, job.id);
         self.end_run(&job.chat);
         if self.is_deleted(&job.chat) {
             return;
         }
         let (status, text) = match result {
-            Ok(text) => (
-                Status::Done,
-                render_reply(&job.work, &with_level_note(job, text)),
-            ),
+            Ok(text) => {
+                let rendered = render_reply(&job.work, &with_level_note(job, text));
+                let text = match usage {
+                    Some(usage) => with_usage(&rendered, usage),
+                    None => rendered,
+                };
+                (Status::Done, text)
+            }
             Err(text) => (Status::Error, text),
         };
         self.set_record(&job.token, &job.chat, job.id, status, text);
@@ -2263,6 +2278,38 @@ mod tests {
         let outcomes = relay.on_frame(&[record_in("../../new", "c1", 1, "n;mkdir=1", "hi")], NOW);
         assert_eq!(outcomes, [Outcome::BadFolder]);
         assert!(body(&relay).contains("That folder isn't allowed"));
+    }
+
+    #[test]
+    fn a_done_reply_with_a_report_shows_its_usage_line() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+        let usage = Usage {
+            input: 1234,
+            cached: 0,
+            output: 350,
+            cost_usd: Some(0.04),
+        };
+
+        relay.finish_with_usage(&job, Ok("Done.".into()), Some(&usage));
+
+        assert!(
+            body(&relay).contains(r#"text = "\027M1\010u\0311.2k in \194\183 350 out \194\183 $0.04\010p\031Done.\010""#),
+            "{}",
+            body(&relay)
+        );
+    }
+
+    #[test]
+    fn an_error_reply_shows_no_usage_line() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+
+        relay.finish_with_usage(&job, Err("Stopped.".into()), Some(&Usage::default()));
+
+        assert!(body(&relay).contains(r#"status = "error", text = "Stopped.""#));
     }
 
     #[test]

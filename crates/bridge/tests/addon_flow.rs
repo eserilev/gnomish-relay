@@ -3408,6 +3408,8 @@ fn settings_text(story: bool) -> String {
         timeout_minutes: 30,
         permission_timeout_minutes: 10,
         max_parallel_runs: 3,
+        daily_cost_cap_usd: None,
+        usage_today: None,
         story: story.then(|| StorySettings {
             model: "claude haiku".into(),
             budget_window_minutes: 20,

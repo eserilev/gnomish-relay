@@ -14,6 +14,7 @@ use bridge::acp::AcpAgent;
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy};
+use bridge::daily_usage;
 use bridge::desktop::{Approvals, Prompt, Verdict};
 use bridge::folder_path::path_bytes;
 use bridge::gate::Gate;
@@ -25,6 +26,7 @@ use bridge::relay::Folders;
 use bridge::relay::Job;
 use bridge::run::{Bridge, Paths, now};
 use bridge::slots::{BODY_FILE, LIVE_FILE, RESTORE_FILE, slot_name};
+use bridge::usage::Usage;
 use bridge::vectors::TEST_KEY;
 use common::{install_window, screenshot_png, signed_frame, strip_rows};
 use protocol::apps::App;
@@ -646,6 +648,70 @@ fn a_wipe_in_one_account_restores_its_chats_and_retires_only_its_old_token() {
     assert!(retired);
     assert!(slot_file(&f.addons, 1, BODY_FILE).contains("echo: from two"));
     assert!(slot_file(&f.addons, 31, BODY_FILE).contains("echo: from two"));
+}
+
+/// An agent whose every run costs 50 cents, and counts its runs.
+struct Costly(AtomicUsize);
+
+impl Agent for Costly {
+    fn run(&self, job: &Job, _control: &Control) -> Run {
+        self.0.fetch_add(1, Ordering::SeqCst);
+        Run {
+            reply: Ok(format!("paid: {}", job.text)),
+            session: None,
+            usage: Some(Usage {
+                input: 1234,
+                cached: 0,
+                output: 350,
+                cost_usd: Some(0.5),
+            }),
+        }
+    }
+}
+
+#[test]
+fn a_reply_shows_the_usage_of_its_run_and_the_day_counts_it() {
+    let f = folders();
+    let mut bridge = bridge_with(&f, Arc::new(Costly(AtomicUsize::new(0))));
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "", "work"),
+    )
+    .unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&f.addons).contains(
+        "\\027M1\\010u\\0311.2k in \\194\\183 350 out \\194\\183 $0.50\\010"
+    )));
+    let days = fs::read_to_string(f.state.join(daily_usage::FILE)).unwrap();
+    assert!(days.contains(&daily_usage::day_of(now())), "{days}");
+    assert!(days.contains("\"cost_usd\":0.5"), "{days}");
+}
+
+#[test]
+fn at_the_daily_cap_a_new_message_does_not_start_and_says_why() {
+    let f = folders();
+    let agent = Arc::new(Costly(AtomicUsize::new(0)));
+    let mut bridge = bridge_with(&f, agent.clone()).with_cost_cap(Some(0.5));
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "", "first"),
+    )
+    .unwrap();
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("id = 7, status = \"done\"")));
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        chat_strip("c1", 8, "", "second"),
+    )
+    .unwrap();
+
+    assert!(step_until(&mut bridge, || {
+        slot_body(&f.addons)
+        .contains("id = 8, status = \"error\", text = \"Not started: today's agent cost reached your $0.50 limit.")
+    }));
+    assert_eq!(agent.0.load(Ordering::SeqCst), 1);
 }
 
 /// An agent with saved sessions, or one whose list fails.
