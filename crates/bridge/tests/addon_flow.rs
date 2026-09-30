@@ -427,6 +427,22 @@ fn a_send_with_few_slots_left_never_reloads_and_the_banner_asks_for_a_reload() {
 }
 
 #[test]
+fn a_click_on_reload_in_combat_says_that_reload_works_after_combat() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.wow.set("combat", true).unwrap();
+
+    game.run("GnomishRelayReload:Click()");
+
+    assert_eq!(game.wow.get::<i64>("reloads").unwrap(), 0);
+    let errors: Table = game.lua.globals().get("UIErrorsFrame").unwrap();
+    assert_eq!(
+        errors.get::<Vec<String>>("lines").unwrap(),
+        ["Reload works after combat."]
+    );
+}
+
+#[test]
 fn a_message_in_the_outbox_asks_for_a_click_on_reload() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");

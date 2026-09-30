@@ -882,7 +882,7 @@ A signal (7.4) makes the addon load a slot at once.
 
 **Slot budget:** there are 1000 slots per UI session. Each reply costs about one slot when signals work, and about four when they do not. Each desktop request costs at most 24 more slots (6.6.3). A working run costs 4 slots a minute, so the slots of a UI session last about 4 hours of agent work, and "Reload soon" covers the rest. The polls for notifications cost 60 slots in each hour of terminal work, and 20 in each hour with an idle terminal session (10.4).
 The window never shows the slot count. `/relay diag` shows it.
-Below 20 free slots, the window shows "Reload soon" with a **Reload** button. Only a click on **Reload** reloads. A reload from Enter took the game away for seconds with no warning, so Send never reloads.
+Below 20 free slots, the window shows "Reload soon" with a **Reload** button. Only a click on **Reload** reloads. In combat, the game allows no reload, so a click shows "Reload works after combat." in the red error text. A reload from Enter took the game away for seconds with no warning, so Send never reloads.
 `ReloadUI` needs a hardware event, and a click is one. The addon never reloads in combat.
 The chat history is in the saved variables, so a `/reload` keeps it.
 

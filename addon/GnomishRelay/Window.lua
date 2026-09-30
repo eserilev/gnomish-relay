@@ -608,14 +608,16 @@ local function BuildCenter()
 	ui.banner:SetSize(width, 24)
 	ui.bannerText = ui.banner:CreateFontString("GnomishRelayBannerText", "OVERLAY", "GameFontNormal")
 	ui.bannerText:SetPoint("LEFT", ui.banner, "LEFT", 6, 0)
-	local reload = CreateFrame("Button", nil, ui.banner, "UIPanelButtonTemplate")
+	local reload = CreateFrame("Button", "GnomishRelayReload", ui.banner, "UIPanelButtonTemplate")
 	reload:SetSize(90, 22)
 	reload:SetPoint("RIGHT", ui.banner, "RIGHT", 0, 0)
 	reload:SetText("Reload")
 	reload:SetScript("OnClick", function()
-		if not InCombatLockdown() then
-			ReloadUI()
+		if InCombatLockdown() then
+			UIErrorsFrame:AddMessage("Reload works after combat.", 1, 0.1, 0.1)
+			return
 		end
+		ReloadUI()
 	end)
 	ui.banner:Hide()
 
