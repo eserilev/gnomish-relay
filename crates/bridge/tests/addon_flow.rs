@@ -3372,6 +3372,49 @@ fn a_long_transcript_scrolls_to_the_newest_entry_and_the_wheel_scrolls_up() {
 }
 
 #[test]
+fn a_reply_shows_its_usage_line_in_grey_below_the_blocks_and_not_in_the_whisper() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("go");
+    game.advance(1.0);
+
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        "\x1bM1\nu\x1f1.2k in · 350 out · $0.04\np\x1fAll done.\n",
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    let usage = lines
+        .iter()
+        .position(|t| t == "|cff9d9d9d1.2k in · 350 out · $0.04|r");
+    assert!(usage.is_some(), "{lines:?}");
+    assert_eq!(whispers_with(&game, "All done."), 1);
+    assert_eq!(whispers_with(&game, "350 out"), 0);
+}
+
+#[test]
+fn a_reply_with_no_usage_line_shows_none() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("go");
+    game.advance(1.0);
+
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        "\x1bM1\np\x1fAll done.\n",
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    assert!(!lines.iter().any(|t| t.contains(" out")), "{lines:?}");
+}
+
+#[test]
 fn an_error_that_looks_rendered_shows_as_plain_text() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
@@ -3467,6 +3510,38 @@ fn shown_by_name(game: &Game, name: &str) -> bool {
     game.run(&format!("return {name}:IsVisible()"))
         .as_boolean()
         .unwrap()
+}
+
+fn settings_with_extra_lines(game: &Game, extra: &str) {
+    open_tab(game, SETTINGS);
+    game.advance(2.0);
+    let text = format!("{}{extra}", settings_text(false));
+    game.publish(&[reply("settings", 99, Status::Done, &text)]);
+    game.run("local ns = ... ns.Transport.Poll()");
+}
+
+#[test]
+fn settings_shows_the_usage_of_today_and_the_cap() {
+    let game = Game::start();
+
+    settings_with_extra_lines(
+        &game,
+        "\nusage_today\t12k in · 4.1k out · $1.20\ndaily_cost_cap_usd\t5.00",
+    );
+
+    assert_eq!(
+        text_of(&game, "GnomishRelaySettingsUsage:GetText()"),
+        "|cff8d8778Today (UTC): 12k in · 4.1k out · $1.20 · limit $5.00|r"
+    );
+}
+
+#[test]
+fn settings_shows_no_usage_line_before_the_first_run_of_the_day() {
+    let game = Game::start();
+
+    settings_with_extra_lines(&game, "\ndaily_cost_cap_usd\t5.00");
+
+    assert_eq!(text_of(&game, "GnomishRelaySettingsUsage:GetText()"), "");
 }
 
 #[test]

@@ -75,6 +75,15 @@ local function UncutLine(line)
 	return parts
 end
 
+-- The usage line of the run (SPEC.md 9.10), or nil. The bridge writes it as the first
+-- block, so a cut never drops it. Parse leaves it out, as a kind that it does not know.
+function Blocks.Usage(text)
+	if not Blocks.IsRendered(text) then
+		return nil
+	end
+	return text:match("^\27M1\nu\31([^\n\31]*)\n")
+end
+
 -- The blocks of a rendered reply. An unknown kind is left out, for a newer bridge.
 function Blocks.Parse(text)
 	local rest = text:sub(#MARKER + 1)

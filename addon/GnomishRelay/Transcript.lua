@@ -366,7 +366,12 @@ end
 
 local function DrawRendered(prefix, text, y)
 	y = TextLine(prefix, 0, y, width)
-	return DrawBlocks(ns.Blocks.Parse(text), PAD, y + 2)
+	y = DrawBlocks(ns.Blocks.Parse(text), PAD, y + 2)
+	local usage = ns.Blocks.Usage(text)
+	if not usage then
+		return y
+	end
+	return TextLine(string.format("|cff%s%s|r", GREY, ns.Relay.Plain(usage)), PAD, y, width - PAD)
 end
 
 -- If anything fails while it draws, the reply shows as plain text.

@@ -158,6 +158,18 @@ function SettingsTab.Status()
 	return string.format("|cff%sOnline · %s|r", color, Ago(age))
 end
 
+-- The tokens and the cost of today (SPEC.md 9.10). Empty before the first run of the day.
+local function UsageText()
+	local last = ns.BridgeSettings.Last()
+	local today = last and last.values.usage_today
+	if not today then
+		return ""
+	end
+	local cap = last.values.daily_cost_cap_usd
+	local limit = cap and " · limit $" .. cap or ""
+	return string.format("|cff%sToday (UTC): %s|r", GREY, ns.Relay.Plain(today .. limit))
+end
+
 local function PreviewLine()
 	local db = ns.Store.db
 	local agent = NewAgent()
@@ -222,6 +234,7 @@ function SettingsTab.Refresh()
 	RefreshSwatches()
 	ui.preview:SetText(PreviewLine())
 	ui.status.text:SetText(SettingsTab.Status())
+	ui.usage:SetText(UsageText())
 	RefreshNotify()
 end
 
@@ -374,6 +387,9 @@ local function BuildStatus()
 		ns.BridgeSettings.Ask()
 		SettingsTab.Refresh()
 	end)
+	ui.usage = ui.page:CreateFontString("GnomishRelaySettingsUsage", "OVERLAY", "GameFontHighlight")
+	ui.usage:SetPoint("BOTTOMLEFT", ui.page, "BOTTOMLEFT", 16, 14)
+	ui.usage:SetJustifyH("LEFT")
 end
 
 -- `page` is the inset that takes the place of the center and the Activity panel.
