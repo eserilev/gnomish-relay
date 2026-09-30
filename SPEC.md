@@ -174,7 +174,7 @@ Every message from the game (a strip or the reload outbox) runs under one ceilin
 |---|---|
 | Write | The chat folder only (the `auto-edit` level of 9.3) |
 | Read | `allowed_roots` |
-| Commands | The allow table of the config, and the "Always allow" rules of the folder (6.6.5). All others ask. |
+| Commands | At `auto-edit`, the commands that the command sandbox holds (6.6.4, "The sandbox answers at `auto-edit`"), the allow table of the config, and the "Always allow" rules of the folder (6.6.5). All others ask. |
 | Network | For commands, only through the bridge proxy, to the allowed hosts (6.6.4). The agent process reaches public hosts through a proxy of its own, and none of this computer but `local_ports` (6.6.4, "The agent process behind the proxy"). Each network tool of the agent asks on the desktop (6.6.3). |
 
 - The `full-auto` level (6.2 rule 5) skips the questions of the game only. `deny` and `desktop` answers of the classifier still apply, and so does the sandbox.
@@ -249,6 +249,14 @@ There are four answers, in this order from strict to open:
 - With no dialog tool, the bridge shows a plain notice with "Run: gnomish-relay approve <id>", with `notify-send`, `osascript`, or a PowerShell toast. With no such tool, the log line is the notice.
 - The bridge writes a log line for each request, the tool of its dialog, and the answer of the dialog.
 
+**The log of requests** (asked for by the user after the fresh-install test of 2026-09-30, when `bridge.log` did not say what the requests were for). The bridge writes one line for each game question and one line for each desktop request, when it opens it:
+
+- `game request: <agent> in <chat folder>: <summary>`
+- `desktop request <id> (<kind>): <agent> in <folder>: <summary>. To approve, run gnomish-relay approve <id>`. `<kind>` is `tool call`, `raise`, `merge`, or `folder`. A raise, a merge, and a folder request have no summary: the folder names them.
+- The summary comes from the classifier input, never from the popup text, the title, or the prompt. A command is `command` and the names of its first 4 simple commands, for example `command cargo, tail`. A name is the last part of the first word, and a name that is not a plain word (6.6.5, for example `TOKEN=x`) is `?`. A command that does not parse is `command ?`. A file call is `read` or `write` and at most 3 of its paths, each relative to the chat folder when it is inside it. Any other tool is its name, when the title starts with a plain word, else `a tool`.
+- So no argument of a command, no file content, and no text of the agent reaches the log. The log escapes each line as before (`run::log`).
+- Example: `game request: claude in /home/x/Code/app: command git`.
+
 **Input.** The bridge builds the input in `crates/bridge/src/action_input.rs`:
 
 - A file call carries its read paths and its write paths. A shell command carries its raw bytes and its working folder. Every other tool call is "unknown".
@@ -306,6 +314,20 @@ The bridge runs every command of an agent run from the game inside a sandbox. Th
 
 The sandbox closes the hole that a classifier cannot close: an allowed command such as `cargo test` runs code that the agent can edit first.
 It covers shell commands. The file tools of Claude run outside it, so the classifier (6.6.3) guards them.
+
+**The sandbox answers at `auto-edit`** (asked for by the user after a fresh-install test on 2026-09-30). At `auto-edit` with an empty allow table, the player got 3 game popups in 30 seconds for `ls`, `git status`, and `cargo test`. A popup that comes that often teaches the player to click Allow without reading, and then it protects nothing. So at `auto-edit` the sandbox, not the popup, is the wall for a plain command:
+
+- **A command runs with no question** when all of these hold. `gate::sandbox_holds` checks them.
+  1. The level of the run is `auto-edit`.
+  2. The command sandbox of the bridge holds every command of the backend: Claude with `bwrap` or `sandbox-exec` (`gate::SandboxWall::Holds`).
+  3. The classifier gives `ask`, and the ceiling (6.6.3) of the call is `allow`. So the call has no `deny` or `desktop` part, no "never always" command (a command that runs other commands, a network tool, `rm -r`, `chmod`, a forced push, `git reset --hard`), and no redirect outside the chat folder.
+  4. `propose` (6.6.5) gives a rule for each simple command. So there is no tool that runs any program or downloads code (`npx`, `docker`, `uv run`), no command that publishes (`git push`, `cargo publish`, `npm publish`, `twine`, `gh`), no name with a `/` (`./x.sh`), and no flag after a tool with subcommands (`git -C x status`).
+- In short: a command runs with no question when one click of "Always allow" could cover each of its simple commands. Both checks are proved functions of `protocol` (S17, S36, S37). The gate only joins them, so the proved verdicts do not change.
+- **Still asks in the game:** each command that fails 3 or 4. **Still asks on the desktop:** each `desktop` answer. **Still refused:** each `deny` answer.
+- **Every command still asks** with no command sandbox: Windows, a Linux with no working `bwrap` (the fallback below), Codex, and the other ACP agents. Codex retries an allowed command outside its sandbox with no request, and its sandbox reads `~/.ssh` and the keys of the bridge (6.6.5, rule 4), so for Codex the sandbox is not the wall. An ACP agent runs its commands itself (6.6.3).
+- `ask` and `full-auto` do not change: at `ask` every command asks, and at `full-auto` every command that is not `desktop` or `deny` runs.
+- **Against the threat model.** A hostile addon gains nothing: it could already click Allow on each popup (6.6.1), and one click of "Always allow" already allowed these commands for good (6.6.5). A prompt-injected agent gains one skipped click. The walls stay: writes only in the chat folder and the temp folder, the secrets hidden, and the network only through the proxy to the allowed hosts. The list in 4 stops a direct `git push`, not a push from a script that the agent writes: a `Makefile` or a `build.rs` in the chat folder can run anything inside the sandbox, as the "Always allow" rules already accept (6.6.5, "Why not narrower"). The known leak stays as it is: a command with a token of its own, for example one that the prompt gives, can send data to an allowed host (6.6.4, "What the list does not stop").
+- **A cost to "Always allow".** At `auto-edit` in the sandbox, a command that could get a rule now runs, so the popup rarely offers Always: only when the allow table of the config covers a part that `propose` refuses, such as `./gradlew build && make`. The rules that exist still count.
 
 **The policy (S31).** `sandbox_policy` in `crates/protocol/src/sandbox.rs` builds it from the chat folder, the temp folder, the `deny` folders (the config folder and the data folder, 12), and both lists of `desktop` patterns. A path is hidden with the predicate of the classifier: inside a `deny` folder, or a run of its parts matches a pattern, with no regard to ASCII case. The writable paths are the chat folder and the temp folder, each clean in the form of S5 and not hidden. If the chat folder lies inside a hidden path, the policy leaves it out, and the bridge refuses the run: "The chat folder is inside a folder that the sandbox hides (the config folder, the data folder, or a credential folder), so the agent cannot work there." S31 proves the policy (14.1).
 
@@ -586,6 +608,8 @@ So Windows keeps the fallback, and the bridge has no `rappct` dependency. The se
 - Limits: the sandbox shows the program file alone. A program that loads libraries from its own folder (`$ORIGIN`), a program in a folder bundle, or a script whose interpreter lies in a hidden path does not start. Libraries under `/usr` are readable.
 
 #### 6.6.5 "Always allow"
+
+Since 2026-09-30, at `auto-edit` in the command sandbox, a command that could get a rule runs with no question and no popup (6.6.4, "The sandbox answers at `auto-edit`"). So the popup rarely offers Always. It stays for the allow table cases of that section, and the rules that exist still count.
 
 Asked for by the user on 2026-09-27, designed with an advisor, and approved by the user on 2026-09-27. Before it, every command that the allow table did not cover asked in the game, every time. With "Always allow", the user approves a command once, and it stays approved in that folder. The code is in `crates/protocol/src/always.rs` (the rules, S36 to S39), `crates/bridge/src/always_rules.rs` (the file), `always_offer.rs` (the choice of the popup), and `gate.rs`.
 
@@ -1387,7 +1411,7 @@ Each agent in the config has one permission level:
 | Level | Meaning |
 |---|---|
 | `ask` | Every write and every command needs an answer. A read inside `allowed_roots` needs none. |
-| `auto-edit` | File edits inside the chat folder, and the commands of the allow table (12), need no answer. |
+| `auto-edit` | File edits inside the chat folder, the commands that the command sandbox holds (6.6.4, "The sandbox answers at `auto-edit`"), and the commands of the allow table (12), need no answer. Other commands ask. |
 | `full-auto` | No question in the game. The desktop and `deny` answers of 6.6.3 still apply. |
 
 **The gate.** Each tool call gets one verdict from the classifier (6.6.3). The level of the job then picks the action, in `gate::decide`:
@@ -1397,6 +1421,7 @@ Each agent in the config has one permission level:
 | `deny` | refuse | refuse | refuse |
 | `desktop` | desktop | desktop | desktop |
 | `ask` | game | game | run |
+| `ask`, a command that the sandbox holds | game | run | run |
 | `allow`, a read | run | run | run |
 | `allow`, a write or a command | game | run | run |
 
@@ -1408,7 +1433,7 @@ Each agent in the config has one permission level:
 **Raise the level** (asked for by the user, decided with an advisor on 2026-09-26). A chat that asks for more than the config allows, for example `auto-edit` with `permission = "ask"`, gets one desktop dialog. The code is in `crates/bridge/src/raise.rs` and `config_edit.rs`.
 
 - The dialog is a desktop request of 6.6.3 of its own kind. So it has the same dialog, the same `gnomish-relay approve` fallback, the same 0600 request file, and the first answer wins. Its text is fixed text of the bridge and the name of the agent from the config, never text from the game:
-  - `auto-edit`: "A chat from WoW asks for more access. Allow <agent> to edit files in the chat folder with no question, in every chat from WoW? Commands still ask in the game, unless you added an Always rule there. This writes permission = "auto-edit" to config.toml. Approve only if you just sent a message from WoW."
+  - `auto-edit`: "A chat from WoW asks for more access. Allow <agent> to edit files in the chat folder with no question, in every chat from WoW? It also runs commands inside the sandbox without asking. Risky commands still ask in the game. This writes permission = "auto-edit" to config.toml. Approve only if you just sent a message from WoW."
   - `full-auto` gets a stronger warning: "A chat from WoW asks for full access. Allow <agent> to edit files AND run commands with no question, in every chat from WoW? Any addon that can send a chat message can then run code on this computer, inside the sandbox. The Gnomish Relay addon never asks for this by itself. This writes permission = "full-auto" to config.toml." The addon never asks for `full-auto` today, so this dialog means that another addon made the message. The bridge still offers it, because the user asked for a stronger warning, not for no dialog.
 - The run waits for the answer before the agent starts, so an approved run uses the new level. The game shows the notice of 6.6.3 with ` raise <level>`, and its whisper line is "Approve on your desktop to let <agent> work at <level>." The run timeout stops during the wait, as for any question.
 - On Approve, the bridge reads `config.toml` again with the checks of config load, changes the one line `permission = "..."` of the `[agents.<name>]` table, and keeps the comments and every other line. It then parses the new text: it must load, the agent must have the new level, and every other level must be the same. Else it writes nothing. It writes the file with an atomic rename and mode 0600. Then it sets the new level of that agent in the policy of the running bridge. It reloads nothing else.
@@ -2243,7 +2268,7 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
 
 The order is key, key addon, slots, config, then autostart: the key addon and the slots need nothing else. A failed autostart prints one line, and setup goes on.
 With the relay on, one line says where agents work: "Agents can work in ~/Documents/Code. To add another folder, pick it in the game.", or with no root "Pick a project folder in the game to get started."
-The last lines say what setup found and the next action, for example "Agent: claude (Claude Code 2.1.3)", the sandbox ("Sandbox: bwrap", or "Sandbox: none. Install bubblewrap so allowed commands can run without asking", or a line about AppArmor when `bwrap` is there and fails its probe, 11.1), "Permissions: auto-edit. It edits files in the chat folder without asking, and asks in the game before each command. To change it, edit permission in <config file>", "Story model: claude (haiku)", and "All set. Restart WoW, then type /relay". With the relay addon missing or out of range, the line of step 3 takes the place of the "All set" line, and comes last. With Timeways on and no Timeways folder, "Get the Timeways addon on CurseForge, then restart WoW." also takes the place of the "All set" line, and comes last. The level line shows the level of the default agent in the config, also for a config that setup did not write. With the relay off, setup says "Coding agents: off. To turn them on, run gnomish-relay setup --relay" and "All set. Restart WoW to load the addon". `gnomish-relay install` makes the slots of each app that is on.
+The last lines say what setup found and the next action, for example "Agent: claude (Claude Code 2.1.3)", the sandbox ("Sandbox: bwrap", or "Sandbox: none. Install bubblewrap so commands can run without asking", or a line about AppArmor when `bwrap` is there and fails its probe, 11.1), "Permissions: auto-edit. It edits files in the chat folder without asking. Claude Code also runs commands in the sandbox without asking. Risky commands, and the commands of other agents, ask in the game first. To change it, edit permission in <config file>", "Story model: claude (haiku)", and "All set. Restart WoW, then type /relay". With the relay addon missing or out of range, the line of step 3 takes the place of the "All set" line, and comes last. With Timeways on and no Timeways folder, "Get the Timeways addon on CurseForge, then restart WoW." also takes the place of the "All set" line, and comes last. The level line shows the level of the default agent in the config, also for a config that setup did not write. With the relay off, setup says "Coding agents: off. To turn them on, run gnomish-relay setup --relay" and "All set. Restart WoW to load the addon". `gnomish-relay install` makes the slots of each app that is on.
 
 **Keeping it working.**
 
@@ -2654,7 +2679,7 @@ The mockup is the reference for the layout.
 - **Right column, Activity:** a cast bar while the agent works, and one row per step. A tooltip on each row shows the details. While a popup of the chat waits, the cast bar stands still in grey and says "Waiting for your approval" in orange: the run makes no progress then. While the message waits for the limit on parallel runs (8.2), the cast bar stands still in grey and shows the waiting line of the bridge, for example "Waiting: 3 other chats are running". The text of the cast bar stays inside the bar, and a line that is too long ends in "...". At the bottom, a grey line gives the time to the next poll: "Checking again in 12s". The cast bar and this line change at most 5 times a second.
 - **Side tabs:** Chats, Settings, and Diag, on the right edge of the window. The window stays on screen with its tabs: the clamp of the window counts the tabs as part of it. Notifications get no tab: a bell at the minimap shows them (10.4). Settings and Diag take the place of the center and the Activity panel. The chat tiles stay on the left, and a click on a tile goes back to Chats.
 - **Settings** (asked for by the user, decided with an advisor on 2026-09-26, 13.5). The page, in this order:
-  - **New chats:** Agent, a dropdown of the agents in the settings list (13.4), and Permissions, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Up to <level> (set on your desktop)", the level of the chosen agent in the config.
+  - **New chats:** Agent, a dropdown of the agents in the settings list (13.4), and Permissions, a dropdown of `ask` and `auto-edit`. After the level, a grey hint: "Up to <level> (set on your desktop)", the level of the chosen agent in the config. Below the row, a grey line says what the lower of the two levels does: at `ask`, "Asks before each edit and each command."; at `auto-edit` with a Claude agent and a sandbox in the settings list, "Edits the chat folder and runs commands in the sandbox on its own. Asks for risky commands."; at `auto-edit` for a `command` agent, "Edits the chat folder and runs its own commands in the sandbox."; and else "Edits the chat folder on its own. Asks before each command."
   - **Appearance:** Font size, a slider from 12 to 20 (default 14). It applies at once to all chat text: headings, paragraphs, code boxes, tables, and the input. The window keeps its size, and long lines wrap. Reply whisper: an on and off box, 5 colors (copper `f0a860` is the default), and a Sound box, with a preview of the whisper line below. Window position: **Reset** puts the window in the center, at its first size (900 × 560). In the same row, Quick actions: **Edit** opens the editor of the quick actions in place of the page.
   - **The editor of the quick actions:** one row for each button: its name, its message, **Move up**, **Move down**, and **Remove**. Enter, a click elsewhere, or a click on a button of the editor saves a changed field, and Escape puts the old text back. An empty name or message keeps the old one. Below the rows: **Add** (a new row "New action", up to 6), **Reset** (the defaults), and **Done** (back to the page). The editor closes with the page.
   - **Notifications** (section 10), after Appearance, only after `hooks install`: Notifications, an on and off box (default on); off stops the lines, the sounds, the banners, the bell, and the faster polls of 10.4, and greys the other two rows. Finished tasks, a dropdown: Always, Over 1 min (default), Over 3 min, and Never. Alerts: three boxes, Chat line, Sound, and Banner (default on).
