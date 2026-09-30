@@ -8,7 +8,8 @@ The addon side of Gnomish Relay. SPEC.md section 13 describes it.
 2. Run `cargo run -q --bin gnomish-relay -- setup`. It finds the game, makes the strip key,
    installs this addon, writes `~/.config/gnomish-relay/config.toml` with the agents it
    finds, and makes the 1000 slot addons. `--autostart` also starts the bridge at each login.
-3. Edit `allowed_roots` in `config.toml`. Agents work only inside these folders.
+3. Setup puts your code folders into `allowed_roots` in `config.toml`. To add another
+   folder, pick it in the game and approve it on your desktop.
 4. Start WoW and log in. Type `/relay` to open the window, or `/ai <message>` to send.
 5. If you did not use `--autostart`, run `cargo run -q --bin gnomish-relay -- run`.
 

@@ -32,9 +32,10 @@ your agents. To install both:
      ```powershell
      irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex
      ```
-4. **Answer the setup questions.** Setup finds WoW, then asks which folders your agents
-   can work in.
-5. **Start WoW** and type `/relay`.
+4. **Let setup finish.** It finds WoW and your code folders, such as `~/code`, and says
+   where agents can work.
+5. **Start WoW** and type `/relay`. To work in another folder, pick it in the game, then
+   click **Approve** on your desktop. You approve each new folder once.
 
 ### Check that it works
 
@@ -147,7 +148,8 @@ The agent now shows in the agent list of a new chat.
 | `full-auto` | On its own | On its own, inside the sandbox |
 
 Some actions always ask on your desktop, whatever the level: for example reading `~/.ssh`,
-or writing outside the chat's folder. A dialog with **Approve** and **Deny** opens.
+writing outside the chat's folder, or a chat in a new folder. A dialog with **Approve** and
+**Deny** opens. Agents never work in your whole home folder or in a hidden folder.
 
 ### Answer a desktop request in a terminal
 
