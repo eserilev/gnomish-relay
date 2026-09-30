@@ -16,6 +16,7 @@ use crate::agent::{
 use crate::chat_branch;
 use crate::ci_checks::CiChecks;
 use crate::config::{Permission, Policy};
+use crate::folder_path::real_path;
 use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
@@ -25,7 +26,7 @@ use crate::relay::BranchPlan;
 use crate::roots::Roots;
 use crate::run_git::{RunGit, WorktreeChange};
 use crate::test_summary::{self, TestCounts};
-use crate::trust::{TrustGuard, Trusted, Truster};
+use crate::trust::{NOT_WRITTEN, TrustGuard, Trusted, Truster};
 use crate::turn::STOPPED;
 use protocol::apps::App;
 use protocol::record::Record;
@@ -754,12 +755,7 @@ impl RelayLane {
             if let Some((desk, folder)) = trust
                 && let Err(refused) = trust_folder(&desk, &walk, &mut job, &folder, &control)
             {
-                let run = Run {
-                    reply: Err(refused),
-                    session: None,
-                    usage: None,
-                };
-                let _ = finished.send(Finished::Run(job, run, Box::default()));
+                let _ = finished.send(Finished::Run(job, never_ran(refused), Box::default()));
                 return;
             }
             if let Some((raiser, level)) = raise {
@@ -772,12 +768,9 @@ impl RelayLane {
 
     /// A run that never starts ends as an error, through the same path as a run.
     fn end_at_once(&self, job: Job, error: String) {
-        let run = Run {
-            reply: Err(error),
-            session: None,
-            usage: None,
-        };
-        let _ = self.finished.send(Finished::Run(job, run, Box::default()));
+        let _ = self
+            .finished
+            .send(Finished::Run(job, never_ran(error), Box::default()));
     }
 
     /// The cap, when the cost of today reached it. A list and an attach call no model,
@@ -804,7 +797,7 @@ impl RelayLane {
         let real = if job.new_folder {
             real_new_folder(folder).map_err(|e| e.text())?
         } else {
-            match crate::folder_path::real_path(folder) {
+            match real_path(folder) {
                 Ok(real) => real,
                 // The usual check of the folder gives the reply.
                 Err(_) => return Ok(None),
@@ -821,7 +814,7 @@ impl RelayLane {
                 "folder {}: config.toml cannot change: {e:#}",
                 real.display()
             ));
-            return Err(crate::trust::NOT_WRITTEN.into());
+            return Err(NOT_WRITTEN.into());
         }
         self.trusts.asked();
         Ok(Some((truster.clone(), real)))
@@ -1078,6 +1071,15 @@ fn run_with_git(
         _ => RunEnd::default(),
     };
     (run, end)
+}
+
+/// The run of a message that never reached its agent.
+fn never_ran(error: String) -> Run {
+    Run {
+        reply: Err(error),
+        session: None,
+        usage: None,
+    }
 }
 
 /// Runs in the thread of the run: the dialog, and on Approve the real folder in its new
