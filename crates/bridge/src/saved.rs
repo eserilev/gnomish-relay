@@ -9,6 +9,7 @@ use std::time::SystemTime;
 use protocol::apps::App;
 
 use crate::app_files::saved_variables_file;
+use crate::fs_safe::read_at_most;
 
 /// Saved variables hold at most 200 messages per chat, far below this.
 const MAX_FILE: u64 = 16 * 1024 * 1024;
@@ -37,10 +38,10 @@ pub fn hex_fields(text: &str, name: &str) -> Vec<Vec<u8>> {
 fn read_plain(path: &Path) -> Option<(SystemTime, String)> {
     // `symlink_metadata` does not follow a link.
     let meta = fs::symlink_metadata(path).ok()?;
-    if !meta.is_file() || meta.len() > MAX_FILE {
+    if !meta.is_file() {
         return None;
     }
-    let bytes = fs::read(path).ok()?;
+    let bytes = read_at_most(path, MAX_FILE).ok()??;
     Some((
         meta.modified().ok()?,
         String::from_utf8_lossy(&bytes).into_owned(),
@@ -106,7 +107,7 @@ impl Watcher {
                 continue;
             }
             self.seen.insert(path.clone(), modified);
-            if let Ok(bytes) = fs::read(&path) {
+            if let Ok(Some(bytes)) = read_at_most(&path, MAX_FILE) {
                 texts.push(String::from_utf8_lossy(&bytes).into_owned());
             }
         }

@@ -1,10 +1,24 @@
-//! File writes that never follow a symbolic link (SPEC.md 6.2, rule 7).
+//! File writes that never follow a symbolic link (SPEC.md 6.2, rule 7), and reads with a
+//! size limit (rule 9).
 
 use std::fs::{self, File, OpenOptions};
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+
+/// The bytes of a file of at most `max` bytes, or `None` for a bigger one. The read stops
+/// at the limit: a size check before the read misses a file that grows.
+pub fn read_at_most(path: &Path, max: u64) -> std::io::Result<Option<Vec<u8>>> {
+    let mut bytes = Vec::new();
+    File::open(path)?
+        .take(max.saturating_add(1))
+        .read_to_end(&mut bytes)?;
+    if bytes.len() as u64 > max {
+        return Ok(None);
+    }
+    Ok(Some(bytes))
+}
 
 /// Fails for a symbolic link, so a local program cannot point a slot at another folder.
 pub fn check_real_dir(path: &Path) -> Result<()> {
@@ -284,6 +298,18 @@ mod tests {
     fn a_missing_folder_is_an_error() {
         let dir = tempfile::tempdir().unwrap();
         assert!(write_atomic(&dir.path().join("nope"), "a.lua", b"x").is_err());
+    }
+
+    #[test]
+    fn a_limited_read_takes_a_file_of_the_limit_and_refuses_one_byte_more() {
+        let dir = tempfile::tempdir().unwrap();
+        let fits = dir.path().join("fits");
+        let over = dir.path().join("over");
+        fs::write(&fits, b"1234").unwrap();
+        fs::write(&over, b"12345").unwrap();
+
+        assert_eq!(read_at_most(&fits, 4).unwrap(), Some(b"1234".to_vec()));
+        assert_eq!(read_at_most(&over, 4).unwrap(), None);
     }
 
     #[cfg(unix)]
