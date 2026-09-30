@@ -6,6 +6,7 @@
 pub mod accounts;
 pub mod acp;
 pub mod action_input;
+pub mod active_folders;
 pub mod activity;
 pub mod agent;
 pub mod agent_wall;

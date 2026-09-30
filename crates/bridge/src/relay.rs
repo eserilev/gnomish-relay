@@ -2591,6 +2591,7 @@ mod tests {
                 kind: ChangeKind::Modified,
             }],
             odd_names: false,
+            shared: false,
             outcome: ChangeOutcome::Open,
         }
     }

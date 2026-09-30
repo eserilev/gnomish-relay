@@ -387,6 +387,29 @@ fn a_message_that_waits_for_the_limit_makes_no_worktree_until_it_starts() {
 }
 
 #[test]
+fn commit_refuses_a_summary_of_two_chats_that_ran_at_once_in_one_folder() {
+    let mut w = world();
+    let mut bridge = bridge(&w);
+    w.hold.store(true, Ordering::SeqCst);
+    send_in(&mut w, "c1", 1, "n", "One", "one");
+    send_in(&mut w, "c2", 2, "n", "Two", "two");
+    let folders = Arc::clone(&w.folders);
+    let both = common::step_until_within(&mut bridge, Duration::from_secs(30), || {
+        folders.lock().unwrap().len() == 2
+    });
+    w.hold.store(false, Ordering::SeqCst);
+    reply(&mut bridge, &w, 1);
+    reply(&mut bridge, &w, 2);
+
+    send_in(&mut w, "c1", 3, "git=commit:1", "One", "one");
+    let line = reply(&mut bridge, &w, 3);
+
+    assert!(both);
+    assert!(line.contains("Another chat worked in this folder"), "{line}");
+    assert_eq!(git(&w.repo, &["rev-list", "--count", "HEAD"]).trim(), "1");
+}
+
+#[test]
 fn a_second_run_of_an_own_branch_uses_the_same_worktree() {
     let mut w = world();
     let mut bridge = bridge(&w);

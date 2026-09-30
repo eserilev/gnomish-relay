@@ -58,6 +58,9 @@ pub struct RunChanges {
     /// A file name that is not UTF-8 shows with `?`, and no action takes such a run.
     #[serde(default)]
     pub odd_names: bool,
+    /// Another run worked in the same folder at the same time, so no action takes it.
+    #[serde(default)]
+    pub shared: bool,
     #[serde(default)]
     pub outcome: Outcome,
 }
@@ -351,6 +354,7 @@ mod tests {
                 },
             ],
             odd_names: false,
+            shared: false,
             outcome: Outcome::Open,
         };
 

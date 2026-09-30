@@ -9,6 +9,7 @@ use crate::run::log;
 use crate::run_changes::{ChangeKind, Outcome, RunChanges, snapshot};
 
 const NO_MESSAGE: &str = "Commit needs a message.";
+const SHARED: &str = "Another chat worked in this folder during this run, so Commit and Revert can't tell its changes apart. Use git on your desktop.";
 const NOTHING_LEFT: &str = "Nothing to commit: the files of this summary are gone.";
 const NESTED_REPO: &str =
     "This run made a git repository inside the folder, so Commit is off. Use git on your desktop.";
@@ -26,6 +27,7 @@ fn files(count: usize) -> String {
 fn check_open(run: &RunChanges) -> Result<(), String> {
     match run.outcome {
         Outcome::Open if run.odd_names => Err(ODD_NAMES.into()),
+        Outcome::Open if run.shared => Err(SHARED.into()),
         Outcome::Open => Ok(()),
         Outcome::Committed => Err("This change summary is already committed.".into()),
         Outcome::Reverted => Err("This change summary is already reverted.".into()),
@@ -286,6 +288,7 @@ mod tests {
                 end,
                 files,
                 odd_names,
+                shared: false,
                 outcome: Outcome::Open,
             }
         }
@@ -395,6 +398,17 @@ mod tests {
             commit(&repo.git, &run, "agent work"),
             Err(NOTHING_LEFT.into())
         );
+    }
+
+    #[test]
+    fn a_summary_of_a_run_that_shared_its_folder_takes_no_action() {
+        let repo = repo();
+        let mut run = repo.run_that(|r| r.write("a.txt", "agent\n"));
+        run.shared = true;
+
+        assert_eq!(commit(&repo.git, &run, "agent work"), Err(SHARED.into()));
+        assert_eq!(revert(&repo.git, &run), Err(SHARED.into()));
+        assert_eq!(repo.read("a.txt").as_deref(), Some("agent\n"));
     }
 
     #[test]

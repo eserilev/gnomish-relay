@@ -4,6 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+use crate::active_folders::{ActiveFolders, ActiveGuard};
 use crate::chat_branch::{self, ChatWorktree};
 use crate::ci_checks::{self, CiChecks};
 use crate::folder_walk::Walk;
@@ -19,6 +20,7 @@ pub struct RunGit {
     pub host: Arc<GitHost>,
     pub ci: CiChecks,
     pub walk: Walk,
+    pub active: ActiveFolders,
 }
 
 /// A change of the own branch of a chat, for the state of the bridge.
@@ -36,6 +38,7 @@ pub struct Started {
     pub worktree: Option<ChatWorktree>,
     pub change: WorktreeChange,
     start: Option<(PathBuf, Snapshot)>,
+    active: ActiveGuard,
 }
 
 impl RunGit {
@@ -77,12 +80,17 @@ impl RunGit {
         let folder = worktree
             .as_ref()
             .map_or_else(|| job.cwd.clone(), |w| w.folder.clone());
+        let real = Path::new(&folder).canonicalize();
+        let active = self
+            .active
+            .begin(real.as_deref().unwrap_or(Path::new(&folder)));
         let start = self.snapshot_of(Path::new(&folder));
         Ok(Started {
             folder,
             worktree,
             change,
             start,
+            active,
         })
     }
 
@@ -132,6 +140,7 @@ impl RunGit {
             end,
             files,
             odd_names,
+            shared: started.active.shared(),
             outcome: Outcome::Open,
         })
     }

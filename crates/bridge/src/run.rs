@@ -9,6 +9,7 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
+use crate::active_folders::ActiveFolders;
 use crate::agent::{
     Agent, Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal,
 };
@@ -264,6 +265,7 @@ impl Bridge {
                 host: Arc::new(host),
                 ci,
                 walk: relay.walk.clone(),
+                active: ActiveFolders::default(),
             });
         }
         self
@@ -444,6 +446,7 @@ impl RelayLane {
                 host: Arc::new(host),
                 ci: CiChecks::Off,
                 walk: walk.clone(),
+                active: ActiveFolders::default(),
             }),
             Err(e) => {
                 log(&format!("no git in chats: {e:#}"));
