@@ -358,6 +358,17 @@ impl Relay {
         self.home = Some(home);
     }
 
+    /// Where the folder browser looks: the roots, and the home folder when a click on the
+    /// desktop can add a folder there (SPEC.md 9.12).
+    fn browse_area(&self) -> Folders {
+        let mut roots = self.policy.folders.roots.clone();
+        roots.extend(self.home.clone());
+        Folders {
+            roots,
+            base: self.policy.folders.base.clone(),
+        }
+    }
+
     /// A root that a click on the desktop added.
     pub fn add_root(&mut self, root: &std::path::Path) {
         let mut root = path_bytes(root);
@@ -1136,7 +1147,7 @@ impl Relay {
     pub fn finish_folders(&mut self, job: &Job, snapshot: &Snapshot) {
         self.activity.end(&job.chat, job.id);
         self.end_run(&job.chat);
-        let text = folder_reply(&self.policy.folders, snapshot);
+        let text = folder_reply(&self.browse_area(), snapshot);
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
 

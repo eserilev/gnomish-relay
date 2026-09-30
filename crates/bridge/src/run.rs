@@ -34,7 +34,8 @@ use protocol::version::version_fit;
 use crate::action_input::resolve;
 use crate::daily_usage::{DailyUsage, cap_text};
 use crate::folder_trust;
-use crate::folder_walk::{self, Snapshot, Walk};
+use crate::folder_walk::{Snapshot, Walk};
+use crate::home_walk;
 use crate::line_choice::{LineChoice, LineFile, with_line};
 use crate::new_folder::{make_folder, real_chat_folder, real_new_folder};
 use crate::relay::{BAD_AGENT, ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
@@ -872,9 +873,10 @@ impl RelayLane {
     fn start_folder_list(&self, job: Job) {
         log(&format!("list folders #{}", job.id.0));
         let walk = self.walk.clone();
+        let home = self.truster.as_ref().map(|t| t.home.clone());
         let finished = self.finished.clone();
         thread::spawn(move || {
-            let found = folder_walk::walk_folders(&walk, &folder_walk::LIMITS);
+            let found = home_walk::browse_folders(&walk, home.as_deref());
             let _ = finished.send(Finished::Folders(job, found));
         });
     }

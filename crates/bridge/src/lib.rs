@@ -55,6 +55,7 @@ pub mod harness_process;
 pub mod harness_sandbox;
 pub mod history;
 pub mod holder;
+pub mod home_walk;
 pub mod hook;
 pub mod hook_input;
 pub mod hooks_install;

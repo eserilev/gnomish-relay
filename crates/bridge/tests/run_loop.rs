@@ -1207,3 +1207,28 @@ fn a_flood_of_messages_for_new_folders_gets_one_dialog() {
     assert!(done, "{}", slot_body(&f.addons));
     assert_eq!(approvals.list().len(), 1);
 }
+
+#[test]
+fn the_folder_list_shows_the_home_folder_but_no_hidden_or_private_folder() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut t = trusting_bridge(&f, &approvals);
+    fs::create_dir_all(t.home.join("Code/app/.git")).unwrap();
+    fs::create_dir_all(t.home.join("lighthouse")).unwrap();
+    fs::create_dir_all(t.home.join(".secret/inside")).unwrap();
+    fs::create_dir_all(t.home.join("snap/firefox")).unwrap();
+    let payload = b"tok\x1ffolders\x1f8\x1f\x1flist=folders\x1f\x1f";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), payload, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_3.png"), png).unwrap();
+
+    let addons = f.addons.clone();
+    assert!(step_until(&mut t.bridge, || slot_body(&addons)
+        .contains(r#"chat = "folders", id = 8, status = "done""#)));
+
+    let body = slot_body(&f.addons);
+    assert!(body.contains("\\009lighthouse\\009"), "{body}");
+    assert!(body.contains("\\009app\\009g"), "{body}");
+    for hidden in [".secret", "inside", "firefox", "\\009data\\009"] {
+        assert!(!body.contains(hidden), "{hidden}: {body}");
+    }
+}

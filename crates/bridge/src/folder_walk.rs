@@ -69,7 +69,7 @@ pub fn is_skipped(name: &str) -> bool {
 }
 
 /// A worktree has a `.git` file. The walk never reads it: its line can lead out of the roots.
-fn is_repo(dir: &Path) -> bool {
+pub fn is_repo(dir: &Path) -> bool {
     fs::symlink_metadata(dir.join(".git")).is_ok()
 }
 
@@ -85,7 +85,7 @@ pub fn is_shown(walk: &Walk, dir: &Path) -> bool {
 }
 
 /// The subfolders of `dir`. A link is never a subfolder, so the walk stays in the roots.
-fn subfolders(dir: &Path) -> Vec<PathBuf> {
+pub fn subfolders(dir: &Path) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(dir) else {
         return Vec::new();
     };
