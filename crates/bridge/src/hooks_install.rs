@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result, bail};
 use serde_json::{Map, Value};
 
-use crate::dirs::{Dirs, EnvVar};
+use crate::dirs::{Dirs, EnvVar, claude_dir, codex_dir};
 use crate::hooks_merge::{self, our_programs};
 use crate::program::find_program;
 use crate::spool::Source;
@@ -28,9 +28,8 @@ pub struct HookFiles {
 }
 
 impl HookFiles {
-    /// `CLAUDE_CONFIG_DIR` moves the settings of Claude Code, as Claude Code reads it.
     pub fn claude(home: &Path, var: EnvVar) -> HookFiles {
-        let dir = var("CLAUDE_CONFIG_DIR").unwrap_or_else(|| home.join(".claude"));
+        let dir = claude_dir(home, var);
         HookFiles {
             source: Source::Claude,
             hooks: dir.join("settings.json"),
@@ -38,9 +37,8 @@ impl HookFiles {
         }
     }
 
-    /// `CODEX_HOME` moves the settings of Codex, as Codex reads it.
     pub fn codex(home: &Path, var: EnvVar) -> HookFiles {
-        let dir = var("CODEX_HOME").unwrap_or_else(|| home.join(".codex"));
+        let dir = codex_dir(home, var);
         HookFiles {
             source: Source::Codex,
             hooks: dir.join("hooks.json"),
