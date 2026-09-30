@@ -512,10 +512,11 @@ local function DrawResend(message, y)
 end
 
 -- The words of a line of the relay. Only one with blocks of the bridge is rendered: the
--- bridge made it, and the renderer escaped its text (SPEC.md 7.3.1).
+-- bridge made it (SPEC.md 7.3.1). Its text can still hold agent words, and Plain takes
+-- out their escapes.
 local function RelayWords(text)
 	if ns.Blocks.Git(text) then
-		return ns.Blocks.Plain(text)
+		return ns.Relay.Plain(ns.Blocks.Plain(text))
 	end
 	return ns.Relay.Plain(text)
 end

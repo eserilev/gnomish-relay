@@ -504,6 +504,21 @@ fn an_error_with_changes_shows_the_error_and_the_block() {
 }
 
 #[test]
+fn an_error_with_changes_shows_the_codes_of_its_text_as_text() {
+    let game = Game::start();
+    game.send("go");
+    let text = "\x1bM1\nG\x1f1\x1f1\x1f0\nF\x1fa.rs\x1f1\x1f0\x1fM\np\x1fStopped at ||TInterface\\Icons\\X:400||t.\n";
+
+    game.reply(game.last_id(), Status::Error, text);
+
+    let texts = game.texts().join("\n");
+    assert!(
+        texts.contains(r"[Relay]: Stopped at ||TInterface\Icons\X:400||t."),
+        "{texts}"
+    );
+}
+
+#[test]
 fn the_test_and_ci_lines_show_their_counts_with_each_failure_in_red() {
     let (game, _) = game_with_reply();
 
