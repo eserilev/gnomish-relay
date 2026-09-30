@@ -73,9 +73,34 @@ pub enum Work {
     ListFolders,
     /// What the bridge allows, for the Settings and Diag tabs.
     ListSettings,
-    /// A new chat continues this session. A session that is open in a terminal gets a
-    /// fork, so the two never write into one session.
-    Attach { session: String, fork: bool },
+    /// A new chat continues this session.
+    Attach {
+        session: String,
+        #[serde(rename = "fork")]
+        open: Open,
+    },
+}
+
+/// How an attach opens a saved session. A session that is open in a terminal gets a
+/// fork, so the two never write into one session.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(from = "bool", into = "bool")]
+pub enum Open {
+    Same,
+    Fork,
+}
+
+// `state.json` keeps the form of older bridges: `"fork": true`.
+impl From<bool> for Open {
+    fn from(fork: bool) -> Open {
+        if fork { Open::Fork } else { Open::Same }
+    }
+}
+
+impl From<Open> for bool {
+    fn from(open: Open) -> bool {
+        open == Open::Fork
+    }
 }
 
 /// A session of the last list. The game can resume only these, so the folder check
@@ -482,7 +507,11 @@ impl Relay {
             text: String::new(),
             work: Work::Attach {
                 session: listed.id,
-                fork: now.saturating_sub(listed.updated) < ACTIVE_FOR,
+                open: if now.saturating_sub(listed.updated) < ACTIVE_FOR {
+                    Open::Fork
+                } else {
+                    Open::Same
+                },
             },
             new_folder: false,
         })
@@ -1668,7 +1697,7 @@ mod tests {
             attach.work,
             Work::Attach {
                 session: "s1".into(),
-                fork: false
+                open: Open::Same
             }
         );
         relay.keep_session(&attach, Some("s1".into()));
@@ -1696,7 +1725,26 @@ mod tests {
             job.work,
             Work::Attach {
                 session: "s1".into(),
-                fork: true
+                open: Open::Fork
+            }
+        );
+    }
+
+    #[test]
+    fn an_attach_keeps_the_fork_flag_of_older_state_files() {
+        let work = Work::Attach {
+            session: "s1".into(),
+            open: Open::Fork,
+        };
+        let json = serde_json::to_string(&work).unwrap();
+        assert_eq!(json, r#"{"Attach":{"session":"s1","fork":true}}"#);
+        let old = r#"{"Attach":{"session":"s1","fork":false}}"#;
+        let loaded: Work = serde_json::from_str(old).unwrap();
+        assert_eq!(
+            loaded,
+            Work::Attach {
+                session: "s1".into(),
+                open: Open::Same
             }
         );
     }

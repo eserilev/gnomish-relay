@@ -21,7 +21,7 @@ use crate::config::{Kind, Permission};
 use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::iso_time::unix_time;
 use crate::process::{AgentProcess, cut};
-use crate::relay::{Job, Work};
+use crate::relay::{Job, Open, Work};
 use crate::turn::{STOPPED, Turn};
 
 const PROTOCOL_VERSION: u64 = 1;
@@ -44,8 +44,8 @@ impl Agent for AcpAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         let mut session = None;
         let reply = match &job.work {
-            Work::Attach { session: id, fork } => {
-                self.attach(job, control, id, *fork, &mut session)
+            Work::Attach { session: id, open } => {
+                self.attach(job, control, id, *open, &mut session)
             }
             Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
                 self.run_in_session(job, control, &mut session)
@@ -121,20 +121,21 @@ impl AcpAgent {
         job: &Job,
         control: &Control,
         session: &str,
-        fork: bool,
+        open: Open,
         session_id: &mut Option<String>,
     ) -> Result<String, String> {
         let mut agent = Connection::start(self, &job.cwd, control.clone())?;
         let init = agent.initialize()?;
         let params = |id: &str| json!({ "sessionId": id, "cwd": job.cwd, "mcpServers": [] });
-        let id = if fork && offers(&init, "/agentCapabilities/sessionCapabilities/fork") {
-            let result = agent.request("session/fork", &params(session))?;
-            text_at(&result, "/sessionId")
-                .ok_or("The agent made no copy of the session.")?
-                .to_owned()
-        } else {
-            session.to_owned()
-        };
+        let id =
+            if open == Open::Fork && offers(&init, "/agentCapabilities/sessionCapabilities/fork") {
+                let result = agent.request("session/fork", &params(session))?;
+                text_at(&result, "/sessionId")
+                    .ok_or("The agent made no copy of the session.")?
+                    .to_owned()
+            } else {
+                session.to_owned()
+            };
         *session_id = Some(id.clone());
         if init
             .pointer("/agentCapabilities/loadSession")

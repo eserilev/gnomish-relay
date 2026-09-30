@@ -10,7 +10,7 @@ use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
 use bridge::codex::CodexAgent;
 use bridge::config::Permission;
 use bridge::gate::Gate;
-use bridge::relay::{ChatId, Job, MessageId, Session, Work};
+use bridge::relay::{ChatId, Job, MessageId, Open, Session, Work};
 
 fn agent(script: &str) -> CodexAgent {
     CodexAgent {
@@ -363,12 +363,12 @@ fn a_change_outside_the_chat_folder_waits_for_the_desktop() {
     assert_eq!(inside, "change accept");
 }
 
-fn attach(fork: bool) -> (Result<String, String>, Option<String>) {
+fn attach(open: Open) -> (Result<String, String>, Option<String>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "");
     job.work = Work::Attach {
         session: "a1".into(),
-        fork,
+        open,
     };
     let run = agent("reply").run(&job, &Control::default());
     (run.reply, run.session)
@@ -376,14 +376,14 @@ fn attach(fork: bool) -> (Result<String, String>, Option<String>) {
 
 #[test]
 fn an_attach_returns_the_last_exchange_of_the_thread() {
-    let (reply, session) = attach(false);
+    let (reply, session) = attach(Open::Same);
     assert_eq!(reply.unwrap(), "fix the bugs\nLooking.\n\nAll fixed.");
     assert_eq!(session.as_deref(), Some("a1"));
 }
 
 #[test]
 fn an_attach_with_fork_continues_a_copy() {
-    let (reply, session) = attach(true);
+    let (reply, session) = attach(Open::Fork);
     assert_eq!(reply.unwrap(), "fix the bugs\nLooking.\n\nAll fixed.");
     assert_eq!(session.as_deref(), Some("fork-of-a1"));
 }
@@ -443,7 +443,7 @@ fn live_codex_answers_lists_forks_and_resumes() {
     let mut attach = job(&dir, Permission::Ask, "");
     attach.work = Work::Attach {
         session: thread,
-        fork: true,
+        open: Open::Fork,
     };
     let forked = codex.run(&attach, &Control::default());
     println!("{:?} {:?}", forked.session, forked.reply);

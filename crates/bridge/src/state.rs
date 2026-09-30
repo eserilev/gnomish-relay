@@ -93,7 +93,7 @@ mod tests {
                 text: "next".into(),
                 work: crate::relay::Work::Attach {
                     session: "s1".into(),
-                    fork: true,
+                    open: crate::relay::Open::Fork,
                 },
                 new_folder: true,
             }],

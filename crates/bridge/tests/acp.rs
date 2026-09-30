@@ -10,7 +10,7 @@ use bridge::acp::AcpAgent;
 use bridge::agent::{Agent, Control, Event, Events, StopSignal};
 use bridge::config::Permission;
 use bridge::gate::Gate;
-use bridge::relay::{ChatId, Job, MessageId, Session, Work};
+use bridge::relay::{ChatId, Job, MessageId, Open, Session, Work};
 
 fn agent(script: &str) -> AcpAgent {
     AcpAgent {
@@ -353,12 +353,12 @@ fn an_acp_read_of_the_strip_key_is_refused_with_no_popup() {
     );
 }
 
-fn attach(script: &str, fork: bool) -> (Result<String, String>, Option<String>) {
+fn attach(script: &str, open: Open) -> (Result<String, String>, Option<String>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "");
     job.work = Work::Attach {
         session: "a1".into(),
-        fork,
+        open,
     };
     let run = agent(script).run(&job, &Control::default());
     (run.reply, run.session)
@@ -388,21 +388,21 @@ fn an_agent_with_no_list_has_no_sessions() {
 
 #[test]
 fn an_attach_returns_the_last_exchange_of_the_session() {
-    let (reply, session) = attach("sessions", false);
+    let (reply, session) = attach("sessions", Open::Same);
     assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
     assert_eq!(session.as_deref(), Some("a1"));
 }
 
 #[test]
 fn an_attach_with_fork_continues_a_copy() {
-    let (reply, session) = attach("sessions", true);
+    let (reply, session) = attach("sessions", Open::Fork);
     assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
     assert_eq!(session.as_deref(), Some("fork-of-a1"));
 }
 
 #[test]
 fn an_attach_to_an_agent_with_no_load_keeps_the_session_and_shows_nothing() {
-    let (reply, session) = attach("reply", true);
+    let (reply, session) = attach("reply", Open::Fork);
     assert_eq!(reply.unwrap(), "");
     assert_eq!(
         session.as_deref(),
@@ -432,7 +432,7 @@ fn live_claude_lists_and_replays_sessions() {
     job.cwd.clone_from(&session.cwd);
     job.work = Work::Attach {
         session: id,
-        fork: false,
+        open: Open::Same,
     };
     let run = claude.run(&job, &Control::default());
     println!("{:?}\n{}", run.session, run.reply.unwrap());

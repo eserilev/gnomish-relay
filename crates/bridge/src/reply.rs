@@ -51,7 +51,7 @@ mod tests {
     fn an_attach_reply_renders_only_the_answer() {
         let work = Work::Attach {
             session: "s1".into(),
-            fork: false,
+            open: crate::relay::Open::Same,
         };
         assert_eq!(
             render_reply(&work, "fix **it**\nDone."),

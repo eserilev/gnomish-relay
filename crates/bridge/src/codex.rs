@@ -19,7 +19,7 @@ use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with
 use crate::config::{Kind, Permission};
 use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::process::{self, AgentProcess, cut};
-use crate::relay::{Job, Work};
+use crate::relay::{Job, Open, Work};
 use crate::turn::{STOPPED, Turn};
 
 const METHOD_NOT_FOUND: i64 = -32601;
@@ -88,7 +88,7 @@ impl Agent for CodexAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         let mut session = None;
         let reply = match &job.work {
-            Work::Attach { session: id, fork } => self.attach(job, id, *fork, &mut session),
+            Work::Attach { session: id, open } => self.attach(job, id, *open, &mut session),
             Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
                 self.prompt(job, control, &mut session)
             }
@@ -133,7 +133,7 @@ impl CodexAgent {
         &self,
         job: &Job,
         thread: &str,
-        fork: bool,
+        open: Open,
         session: &mut Option<String>,
     ) -> Result<String, String> {
         let mut codex = Connection::start(self, &job.cwd, Control::default())?;
@@ -142,7 +142,7 @@ impl CodexAgent {
             "thread/turns/list",
             &json!({ "threadId": thread, "limit": 1, "itemsView": "full" }),
         )?;
-        let id = if fork {
+        let id = if open == Open::Fork {
             let result = codex.request(
                 "thread/fork",
                 &json!({ "threadId": thread, "excludeTurns": true }),

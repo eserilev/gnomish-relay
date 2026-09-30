@@ -21,7 +21,7 @@ use crate::config::{Kind, Permission};
 use crate::gate::{self, Call, Coverage, Gate, Refusal, Sandboxing};
 use crate::install;
 use crate::process::{self, AgentProcess, cut};
-use crate::relay::{Job, Work};
+use crate::relay::{Job, Open, Work};
 use crate::turn::{STOPPED, Turn};
 
 /// The modes of `claude --permission-mode` that the config can name.
@@ -82,7 +82,7 @@ fn default_mode(level: Permission) -> &'static str {
 impl Agent for ClaudeAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         match &job.work {
-            Work::Attach { session, fork } => self.attach(session, *fork),
+            Work::Attach { session, open } => self.attach(session, *open),
             Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
                 self.prompt(job, control)
             }
@@ -96,14 +96,14 @@ impl Agent for ClaudeAgent {
 
 impl ClaudeAgent {
     /// Reads the files of Claude Code, so an attach needs no process and no model call.
-    fn attach(&self, id: &str, fork: bool) -> Run {
+    fn attach(&self, id: &str, open: Open) -> Run {
         let Some(path) = claude_sessions::find(&self.projects, id) else {
             return Run {
                 reply: Err("The session is gone.".into()),
                 session: None,
             };
         };
-        let session = if fork {
+        let session = if open == Open::Fork {
             claude_sessions::fork(&path, id)
         } else {
             Ok(id.to_owned())

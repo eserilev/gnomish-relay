@@ -13,7 +13,7 @@ use bridge::agent::{Agent, Control, Event, Events, Question, StopSignal};
 use bridge::claude::ClaudeAgent;
 use bridge::config::Permission;
 use bridge::gate::Gate;
-use bridge::relay::{ChatId, Job, MessageId, Session, Work};
+use bridge::relay::{ChatId, Job, MessageId, Open, Session, Work};
 
 const OLD: &str = "0b6ad9d2-1f2e-4c55-9a7e-2b1f4e6c8d01";
 
@@ -375,12 +375,12 @@ fn an_unanswered_question_is_denied_after_the_permission_timeout() {
     assert!(start.elapsed() < Duration::from_secs(5));
 }
 
-fn attach(projects: &Path, id: &str, fork: bool) -> (Result<String, String>, Option<String>) {
+fn attach(projects: &Path, id: &str, open: Open) -> (Result<String, String>, Option<String>) {
     let dir = tempfile::tempdir().unwrap();
     let mut job = job(&dir, Permission::Ask, "");
     job.work = Work::Attach {
         session: id.into(),
-        fork,
+        open,
     };
     let run = agent("hang", projects).run(&job, &Control::default());
     (run.reply, run.session)
@@ -390,7 +390,7 @@ fn attach(projects: &Path, id: &str, fork: bool) -> (Result<String, String>, Opt
 fn an_attach_reads_the_last_exchange_with_no_process() {
     let projects = tempfile::tempdir().unwrap();
     saved_session(projects.path(), OLD);
-    let (reply, session) = attach(projects.path(), OLD, false);
+    let (reply, session) = attach(projects.path(), OLD, Open::Same);
     assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
     assert_eq!(session.as_deref(), Some(OLD));
 }
@@ -399,7 +399,7 @@ fn an_attach_reads_the_last_exchange_with_no_process() {
 fn an_attach_with_fork_continues_a_new_copy_next_to_the_old_file() {
     let projects = tempfile::tempdir().unwrap();
     saved_session(projects.path(), OLD);
-    let (reply, session) = attach(projects.path(), OLD, true);
+    let (reply, session) = attach(projects.path(), OLD, Open::Fork);
     let copy = session.unwrap();
     assert_ne!(copy, OLD);
     assert_eq!(reply.unwrap(), "fix the bugs\nAll fixed.");
@@ -414,7 +414,7 @@ fn an_attach_with_fork_continues_a_new_copy_next_to_the_old_file() {
 #[test]
 fn an_attach_to_a_missing_session_is_an_error() {
     let projects = tempfile::tempdir().unwrap();
-    let (reply, session) = attach(projects.path(), OLD, false);
+    let (reply, session) = attach(projects.path(), OLD, Open::Same);
     assert_eq!(reply.unwrap_err(), "The session is gone.");
     assert_eq!(session, None);
 }
@@ -470,7 +470,7 @@ fn live_claude_answers_lists_forks_and_resumes() {
     let mut attach = job(&dir, Permission::Ask, "");
     attach.work = Work::Attach {
         session,
-        fork: true,
+        open: Open::Fork,
     };
     let forked = claude.run(&attach, &Control::default());
     println!("{:?} {:?}", forked.session, forked.reply);
