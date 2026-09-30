@@ -33,6 +33,7 @@ pub struct BridgeSettings {
     pub kinds: Vec<(String, String)>,
     pub timeout_minutes: u64,
     pub permission_timeout_minutes: u64,
+    pub max_parallel_runs: usize,
     pub story: Option<StorySettings>,
     pub allow: Vec<String>,
     /// A folder of `[allow.folders]` and one of its patterns.
@@ -109,6 +110,7 @@ impl BridgeSettings {
                 .collect(),
             timeout_minutes: relay.timeout.as_secs() / 60,
             permission_timeout_minutes: relay.permission_timeout.as_secs() / 60,
+            max_parallel_runs: relay.max_parallel_runs,
             story: story.map(|s| StorySettings {
                 model: model_word(&s.model.choice),
                 budget_window_minutes: s.model.budget_window_minutes,
@@ -158,6 +160,8 @@ impl BridgeSettings {
         lines.push(one("timeout_minutes", &self.timeout_minutes.to_string()));
         let permission = self.permission_timeout_minutes.to_string();
         lines.push(one("permission_timeout_minutes", &permission));
+        let runs = self.max_parallel_runs.to_string();
+        lines.push(one("max_parallel_runs", &runs));
         if let Some(story) = &self.story {
             lines.push(one("story_model", &story.model));
             let window = story.budget_window_minutes.to_string();
@@ -254,6 +258,7 @@ mod tests {
             kinds: vec![("claude".into(), "claude".into())],
             timeout_minutes: 30,
             permission_timeout_minutes: 10,
+            max_parallel_runs: 3,
             story: None,
             allow: vec!["cargo test".into()],
             allow_folders: vec![("~/Code/app".into(), "npm test".into())],
@@ -268,7 +273,7 @@ mod tests {
         let reply = settings_reply(&settings(), &policy(), &[], &hooks);
         assert!(
             reply.contains(
-                "permission_timeout_minutes\t10\nhook\tclaude\ton\nhook\tcodex\tmoved\nallow\t"
+                "permission_timeout_minutes\t10\nmax_parallel_runs\t3\nhook\tclaude\ton\nhook\tcodex\tmoved\nallow\t"
             ),
             "{reply}"
         );
@@ -297,7 +302,7 @@ mod tests {
             reply,
             "version\t0.1.0\nsandbox\tbwrap\ndefault_cwd\t~/Code\nallowed_root\t~/Code\n\
              default_agent\tclaude\nagent\tclaude\tclaude\tauto-edit\nagent\tcodex\t\task\n\
-             timeout_minutes\t30\npermission_timeout_minutes\t10\nallow\tcargo test\n\
+             timeout_minutes\t30\npermission_timeout_minutes\t10\nmax_parallel_runs\t3\nallow\tcargo test\n\
              allow_folder\t~/Code/app\tnpm test"
         );
     }
@@ -312,7 +317,7 @@ mod tests {
         }];
         let reply = settings_reply(&settings(), &policy(), &rules, &[]);
         assert!(
-            reply.contains("permission_timeout_minutes\t10\nrule\ta1b2\tCode/app\tcargo test *\t3\nallow\tcargo test"),
+            reply.contains("permission_timeout_minutes\t10\nmax_parallel_runs\t3\nrule\ta1b2\tCode/app\tcargo test *\t3\nallow\tcargo test"),
             "{reply}"
         );
     }

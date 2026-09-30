@@ -3369,6 +3369,7 @@ fn settings_text(story: bool) -> String {
         ],
         timeout_minutes: 30,
         permission_timeout_minutes: 10,
+        max_parallel_runs: 3,
         story: story.then(|| StorySettings {
             model: "claude haiku".into(),
             budget_window_minutes: 20,
@@ -3740,6 +3741,7 @@ fn diag_shows_the_bridge_values_timeways_versions_and_the_transport_lines() {
         "Commands|cargo test",
         "|npm test  in ~/Code/lighthouse",
         "Timeout|30 min · approvals 10 min",
+        "Running chats|up to 3",
         "Model|claude haiku",
         "Budget|10 calls / 20 min",
         "|Desktop app 0.1.0 · protocol 1",

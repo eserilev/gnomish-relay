@@ -80,6 +80,7 @@ local function BridgeRows(last, rows)
 	local timeouts =
 		string.format("%s min · approvals %s min", v.timeout_minutes or "?", v.permission_timeout_minutes or "?")
 	table.insert(rows, BridgeRow("Timeout", Plain(timeouts)))
+	table.insert(rows, BridgeRow("Running chats", Plain("up to " .. (v.max_parallel_runs or "?"))))
 	table.insert(rows, BridgeRow("Sandbox", Plain(v.sandbox or "")))
 end
 
