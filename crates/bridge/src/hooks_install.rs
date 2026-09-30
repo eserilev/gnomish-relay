@@ -124,14 +124,23 @@ fn file_name(path: &Path) -> String {
         .unwrap_or_default()
 }
 
+/// Mode 0600 from the first byte: the settings of Claude Code can hold an API key.
+/// `create_new` fails at any name that exists, a link too, so it never follows a link.
+fn create_private(path: &Path) -> std::io::Result<fs::File> {
+    let mut options = OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::OpenOptionsExt;
+        options.mode(0o600);
+    }
+    options.open(path)
+}
+
 /// The file from before the first install. A later install never writes over it.
 fn backup(real: &Path) -> Result<()> {
     let backup = real.with_file_name(format!("{}.{BACKUP}", file_name(real)));
-    match OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&backup)
-    {
+    match create_private(&backup) {
         Ok(mut file) => Ok(file.write_all(&fs::read(real)?)?),
         Err(e) if e.kind() == ErrorKind::AlreadyExists => Ok(()),
         Err(e) => Err(e).with_context(|| format!("cannot write {}", backup.display())),
@@ -149,7 +158,11 @@ fn write_settings(settings: &Settings, value: &Value) -> Result<()> {
     let tmp = dir.join(format!(".{}.gnomish-relay.tmp", file_name(real)));
     let mut text = serde_json::to_string_pretty(value)?;
     text.push('\n');
-    fs::write(&tmp, text)?;
+    // A crash can leave the temp file. Removing a link removes only the link.
+    let _ = fs::remove_file(&tmp);
+    create_private(&tmp)
+        .with_context(|| format!("cannot write {}", tmp.display()))?
+        .write_all(text.as_bytes())?;
     if settings.existed {
         fs::set_permissions(&tmp, fs::metadata(real)?.permissions())?;
     }
@@ -547,6 +560,39 @@ mod tests {
             fs::metadata(&real).unwrap().permissions().mode() & 0o777,
             0o600
         );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_backup_and_a_new_settings_file_have_mode_0600() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = home();
+        let settings = home.write(".claude/settings.json", USER_SETTINGS);
+        fs::set_permissions(&settings, fs::Permissions::from_mode(0o600)).unwrap();
+
+        install(&home.claude(), &home.program).unwrap();
+        install(&home.codex(), &home.program).unwrap();
+
+        let mode = |path: &Path| fs::metadata(path).unwrap().permissions().mode() & 0o777;
+        let backup = settings.with_file_name("settings.json.gnomish-relay.bak");
+        assert_eq!(mode(&backup), 0o600);
+        assert_eq!(mode(&home.dir.path().join(".codex/hooks.json")), 0o600);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_link_at_the_temp_name_is_not_followed() {
+        let home = home();
+        let settings = home.write(".claude/settings.json", USER_SETTINGS);
+        let victim = home.write("victim.txt", "keep me");
+        let tmp = settings.with_file_name(".settings.json.gnomish-relay.tmp");
+        std::os::unix::fs::symlink(&victim, &tmp).unwrap();
+
+        install(&home.claude(), &home.program).unwrap();
+
+        assert_eq!(fs::read_to_string(&victim).unwrap(), "keep me");
+        assert!(fs::symlink_metadata(&settings).unwrap().is_file());
+        assert_eq!(our_programs(&json_of(&settings), Source::Claude).len(), 6);
     }
 
     #[test]

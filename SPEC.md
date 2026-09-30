@@ -1782,8 +1782,8 @@ notices = {busy = 1, open = 2, list = {
 - A group is ours only when it has exactly one hook, our command. A group of the user that also holds our command stays as it is.
 - It finds its own groups by the command `hook claude` after a path whose file name is `gnomish-relay`. So a second install changes nothing, and an install after a move of the binary replaces the old path.
 - If the file does not parse, or `hooks` or one of its events has another type, it changes nothing and names the key.
-- It follows a link to the real file (for a dotfiles folder), and writes the real file with an atomic rename in its folder. The new file gets the mode of the old one.
-- Before its first change, it copies the file to `settings.json.gnomish-relay.bak`. It never writes over an existing backup, so the backup is the file from before the first install.
+- It follows a link to the real file (for a dotfiles folder), and writes the real file with an atomic rename in its folder. The temp file has mode 0600 from its first byte and never follows a link at its name, because the settings can hold an API key. The new file gets the mode of the old one, and a file that did not exist gets mode 0600.
+- Before its first change, it copies the file to `settings.json.gnomish-relay.bak`, mode 0600. It never writes over an existing backup, so the backup is the file from before the first install.
 - `remove` takes out only its own groups, and an event with no group left. Install and then remove give the same JSON value as before.
 
 **Codex** (`~/.codex/hooks.json`, or `$CODEX_HOME/hooks.json`, and `config.toml` in the same folder):
