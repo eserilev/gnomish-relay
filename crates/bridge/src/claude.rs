@@ -84,9 +84,11 @@ impl Agent for ClaudeAgent {
     fn run(&self, job: &Job, control: &Control) -> Run {
         match &job.work {
             Work::Attach { session, open } => self.attach(session.as_str(), *open),
-            Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
-                self.prompt(job, control)
-            }
+            Work::Prompt
+            | Work::ListSessions
+            | Work::ListFolders
+            | Work::ListSettings
+            | Work::Git(_) => self.prompt(job, control),
         }
     }
 

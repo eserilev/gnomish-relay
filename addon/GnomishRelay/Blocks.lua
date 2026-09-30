@@ -89,6 +89,30 @@ function Blocks.Parse(text)
 	return blocks
 end
 
+-- The blocks of the bridge have upper-case kinds (SPEC.md 7.3.1, 9.10).
+local GIT_BLOCKS = {
+	B = function(git, p)
+		git.branch = { name = p[2] or "", own = p[3] == "1", start = p[4] or "" }
+	end,
+}
+
+-- The blocks of the bridge in a reply, or nil when it has none. A cut last line is left out.
+function Blocks.Git(text)
+	if not Blocks.IsRendered(text) then
+		return nil
+	end
+	local git, found = { files = {} }, false
+	for line in text:sub(#MARKER + 1):gmatch("([^\n]*)\n") do
+		local parts = Split(line)
+		local read = GIT_BLOCKS[parts[1]]
+		if read then
+			read(git, parts)
+			found = true
+		end
+	end
+	return found and git or nil
+end
+
 -- Words with no codes and no escapes: the caller escapes them for where they go.
 local function Words(text, html)
 	text = WithoutCodes(text):gsub("\1", "|")

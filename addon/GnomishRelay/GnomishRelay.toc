@@ -17,9 +17,11 @@ Messages.lua
 Transport.lua
 Notices.lua
 Blocks.lua
+Changes.lua
 Transcript.lua
 Folders.lua
 Browser.lua
+GitBar.lua
 BridgeSettings.lua
 RulesGroup.lua
 SettingsTab.lua

@@ -73,9 +73,16 @@ function Transport.Working(chatId)
 end
 
 local function Fields(chat, message)
+	-- A git action is for the bridge, never for the agent (SPEC.md 9.10).
+	if message.git then
+		return chat.cwd, "git=" .. message.git, chat.name
+	end
 	local flags = { "agent=" .. chat.agent, "level=" .. chat.mode }
 	if chat.fresh then
 		table.insert(flags, "n")
+	end
+	if chat.ownBranch then
+		table.insert(flags, "branch=1")
 	end
 	-- The bridge makes the folder only now, so a chat that never sends leaves none.
 	if chat.fresh and chat.newFolder then
@@ -94,6 +101,14 @@ local function Find(chatId, id)
 	end
 	local chat = ns.Store.Chat(chatId)
 	return chat, chat and ns.Store.Message(chat, id)
+end
+
+-- A git action of the player goes as a message of the chat, so it waits for a run of the
+-- chat and has a reply (SPEC.md 6.6.6). `text` is the commit message of a commit.
+function Transport.Git(chat, action, text)
+	local message = ns.Store.AddMessage(chat, text)
+	message.git = action
+	return Messages.Queue(chat, message)
 end
 
 -- The first message of a resumed chat has no text. It asks the bridge to attach the
@@ -265,11 +280,15 @@ local function ApplyStatus(chat, id, status)
 	end
 end
 
--- The reply to an attach brings the last exchange, and gets no whisper.
+-- The reply to an attach brings the last exchange, and gets no whisper. Neither does the
+-- answer to a git action: the player just clicked.
 local function ApplyReply(chat, id, status, text)
 	local message = ns.Store.Message(chat, id)
 	ns.Store.AddReply(chat, id, text, status)
-	if not message.attach then
+	ns.GitBar.Take(chat, text)
+	if message.git then
+		ns.Changes.Answered(chat, message.git, status)
+	elseif not message.attach then
 		Transport.OnReply(chat, { id = id, status = status, text = text })
 	end
 end

@@ -27,6 +27,8 @@ pub fn render_reply(work: &Work, text: &str) -> String {
     match work {
         Work::Attach { .. } => render_exchange(text),
         Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => render(text),
+        // The reply of a git action is text of the bridge, with its blocks already.
+        Work::Git(_) => text.to_owned(),
     }
 }
 

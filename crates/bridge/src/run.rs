@@ -9,10 +9,18 @@ use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
 
-use crate::agent::{Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal};
+use crate::agent::{
+    Agent, Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal,
+};
+use crate::chat_branch;
 use crate::config::{Permission, Policy};
+use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
+use crate::git_blocks::RunBlocks;
+use crate::git_host::GitHost;
 use crate::raise::{RaiseGuard, Raised, Raiser};
 use crate::receive::{KeySet, Rejected, frame_tag, receive, receive_for};
+use crate::relay::BranchPlan;
+use crate::run_git::{RunGit, WorktreeChange};
 use crate::turn::STOPPED;
 use protocol::apps::App;
 use protocol::record::Record;
@@ -47,10 +55,21 @@ pub const TIMEWAYS_DIR: &str = "timeways";
 type Found = Result<Vec<(String, SessionInfo)>, String>;
 
 enum Finished {
-    Run(Job, Run),
+    Run(Job, Run, Box<RunEnd>),
     List(Job, Found),
     Folders(Job, Snapshot),
+    Git(Job, Done),
 }
+
+/// What git adds to the end of a run (SPEC.md 9.10).
+#[derive(Default)]
+struct RunEnd {
+    change: WorktreeChange,
+    blocks: RunBlocks,
+}
+
+const NO_GIT: &str =
+    "Git isn't available to the desktop app. Install git, then run gnomish-relay restart.";
 type RunEvent = (ChatId, MessageId, Event);
 
 pub struct Paths {
@@ -146,6 +165,8 @@ struct RelayLane {
     terminal: TerminalSessions,
     spool: PathBuf,
     notices_changed: bool,
+    /// With no git on this computer, runs have no own branch (SPEC.md 9.10).
+    git: Option<RunGit>,
 }
 
 /// The Timeways app: its lane and its files. Its messages go to the story program, and
@@ -200,6 +221,19 @@ impl Bridge {
     pub fn with_settings(mut self, settings: BridgeSettings) -> Bridge {
         if let Some(relay) = &mut self.relay {
             relay.settings = settings;
+        }
+        self
+    }
+
+    /// Git in the chats with another host, for example one that skips the config of the
+    /// user in a test.
+    #[must_use]
+    pub fn with_git(mut self, host: GitHost) -> Bridge {
+        if let Some(relay) = &mut self.relay {
+            relay.git = Some(RunGit {
+                host: Arc::new(host),
+                walk: relay.walk.clone(),
+            });
         }
         self
     }
@@ -370,7 +404,18 @@ impl RelayLane {
         if let Some(problem) = problem {
             log(&problem);
         }
+        let git = match GitHost::new() {
+            Ok(host) => Some(RunGit {
+                host: Arc::new(host),
+                walk: walk.clone(),
+            }),
+            Err(e) => {
+                log(&format!("no git in chats: {e:#}"));
+                None
+            }
+        };
         Ok(RelayLane {
+            git,
             relay,
             files: LaneFiles::new(paths.state.clone(), &paths.accounts, App::Relay),
             agents,
@@ -399,6 +444,7 @@ impl RelayLane {
         self.take_events();
         self.pass_answers();
         self.finish_runs();
+        self.clean_up_worktrees();
         if self.files.publish_due() || self.notices_due() {
             self.store();
             self.publish(addons, line.choice());
@@ -493,8 +539,65 @@ impl RelayLane {
                     self.files.changed = true;
                 }
                 Work::Prompt | Work::Attach { .. } => self.start_run(job),
+                Work::Git(ref action) => {
+                    let action = action.clone();
+                    self.start_git(job, action);
+                }
             }
         }
+    }
+
+    /// The bridge runs a git action itself, in a thread: a merge waits for the desktop.
+    fn start_git(&mut self, job: Job, action: GitAction) {
+        log(&format!("git {action:?} {} #{}", job.chat, job.id.0));
+        let finished = self.finished.clone();
+        let Some(git) = self.git.clone() else {
+            let done = Done {
+                reply: Err(NO_GIT.into()),
+                effect: Effect::Nothing,
+            };
+            let _ = finished.send(Finished::Git(job, done));
+            return;
+        };
+        let control = Control {
+            stop: StopSignal::default(),
+            events: Events::to_bridge(self.events.clone(), &job),
+        };
+        self.stops.insert(job.chat.clone(), control.stop.clone());
+        let worktree = self.relay.worktree_of(&job.chat).cloned();
+        let desk = self.raiser.as_ref().map(|r| MergeDesk {
+            approvals: r.approvals.clone(),
+            wait: r.permission_timeout,
+        });
+        thread::spawn(move || {
+            let context = Context {
+                git: &git.host,
+                worktree: worktree.as_ref(),
+                desk: desk.as_ref(),
+                control: &control,
+            };
+            let done = git_actions::perform(&action, &context);
+            let _ = finished.send(Finished::Git(job, done));
+        });
+    }
+
+    /// A deleted chat takes its worktree along, but never work that exists nowhere else.
+    fn clean_up_worktrees(&mut self) {
+        let cleanups = self.relay.take_cleanups();
+        let Some(git) = &self.git else {
+            return;
+        };
+        if cleanups.is_empty() {
+            return;
+        }
+        let host = Arc::clone(&git.host);
+        thread::spawn(move || {
+            for worktree in &cleanups {
+                for line in chat_branch::remove_after_delete(&host, worktree) {
+                    log(&format!("deleted chat {}: {line}", worktree.chat));
+                }
+            }
+        });
     }
 
     fn start_run(&mut self, job: Job) {
@@ -509,7 +612,7 @@ impl RelayLane {
                 reply: Err(BAD_AGENT.into()),
                 session: None,
             };
-            let _ = finished.send(Finished::Run(job, run));
+            let _ = finished.send(Finished::Run(job, run, Box::default()));
             return;
         };
         let control = Control {
@@ -531,25 +634,20 @@ impl RelayLane {
                     reply: Err(refused),
                     session: None,
                 };
-                let _ = finished.send(Finished::Run(job, run));
+                let _ = finished.send(Finished::Run(job, run, Box::default()));
                 return;
             }
         };
         let raise = self.raise_for(&job);
+        let plan = self.relay.branch_plan(&job.chat);
+        let git = self.git.clone();
         thread::spawn(move || {
             let mut job = job;
             if let Some((raiser, level)) = raise {
                 job.permission = raise_level(&raiser, &job, level, &control);
             }
-            let run = if control.stop.requested() {
-                Run {
-                    reply: Err(STOPPED.into()),
-                    session: job.resume.clone(),
-                }
-            } else {
-                agent.run(&job, &control)
-            };
-            let _ = finished.send(Finished::Run(job, run));
+            let (run, end) = run_with_git(agent.as_ref(), &mut job, &control, git.as_ref(), plan);
+            let _ = finished.send(Finished::Run(job, run, Box::new(end)));
         });
     }
 
@@ -680,8 +778,15 @@ impl RelayLane {
 
     fn finish_runs(&mut self) {
         while let Ok(done) = self.results.try_recv() {
-            let (job, run) = match done {
-                Finished::Run(job, run) => (job, run),
+            let (job, run, end) = match done {
+                Finished::Run(job, run, end) => (job, run, end),
+                Finished::Git(job, done) => {
+                    log(&format!("git done {} #{}", job.chat, job.id.0));
+                    self.stops.remove(&job.chat);
+                    self.relay.finish_git(&job, done.reply, &done.effect);
+                    self.files.changed = true;
+                    continue;
+                }
                 Finished::List(job, found) => {
                     self.relay.finish_list(&job, found, now());
                     self.files.changed = true;
@@ -695,8 +800,11 @@ impl RelayLane {
             };
             log(&format!("done {} #{}", job.chat, job.id.0));
             self.stops.remove(&job.chat);
+            if let WorktreeChange::Set(worktree) = end.change {
+                self.relay.set_worktree(&job.chat, worktree);
+            }
             self.relay.keep_session(&job, run.session);
-            self.relay.finish(&job, run.reply);
+            self.relay.finish_run(&job, run.reply, &end.blocks);
             // A request of a run that ended gets no answer: its run stopped waiting.
             let relay = &self.relay;
             self.answers.retain(|request, _| relay.is_asked(request));
@@ -718,6 +826,47 @@ impl RelayLane {
         self.files.changed = false;
         self.notices_changed = false;
     }
+}
+
+/// Runs in the thread of the run: the own branch of the chat first, then the agent in
+/// its folder, then the blocks of the bridge (SPEC.md 9.10).
+fn run_with_git(
+    agent: &dyn Agent,
+    job: &mut Job,
+    control: &Control,
+    git: Option<&RunGit>,
+    plan: BranchPlan,
+) -> (Run, RunEnd) {
+    let started = match git.map(|g| g.start(job, plan)) {
+        Some(Ok(started)) => Some(started),
+        Some(Err(refused)) => {
+            let run = Run {
+                reply: Err(refused),
+                session: None,
+            };
+            return (run, RunEnd::default());
+        }
+        None => None,
+    };
+    if let Some(started) = &started {
+        job.cwd.clone_from(&started.folder);
+    }
+    let run = if control.stop.requested() {
+        Run {
+            reply: Err(STOPPED.into()),
+            session: job.resume.clone(),
+        }
+    } else {
+        agent.run(job, control)
+    };
+    let end = match (git, started) {
+        (Some(git), Some(started)) => RunEnd {
+            blocks: git.end(&started),
+            change: started.change,
+        },
+        _ => RunEnd::default(),
+    };
+    (run, end)
 }
 
 /// Runs in the thread of the run. Returns the level of the run after the raise.

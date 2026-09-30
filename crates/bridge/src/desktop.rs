@@ -76,6 +76,8 @@ pub enum Kind {
     ToolCall,
     /// A higher level in `config.toml` (SPEC.md 9.3).
     Raise,
+    /// A merge of a chat branch into its start branch (SPEC.md 9.10).
+    Merge,
 }
 
 /// An answer from the desktop.
@@ -251,6 +253,11 @@ impl Approvals {
         self.open_kind(agent, config_file, text, now, Kind::Raise)
     }
 
+    /// A request to merge a chat branch in the repository `repo`.
+    pub fn open_merge(&self, repo: &str, text: &str, now: u32) -> Result<Opened> {
+        self.open_kind("git", repo, text, now, Kind::Merge)
+    }
+
     fn open_kind(
         &self,
         agent: &str,
@@ -410,6 +417,7 @@ pub fn dialog_text(pending: &Pending) -> String {
             "{}\n\nConfig: {}\nRequest: {}",
             pending.text, pending.folder, pending.id
         ),
+        Kind::Merge => format!("{}\n\nRequest: {}", pending.text, pending.id),
     };
     match pending.wait_minutes {
         0 => text,
@@ -601,6 +609,29 @@ mod tests {
             "An agent in WoW wants to:\ncat ~/.ssh/id_rsa\nthe agent says: Bash\n\n\
              Agent: claude\nFolder: /w/app\nRequest: a1b2c3d4e5f6\n\
              No answer in 10 minutes counts as Deny."
+        );
+    }
+
+    #[test]
+    fn a_merge_dialog_shows_its_own_text_and_the_request() {
+        let (_data, approvals) = approvals();
+
+        approvals
+            .open_merge(
+                "/w/app",
+                "A chat from WoW asks to merge x into main in /w/app.",
+                1,
+            )
+            .unwrap();
+
+        let pending = approvals.list().remove(0);
+        assert_eq!(pending.kind, Kind::Merge);
+        assert_eq!(
+            dialog_text(&pending),
+            format!(
+                "A chat from WoW asks to merge x into main in /w/app.\n\nRequest: {}",
+                pending.id
+            )
         );
     }
 

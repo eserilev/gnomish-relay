@@ -368,6 +368,7 @@ local function RefreshChats(chat)
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
+	ns.GitBar.Refresh(not ui.picking and not browsing and chat or nil)
 end
 
 function Window.Refresh()
@@ -386,6 +387,7 @@ function Window.Refresh()
 			part:Hide()
 		end
 		ns.Browser.Show(false)
+		ns.GitBar.Refresh(nil)
 	end
 end
 
@@ -595,6 +597,7 @@ local function BuildCenter()
 	Stretch(log, left, -84)
 	ui.log = log
 	ns.Transcript.Build(log, TranscriptSize())
+	ns.GitBar.Build(frame, log)
 
 	ui.picker = Inset(frame, left, -84, width, 16)
 	Stretch(ui.picker, left, -84)

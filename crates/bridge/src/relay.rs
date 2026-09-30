@@ -18,12 +18,17 @@ use serde::{Deserialize, Serialize};
 use crate::activity::{self, Activity};
 use crate::agent::{Choice, SessionId, SessionInfo};
 use crate::always_rules::RuleLine;
+use crate::chat_branch::ChatWorktree;
 use crate::config::{Permission, Policy};
 use crate::desktop::Notice;
-use crate::flags::{self, ListKind, TransportFlags};
+use crate::flags::{self, GitFlag, ListKind, TransportFlags};
 use crate::folder_list::folder_reply;
 use crate::folder_path::{folder_request, native_folder, path_bytes, relative_folder};
 use crate::folder_walk::Snapshot;
+use crate::git_actions::{Effect, GitAction};
+use crate::git_blocks::{
+    RunBlocks, blocks, error_with_blocks, plain_error, with_blocks, without_blocks,
+};
 use crate::history::{ChatLog, History, Speaker};
 pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
@@ -46,6 +51,8 @@ const MAX_TITLE: usize = 100;
 /// A session that changed this recently is probably open in a terminal.
 const ACTIVE_FOR: u32 = 300;
 const NO_SESSION: &str = "That session is gone. Open Resume to pick another.";
+const UNKNOWN_ACTION: &str =
+    "The desktop app doesn't know that action. Update it: run gnomish-relay update.";
 
 /// The agent session of a chat. The next message of the chat resumes it, if its
 /// agent and its folder are the same (SPEC.md 9.5).
@@ -80,6 +87,21 @@ pub enum Work {
         #[serde(rename = "fork")]
         open: Open,
     },
+    /// A git action of the player on the chat (SPEC.md 9.10). The bridge runs it, never
+    /// an agent.
+    Git(GitAction),
+}
+
+/// Where a run of a chat works (SPEC.md 9.10).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BranchPlan {
+    /// In the chat folder.
+    Plain,
+    /// In a new own branch, named after the chat.
+    Make {
+        name: String,
+    },
+    Use(ChatWorktree),
 }
 
 /// How an attach opens a saved session. A session that is open in a terminal gets a
@@ -170,6 +192,8 @@ pub enum Outcome {
     BadSession,
     /// Seen, and answered with the update text of its app (SPEC.md 7.7).
     WrongVersion,
+    /// Seen, and answered with an error: a git action that this bridge does not know.
+    BadAction,
     Control,
 }
 
@@ -197,6 +221,11 @@ pub struct Relay {
     activity: Activity,
     /// The tags of the frames that came, with the time of their first sight.
     frames: Vec<(u32, FrameTag)>,
+    /// The chats that asked for an own branch, with their names (SPEC.md 9.10).
+    own_branch: BTreeMap<ChatId, String>,
+    worktrees: Vec<ChatWorktree>,
+    /// The worktrees of deleted chats, which the bridge cleans up.
+    cleanups: Vec<ChatWorktree>,
 }
 
 /// The tag of a signed frame (SPEC.md 6.3). Two frames with the same tag are one frame.
@@ -274,6 +303,9 @@ impl Relay {
             listed: Vec::new(),
             activity: Activity::default(),
             frames: Vec::new(),
+            own_branch: BTreeMap::new(),
+            worktrees: Vec::new(),
+            cleanups: Vec::new(),
         }
     }
 
@@ -394,6 +426,12 @@ impl Relay {
         if let Some(session) = &flags.attach {
             return self.attach(r, chat, session, now);
         }
+        if let Some(git) = flags.git.clone() {
+            return self.enqueue_git(r, chat, git);
+        }
+        if flags.own_branch {
+            self.own_branch.insert(chat.clone(), text(&r.name));
+        }
         let job = match self.prompt_job(r, &chat, flags) {
             Ok(job) => job,
             Err(outcome) => return outcome,
@@ -498,6 +536,31 @@ impl Relay {
         })
     }
 
+    /// A git action waits in the queue of its chat, behind a run of the chat. It never
+    /// ends a wait for an answer: only a message to the agent does (SPEC.md 9.3).
+    fn enqueue_git(&mut self, r: &Record, chat: ChatId, git: GitFlag) -> Outcome {
+        let GitFlag::Action(action) = git else {
+            return self.refuse(r, &chat, UNKNOWN_ACTION.into(), Outcome::BadAction);
+        };
+        let Some(cwd) = self.game_folder(&r.cwd) else {
+            return self.refuse(r, &chat, BAD_FOLDER.into(), Outcome::BadFolder);
+        };
+        self.enqueue_job(Job {
+            token: text(&r.token),
+            chat,
+            id: MessageId(r.id),
+            agent: self.policy.default_agent.clone(),
+            permission: Permission::Ask,
+            asked: Permission::Ask,
+            cwd: text(&native_folder(cwd, cfg!(windows))),
+            session: Session::Resume,
+            resume: None,
+            text: text(&r.text),
+            work: Work::Git(action),
+            new_folder: false,
+        })
+    }
+
     fn attach(&mut self, r: &Record, chat: ChatId, session: &str, now: u32) -> Outcome {
         let Some(listed) = self
             .listed
@@ -591,6 +654,12 @@ impl Relay {
         self.lane.remove_chat(&chat);
         self.sessions.retain(|s| s.chat != chat);
         self.history.remove(&chat);
+        self.own_branch.remove(&chat);
+        let (gone, kept) = std::mem::take(&mut self.worktrees)
+            .into_iter()
+            .partition(|w| w.chat == chat);
+        self.worktrees = kept;
+        self.cleanups.extend(gone);
         self.deleted.push(chat);
         keep_last(&mut self.deleted, MAX_SESSIONS);
     }
@@ -610,10 +679,14 @@ impl Relay {
         let id = self.queues.get_mut(&chat)?.ids.remove(0);
         let mut job = self.jobs.remove(&(chat.clone(), MessageId(id)))?;
         if job.session == Session::Resume {
+            // An own branch keeps its session in the worktree, where its runs work.
+            let folder = self
+                .worktree_of(&chat)
+                .map_or(job.cwd.clone(), |w| w.folder.clone());
             job.resume = self
                 .sessions
                 .iter()
-                .find(|s| s.chat == job.chat && s.agent == job.agent && s.cwd == job.cwd)
+                .find(|s| s.chat == job.chat && s.agent == job.agent && s.cwd == folder)
                 .map(|s| s.id.clone());
         }
         self.running.insert(chat);
@@ -709,19 +782,79 @@ impl Relay {
     }
 
     pub fn finish(&mut self, job: &Job, result: Result<String, String>) {
+        self.finish_run(job, result, &RunBlocks::default());
+    }
+
+    /// The reply of a run, with the blocks of the bridge under it (SPEC.md 7.3.1, 9.10).
+    pub fn finish_run(&mut self, job: &Job, result: Result<String, String>, run: &RunBlocks) {
         self.activity.end(&job.chat, job.id);
         self.running.remove(&job.chat);
         if self.is_deleted(&job.chat) {
             return;
         }
+        let added = blocks(run);
         let (status, text) = match result {
-            Ok(text) => (
-                Status::Done,
-                render_reply(&job.work, &with_level_note(job, text)),
-            ),
-            Err(text) => (Status::Error, text),
+            Ok(text) => {
+                let rendered = render_reply(&job.work, &with_level_note(job, text));
+                (Status::Done, with_blocks(&rendered, &added))
+            }
+            Err(text) if !added.is_empty() => (Status::Error, error_with_blocks(&text, &added)),
+            Err(text) => (Status::Error, plain_error(&text)),
         };
         self.set_record(&job.token, &job.chat, job.id, status, text);
+    }
+
+    /// The end of a git action. Its reply is text of the bridge, with blocks when it
+    /// has them.
+    pub fn finish_git(&mut self, job: &Job, result: Result<String, String>, effect: &Effect) {
+        self.activity.end(&job.chat, job.id);
+        self.running.remove(&job.chat);
+        if self.is_deleted(&job.chat) {
+            return;
+        }
+        self.apply_effect(&job.chat, effect);
+        let (status, text) = match result {
+            Ok(text) => (Status::Done, text),
+            Err(text) => (Status::Error, plain_error(&text)),
+        };
+        self.set_record(&job.token, &job.chat, job.id, status, text);
+    }
+
+    fn apply_effect(&mut self, chat: &ChatId, effect: &Effect) {
+        if *effect == Effect::Discarded {
+            self.worktrees.retain(|w| &w.chat != chat);
+            self.sessions.retain(|s| &s.chat != chat);
+        }
+    }
+
+    pub fn worktree_of(&self, chat: &ChatId) -> Option<&ChatWorktree> {
+        self.worktrees.iter().find(|w| &w.chat == chat)
+    }
+
+    /// A worktree that is gone makes way for a new one.
+    pub fn branch_plan(&self, chat: &ChatId) -> BranchPlan {
+        if let Some(worktree) = self.worktree_of(chat) {
+            return BranchPlan::Use(worktree.clone());
+        }
+        match self.own_branch.get(chat) {
+            Some(name) => BranchPlan::Make { name: name.clone() },
+            None => BranchPlan::Plain,
+        }
+    }
+
+    /// Keeps the worktree that a run made, or forgets one that is gone.
+    pub fn set_worktree(&mut self, chat: &ChatId, worktree: Option<ChatWorktree>) {
+        self.worktrees.retain(|w| &w.chat != chat);
+        if self.is_deleted(chat) {
+            self.cleanups.extend(worktree);
+            return;
+        }
+        self.worktrees.extend(worktree);
+    }
+
+    /// The worktrees of deleted chats.
+    pub fn take_cleanups(&mut self) -> Vec<ChatWorktree> {
+        std::mem::take(&mut self.cleanups)
     }
 
     /// Keeps the sessions whose folder is in a root, and answers the list request with
@@ -816,7 +949,8 @@ impl Relay {
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
 
-    /// Puts the record of a message at the newest place with its new state.
+    /// Puts the record of a message at the newest place with its new state. The history
+    /// of a restore keeps the text without the blocks of the bridge.
     fn set_record(
         &mut self,
         token: &str,
@@ -831,7 +965,8 @@ impl Relay {
             Status::Error => Some(Speaker::Error),
         };
         if let Some(speaker) = speaker {
-            self.history.add_reply(chat, speaker, id, &text);
+            self.history
+                .add_reply(chat, speaker, id, &without_blocks(&text));
         }
         self.lane.set_record(token, chat, id, status, text);
     }
@@ -844,6 +979,8 @@ impl Relay {
             restore_for: self.restore_for.clone(),
             sessions: self.sessions.clone(),
             frames: self.frames.clone(),
+            own_branch: self.own_branch.clone().into_iter().collect(),
+            worktrees: self.worktrees.clone(),
         }
     }
 
@@ -866,6 +1003,8 @@ impl Relay {
         relay.restore_for = state.restore_for;
         relay.sessions = state.sessions;
         relay.frames = state.frames;
+        relay.own_branch = state.own_branch.into_iter().collect();
+        relay.worktrees = state.worktrees;
         for job in state.waiting {
             let queue = relay
                 .queues
@@ -1975,6 +2114,210 @@ mod tests {
         assert_eq!(
             relay.on_frame(&[record_in("../../.ssh", "c1", 1, "", "a")], NOW),
             [Outcome::Duplicate]
+        );
+    }
+
+    fn worktree(chat: &str) -> ChatWorktree {
+        ChatWorktree {
+            chat: ChatId::new(chat),
+            repo: "/home/x/Code/app".into(),
+            worktree: "/home/x/Code/.gnomish-worktrees/app/fix".into(),
+            folder: "/home/x/Code/.gnomish-worktrees/app/fix".into(),
+            branch: "gnomish/fix".into(),
+            start_branch: Some("main".into()),
+            start_commit: "abc".into(),
+        }
+    }
+
+    fn own_branch() -> RunBlocks {
+        use crate::chat_branch::{BranchInfo, Own};
+        RunBlocks {
+            branch: Some(BranchInfo {
+                branch: "gnomish/fix".into(),
+                own: Own::Yes,
+                start: "main".into(),
+            }),
+        }
+    }
+
+    #[test]
+    fn a_git_action_waits_behind_the_run_of_its_chat() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "work")], NOW);
+        let running = relay.next_job().unwrap();
+
+        let outcome = relay.on_frame(&[record("c1", 2, "git=merge", "")], NOW);
+
+        assert_eq!(outcome, [Outcome::Accepted]);
+        assert!(relay.next_job().is_none());
+        relay.finish(&running, Ok("done".into()));
+        let job = relay.next_job().unwrap();
+        assert_eq!(job.work, Work::Git(GitAction::Merge));
+    }
+
+    #[test]
+    fn an_unknown_git_action_is_an_error_and_never_runs() {
+        let mut relay = relay();
+
+        let outcome = relay.on_frame(&[record("c1", 1, "git=push", "")], NOW);
+
+        assert_eq!(outcome, [Outcome::BadAction]);
+        assert!(relay.next_job().is_none());
+        assert!(body(&relay).contains("doesn't know that action"));
+    }
+
+    #[test]
+    fn a_git_action_never_ends_a_wait_for_an_answer() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "work")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.ask(&job.chat, job.id, b"rm x".to_vec(), Vec::new(), NOW);
+
+        relay.on_frame(&[record("c1", 2, "git=merge", "")], NOW);
+
+        assert!(relay.take_interrupts().is_empty());
+    }
+
+    #[test]
+    fn an_own_branch_chat_plans_a_new_branch_then_uses_it() {
+        let mut relay = relay();
+        let mut first = record("c1", 1, "n;branch=1", "go");
+        first.name = b"Fix tests".to_vec();
+        relay.on_frame(&[first], NOW);
+        let job = relay.next_job().unwrap();
+
+        let plan = relay.branch_plan(&job.chat);
+        relay.set_worktree(&job.chat, Some(worktree("c1")));
+
+        assert_eq!(
+            plan,
+            BranchPlan::Make {
+                name: "Fix tests".into()
+            }
+        );
+        assert_eq!(
+            relay.branch_plan(&job.chat),
+            BranchPlan::Use(worktree("c1"))
+        );
+        assert_eq!(relay.branch_plan(&ChatId::new("c2")), BranchPlan::Plain);
+    }
+
+    #[test]
+    fn an_own_branch_resumes_the_session_of_its_worktree() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "branch=1", "a")], NOW);
+        let mut job = relay.next_job().unwrap();
+        relay.set_worktree(&job.chat, Some(worktree("c1")));
+        job.cwd = worktree("c1").folder;
+        relay.keep_session(&job, Some(SessionId::from("s1")));
+        relay.finish(&job, Ok(String::new()));
+
+        relay.on_frame(&[record("c1", 2, "branch=1", "b")], NOW);
+
+        assert_eq!(relay.next_job().unwrap().resume_id(), Some("s1"));
+    }
+
+    #[test]
+    fn a_deleted_chat_hands_its_worktree_to_the_cleanup() {
+        let mut relay = relay();
+        relay.set_worktree(&ChatId::new("c1"), Some(worktree("c1")));
+
+        relay.on_frame(&[record("c1", 0, "d", "")], NOW);
+
+        assert_eq!(relay.take_cleanups(), [worktree("c1")]);
+        assert_eq!(relay.branch_plan(&ChatId::new("c1")), BranchPlan::Plain);
+    }
+
+    #[test]
+    fn a_run_reply_carries_the_blocks_right_after_the_marker() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+
+        relay.finish_run(&job, Ok("Done.".into()), &own_branch());
+
+        let body = body(&relay);
+        assert!(
+            body.contains(r"\027M1\010B\031gnomish/fix\0311\031main\010p\031Done.\010"),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn an_error_with_blocks_is_rendered_with_its_blocks() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+
+        relay.finish_run(&job, Err("Stopped.".into()), &own_branch());
+
+        assert!(body(&relay).contains(r#"status = "error", text = "\027M1\010B"#));
+    }
+
+    #[test]
+    fn an_error_of_the_agent_never_starts_with_the_marker() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+
+        relay.finish(&job, Err("\x1bM1\nG\x1f9\x1f9\x1f9".into()));
+
+        assert!(body(&relay).contains(r#"status = "error", text = "M1\010G"#));
+    }
+
+    #[test]
+    fn the_restore_history_keeps_a_reply_without_its_blocks() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "", "a")], NOW);
+        let job = relay.next_job().unwrap();
+
+        relay.finish_run(&job, Ok("Done.".into()), &own_branch());
+
+        let state = relay.to_state();
+        let restored =
+            String::from_utf8(state.history.to_restore()[0].history[1].text.clone()).unwrap();
+        assert_eq!(restored, "\x1bM1\np\x1fDone.\n");
+    }
+
+    #[test]
+    fn a_discard_forgets_the_branch_of_the_chat() {
+        let mut relay = relay();
+        relay.set_worktree(&ChatId::new("c1"), Some(worktree("c1")));
+        relay.on_frame(&[record("c1", 3, "git=discard", "")], NOW);
+        let discard = relay.next_job().unwrap();
+
+        relay.finish_git(&discard, Ok("Discarded.".into()), &Effect::Discarded);
+
+        assert!(relay.worktree_of(&ChatId::new("c1")).is_none());
+        assert!(body(&relay).contains(r#"status = "done", text = "Discarded.""#));
+    }
+
+    #[test]
+    fn a_failed_action_changes_no_record() {
+        let mut relay = relay();
+        relay.set_worktree(&ChatId::new("c1"), Some(worktree("c1")));
+        relay.on_frame(&[record("c1", 3, "git=discard", "")], NOW);
+        let discard = relay.next_job().unwrap();
+
+        relay.finish_git(&discard, Err("Couldn't discard.".into()), &Effect::Nothing);
+
+        assert!(relay.worktree_of(&ChatId::new("c1")).is_some());
+    }
+
+    #[test]
+    fn worktrees_come_back_after_a_restart() {
+        let mut relay = relay();
+        let mut first = record("c1", 1, "branch=1", "a");
+        first.name = b"x".to_vec();
+        relay.on_frame(&[first], NOW);
+        relay.set_worktree(&ChatId::new("c1"), Some(worktree("c1")));
+
+        let again = Relay::from_state(policy(), relay.to_state());
+
+        assert_eq!(again.worktree_of(&ChatId::new("c1")), Some(&worktree("c1")));
+        assert_eq!(
+            again.own_branch.get(&ChatId::new("c1")).map(String::as_str),
+            Some("x")
         );
     }
 }

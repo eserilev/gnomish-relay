@@ -8,9 +8,10 @@ use anyhow::{Context, Result, bail};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 
+use crate::chat_branch::ChatWorktree;
 use crate::fs_safe::write_private;
 use crate::history::History;
-use crate::lane::LaneState;
+use crate::lane::{ChatId, LaneState};
 pub use crate::lane::{SavedRecord, SavedStatus};
 use crate::relay::{AgentSession, FrameTag, Job};
 
@@ -34,6 +35,11 @@ pub struct State {
     /// restart does not apply a stored strip again.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub frames: Vec<(u32, FrameTag)>,
+    /// The chats that asked for an own branch, with their names (SPEC.md 9.10).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub own_branch: Vec<(ChatId, String)>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub worktrees: Vec<ChatWorktree>,
 }
 
 /// `None` when there is no state yet. A damaged file is an error, not a fresh start:

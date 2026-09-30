@@ -4,6 +4,7 @@
 //! Only the relay reads the coding flags, so a coding flag from another app does nothing.
 
 use crate::config::Permission;
+use crate::git_actions::{GitAction, git_action};
 
 /// The hello and the report of the addon on its transport.
 #[derive(Debug, Default, PartialEq, Eq)]
@@ -37,6 +38,17 @@ pub struct CodingFlags {
     pub new_folder: bool,
     /// `rule=remove:<id>`: the Settings tab removes an "Always allow" rule (SPEC.md 6.6.5).
     pub remove_rule: Option<String>,
+    /// `branch=1`: the chat works on its own branch (SPEC.md 9.10).
+    pub own_branch: bool,
+    /// `git=<action>`: a git action of the player (SPEC.md 9.10).
+    pub git: Option<GitFlag>,
+}
+
+/// An action that this bridge does not know still never becomes a prompt.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum GitFlag {
+    Action(GitAction),
+    Unknown,
 }
 
 /// What a list request asks for: `list`, `list=folders`, or `list=settings`.
@@ -160,6 +172,10 @@ pub fn coding(bytes: &[u8]) -> CodingFlags {
             Some(("list", "folders")) => flags.list = Some(ListKind::Folders),
             Some(("list", "settings")) => flags.list = Some(ListKind::Settings),
             Some(("mkdir", "1")) => flags.new_folder = true,
+            Some(("branch", "1")) => flags.own_branch = true,
+            Some(("git", value)) => {
+                flags.git = Some(git_action(value).map_or(GitFlag::Unknown, GitFlag::Action));
+            }
             Some(("level", word)) => flags.level = Some(Permission::from_game(word)),
             Some(("perm", value)) => flags.perm = perm_answer(value),
             Some(("rule", value)) => flags.remove_rule = rule_removal(value),
@@ -228,14 +244,35 @@ mod tests {
                 perm: None,
                 new_folder: true,
                 remove_rule: None,
+                own_branch: false,
+                git: None,
             }
         );
     }
 
     #[test]
+    fn only_branch_1_asks_for_an_own_branch() {
+        assert!(coding(b"n;branch=1").own_branch);
+        for other in ["branch", "branch=0", "branch=main"] {
+            assert!(!coding(other.as_bytes()).own_branch, "{other}");
+        }
+    }
+
+    #[test]
+    fn a_git_action_parses_and_an_unknown_one_stays_an_action() {
+        assert_eq!(
+            coding(b"git=merge").git,
+            Some(GitFlag::Action(GitAction::Merge))
+        );
+        assert_eq!(coding(b"git=push").git, Some(GitFlag::Unknown));
+        assert_eq!(coding(b"git=revert:x").git, Some(GitFlag::Unknown));
+        assert_eq!(coding(b"n").git, None);
+    }
+
+    #[test]
     fn the_transport_parser_ignores_every_coding_flag() {
         let only_coding =
-            b"perm=p5f3a1:o2:0123456789abcdef;level=full-auto;agent=claude;attach=s1;list;d;n;stop;mkdir=1";
+            b"perm=p5f3a1:o2:0123456789abcdef;level=full-auto;agent=claude;attach=s1;list;d;n;stop;mkdir=1;branch=1;git=merge";
         assert_eq!(transport(only_coding), TransportFlags::default());
     }
 

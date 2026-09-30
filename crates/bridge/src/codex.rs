@@ -91,9 +91,11 @@ impl Agent for CodexAgent {
             Work::Attach { session: id, open } => {
                 self.attach(job, id.as_str(), *open, &mut session)
             }
-            Work::Prompt | Work::ListSessions | Work::ListFolders | Work::ListSettings => {
-                self.prompt(job, control, &mut session)
-            }
+            Work::Prompt
+            | Work::ListSessions
+            | Work::ListFolders
+            | Work::ListSettings
+            | Work::Git(_) => self.prompt(job, control, &mut session),
         };
         Run {
             reply,

@@ -409,14 +409,15 @@ local function UpdateDelivery()
 end
 
 local function DrawMessage(entry, y)
+	local text = Prefix("You", YOU) .. PlainText(ns.Changes.Label(entry))
 	if entry.answered then
-		return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width)
+		return TextLine(text, 0, y, width)
 	end
 	local line = Acquire(ui.pools.status)
 	line:SetWidth(STATUS_WIDTH)
 	Place(line, width - STATUS_WIDTH, y)
 	table.insert(open, { entry = entry, line = line })
-	return TextLine(Prefix("You", YOU) .. PlainText(entry.text), 0, y, width - STATUS_WIDTH)
+	return TextLine(text, 0, y, width - STATUS_WIDTH)
 end
 
 local function DrawResend(message, y)
@@ -428,25 +429,39 @@ local function DrawResend(message, y)
 	return y + 20
 end
 
+-- The words of a line of the relay. Only one with blocks of the bridge is rendered: the
+-- bridge made it, and the renderer escaped its text (SPEC.md 7.3.1).
+local function RelayWords(text)
+	if ns.Blocks.Git(text) then
+		return ns.Blocks.Plain(text)
+	end
+	return ns.Relay.Plain(text)
+end
+
+local function RelayLine(text, y)
+	return TextLine(string.format("|cff%s[Relay]: %s|r", GREY, RelayWords(text)), 0, y, width)
+end
+
 -- An error comes from the relay, not from the agent, so it has its own grey line.
 local function DrawError(chat, entry, y)
-	y = TextLine(string.format("|cff%s[Relay]: %s|r", GREY, ns.Relay.Plain(entry.text)), 0, y, width)
+	y = RelayLine(entry.text, y)
 	local message = entry.id and ns.Store.Message(chat, entry.id)
-	if message and not message.attach and message.text ~= "" then
+	if message and not message.attach and not message.git and message.text ~= "" then
 		y = DrawResend(message, y)
 	end
 	return y
 end
 
--- Only the bridge renders, and only a done reply: an error that looks rendered is text.
+-- An error that looks rendered with no blocks of the bridge is text.
 local function DrawEntry(chat, entry, y)
 	if entry.attach then
 		return TextLine(string.format('|cff%sResumed "%s"|r', GREY, ns.Relay.Plain(chat.name)), 0, y, width)
 	elseif entry.role == "user" then
 		return DrawMessage(entry, y)
-	end
-	if entry.role == "error" then
+	elseif entry.role == "error" then
 		return DrawError(chat, entry, y)
+	elseif entry.role == "note" then
+		return RelayLine(entry.text, y)
 	end
 	local agent = entry.agent or chat.agent
 	return DrawReply(Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), entry.text, y)
