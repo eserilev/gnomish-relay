@@ -154,6 +154,28 @@ impl Game {
         self.last_strip().into_iter().find(|r| r.id == id).unwrap()
     }
 
+    /// The first drawn object of the transcript whose text has `part`.
+    fn drawn_with(&self, part: &str) -> Table {
+        let root: Table = self.lua.globals().get("GnomishRelayTranscript").unwrap();
+        let drawn: Table = self
+            .wow
+            .get::<Function>("Drawn")
+            .unwrap()
+            .call(root)
+            .unwrap();
+        drawn
+            .sequence_values::<Table>()
+            .map(|d| d.unwrap())
+            .find(|d| {
+                d.get::<Option<String>>("text")
+                    .unwrap()
+                    .is_some_and(|t| t.contains(part))
+            })
+            .unwrap()
+            .get("object")
+            .unwrap()
+    }
+
     /// The texts that the transcript shows.
     fn texts(&self) -> Vec<String> {
         let root: Table = self.lua.globals().get("GnomishRelayTranscript").unwrap();
@@ -373,6 +395,84 @@ fn enter_in_the_commit_dialog_sends_a_git_message_with_the_commit_message() {
 }
 
 #[test]
+fn a_commit_draws_again_only_from_its_reply_down() {
+    let (game, _) = game_with_reply();
+    let first = game.drawn_with("fix the flaky test");
+    game.lua.globals().set("firstLine", first).unwrap();
+    game.run(
+        "firstSets = 0 \
+         local set = firstLine.SetText \
+         firstLine.SetText = function(self, ...) firstSets = firstSets + 1 return set(self, ...) end",
+    );
+
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+
+    assert_eq!(game.run("return firstSets").as_integer(), Some(0));
+    assert!(game.texts().join("\n").contains("Sending..."));
+}
+
+#[test]
+fn the_answer_to_a_commit_scrolls_to_the_bottom_as_a_new_entry() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+    let commit = game.last_id();
+    for _ in 0..30 {
+        game.send("more");
+    }
+    let bottom = game.run("return GnomishRelayScroll:GetVerticalScroll()");
+    game.run("GnomishRelayScroll:SetVerticalScroll(0)");
+
+    game.reply(commit, Status::Done, "Committed 2 files as a1b2c3d.");
+
+    let scroll = game.run("return GnomishRelayScroll:GetVerticalScroll()");
+    assert!(
+        scroll.as_integer() >= bottom.as_integer(),
+        "{scroll:?} {bottom:?}"
+    );
+    assert!(scroll.as_integer() > Some(0));
+}
+
+#[test]
+fn escape_closes_the_commit_dialog() {
+    let (game, _) = game_with_reply();
+
+    let listed = game.run(
+        "for _, name in ipairs(UISpecialFrames) do \
+           if name == 'GnomishRelayCommit' then return true end end return false",
+    );
+
+    assert_eq!(listed.as_boolean(), Some(true));
+}
+
+#[test]
+fn closing_the_window_closes_the_commit_dialog() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+
+    game.run("GnomishRelayFrame:Hide()");
+
+    assert!(!game.shown("GnomishRelayCommit"));
+}
+
+#[test]
+fn deleting_the_chat_closes_its_commit_dialog() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+
+    game.run(&format!(
+        "local ns = ... ns.Window.AskDelete({:?})",
+        game.chat_id()
+    ));
+    game.press_in_dialog("button1");
+
+    assert!(!game.shown("GnomishRelayCommit"));
+}
+
+#[test]
 fn an_empty_commit_message_sends_nothing_and_keeps_the_dialog() {
     let (game, _) = game_with_reply();
     game.run("GnomishRelayChangeButton1:Click()");
@@ -459,6 +559,25 @@ fn a_failed_commit_brings_the_buttons_back() {
 }
 
 #[test]
+fn a_commit_that_is_not_sent_brings_the_buttons_back() {
+    let (game, _) = game_with_reply();
+    game.run("GnomishRelayChangeButton1:Click()");
+    game.run("GnomishRelayCommitMessage:GetScript('OnEnterPressed')(GnomishRelayCommitMessage)");
+    game.advance(1.0);
+    assert!(!game.shown("GnomishRelayChangeButton1"));
+
+    for _ in 0..20 {
+        game.advance(30.0);
+    }
+    game.run("local ns = ... ns.Window.Refresh()");
+
+    let texts = game.texts().join("\n");
+    assert!(texts.contains("Not sent"), "{texts}");
+    assert!(!texts.contains("Sending..."), "{texts}");
+    assert!(game.shown("GnomishRelayChangeButton1"));
+}
+
+#[test]
 fn an_agent_text_can_never_draw_a_change_block() {
     let game = Game::start();
     game.send("go");
@@ -482,6 +601,21 @@ fn an_error_with_changes_shows_the_error_and_the_block() {
     let texts = game.texts().join("\n");
     assert!(texts.contains("[Relay]: Stopped."), "{texts}");
     assert!(texts.contains("1 file changed"), "{texts}");
+}
+
+#[test]
+fn an_error_with_changes_shows_the_codes_of_its_text_as_text() {
+    let game = Game::start();
+    game.send("go");
+    let text = "\x1bM1\nG\x1f1\x1f1\x1f0\nF\x1fa.rs\x1f1\x1f0\x1fM\np\x1fStopped at ||TInterface\\Icons\\X:400||t.\n";
+
+    game.reply(game.last_id(), Status::Error, text);
+
+    let texts = game.texts().join("\n");
+    assert!(
+        texts.contains(r"[Relay]: Stopped at ||TInterface\Icons\X:400||t."),
+        "{texts}"
+    );
 }
 
 #[test]
@@ -537,6 +671,37 @@ fn the_answer_to_checks_shows_the_ci_line() {
 
     let texts = game.texts().join("\n");
     assert!(texts.contains("CI: 3 passed, 2 running"), "{texts}");
+}
+
+#[test]
+fn the_answer_to_checks_with_no_checks_says_so_with_no_empty_line() {
+    let game = Game::start();
+    game.send("go");
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "\x1bM1\nB\x1fmain\x1f0\x1f\np\x1fDone.\n",
+    );
+    game.run("GnomishRelayGitChecks:Click()");
+    game.advance(1.0);
+
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "\x1bM1\nC\x1f0\x1f0\x1f0\x1f\n",
+    );
+
+    let texts = game.texts();
+    assert!(
+        texts
+            .iter()
+            .any(|t| t == "CI: no checks on this pull request"),
+        "{texts:?}"
+    );
+    assert!(
+        !texts.iter().any(|t| t.contains("[Relay]: |r")),
+        "{texts:?}"
+    );
 }
 
 #[test]

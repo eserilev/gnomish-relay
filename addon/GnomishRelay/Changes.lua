@@ -69,6 +69,9 @@ function Changes.TestsText(tests)
 end
 
 function Changes.CiText(ci)
+	if (ci.passed or 0) + (ci.failed or 0) + (ci.running or 0) == 0 then
+		return "CI: no checks on this pull request"
+	end
 	local text = "CI: " .. Tally({ { ci.passed, "passed" }, { ci.failed, "failed", true }, { ci.running, "running" } })
 	if ci.names ~= "" then
 		text = text .. " (" .. ci.names .. ")"
@@ -163,12 +166,16 @@ end
 
 -- The runs whose summary names this message, so a later draw shows the new state.
 local function Mark(chat, id, state)
+	local first
 	for _, entry in ipairs(chat.history) do
 		if entry.id == id and (entry.role == "agent" or entry.role == "error") then
 			entry.gitState = state
+			first = first or entry
 		end
 	end
-	ns.Transcript.Invalidate()
+	if first then
+		ns.Transcript.Redraw(first)
+	end
 end
 
 -- The bridge answered a git message. Only a done reply changes a summary or the branch.
@@ -237,6 +244,13 @@ function Changes.CloseCommit()
 	ui.target = nil
 end
 
+-- A deleted chat takes its open Commit dialog with it.
+function Changes.Forget(chat)
+	if ui.target and ui.target.chat == chat then
+		Changes.CloseCommit()
+	end
+end
+
 local function Commit()
 	local text = strtrim(ui.message:GetText() or "")
 	local target = ui.target
@@ -253,10 +267,6 @@ function Changes.AskCommit(chat, entry)
 	ui.dialog:Show()
 	ui.message:SetFocus()
 	RefreshCommit()
-end
-
-function Changes.CommitShown()
-	return ui.dialog ~= nil and ui.dialog:IsShown()
 end
 
 local buttons = 0
@@ -311,6 +321,7 @@ local function BuildDialog()
 	cancel:SetText("Cancel")
 	cancel:SetScript("OnClick", Changes.CloseCommit)
 	dialog:Hide()
+	table.insert(UISpecialFrames, "GnomishRelayCommit")
 	ui.dialog = dialog
 end
 

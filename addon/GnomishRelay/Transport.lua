@@ -505,8 +505,13 @@ Messages.Store = { Add = ns.Store.AddMessage, Open = ns.Store.Open, Find = Find 
 Messages.Fields = Fields
 Messages.OnStatus = ApplyStatus
 Messages.OnReply = ApplyReply
+-- A git message that is not sent takes back its "Sending...".
 Messages.OnGiveUp = function(chat, id, text)
+	local message = ns.Store.Message(chat, id)
 	ns.Store.AddReply(chat, id, text, "error")
+	if message and message.git then
+		ns.Changes.Answered(chat, message.git, "error")
+	end
 end
 Messages.OnOther = ApplyList
 Messages.Riders = Forgets

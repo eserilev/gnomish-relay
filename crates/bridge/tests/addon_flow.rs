@@ -1425,6 +1425,21 @@ fn a_message_that_waits_for_other_chats_shows_it_on_a_still_grey_cast_bar() {
     );
 }
 
+/// The fake has no layout, so the test checks that the text is held at both ends of the bar.
+#[test]
+fn the_cast_bar_text_stays_inside_the_bar() {
+    let game = Game::start();
+
+    game.run("local ns = ... ns.Window.Open()");
+
+    let anchor = text_of(
+        &game,
+        "(function() local point, relative, _, x = GnomishRelayCast.text:GetPoint() \
+         return point .. ' ' .. tostring(relative == GnomishRelayCast) .. ' ' .. x end)()",
+    );
+    assert_eq!(anchor, "RIGHT true -4");
+}
+
 #[test]
 fn an_agent_line_like_a_waiting_line_after_the_first_line_stays_a_step() {
     let game = Game::start();
@@ -2459,12 +2474,27 @@ fn a_key_addon_that_never_loads_shows_the_first_run_window_and_signs_nothing() {
         "Gnomish Relay needs its desktop app"
     );
     assert_eq!(game.shots(), 0);
+}
+
+#[test]
+fn diag_with_no_key_says_what_to_do_and_not_that_a_key_loaded() {
+    let game = start_with_key_addon_from("never");
+
     game.run("SlashCmdList.GNOMISHRELAY('diag')");
-    assert!(
-        game.printed()
-            .contains(&"Gnomish Relay: key loaded at missing".into()),
-        "{:?}",
-        game.printed()
+
+    assert_eq!(game.printed().last().map(String::as_str), Some(NO_APP_LINE));
+}
+
+#[test]
+fn diag_after_a_new_key_addon_says_to_restart() {
+    let first = Game::start();
+    let game = Game::boot_with_key_addon(measured(), Some(&first.saved_variables()), |_| {});
+
+    game.run("SlashCmdList.GNOMISHRELAY('diag')");
+
+    assert_eq!(
+        game.printed().last().map(String::as_str),
+        Some(RESTART_LINE)
     );
 }
 
@@ -2579,6 +2609,21 @@ fn with_no_key_the_commands_open_the_first_run_window_and_nothing_errors() {
             .as_boolean()
             .unwrap()
     );
+}
+
+#[test]
+fn with_no_key_the_search_binding_opens_the_first_run_window_and_nothing_errors() {
+    let game = start_with_no_key_addon();
+    game.run("GnomishRelaySetupClose:GetScript('OnClick')()");
+
+    game.run("GnomishRelay_Search()");
+
+    assert_eq!(
+        setup_window_title(&game),
+        "Gnomish Relay needs its desktop app"
+    );
+    let search_open = game.run("local ns = ... return ns.Search.IsOpen() == true");
+    assert_eq!(search_open.as_boolean(), Some(false));
 }
 
 /// A key addon that is new since launch loads only after a restart (SPEC.md 7.2, rule 1).

@@ -512,16 +512,22 @@ local function DrawResend(message, y)
 end
 
 -- The words of a line of the relay. Only one with blocks of the bridge is rendered: the
--- bridge made it, and the renderer escaped its text (SPEC.md 7.3.1).
+-- bridge made it (SPEC.md 7.3.1). Its text can still hold agent words, and Plain takes
+-- out their escapes.
 local function RelayWords(text)
 	if ns.Blocks.Git(text) then
-		return ns.Blocks.Plain(text)
+		return ns.Relay.Plain(ns.Blocks.Plain(text))
 	end
 	return ns.Relay.Plain(text)
 end
 
+-- The answer to Checks is only blocks, and its blocks say it all.
 local function RelayLine(text, y)
-	return TextLine(string.format("|cff%s[Relay]: %s|r", GREY, RelayWords(text)), 0, y, width)
+	local words = RelayWords(text)
+	if words == "" and ns.Blocks.Git(text) then
+		return y
+	end
+	return TextLine(string.format("|cff%s[Relay]: %s|r", GREY, words), 0, y, width)
 end
 
 -- An error comes from the relay, not from the agent, so it has its own grey line. An
@@ -736,9 +742,18 @@ local function NewLink()
 	return button
 end
 
--- The next Show draws the whole chat again, for an old entry that changed.
-function Transcript.Invalidate()
-	drawn = { count = 0, tops = {}, marks = {}, chat = drawn.chat }
+-- An old entry changed. An entry that is not on screen draws later as it is now. A new
+-- entry below it still scrolls to the bottom.
+function Transcript.Redraw(entry)
+	local history = drawn.chat and drawn.chat.history or {}
+	if not IndexOf(history, entry) then
+		return
+	end
+	local grew = #history > drawn.count
+	RedrawFrom(entry)
+	if grew then
+		ScrollTo(contentHeight)
+	end
 end
 
 -- The next Show draws the whole chat again for the new width.
