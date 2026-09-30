@@ -84,10 +84,12 @@ fn bridge(f: &Dirs, keys: KeySet, runs: &Arc<Counting>) -> Bridge {
         state: f.state.clone(),
         config: f.state.join("config"),
     };
+    // A run starts only in a folder that exists inside a root (SPEC.md 6.2, rule 10).
+    let base = bridge::config::path_bytes(&std::env::temp_dir().canonicalize().unwrap());
     let policy = Policy {
         folders: Folders {
-            roots: vec![b"/home/x".to_vec()],
-            base: b"/home/x".to_vec(),
+            roots: vec![base.clone()],
+            base,
         },
         agents: [("claude".to_owned(), Permission::FullAuto)].into(),
         default_agent: "claude".into(),
