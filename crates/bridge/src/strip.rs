@@ -73,6 +73,8 @@ impl Image {
     /// A copy of the part at `(x, y)`, cut at the image edge.
     #[must_use]
     pub fn crop(&self, x: usize, y: usize, width: usize, height: usize) -> Image {
+        // A slice start past the end panics even for an empty slice.
+        let x = x.min(self.width);
         let width = width.min(self.width.saturating_sub(x));
         let height = height.min(self.height.saturating_sub(y));
         let mut rgb = Vec::with_capacity(width * height * 3);

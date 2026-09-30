@@ -138,6 +138,15 @@ fn a_cut_off_png_is_an_error_not_a_panic() {
 }
 
 #[test]
+fn a_crop_right_of_the_image_is_empty() {
+    let image = Image::from_rgb(4, 4, vec![70; 4 * 4 * 3]).unwrap();
+
+    let cut = image.crop(608, 0, 200, 4);
+
+    assert_eq!(cut.size(), (0, 4));
+}
+
+#[test]
 fn an_image_over_the_size_limit_is_refused_before_decoding() {
     let data = vec![0; (MAX_SIDE as usize + 1) * 3];
     let png_bytes = encode_png(MAX_SIDE + 1, 1, ColorType::Rgb, BitDepth::Eight, &data);

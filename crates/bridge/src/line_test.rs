@@ -238,6 +238,20 @@ mod tests {
         assert!(!matches!(verdicts[5].1, Verdict::Clean { .. }));
     }
 
+    /// The fuzz crash `crash-8f8c869c`: a 4x4 screenshot of a 4x4 screen.
+    #[test]
+    fn a_screenshot_narrower_than_the_test_lines_is_not_found() {
+        let image = Image::from_rgb(4, 4, vec![70; 4 * 4 * 3]).unwrap();
+        let tiny = Screen {
+            width: 4,
+            height: 4,
+        };
+
+        let verdicts = judge(&image, tiny);
+
+        assert!(verdicts.iter().all(|(_, v)| *v == Verdict::NotFound));
+    }
+
     #[test]
     fn a_screenshot_with_no_test_lines_is_not_found() {
         let image = Image::from_rgb(1280, 720, vec![70; 1280 * 720 * 3]).unwrap();
