@@ -218,12 +218,9 @@ with the shared transport as real files, and uploads it with the BigWigs package
 zip holds only the `GnomishRelay` folder: never a key or the addon files of the desktop app.
 Once, before the first upload:
 
-1. On CurseForge, create a World of Warcraft addon project named Gnomish Relay.
-   Copy its Project ID, a number, from the About Project box of the project page.
-2. Put the number in place of `REPLACE_WITH_CURSEFORGE_PROJECT_ID` in the
-   `## X-Curse-Project-ID` line of `addon/GnomishRelay/GnomishRelay.toc`. Or, on GitHub,
-   add it as the repository variable `CURSEFORGE_PROJECT_ID`
-   (Settings, Secrets and variables, Actions, Variables).
+1. The CurseForge project exists: its Project ID is 1719624.
+2. The ID is in the `## X-Curse-Project-ID` line of `addon/GnomishRelay/GnomishRelay.toc`.
+   A repository variable `CURSEFORGE_PROJECT_ID` on GitHub overrides it.
 3. At <https://authors.curseforge.com/account/api-tokens>, make an API token. Add it on
    GitHub as the repository secret `CF_API_KEY`.
 4. Put the link of the project in step 1 of Install.
