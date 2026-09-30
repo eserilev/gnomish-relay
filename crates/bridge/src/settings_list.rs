@@ -50,6 +50,8 @@ pub struct BridgeSettings {
     pub hooks: Vec<HookFiles>,
     /// `[git] ci_checks` (SPEC.md 9.11).
     pub ci_checks: CiChecks,
+    /// The strip line of the newest line test. The bridge sets it before each reply.
+    pub strip: Option<String>,
 }
 
 /// The state of our hooks for one agent: a `hook` line of the list.
@@ -140,6 +142,7 @@ impl BridgeSettings {
             },
             hooks: Vec::new(),
             ci_checks: relay.ci_checks.clone(),
+            strip: None,
         }
     }
 
@@ -190,6 +193,9 @@ impl BridgeSettings {
             lines.push(one("story_model", &story.model));
             let window = story.budget_window_minutes.to_string();
             lines.push(one("story_budget_window_minutes", &window));
+        }
+        if let Some(strip) = &self.strip {
+            lines.push(one("strip", strip));
         }
         for (agent, state) in hooks {
             lines.push(("hook", vec![(*agent).to_owned(), state.word().to_owned()]));
@@ -291,6 +297,7 @@ mod tests {
             rules: RuleList::default(),
             hooks: Vec::new(),
             ci_checks: CiChecks::Off,
+            strip: None,
         }
     }
 
@@ -407,6 +414,17 @@ mod tests {
         let reply = settings_reply(&with_story, &policy(), &[], &[]);
         assert!(reply.contains("\nstory_model\tclaude haiku\nstory_budget_window_minutes\t20\n"));
         assert!(!settings_reply(&settings(), &policy(), &[], &[]).contains("story"));
+    }
+
+    #[test]
+    fn the_strip_line_comes_after_the_story_lines() {
+        let mut with_strip = settings();
+        with_strip.strip = Some("a thin line, 1 px tall (mode 1), for 1280x720.".into());
+        let reply = settings_reply(&with_strip, &policy(), &[], &[]);
+        assert!(
+            reply.contains("\nstrip\ta thin line, 1 px tall (mode 1), for 1280x720.\n"),
+            "{reply}"
+        );
     }
 
     #[test]

@@ -70,6 +70,19 @@ impl Image {
         Some([*red, *green, *blue])
     }
 
+    /// A copy of the part at `(x, y)`, cut at the image edge.
+    #[must_use]
+    pub fn crop(&self, x: usize, y: usize, width: usize, height: usize) -> Image {
+        let width = width.min(self.width.saturating_sub(x));
+        let height = height.min(self.height.saturating_sub(y));
+        let mut rgb = Vec::with_capacity(width * height * 3);
+        for row in y..y + height {
+            let start = (row * self.width + x) * 3;
+            rgb.extend_from_slice(&self.rgb[start..start + width * 3]);
+        }
+        Image { width, height, rgb }
+    }
+
     fn cell(&self, x: usize, y: usize) -> Option<u8> {
         self.pixel(x, y).map(full_color_cell)
     }
@@ -114,12 +127,12 @@ fn fits(image: &Image, grid: Grid) -> bool {
     })
 }
 
-/// Every cell size from 3 to 8 pixels that matches both calibration rows exactly.
+/// Every cell size from 2 to 8 pixels that matches both calibration rows exactly.
 /// A normal screenshot has none. The width steps by 1/200 pixel, so the last of
 /// 200 cells lands at most half a pixel off. The height steps by 1/8 pixel.
 fn grids(image: &Image) -> impl Iterator<Item = Grid> + '_ {
-    (24..=64).flat_map(move |y| {
-        (600..=1600)
+    (16..=64).flat_map(move |y| {
+        (400..=1600)
             .map(move |x| Grid {
                 pitch_x: f64::from(x) / 200.0,
                 pitch_y: f64::from(y) / 8.0,

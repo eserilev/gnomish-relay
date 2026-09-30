@@ -37,11 +37,12 @@ use crate::daily_usage::{DailyUsage, cap_text};
 use crate::folder_trust;
 use crate::folder_walk::{Snapshot, Walk};
 use crate::home_walk;
-use crate::line_choice::{LineChoice, LineFile, with_line};
+use crate::line_choice::{self, LineChoice, LineFile, with_line};
+use crate::line_test;
 use crate::new_folder::{make_folder, real_chat_folder, real_new_folder};
 use crate::relay::{BAD_AGENT, ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
-use crate::screenshots::{Watcher, read_strip};
+use crate::screenshots::{Shot, Watcher, read_strip};
 use crate::settings_list::BridgeSettings;
 use crate::slots::{self, Files};
 use crate::spool::{open_spool, spool_dir, take_files};
@@ -320,22 +321,25 @@ impl Bridge {
             let keys = &self.keys;
             let tag_checks =
                 |bytes: &[u8]| receive(bytes, keys, now()).is_ok() || is_test_strip(bytes);
-            let bytes = match read_strip(&path, tag_checks) {
-                Ok(Some(bytes)) => bytes,
+            let shot = match read_strip(&path, tag_checks) {
+                Ok(Some(shot)) => shot,
                 Ok(None) => continue,
                 Err(e) => {
                     log(&format!("skipped {}: {e}", path.display()));
                     continue;
                 }
             };
-            if is_test_strip(&bytes) {
+            if is_test_strip(&shot.bytes) {
                 log(&format!(
                     "left {} in place: it's from the self-test",
                     path.display()
                 ));
                 continue;
             }
-            let outcome = self.take_strip(&bytes);
+            let outcome = self.take_strip(&shot.bytes);
+            if matches!(outcome, StripOutcome::Taken) {
+                self.take_line_test(&shot);
+            }
             if let Some(why) = kept_reason(&outcome) {
                 log(&format!("left {} in place: {why}", path.display()));
                 continue;
@@ -349,6 +353,27 @@ impl Bridge {
             if let Some(line) = deleted_line(&outcome) {
                 log(line);
             }
+        }
+    }
+
+    /// Keeps the result of a line test and sends it with the next body (SPEC.md 7.1.4).
+    fn take_line_test(&mut self, shot: &Shot) {
+        let Some(choice) = line_test::result(&shot.image, &shot.bytes) else {
+            return;
+        };
+        log(&format!(
+            "line test: {}",
+            line_choice::bar_text(Some(choice))
+        ));
+        if let Err(e) = line_choice::remember(&self.data, choice) {
+            log(&format!("cannot write the line test: {e:#}"));
+            return;
+        }
+        if let Some(relay) = &mut self.relay {
+            relay.files.changed = true;
+        }
+        if let Some(timeways) = &mut self.timeways {
+            timeways.files.changed = true;
         }
     }
 
@@ -613,6 +638,7 @@ impl RelayLane {
                 Work::ListFolders => self.start_folder_list(job),
                 Work::ListSettings => {
                     self.settings.usage_today = self.usage.today(now());
+                    self.settings.strip = Some(line_choice::bar_text_of(&self.files.state));
                     let rules = self.settings.rules.lines(now());
                     let hooks = self.settings.hook_lines();
                     self.relay

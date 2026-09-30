@@ -14,6 +14,7 @@ use crate::fs_safe::write_atomic_unsynced;
 use crate::game_choice::NO_WOW;
 use crate::gate::{Gate, Places};
 use crate::install;
+use crate::line_choice;
 use crate::lock::{self, Bridge};
 use crate::program::find_program;
 use crate::relay_addon;
@@ -28,6 +29,7 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let mut lines = vec![bridge_line(&lock::status(places.data_dir))];
     lines.extend(wsl::this().map(|wsl| wsl::status_line(&wsl)));
     lines.push(last_strip_line(last_strip(places.data_dir), now));
+    lines.push(line_choice::status_line(places.data_dir));
     let config = match config::load(places.config_dir, places.home) {
         Ok(config) => config,
         Err(e) if e.is::<config::SetupUnfinished>() => {

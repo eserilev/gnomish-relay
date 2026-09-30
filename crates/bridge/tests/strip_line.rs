@@ -222,7 +222,10 @@ fn with_no_line_from_the_bridge_the_addon_draws_the_old_strip() {
 
     let picture = game.last_picture();
     assert_eq!(line_mode(&picture), None);
-    assert!(picture.iter().all(|r| r.width == 4 && r.height == 4));
+    // The line test of SPEC.md 7.1.4 sits right of the old strip.
+    let strip: Vec<&Rect> = picture.iter().filter(|r| r.x < 600).collect();
+    assert!(strip.iter().all(|r| r.width == 3 && r.height == 3));
+    assert_eq!(strip.iter().map(|r| r.x + r.width).max(), Some(600));
     assert_eq!(
         records_of(&image_of(&picture), game.now())[0].text,
         b"old strip"
@@ -330,6 +333,7 @@ fn a_body_with_a_line_keeps_it_and_a_body_without_one_removes_it() {
         mode: 3,
         width: WIDTH,
         height: HEIGHT,
+        reason: None,
     };
 
     load_body(&game, 1, Some(choice));

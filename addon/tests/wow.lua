@@ -557,12 +557,12 @@ function wow.Save(name)
 end
 
 -- The cells of one strip on screen, by row, from the colors of the visible textures.
--- The cells of the old strip, which are 4 units wide. The line has other cells.
+-- The cells of the old strip, which are 3 units wide. The line has other cells.
 local function StripCells(frameName)
 	local rows = {}
 	for _, t in ipairs(wow.textures) do
-		if t.parent.name == frameName and t:IsVisible() and t.color and t.width == 4 then
-			local row, col = -t.y / 4 + 1, t.x / 4 + 1
+		if t.parent.name == frameName and t:IsVisible() and t.color and t.width == 3 then
+			local row, col = -t.y / 3 + 1, t.x / 3 + 1
 			rows[row] = rows[row] or {}
 			rows[row][col] = t.color[1] * 4 + t.color[2] * 2 + t.color[3]
 		end

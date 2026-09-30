@@ -36,6 +36,35 @@ fn the_largest_frame_reads_back() {
 
 /// The checksum does not cover the tag. So a wrong row height can read the payload right
 /// and the tag wrong, when the tag sits alone in the last row.
+/// The addon draws 3-pixel cells. A screenshot scaled down to two thirds shows 2 pixels.
+#[test]
+fn the_largest_frame_reads_back_at_cell_sizes_from_2_pixels_up() {
+    let payload = vec![b'z'; 3200];
+    // A strip wider than 6.4 pixels a cell does not fit the scene of 1280 pixels.
+    for pitch in [2.0, 2.25, 2.5, 2.875, 3.0, 3.5, 4.0, 5.0, 6.25] {
+        let rgb = scene(&strip_rows(&frame(&payload)), pitch, pitch);
+        let png_bytes = encode_png(WIDTH, HEIGHT, ColorType::Rgb, BitDepth::Eight, &rgb);
+        assert!(
+            payload_of(&png_bytes) == Some(payload.clone()),
+            "pitch {pitch}"
+        );
+    }
+}
+
+#[test]
+fn a_short_frame_reads_back_in_3_pixel_cells_with_a_tag_alone_in_the_last_row() {
+    let tag_checks = |bytes: &[u8]| decode_frame(bytes).is_ok_and(|f| f.tag == [9; 8]);
+    for len in 55..70 {
+        let rgb = scene(&strip_rows(&frame(&vec![b'q'; len])), 3.0, 3.0);
+        let png_bytes = encode_png(WIDTH, HEIGHT, ColorType::Rgb, BitDepth::Eight, &rgb);
+
+        let bytes = read_with(&Image::from_png(&png_bytes).unwrap(), tag_checks).unwrap();
+
+        let tag = decode_frame(&bytes).ok().map(|f| f.tag);
+        assert_eq!(tag, Some([9; 8]), "payload of {len}");
+    }
+}
+
 #[test]
 fn a_tag_alone_in_the_last_row_reads_back() {
     let tag_checks = |bytes: &[u8]| decode_frame(bytes).is_ok_and(|f| f.tag == [9; 8]);

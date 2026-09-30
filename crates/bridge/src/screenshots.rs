@@ -64,14 +64,23 @@ impl Watcher {
     }
 }
 
-/// The strip bytes, or `None` for a normal screenshot of the user. `accept` is the tag
-/// check of `strip::read_with`.
-pub fn read_strip(path: &Path, accept: impl Fn(&[u8]) -> bool) -> Result<Option<Vec<u8>>> {
-    let Some(bytes) = read_at_most(path, MAX_PNG)? else {
+/// The bytes of a strip, and the screenshot for the line test (SPEC.md 7.1.4).
+pub struct Shot {
+    pub bytes: Vec<u8>,
+    pub image: Image,
+}
+
+/// `None` for a normal screenshot of the user. `accept` is the tag check of
+/// `strip::read_with`.
+pub fn read_strip(path: &Path, accept: impl Fn(&[u8]) -> bool) -> Result<Option<Shot>> {
+    let Some(png) = read_at_most(path, MAX_PNG)? else {
         bail!("{} is bigger than {MAX_PNG} bytes", path.display());
     };
-    let image = Image::from_png(&bytes)?;
-    Ok(strip::read_with(&image, accept))
+    let image = Image::from_png(&png)?;
+    let Some(bytes) = strip::read_with(&image, accept) else {
+        return Ok(None);
+    };
+    Ok(Some(Shot { bytes, image }))
 }
 
 #[cfg(test)]
@@ -111,7 +120,7 @@ mod tests {
         let file = fs::File::create(&shot).unwrap();
         file.set_len(MAX_PNG + 1).unwrap();
 
-        let error = read_strip(&shot, |_| true).unwrap_err();
+        let error = read_strip(&shot, |_| true).err().unwrap();
 
         assert!(error.to_string().contains("bigger than"), "{error}");
     }

@@ -280,14 +280,15 @@ fn the_body_counts_strips_with_a_bad_tag_until_a_good_strip_comes() {
 }
 
 #[test]
-fn the_body_carries_the_strip_line_of_the_self_test_while_its_file_exists() {
+fn the_body_carries_the_newest_strip_line_while_its_file_exists() {
     let f = folders();
     let choice = LineChoice {
         mode: 2,
         width: 1920,
         height: 1080,
+        reason: None,
     };
-    line_choice::save(&f.state, Some(choice)).unwrap();
+    line_choice::remember(&f.state, choice).unwrap();
     let mut bridge = bridge(&f);
     let line = "GnomishRelay_SlotData.line = {mode = 2, width = 1920, height = 1080}\n";
 
@@ -297,7 +298,7 @@ fn the_body_carries_the_strip_line_of_the_self_test_while_its_file_exists() {
         slot_body(&f.addons)
     );
 
-    line_choice::save(&f.state, None).unwrap();
+    fs::remove_file(f.state.join(line_choice::FILE)).unwrap();
     fs::write(
         f.screenshots.join("WoWScrnShot_1.png"),
         strip_png(KEY, "after the file went"),

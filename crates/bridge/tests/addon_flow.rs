@@ -3799,6 +3799,7 @@ fn settings_text(story: bool) -> String {
         rules: bridge::always_rules::RuleList::default(),
         hooks: Vec::new(),
         ci_checks: bridge::ci_checks::CiChecks::Off,
+        strip: Some("full size, because your screen blurs 1-px lines (anti-aliasing, render scale, or an upscaler). Messages still get through.".into()),
     };
     let policy = Policy {
         folders: Folders {
@@ -4202,7 +4203,7 @@ fn diag_texts(game: &Game) -> Vec<String> {
 }
 
 #[test]
-fn diag_shows_the_bridge_values_timeways_versions_and_the_transport_lines() {
+fn diag_shows_the_bridge_values_the_strip_timeways_versions_and_the_transport_lines() {
     let game = Game::start();
     open_settings_with_list(&game, true);
     click(&game, &format!("GnomishRelayTab{DIAG}"));
@@ -4217,6 +4218,7 @@ fn diag_shows_the_bridge_values_timeways_versions_and_the_transport_lines() {
         "|npm test  in ~/Code/lighthouse",
         "Timeout|30 min · approvals 10 min",
         "Running chats|up to 3",
+        "Colored bar|full size, because your screen blurs 1-px lines (anti-aliasing, render scale, or an upscaler). Messages still get through.",
         "Model|claude haiku",
         "Budget|10 calls / 20 min",
         "|Desktop app 0.1.0 · protocol 1",

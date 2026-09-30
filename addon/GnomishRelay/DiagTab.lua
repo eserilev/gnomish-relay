@@ -82,6 +82,10 @@ local function BridgeRows(last, rows)
 	table.insert(rows, BridgeRow("Timeout", Plain(timeouts)))
 	table.insert(rows, BridgeRow("Running chats", Plain("up to " .. (v.max_parallel_runs or "?"))))
 	table.insert(rows, BridgeRow("Sandbox", Plain(v.sandbox or "")))
+	-- A desktop app from before v0.3.1 sends no strip line (SPEC.md 7.1.4).
+	if v.strip then
+		table.insert(rows, BridgeRow("Colored bar", Plain(v.strip)))
+	end
 end
 
 local function StoryRows(v, rows)
