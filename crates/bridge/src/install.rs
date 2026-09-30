@@ -12,6 +12,7 @@ use crate::app_files::{key_addon_name, key_global};
 use crate::config::{Found, Kind};
 use crate::fs_safe::{check_real_dir, make_private_dir, write_atomic_unsynced, write_private};
 use crate::ids::random_hex;
+use crate::wsl;
 
 pub const ADDON: &str = "GnomishRelay";
 pub const TIMEWAYS: &str = "Timeways";
@@ -206,7 +207,20 @@ pub fn addons_dir(game: &Path) -> PathBuf {
 /// The `_classic_beta_` folder of a folder that the user gives: that folder, or the
 /// one inside it. A dragged path comes with quotes.
 pub fn game_folder(given: &str) -> PathBuf {
-    let path = PathBuf::from(given.trim().trim_matches(|c| c == '"' || c == '\''));
+    game_folder_under(given, windows_root())
+}
+
+/// Under WSL, the folder where the Windows drives are.
+pub fn windows_root() -> Option<&'static Path> {
+    wsl::this().map(|_| Path::new(wsl::MOUNT_ROOT))
+}
+
+/// `game_folder`, where a Windows path such as `C:\Games\WoW` maps under
+/// `windows_root` (SPEC.md 11.5).
+pub fn game_folder_under(given: &str, windows_root: Option<&Path>) -> PathBuf {
+    let text = given.trim().trim_matches(|c| c == '"' || c == '\'');
+    let mapped = windows_root.and_then(|root| wsl::windows_to_wsl(root, text));
+    let path = mapped.unwrap_or_else(|| PathBuf::from(text));
     if path.file_name().is_some_and(|n| n == GAME) {
         return path;
     }
@@ -317,6 +331,9 @@ pub fn find_games(home: &Path) -> Vec<PathBuf> {
             let db = join_all(&prefix, &["drive_c"]).join(join_all(Path::new(""), &PRODUCT_DB));
             let found = read_product_db(&db);
             installs.extend(found.iter().filter_map(|path| in_prefix(&prefix, path)));
+        }
+        if let Some(root) = windows_root() {
+            installs.extend(windows_installs(root));
         }
     }
     let mut games: Vec<PathBuf> = Vec::new();
@@ -652,6 +669,20 @@ pub fn find_agents(path: &OsStr) -> Vec<Found<'static>> {
         .collect()
 }
 
+/// The install places of each Windows drive under WSL, and the paths of its
+/// `product.db` (SPEC.md 11.5).
+pub fn windows_installs(root: &Path) -> Vec<PathBuf> {
+    let mut installs = Vec::new();
+    for drive in wsl::drives(root) {
+        for programs in ["Program Files (x86)", "Program Files"] {
+            installs.push(drive.join(programs).join(WOW));
+        }
+        let found = read_product_db(&join_all(&drive, &PRODUCT_DB));
+        installs.extend(found.iter().filter_map(|p| wsl::windows_to_wsl(root, p)));
+    }
+    installs
+}
+
 /// The folders of the bridge move with these. A shell rc file sets them for setup, but
 /// not for the service, so the unit carries them.
 pub const XDG_VARS: [&str; 2] = ["XDG_CONFIG_HOME", "XDG_DATA_HOME"];
@@ -709,9 +740,37 @@ pub fn systemd_dir(home: &Path) -> PathBuf {
     home.join(".config").join("systemd").join("user")
 }
 
+/// The start file of the desktop app under WSL, in the home folder. It has a fixed
+/// place, because the Windows side knows no `XDG_CONFIG_HOME` (SPEC.md 11.5).
+pub const WSL_START_FILE: &str = ".config/gnomish-relay/wsl-start.sh";
+
+/// A shell word that the shell reads as it is.
+fn sh_quote(text: &str) -> String {
+    format!("'{}'", text.replace('\'', r"'\''"))
+}
+
+/// The start file under WSL. The launcher of Windows reads it with `.`, so it needs no
+/// mode for running. `xdg` holds the set ones of `XDG_VARS`.
+pub fn wsl_start_script(exe: &Path, path_var: &str, xdg: &[(&str, String)]) -> String {
+    let mut lines = vec![
+        "# Written by gnomish-relay setup. Windows runs it at sign-in (SPEC.md 11.5).".to_owned(),
+        format!("export PATH={}", sh_quote(path_var)),
+    ];
+    for (name, value) in xdg {
+        lines.push(format!("export {name}={}", sh_quote(value)));
+    }
+    lines.push(format!(
+        "exec {} run --log",
+        sh_quote(&exe.to_string_lossy())
+    ));
+    lines.join("\n") + "\n"
+}
+
 /// The login service file of setup on this OS, if there is one.
 pub fn service_file(home: &Path) -> Option<PathBuf> {
-    let file = if cfg!(target_os = "linux") {
+    let file = if wsl::this().is_some() {
+        home.join(WSL_START_FILE)
+    } else if cfg!(target_os = "linux") {
         systemd_dir(home).join(SYSTEMD_UNIT)
     } else if cfg!(target_os = "macos") {
         home.join("Library/LaunchAgents")
@@ -727,6 +786,9 @@ pub fn service_file(home: &Path) -> Option<PathBuf> {
 pub fn service_path_var(text: &str) -> Option<String> {
     if let Some(at) = text.find("Environment=\"PATH=") {
         return Some(systemd_unquoted(&text[at + "Environment=\"PATH=".len()..]));
+    }
+    if let Some(at) = text.find("export PATH='") {
+        return Some(sh_unquoted(&text[at + "export PATH='".len()..]));
     }
     let start = text.find("<key>PATH</key><string>")? + "<key>PATH</key><string>".len();
     let end = text[start..].find("</string>")?;
@@ -745,6 +807,13 @@ fn systemd_unquoted(text: &str) -> String {
         }
     }
     out
+}
+
+/// The text up to the closing quote at the end of its line, with the `'\''` of
+/// `sh_quote` undone.
+fn sh_unquoted(text: &str) -> String {
+    let end = text.find("'\n").unwrap_or(text.len());
+    text[..end].replace(r"'\''", "'")
 }
 
 fn xml_text(text: &str) -> String {
@@ -831,6 +900,47 @@ mod tests {
         );
         let given = format!("\"{}\"", root.path().join("World of Warcraft").display());
         assert_eq!(game_folder(&given), game);
+    }
+
+    #[test]
+    fn under_wsl_a_given_windows_folder_maps_to_its_drive() {
+        let root = tempfile::tempdir().unwrap();
+        let game = root.path().join("d/Games/World of Warcraft").join(GAME);
+        fs::create_dir_all(&game).unwrap();
+
+        let found = game_folder_under(r#""D:\Games\World of Warcraft""#, Some(root.path()));
+
+        assert_eq!(found, game);
+        let linux = root.path().join("d/Games").to_string_lossy().into_owned();
+        assert_eq!(
+            game_folder_under(&linux, Some(root.path())),
+            PathBuf::from(linux)
+        );
+    }
+
+    #[test]
+    fn under_wsl_the_game_is_found_in_program_files_and_in_product_db() {
+        let root = tempfile::tempdir().unwrap();
+        let c = root.path().join("c");
+        let db_dir = c.join("ProgramData/Battle.net/Agent");
+        fs::create_dir_all(&db_dir).unwrap();
+        fs::write(
+            db_dir.join("product.db"),
+            b"\n\x05wow_classic\x12)E:/Games/World of Warcraft\x1a\x02enUS",
+        )
+        .unwrap();
+        fs::create_dir_all(root.path().join("wsl")).unwrap();
+
+        let installs = windows_installs(root.path());
+
+        assert_eq!(
+            installs,
+            [
+                c.join("Program Files (x86)").join(WOW),
+                c.join("Program Files").join(WOW),
+                root.path().join("e/Games").join(WOW),
+            ]
+        );
     }
 
     #[test]
@@ -1237,6 +1347,32 @@ mod tests {
         assert_eq!(from_unit.as_deref(), Some(path));
         assert_eq!(from_plist.as_deref(), Some(path));
         assert_eq!(service_path_var("[Service]\nExecStart=x run\n"), None);
+    }
+
+    #[test]
+    fn the_wsl_start_file_sets_the_path_and_the_xdg_folders_then_runs_with_a_log() {
+        let exe = Path::new("/home/x/.local/bin/gnomish-relay");
+        let xdg = [("XDG_CONFIG_HOME", "/home/x/it's".to_owned())];
+
+        let script = wsl_start_script(exe, "/usr/bin:/home/x/.local/bin", &xdg);
+
+        assert_eq!(
+            script,
+            "# Written by gnomish-relay setup. Windows runs it at sign-in (SPEC.md 11.5).\n\
+             export PATH='/usr/bin:/home/x/.local/bin'\n\
+             export XDG_CONFIG_HOME='/home/x/it'\\''s'\n\
+             exec '/home/x/.local/bin/gnomish-relay' run --log\n"
+        );
+    }
+
+    #[test]
+    fn the_path_of_the_service_comes_back_from_the_wsl_start_file() {
+        let path = "/usr/bin:/home/x/it's \"odd\"";
+        let exe = Path::new("/opt/gnomish-relay");
+
+        let script = wsl_start_script(exe, path, &[]);
+
+        assert_eq!(service_path_var(&script).as_deref(), Some(path));
     }
 
     #[test]

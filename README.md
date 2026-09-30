@@ -60,6 +60,29 @@ If a line shows a problem, it also says how to fix it. See also
 
 </details>
 
+### Windows: the Linux sandbox (experimental)
+
+On Windows, the desktop app can run in WSL2, Windows' built-in Linux. Every command from
+Claude Code then runs in the same sandbox as on Linux. WoW stays on Windows. This setup is
+new and not yet tested on many PCs.
+
+To use it, run the Windows install command with `-Wsl`:
+
+```powershell
+& ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) -Wsl
+```
+
+- The first time, the installer turns on WSL2 and installs Ubuntu. Windows asks for admin
+  rights once, and then you restart. The installer continues after you sign in. Ubuntu
+  asks you to pick a Linux user name and password.
+- It installs the sandbox (`bubblewrap`) and Claude Code in Ubuntu, and opens Claude once
+  so you can log in. For Codex, install it in Ubuntu, then run `gnomish-relay setup` there.
+- Keep your projects in Ubuntu, for example `~/code`. Projects on `C:` work too, but
+  they're much slower. In the game, the folder list shows Linux paths.
+- The desktop app starts when you sign in to Windows. To check it, open Ubuntu from the
+  Start menu and run `gnomish-relay status`. Run every `gnomish-relay` command there.
+- Approvals show as a Windows message box.
+
 ## How it works
 
 1. **Type a task** in the Gnomish Relay window (`/relay`), or straight from the chat box
@@ -156,6 +179,7 @@ Where a command runs depends on your OS and your agent (`SPEC.md` 6.6.4):
 | Linux | A `bwrap` sandbox. Needs `bubblewrap` installed. | Codex's own sandbox |
 | macOS | A Seatbelt sandbox (`sandbox-exec`). | Codex's own sandbox |
 | Windows | No sandbox yet: every command asks you first, even one you always allow. | Codex's own Windows sandbox |
+| Windows with WSL2 (experimental) | A `bwrap` sandbox, as on Linux. | Codex's own sandbox |
 
 - **Inside the sandbox**, a command can write only to the chat's folder and a temp folder.
   It can't see `~/.ssh`, the desktop app's keys, or your other credential folders. It can
@@ -164,8 +188,10 @@ Where a command runs depends on your OS and your agent (`SPEC.md` 6.6.4):
 - **Codex's sandbox** lets a command read the whole disk, `~/.ssh` included, but gives it no network.
 - **Other ACP agents** run their commands themselves, with no sandbox, so every tool call
   asks you first.
-- **On Windows**, use Codex for commands that run without asking, or run Claude Code and the
-  desktop app under WSL2, where the desktop app uses `bwrap` just like on Linux.
+- **On Windows**, use Codex for commands that run without asking, or try the experimental
+  [WSL2 setup](#windows-the-linux-sandbox-experimental). Under WSL2 the sandbox also hides the
+  credential folders of your Windows home, and no agent can change your Windows drives
+  outside its chat folder.
 
 ## Get notifications from your terminal
 

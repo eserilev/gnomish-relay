@@ -17,6 +17,7 @@ use crate::service;
 use crate::setup::{self, KeyChoice};
 use crate::status::{self, SandboxFound};
 use crate::timeways_install::{self, Lore, Sources};
+use crate::wsl;
 
 /// The game folder: the one given, the one found, or the answer to a question.
 pub fn pick_game(dirs: &Dirs, given: Option<&str>) -> Result<PathBuf> {
@@ -317,7 +318,8 @@ fn setup_config(
     timeways: bool,
     roots_given: Option<&str>,
 ) -> Result<Config> {
-    let path_var = std::env::var_os("PATH").unwrap_or_default();
+    // Under WSL, a Windows agent on the PATH runs outside every wall (SPEC.md 11.5).
+    let path_var = wsl::path_var();
     let lacks_relay = existing.is_none_or(|(_, c)| c.relay.is_none());
     let lacks_story = existing.is_none_or(|(_, c)| c.story.is_none());
     let agents = install::find_agents(&path_var);

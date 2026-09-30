@@ -16,16 +16,16 @@ use crate::install;
 use crate::lock::{self, Bridge};
 use crate::program::find_program;
 use crate::story_sandbox::Sandbox;
+use crate::wsl;
 
 /// In the data folder. The bridge writes the time of each strip that it takes.
 const LAST_STRIP_FILE: &str = "last-strip";
 
 /// The lines of `gnomish-relay status`. `path` is the `PATH` for the sandbox probe.
 pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
-    let mut lines = vec![
-        bridge_line(&lock::status(places.data_dir)),
-        last_strip_line(last_strip(places.data_dir), now),
-    ];
+    let mut lines = vec![bridge_line(&lock::status(places.data_dir))];
+    lines.extend(wsl::this().map(|wsl| wsl::status_line(&wsl)));
+    lines.push(last_strip_line(last_strip(places.data_dir), now));
     let config = match config::load(places.config_dir, places.home) {
         Ok(config) => config,
         Err(e) => {

@@ -18,6 +18,7 @@ use crate::hooks_install::saved_folders;
 use crate::ids::random_hex;
 use crate::proxy::{Proxy, ProxySettings};
 use crate::story_sandbox::{self, Sandbox};
+use crate::wsl;
 
 /// The flag of the forwarder that starts the agent with no shell.
 pub const EXEC_FLAG: &str = "--exec";
@@ -47,7 +48,7 @@ const CLAUDE_HOSTS: [&str; 2] = ["api.anthropic.com", "platform.claude.com"];
 const CODEX_HOSTS: [&str; 3] = ["api.openai.com", "chatgpt.com", "auth.openai.com"];
 
 /// Code that runs later, outside the wall, with the full network (SPEC.md 6.6.4).
-pub const STARTUP_FILES: [&str; 36] = [
+pub const STARTUP_FILES: [&str; 37] = [
     ".bashrc",
     ".bash_profile",
     ".bash_login",
@@ -69,6 +70,7 @@ pub const STARTUP_FILES: [&str; 36] = [
     ".xprofile",
     ".xinitrc",
     ".config/plasma-workspace/env",
+    ".config/gnomish-relay/wsl-start.sh",
     ".local/bin",
     ".cargo/bin",
     ".ssh",
@@ -189,6 +191,8 @@ pub struct AgentWall {
     /// The socket of the proxy lies here, so S31 hides it from every command.
     pub data_dir: PathBuf,
     pub proxy: ProxySettings,
+    /// Under WSL, the Windows drives. The agent writes none of them (SPEC.md 11.5).
+    pub windows_drives: Vec<PathBuf>,
     /// The notice of no wall shows once for each start of the bridge.
     told: Arc<AtomicBool>,
 }
@@ -209,6 +213,7 @@ impl AgentWall {
             agent_dirs,
             data_dir,
             proxy,
+            windows_drives: Vec::new(),
             told: Arc::new(AtomicBool::new(false)),
         }
     }
@@ -229,14 +234,18 @@ impl AgentWall {
             .map(|home| AgentDirs::of(home, &var))
             .unwrap_or_default();
         agent_dirs.add_saved(data_dir);
-        AgentWall::new(
+        let mut wall = AgentWall::new(
             tool,
             std::env::current_exe().unwrap_or_default(),
             home,
             agent_dirs,
             data_dir.to_owned(),
             proxy.with_local_ports(local_ports),
-        )
+        );
+        if wsl::this().is_some() {
+            wall.windows_drives = wsl::drives(Path::new(wsl::MOUNT_ROOT));
+        }
+        wall
     }
 
     /// No wall and no notice, as for a check with no model call.
@@ -320,6 +329,7 @@ impl AgentWall {
             read_only,
             sockets: self.home.as_deref().map(scan_sockets).unwrap_or_default(),
             local_ports: self.proxy.local_ports.to_vec(),
+            windows_drives: self.windows_drives.clone(),
         };
         let (proxy, folder) = listening;
         Ok(Some(RunWall {
@@ -459,6 +469,8 @@ pub struct WallSpec {
     /// Socket files of the home folder, each covered with `/dev/null`.
     pub sockets: Vec<PathBuf>,
     pub local_ports: Vec<u16>,
+    /// Bound read-only before the binds back, so a bind back into one stays writable.
+    pub windows_drives: Vec<PathBuf>,
 }
 
 fn os(parts: &[&str]) -> Vec<OsString> {
@@ -472,15 +484,20 @@ fn in_private_folder(path: &Path) -> bool {
         .any(|f| path.starts_with(f) && path != Path::new(f))
 }
 
-/// The whole disk as it is, then the private folders, then the binds back, the socket of
-/// the proxy, the read-only startup files, and the covered sockets. The agent and its
-/// arguments come last, each one as it is: no shell.
+/// The whole disk as it is, then the private folders and the read-only Windows drives,
+/// then the binds back, the socket of the proxy, the read-only startup files, and the
+/// covered sockets. The agent and its arguments come last, each one as it is: no shell.
 pub fn wall_args(spec: &WallSpec, program: &Path, args: &[String]) -> Vec<OsString> {
     let mut out = os(&["--dev-bind", "/", "/"]);
     for folder in PRIVATE_FOLDERS {
         out.extend(os(&["--tmpfs", folder]));
     }
-    for path in spec.binds.iter().filter(|p| in_private_folder(p)) {
+    for drive in &spec.windows_drives {
+        out.extend(["--ro-bind".into(), drive.into(), drive.into()]);
+    }
+    let covered =
+        |p: &&PathBuf| in_private_folder(p) || spec.windows_drives.iter().any(|d| p.starts_with(d));
+    for path in spec.binds.iter().filter(covered) {
         out.extend(["--bind".into(), path.into(), path.into()]);
     }
     out.extend([
@@ -637,6 +654,7 @@ mod tests {
             read_only: vec![PathBuf::from("/home/x/.bashrc")],
             sockets: vec![PathBuf::from("/home/x/.docker/desktop/docker.sock")],
             local_ports: vec![5432],
+            windows_drives: Vec::new(),
         }
     }
 
@@ -697,6 +715,36 @@ mod tests {
         let socket = args.windows(3).position(|w| w[2] == INNER_SOCKET).unwrap();
         assert_eq!(args[socket], "--bind");
         assert!(position(&args, "--tmpfs") < socket);
+    }
+
+    #[test]
+    fn under_wsl_the_windows_drives_are_read_only_but_a_chat_folder_on_one_stays_writable() {
+        let mut spec = spec();
+        spec.windows_drives = vec![PathBuf::from("/mnt/c"), PathBuf::from("/mnt/d")];
+        spec.binds.push(PathBuf::from("/mnt/c/Users/x/code/app"));
+
+        let args = strings(&wall_args(&spec, Path::new("/usr/bin/claude"), &[]));
+
+        let drive = args
+            .windows(3)
+            .position(|w| w == ["--ro-bind", "/mnt/c", "/mnt/c"])
+            .unwrap();
+        let back = args
+            .windows(3)
+            .position(|w| {
+                w == [
+                    "--bind",
+                    "/mnt/c/Users/x/code/app",
+                    "/mnt/c/Users/x/code/app",
+                ]
+            })
+            .unwrap();
+        assert!(drive < back);
+        assert!(
+            args.windows(3)
+                .any(|w| w == ["--ro-bind", "/mnt/d", "/mnt/d"])
+        );
+        assert!(!args.contains(&"/home/x/Code/app".to_owned()));
     }
 
     #[test]
@@ -911,6 +959,7 @@ mod tests {
         for name in [
             ".bashrc",
             ".config/systemd/user",
+            ".config/gnomish-relay/wsl-start.sh",
             ".ssh",
             ".claude/settings.json",
             ".claude/plugins",

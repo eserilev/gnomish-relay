@@ -20,6 +20,7 @@ use crate::holder::{Holder, launch_socket, start_holder};
 use crate::process::BASE_ENV;
 use crate::proxy::{self, Proxy, ProxySettings};
 use crate::story_sandbox::{self, Sandbox};
+use crate::wsl;
 
 /// The flag of this program that runs one command inside the walls of a run.
 pub const RUN_FLAG: &str = "--sandbox-run";
@@ -90,6 +91,9 @@ pub struct CommandSandbox {
     /// This program. Claude Code runs it before each command.
     pub wrapper: PathBuf,
     pub home: Option<PathBuf>,
+    /// Under WSL, the home folder of the Windows user. Its credentials are hidden too
+    /// (SPEC.md 11.5).
+    pub windows_home: Option<PathBuf>,
     /// With no proxy, commands have no network at all.
     pub proxy: Option<ProxySettings>,
     /// With no overlay, a download of cargo or rustup fails on the read-only home folder.
@@ -107,6 +111,7 @@ impl CommandSandbox {
             tool,
             wrapper,
             home,
+            windows_home: None,
             proxy: None,
             overlay: Overlay::Missing,
             game: Vec::new(),
@@ -121,6 +126,12 @@ impl CommandSandbox {
     }
 
     #[must_use]
+    pub fn with_windows_home(mut self, folder: Option<PathBuf>) -> CommandSandbox {
+        self.windows_home = folder;
+        self
+    }
+
+    #[must_use]
     pub fn with_proxy(mut self, settings: ProxySettings) -> CommandSandbox {
         self.proxy = Some(settings);
         self
@@ -130,7 +141,8 @@ impl CommandSandbox {
     pub fn detect(hosts: HostList, local_ports: &[u16]) -> CommandSandbox {
         let wrapper = std::env::current_exe().unwrap_or_default();
         let home = std::env::var_os("HOME").map(PathBuf::from);
-        let mut sandbox = CommandSandbox::new(story_sandbox::detect(), wrapper, home);
+        let mut sandbox = CommandSandbox::new(story_sandbox::detect(), wrapper, home)
+            .with_windows_home(wsl::windows_folder("USERPROFILE"));
         sandbox.overlay = detect_overlay(&sandbox.tool);
         if hosts.is_empty() && local_ports.is_empty() {
             return sandbox;
@@ -374,6 +386,9 @@ pub fn prepare_shaped(
     }
     let mut in_chat = scan.hidden;
     in_chat.extend(shape.more_hidden.iter().cloned());
+    if let Some(windows_home) = &sandbox.windows_home {
+        in_chat.extend(home_matches(&policy, windows_home));
+    }
     let mut hidden = hidden_paths(&policy, &deny, sandbox.home.as_deref(), in_chat);
     hidden.retain(|h| !writable.iter().any(|w| w.starts_with(h)));
     let place = guarded.data_dir.join("sandbox");
@@ -1554,6 +1569,25 @@ mod tests {
         }
         assert!(!run.walls.hidden.contains(&h.chat.join("main.rs")));
         assert!(!run.walls.hidden.iter().any(|p| p.ends_with(".aws")));
+    }
+
+    #[test]
+    fn under_wsl_the_walls_hide_the_credentials_of_the_windows_home_too() {
+        let h = folders();
+        let windows = h.home.join("mnt/c/Users/x");
+        std::fs::create_dir_all(windows.join(".ssh")).unwrap();
+        std::fs::create_dir_all(windows.join("Documents")).unwrap();
+        let guarded = Guarded {
+            config_dir: &h.config,
+            data_dir: &h.data,
+        };
+        let sandbox = sandbox(&h, Sandbox::Seatbelt).with_windows_home(Some(windows.clone()));
+
+        let run = prepare(&sandbox, &guarded, &h.chat, "t").unwrap();
+
+        assert!(run.walls.hidden.contains(&windows.join(".ssh")));
+        assert!(run.walls.hidden.contains(&h.home.join(".ssh")));
+        assert!(!run.walls.hidden.contains(&windows.join("Documents")));
     }
 
     #[test]

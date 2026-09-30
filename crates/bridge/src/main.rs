@@ -25,6 +25,7 @@ use bridge::slots;
 use bridge::start;
 use bridge::status;
 use bridge::update;
+use bridge::wsl_launcher;
 use protocol::slot::{Reply, Status};
 
 const USAGE: &str = "\
@@ -165,6 +166,21 @@ fn main() -> Result<()> {
             let log = service::start_background(&Dirs::from_env()?, &std::env::current_exe()?)?;
             println!("The desktop app is running. Log: {}", log.display());
             Ok(())
+        }
+        ["run", "--log"] => {
+            let status = service::run_logged(&Dirs::from_env()?, &std::env::current_exe()?)?;
+            std::process::exit(status)
+        }
+        [wsl_launcher::RUN_COMMAND, distro] => {
+            wsl_launcher::keep_running(&Dirs::from_env()?, distro)
+        }
+        [
+            wsl_launcher::RUN_COMMAND,
+            distro,
+            wsl_launcher::BACKGROUND_FLAG,
+        ] => wsl_launcher::start_background(&std::env::current_exe()?, distro),
+        [wsl_launcher::AUTOSTART_COMMAND, distro] => {
+            wsl_launcher::autostart(&Dirs::from_env()?, &std::env::current_exe()?, distro)
         }
         ["restart"] => service::restart(&Dirs::from_env()?, &std::env::current_exe()?),
         ["status"] => print_status(&Dirs::from_env()?),
