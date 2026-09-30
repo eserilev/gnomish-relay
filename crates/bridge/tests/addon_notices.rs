@@ -387,7 +387,7 @@ fn three_finished_notices_of_one_poll_share_one_line() {
 }
 
 #[test]
-fn a_long_text_is_cut_at_120_characters_and_never_inside_a_doubled_pipe() {
+fn a_long_text_is_cut_at_120_bytes_and_never_inside_a_doubled_pipe() {
     let game = Game::start();
     let text = format!("{}||x", "a".repeat(119));
     game.publish_and_poll(1, 1, &[notice(1, NoticeKind::Waiting, "r", 0, &text)]);
@@ -395,6 +395,32 @@ fn a_long_text_is_cut_at_120_characters_and_never_inside_a_doubled_pipe() {
     assert!(
         line.contains(&format!("{}...|h", "a".repeat(119))),
         "{line}"
+    );
+}
+
+#[test]
+fn a_cut_keeps_a_whole_character_that_ends_at_the_limit_and_drops_a_split_one() {
+    let game = Game::start();
+    let whole = format!("{}é tail", "a".repeat(118));
+    let split = format!("{}é tail", "b".repeat(119));
+
+    game.publish_and_poll(
+        1,
+        2,
+        &[
+            notice(1, NoticeKind::Waiting, "r", 0, &whole),
+            notice(2, NoticeKind::Waiting, "r", 0, &split),
+        ],
+    );
+
+    let lines = game.lines_with("Waiting for you");
+    assert!(
+        lines[0].contains(&format!("{}é...|h", "a".repeat(118))),
+        "{lines:?}"
+    );
+    assert!(
+        lines[1].contains(&format!("{}...|h", "b".repeat(119))),
+        "{lines:?}"
     );
 }
 

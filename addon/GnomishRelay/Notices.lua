@@ -116,16 +116,21 @@ local function MarkShown(id)
 	end
 end
 
--- The bridge doubles each "|" (S10), so a cut never ends inside "||" or a character.
+local function IsContinuation(byte)
+	return byte ~= nil and byte >= 0x80 and byte < 0xC0
+end
+
+-- Cuts at `most` bytes. The bridge doubles each "|" (S10), so a cut never ends inside
+-- "||" or a character.
 function Notices.Cut(text, most)
 	if #text <= most then
 		return text
 	end
 	local cut = text:sub(1, most)
-	while #cut > 0 and cut:byte(#cut) >= 0x80 and cut:byte(#cut) < 0xC0 do
-		cut = cut:sub(1, -2)
-	end
-	if #cut > 0 and cut:byte(#cut) >= 0xC0 then
+	if IsContinuation(text:byte(most + 1)) then
+		while IsContinuation(cut:byte(#cut)) do
+			cut = cut:sub(1, -2)
+		end
 		cut = cut:sub(1, -2)
 	end
 	local pipes = #cut:match("|*$")
