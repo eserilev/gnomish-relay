@@ -13,7 +13,7 @@ local _, ns = ...
 local Strip = {}
 ns.Strip = Strip
 
-local CELL = 4
+local CELL = 3
 local SHOT_DELAY = 0.1
 local SHOT_TIMEOUT = 10
 -- A new shape of the value needs a new name: an older copy of this file can run in

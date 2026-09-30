@@ -222,7 +222,8 @@ fn with_no_line_from_the_bridge_the_addon_draws_the_old_strip() {
 
     let picture = game.last_picture();
     assert_eq!(line_mode(&picture), None);
-    assert!(picture.iter().all(|r| r.width == 4 && r.height == 4));
+    assert!(picture.iter().all(|r| r.width == 3 && r.height == 3));
+    assert_eq!(extent(&picture).1, 600);
     assert_eq!(
         records_of(&image_of(&picture), game.now())[0].text,
         b"old strip"

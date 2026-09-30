@@ -718,11 +718,11 @@ The spike proved this path (2026-09-23): the call takes under 1 ms, the file arr
 - Bit 2 is red, bit 1 is green, bit 0 is blue. Each channel is fully on or fully off, so there are 8 colors.
 - The decoder reads each channel at the cell center and compares it to 128.
 - One row has 200 cells. A strip has at most 48 rows.
-- The addon sizes a cell to 4 physical pixels. It uses `GetPhysicalScreenSize()`, `SetIgnoreParentScale`, and strata `TOOLTIP`.
+- The addon sizes a cell to 3 physical pixels. It uses `GetPhysicalScreenSize()`, `SetIgnoreParentScale`, and strata `TOOLTIP`. So the old strip is 600 pixels wide and at most 144 pixels tall. Before v0.3.1 a cell was 4 pixels (800 by 192). A cell of 3 pixels keeps its center pixel away from both neighbors, so a blur of one pixel does not reach it. A cell of 2 pixels has no such center.
 
-**The decoder finds the grid itself.** UI scale makes the cell size fractional. The spike measured 3.875 px wide and 4 px high at 1280×720.
+**The decoder finds the grid itself.** A scaled screenshot makes the cell size fractional. The spike measured 3.875 px wide and 4 px high at 1280×720, before the addon set its own scale.
 So each strip starts with two calibration rows of known colors: row 1 counts 0 to 7, and row 2 counts 7 to 0.
-The decoder tries every cell size from 3 to 8 pixels, and keeps a size that matches both rows exactly. Row 2 runs backwards, so a grid one cell off fails.
+The decoder tries every cell size from 2 to 8 pixels, and keeps a size that matches both rows exactly. Row 2 runs backwards, so a grid one cell off fails. The lower bound of 2 reads a strip of 3-pixel cells in a screenshot that is scaled down to two thirds.
 The two rows fix the cell width but not the row height. So the decoder reads the data rows with each size that matches, and keeps the first one whose bytes decode as a frame with a valid checksum and whose tag checks under a key. The checksum does not cover the tag, so a wrong row height can read the payload right and a tag alone in the last row wrong. With no reading that passes the tag, the bridge logs the first reading with a valid checksum as rejected.
 The search starts at the top-left corner of the image. With 8-pixel cells, a strip is 1600×384 pixels.
 
@@ -813,7 +813,7 @@ The addon reads and writes the value with `rawget` and `rawset`, so a metatable 
 
 #### 7.1.3 The line: a strip of 1-pixel cells
 
-**Status: built (2026-09-29). It waits for its first self-test in the real game.** The old strip (7.1) is 800 by up to 200 pixels, and its size changes with each message. Players see it in play. The line is the smallest strip that reads exactly: cells of 1 physical pixel, in a line 1 pixel tall at the top-left corner. The old strip stays as the fallback.
+**Status: built (2026-09-29). It waits for its first self-test in the real game.** The old strip (7.1) is 600 by up to 144 pixels, and its size changes with each message. Players see it in play. The line is the smallest strip that reads exactly: cells of 1 physical pixel, in a line 1 pixel tall at the top-left corner. The old strip stays as the fallback.
 
 **Modes.** A mode is a cell size and a number of bits per cell. The self-test measures each mode (14.3.1), and the addon draws the smallest mode that reads exactly.
 
@@ -2956,7 +2956,7 @@ Write the model before the bridge state machine. The Rust state machine follows 
 
 ### 14.3 Tests
 
-- **Property tests** (`proptest`) for the codec, with pixel noise, color shift, and a cell pitch of 3 to 8 pixels.
+- **Property tests** (`proptest`) for the codec, with pixel noise, color shift, and a cell pitch of 2 to 8 pixels.
 - **Golden vectors:** screenshots of known strips from the real game, in `tests/vectors/<build>/` (14.3.1). The real bridge reader must decode each one, and its tag must check under the public test key. (`wow-claude` makes its images at test time and tests them only on Windows.)
 - **Differential tests:** the Lua encoder and the Rust decoder agree on every vector. The Rust slot writer and a Lua reader agree on every body.
 - **Addon harness:** run the addon in a Lua VM against a fake of the WoW API (`addon/tests/wow.lua`). Where the real game has a choice, the fake takes it from the newest fixture of the self-test (14.3.1).
