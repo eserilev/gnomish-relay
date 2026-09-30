@@ -9,12 +9,15 @@ mod common;
 
 use bridge::ids::hex;
 use bridge::line::{self, MODES, Mode};
+use bridge::line_choice::{LineChoice, with_line};
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::strip::{Image, read_with};
 use common::{HEIGHT, WIDTH, encode_png, fake_game, game_lua, load_addon};
 use mlua::{Function, Lua, Table};
 use png::{BitDepth, ColorType};
+use protocol::apps::App;
 use protocol::record::Record;
+use protocol::slot::slot_body;
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 const STRIP: &str = "GnomishRelayStrip";
@@ -307,5 +310,34 @@ fn a_saved_line_of_a_wrong_shape_draws_the_old_strip() {
 
     game.show(7, "damaged saved variables");
 
+    assert_eq!(line_mode(&game.last_picture()), None);
+}
+
+/// The relay body that the bridge writes, with or without the line.
+fn load_body(game: &Game, n: u32, choice: Option<LineChoice>) {
+    let body = with_line(slot_body(App::Relay, game.now(), &[]), App::Relay, choice);
+    game.wow
+        .set("body", game.lua.create_string(body).unwrap())
+        .unwrap();
+    let load: Function = game.ns.get::<Table>("Slots").unwrap().get("Load").unwrap();
+    load.call::<()>(n).unwrap();
+}
+
+#[test]
+fn a_body_with_a_line_keeps_it_and_a_body_without_one_removes_it() {
+    let game = Game::new();
+    let choice = LineChoice {
+        mode: 3,
+        width: WIDTH,
+        height: HEIGHT,
+    };
+
+    load_body(&game, 1, Some(choice));
+    game.show(7, "after the first body");
+
+    assert_eq!(line_mode(&game.last_picture()), Some(MODES[2]));
+    load_body(&game, 2, None);
+    assert!(game.saved_line().is_none());
+    game.show(8, "after the second body");
     assert_eq!(line_mode(&game.last_picture()), None);
 }

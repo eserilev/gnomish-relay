@@ -52,6 +52,7 @@ pub mod lane;
 #[cfg(unix)]
 pub mod launch;
 pub mod line;
+pub mod line_choice;
 pub mod lock;
 pub mod model;
 pub mod model_claude;

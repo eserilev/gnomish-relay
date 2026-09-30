@@ -20,6 +20,7 @@ use protocol::version::version_fit;
 
 use crate::action_input::resolve;
 use crate::folder_walk::{self, Snapshot, Walk};
+use crate::line_choice::{LineChoice, LineFile, with_line};
 use crate::new_folder::{make_folder, real_chat_folder};
 use crate::relay::{BAD_AGENT, ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
@@ -82,6 +83,8 @@ pub struct Bridge {
     addons: PathBuf,
     /// The data folder, for the time of the last strip.
     data: PathBuf,
+    /// The strip line that each publish sends to the addons (SPEC.md 7.1.3).
+    line: LineFile,
     keys: KeySet,
     watcher: Watcher,
     /// Only with the relay part in the config (SPEC.md 9.7, decision 15).
@@ -177,6 +180,7 @@ impl Bridge {
             timeways,
             relay,
             addons: paths.addons,
+            line: LineFile::new(&paths.state),
             data: paths.state,
             keys,
         })
@@ -214,10 +218,10 @@ impl Bridge {
     pub fn step(&mut self) {
         self.take_screenshots();
         if let Some(relay) = &mut self.relay {
-            relay.step(&self.keys, &self.addons);
+            relay.step(&self.keys, &self.addons, &mut self.line);
         }
         if let Some(timeways) = &mut self.timeways {
-            timeways.step(&self.keys, &self.addons);
+            timeways.step(&self.keys, &self.addons, &mut self.line);
         }
     }
 
@@ -369,7 +373,7 @@ impl RelayLane {
         })
     }
 
-    fn step(&mut self, keys: &KeySet, addons: &Path) {
+    fn step(&mut self, keys: &KeySet, addons: &Path, line: &mut LineFile) {
         self.take_saved_variables(keys);
         self.take_notices();
         self.signal_stops();
@@ -379,7 +383,7 @@ impl RelayLane {
         self.finish_runs();
         if self.files.publish_due() || self.notices_due() {
             self.store();
-            self.publish(addons);
+            self.publish(addons, line.choice());
             self.files.last_publish = Instant::now();
         }
         // A run starts only when its message is marked as seen on disk, so a crash
@@ -681,9 +685,10 @@ impl RelayLane {
     }
 
     /// A failed publish waits for the next heartbeat, so it does not log every tick.
-    fn publish(&mut self, addons: &Path) {
+    fn publish(&mut self, addons: &Path, line: Option<LineChoice>) {
+        let body = with_line(self.relay.body(now()), App::Relay, line);
         let files = Files {
-            body: slots::with_bad_tags(self.relay.body(now()), App::Relay, self.bad_tags),
+            body: slots::with_bad_tags(body, App::Relay, self.bad_tags),
             restore: self.relay.restore_file(),
             live: self.relay.live_file(&self.terminal.notices()),
         };
@@ -751,11 +756,11 @@ impl TimewaysLane {
         })
     }
 
-    fn step(&mut self, keys: &KeySet, addons: &Path) {
+    fn step(&mut self, keys: &KeySet, addons: &Path, line: &mut LineFile) {
         self.take_saved_variables(keys);
         if self.files.publish_due() {
             self.store();
-            self.publish(addons);
+            self.publish(addons, line.choice());
             self.files.last_publish = Instant::now();
         }
         // A message reaches the story program only after `store` marked it as seen on
@@ -831,13 +836,13 @@ impl TimewaysLane {
 
     /// Setup makes the Timeways slots only for a player with the Timeways addon, so
     /// missing slots are normal.
-    fn publish(&mut self, addons: &Path) {
+    fn publish(&mut self, addons: &Path, line: Option<LineChoice>) {
         self.files.changed = false;
         if !slots::is_installed(addons, App::Timeways) {
             return;
         }
         let files = Files {
-            body: self.timeways.body(now()),
+            body: with_line(self.timeways.body(now()), App::Timeways, line),
             ..Files::empty(App::Timeways, now())
         };
         if let Err(e) = slots::publish(addons, App::Timeways, &files, self.timeways.next_slot()) {
