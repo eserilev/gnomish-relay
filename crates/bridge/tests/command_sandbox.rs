@@ -390,23 +390,52 @@ fn a_command_cannot_make_a_missing_git_file_that_git_on_the_host_trusts() {
     fs::write(m.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
     let w = walls(&m, tool);
 
-    let commondir = run(&w, &m, "echo ../../evil > .git/commondir");
     let worktree = run(
         &w,
         &m,
         "echo '[core] fsmonitor = evil' > .git/config.worktree",
     );
 
-    assert!(!commondir.ok, "{}", commondir.out);
     assert!(!worktree.ok, "{}", worktree.out);
-    assert_eq!(
-        fs::read_to_string(m.chat.join(".git/commondir")).unwrap(),
-        ".\n"
-    );
     assert_eq!(
         fs::read_to_string(m.chat.join(".git/config.worktree")).unwrap(),
         ""
     );
+}
+
+/// `bwrap` cannot cover a path that does not exist, and a stand-in `commondir` breaks
+/// Claude Code. So the wrapper removes a new one when the command ends.
+#[test]
+fn a_commondir_that_a_command_makes_is_gone_when_the_command_ends() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    fs::write(m.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+    let w = walls(&m, tool);
+
+    let ran = run(&w, &m, "echo ../../evil > .git/commondir");
+
+    assert!(!m.chat.join(".git/commondir").exists(), "{}", ran.out);
+    let notice = w.git.notice().unwrap_or_default();
+    if cfg!(target_os = "linux") {
+        assert!(ran.out.contains("which a command made"), "{}", ran.out);
+        assert!(notice.contains("which a command made"), "{notice}");
+    } else {
+        assert!(!ran.ok, "{}", ran.out);
+    }
+}
+
+#[test]
+fn a_run_in_a_repository_with_no_commondir_leaves_none() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    fs::write(m.chat.join(".git/HEAD"), "ref: refs/heads/main\n").unwrap();
+
+    let w = walls(&m, tool);
+    let ran = run(&w, &m, "true");
+    drop(w);
+
+    assert!(ran.ok, "{}", ran.out);
+    assert!(!m.chat.join(".git/commondir").exists());
 }
 
 #[test]
@@ -434,6 +463,7 @@ fn a_git_commit_in_the_sandbox_lands_in_the_repository() {
         .output()
         .unwrap();
     assert_eq!(String::from_utf8_lossy(&log.stdout), "first\n");
+    assert!(!m.chat.join(".git/commondir").exists());
 }
 
 #[test]
