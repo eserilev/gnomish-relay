@@ -5,6 +5,32 @@ Read `SPEC.md` before you change code. It is the source of truth for the design.
 The two priorities of this project are readability and test coverage.
 If a change makes the code harder to read or less tested, do not make it.
 
+## UI copy
+
+UI copy is every text a player or user reads: buttons, labels, in-game lines, popups, tooltips, errors, CLI output, and the README. It does NOT follow the simple-English (ASD-STE100) rule. That rule is for docs, comments, and commits. UI copy follows this section.
+
+- **Name the user's goal, not the mechanism.** A button says what happens for the user, not what the code does. "Resend", not "Put the text back".
+- **Use words people already know.** Take the words of the WoW UI (Accept, Decline, Okay, Cancel, Delete) and of common chat apps (Send, Resend, Retry, Copy). Never invent a term when a common one exists.
+- **Buttons: one or two words, starting with a verb.** "Stop", "Allow once", "Open folder".
+- **Talk like a person.** Short everyday words. Contractions are fine ("can't", "isn't"). Sentence case. No jargon the player never sees elsewhere ("frame", "slot", "strip", "tag", "body", "lane").
+- **Errors say what went wrong and what to do next, in that order, with no blame.** Keep the user's input. Leave out the fix when a button next to the error already offers it.
+- **Cut every word that does not help.** Put the key fact first. A status is a few words: "Sending…", "Delivered", "Offline".
+- **Say the same thing the same way everywhere.** One name for each thing on every screen and in every command.
+
+Bad and good, from this project:
+
+| Bad | Good | Why |
+|---|---|---|
+| Put the text back | Resend | The goal, in the word every chat app uses. |
+| Not sent. Send it again. (next to a Resend button) | Not sent. | The button already says what to do. |
+| The bridge does not know this key. | Your game and the desktop app don't match. Run `gnomish-relay setup`, then `/reload`. | "Key" and "bridge" mean nothing to a player. |
+| strip rejected: Stale | Skipped an old message from before the app started. | Say what happened in the user's terms. |
+| Agent not set up. | No agent yet. Install Claude or Codex, then run `gnomish-relay setup`. | Give the next step. |
+
+Sources: [Microsoft Style Guide, "simple and human"](https://learn.microsoft.com/en-us/style-guide/brand-voice-above-all-simple-human), [Nielsen Norman Group, error-message guidelines](https://www.nngroup.com/articles/error-message-guidelines/), [Material Design, writing](https://m3.material.io/foundations/content-design/style-guide/ux-writing-best-practices), [Apple HIG, writing](https://developer.apple.com/design/human-interface-guidelines/writing).
+
+When you write copy with an LLM, give it where the text shows, a length limit, the tone, and these examples. Examples work better than rules.
+
 ## Comments
 
 A comment says why, never what. If a comment repeats the code, delete it.
