@@ -114,6 +114,9 @@ end
 
 -- The first run in the real game tells which try of KeyHandoff.lua found the key.
 local function KeyLine()
+	if not ns.key then
+		return ns.SetupNeeded.Line()
+	end
 	return "Gnomish Relay: key loaded at " .. ns.KeyHandoff.step
 end
 

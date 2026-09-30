@@ -11,7 +11,7 @@ ns.KeyHandoff = KeyHandoff
 
 local KEY_HEX_LENGTH = 64
 
--- Where the key came in, for /relay diag: "file load", an event name, or "missing".
+-- Where the key came in, for /relay diag: "file load" or an event name. "missing" until then.
 KeyHandoff.step = "missing"
 
 local function IsKeyHex(value)

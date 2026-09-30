@@ -2459,12 +2459,27 @@ fn a_key_addon_that_never_loads_shows_the_first_run_window_and_signs_nothing() {
         "Gnomish Relay needs its desktop app"
     );
     assert_eq!(game.shots(), 0);
+}
+
+#[test]
+fn diag_with_no_key_says_what_to_do_and_not_that_a_key_loaded() {
+    let game = start_with_key_addon_from("never");
+
     game.run("SlashCmdList.GNOMISHRELAY('diag')");
-    assert!(
-        game.printed()
-            .contains(&"Gnomish Relay: key loaded at missing".into()),
-        "{:?}",
-        game.printed()
+
+    assert_eq!(game.printed().last().map(String::as_str), Some(NO_APP_LINE));
+}
+
+#[test]
+fn diag_after_a_new_key_addon_says_to_restart() {
+    let first = Game::start();
+    let game = Game::boot_with_key_addon(measured(), Some(&first.saved_variables()), |_| {});
+
+    game.run("SlashCmdList.GNOMISHRELAY('diag')");
+
+    assert_eq!(
+        game.printed().last().map(String::as_str),
+        Some(RESTART_LINE)
     );
 }
 
