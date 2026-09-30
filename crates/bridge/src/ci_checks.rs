@@ -15,6 +15,7 @@ const POLL: Duration = Duration::from_millis(50);
 const MAX_OUTPUT: u64 = 4 * 1024 * 1024;
 const MAX_NAMES: usize = 2;
 const MAX_NAME: usize = 60;
+const ODD_BRANCH: &str = "This branch name starts with -, so GitHub can't look it up.";
 
 pub const NO_GH: &str =
     "Checks need the GitHub CLI. On your desktop, install gh and run gh auth login.";
@@ -168,6 +169,11 @@ fn read_all(pipe: Option<impl Read + Send + 'static>) -> thread::JoinHandle<Vec<
 
 /// `Ok(None)` when the branch has no pull request.
 pub fn checks(program: &Path, folder: &Path, branch: &str) -> Result<Option<CiCounts>, CiError> {
+    // git refuses such a name, but the agent can write `.git/HEAD` by hand, and gh then
+    // takes the name as a flag.
+    if branch.starts_with('-') {
+        return Err(CiError::Failed(ODD_BRANCH.into()));
+    }
     let mut child = command(program, folder, branch)
         .spawn()
         .map_err(|_| CiError::NoGh)?;
@@ -288,6 +294,19 @@ mod tests {
         assert_eq!(counts.passed, 1);
         let seen = std::fs::read_to_string(args).unwrap();
         assert_eq!(seen.trim(), "pr view gnomish/x --json statusCheckRollup");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_branch_that_starts_with_a_dash_never_reaches_gh() {
+        let dir = tempfile::tempdir().unwrap();
+        let args = dir.path().join("args");
+        let gh = fake_gh(dir.path(), &format!("echo \"$@\" > {}", args.display()));
+
+        let result = checks(&gh, dir.path(), "--web");
+
+        assert_eq!(result, Err(CiError::Failed(ODD_BRANCH.into())));
+        assert!(!args.exists());
     }
 
     #[cfg(unix)]
