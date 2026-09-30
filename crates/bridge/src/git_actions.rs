@@ -10,7 +10,7 @@ use crate::agent::Control;
 use crate::chat_branch::{self, ChatWorktree};
 use crate::chat_merge;
 use crate::ci_checks::{self, CiChecks};
-use crate::desktop::Approvals;
+use crate::desktop::{Approvals, Topic};
 use crate::folder_path::path_bytes;
 use crate::gate;
 use crate::git_blocks::{ci_block, with_blocks};
@@ -158,7 +158,7 @@ fn merge(context: &Context) -> Result<String, String> {
         worktree.branch, opened.id
     ));
     let mut turn = Turn::new(desk.wait, desk.wait, context.control.clone());
-    let answer = gate::wait_on_the_desktop(&desk.approvals, &opened, None, &mut turn);
+    let answer = gate::wait_on_the_desktop(&desk.approvals, &opened, Topic::Action, &mut turn);
     if !matches!(answer, Answer::Desktop(true)) {
         return Err(NOT_MERGED.into());
     }

@@ -16,7 +16,7 @@ use crate::always_offer::{Offer, Place, offer_for};
 use crate::always_rules::{AlwaysRules, Rule, words_for};
 use crate::command_sandbox::CommandSandbox;
 use crate::config::{Permission, RelayConfig};
-use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Waiting};
+use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Topic, Waiting};
 use crate::dirs::Dirs;
 use crate::roots::Roots;
 use crate::turn::{Answer, Turn};
@@ -378,7 +378,7 @@ impl Gate {
             .approvals
             .open(job.agent, job.cwd, &text, crate::run::now())
             .map_err(|e| Refusal::by_rule(&format!("Couldn't ask on your desktop: {e:#}")))?;
-        let answer = wait_on_the_desktop(&self.approvals, &opened, None, turn);
+        let answer = wait_on_the_desktop(&self.approvals, &opened, Topic::Action, turn);
         match answer {
             Answer::Desktop(true) => Ok(()),
             Answer::Desktop(false) => Err(Refusal::by_rule("Denied on your desktop.")),
@@ -395,14 +395,14 @@ impl Gate {
 pub fn wait_on_the_desktop(
     approvals: &Approvals,
     opened: &Opened,
-    raise: Option<Permission>,
+    topic: Topic,
     turn: &mut Turn,
 ) -> Answer {
     let notice = Notice {
         id: opened.id.clone(),
         prompted: opened.prompted,
         waiting: Waiting::Open,
-        raise,
+        topic,
     };
     turn.desktop(notice.clone());
     let answer_of = || {

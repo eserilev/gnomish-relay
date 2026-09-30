@@ -8,7 +8,7 @@ mod common;
 use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo, NO_AGENT};
 use bridge::config::{Permission, Policy};
-use bridge::desktop::{Notice, Prompted, Waiting};
+use bridge::desktop::{Notice, Prompted, Topic, Waiting};
 use bridge::fixture::{Capture, Fake, HookMissing, SavedVariables, StatusShown, TimerOrder};
 use bridge::install::key_addon_lua;
 use bridge::receive::{KeySet, StripKey, receive};
@@ -1718,7 +1718,7 @@ fn a_new_message_in_the_game_ends_the_wait_on_the_desktop() {
             id: "a1b2c3d4e5f6".into(),
             prompted: Prompted::Dialog,
             waiting: Waiting::Open,
-            raise: None,
+            topic: Topic::Action,
         },
     );
     game.wow

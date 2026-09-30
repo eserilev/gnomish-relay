@@ -78,6 +78,8 @@ pub enum Kind {
     Raise,
     /// A merge of a chat branch into its start branch (SPEC.md 9.11).
     Merge,
+    /// A new root in `config.toml` (SPEC.md 9.12).
+    Folder,
 }
 
 /// An answer from the desktop.
@@ -127,8 +129,18 @@ pub struct Notice {
     pub id: String,
     pub prompted: Prompted,
     pub waiting: Waiting,
-    /// The level of a raise (SPEC.md 9.3). A tool call has none.
-    pub raise: Option<Permission>,
+    pub topic: Topic,
+}
+
+/// What a desktop request of a run asks for, as the game shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Topic {
+    /// A tool call or a merge.
+    Action,
+    /// A higher level in the config (SPEC.md 9.3).
+    Raise(Permission),
+    /// A new root (SPEC.md 9.12).
+    Folder,
 }
 
 /// Only the bridge writes a progress line with this start.
@@ -148,12 +160,12 @@ impl Notice {
             Prompted::Dialog => "dialog",
             Prompted::CommandLine => "command",
         };
-        let mut line = format!("{NOTICE}{state} {} {how}", self.id);
-        if let Some(level) = self.raise {
-            line.push_str(" raise ");
-            line.push_str(level.word());
+        let line = format!("{NOTICE}{state} {} {how}", self.id);
+        match self.topic {
+            Topic::Action => line,
+            Topic::Raise(level) => format!("{line} raise {}", level.word()),
+            Topic::Folder => format!("{line} folder"),
         }
-        line
     }
 
     #[must_use]
@@ -251,6 +263,11 @@ impl Approvals {
         now: u32,
     ) -> Result<Opened> {
         self.open_kind(agent, config_file, text, now, Kind::Raise)
+    }
+
+    /// A request to add `folder` to the roots of `config.toml`.
+    pub fn open_folder(&self, agent: &str, folder: &str, text: &str, now: u32) -> Result<Opened> {
+        self.open_kind(agent, folder, text, now, Kind::Folder)
     }
 
     /// A request to merge a chat branch in the repository `repo`.
@@ -417,7 +434,7 @@ pub fn dialog_text(pending: &Pending) -> String {
             "{}\n\nConfig: {}\nRequest: {}",
             pending.text, pending.folder, pending.id
         ),
-        Kind::Merge => format!("{}\n\nRequest: {}", pending.text, pending.id),
+        Kind::Merge | Kind::Folder => format!("{}\n\nRequest: {}", pending.text, pending.id),
     };
     match pending.wait_minutes {
         0 => text,
@@ -571,12 +588,17 @@ mod tests {
             id: "a1b2c3d4e5f6".into(),
             prompted: Prompted::Dialog,
             waiting: Waiting::Open,
-            raise: None,
+            topic: Topic::Action,
         };
         assert_eq!(notice.line(), "Desktop: wait a1b2c3d4e5f6 dialog");
+        let folder = Notice {
+            topic: Topic::Folder,
+            ..notice.clone()
+        };
+        assert_eq!(folder.line(), "Desktop: wait a1b2c3d4e5f6 dialog folder");
         let raise = Notice {
             prompted: Prompted::CommandLine,
-            raise: Some(Permission::AutoEdit),
+            topic: Topic::Raise(Permission::AutoEdit),
             ..notice.ended(Waiting::Denied)
         };
         assert_eq!(
@@ -609,6 +631,23 @@ mod tests {
             "An agent in WoW wants to:\ncat ~/.ssh/id_rsa\nthe agent says: Bash\n\n\
              Agent: claude\nFolder: /w/app\nRequest: a1b2c3d4e5f6\n\
              No answer in 10 minutes counts as Deny."
+        );
+    }
+
+    #[test]
+    fn a_folder_dialog_shows_its_own_text_and_the_request() {
+        let (_data, approvals) = approvals();
+        let text = "Let agents from WoW work in ~/lighthouse? They can read and change files in this folder.";
+
+        approvals
+            .open_folder("claude", "/home/x/lighthouse", text, 1)
+            .unwrap();
+
+        let pending = approvals.list().remove(0);
+        assert_eq!(pending.kind, Kind::Folder);
+        assert_eq!(
+            dialog_text(&pending),
+            format!("{text}\n\nRequest: {}", pending.id)
         );
     }
 

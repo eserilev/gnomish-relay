@@ -11,7 +11,7 @@ use anyhow::Result;
 use crate::agent::Control;
 use crate::config::{self, Permission};
 use crate::config_edit::with_permission;
-use crate::desktop::Approvals;
+use crate::desktop::{Approvals, Topic};
 use crate::fs_safe::write_private;
 use crate::gate;
 use crate::relay::Job;
@@ -157,7 +157,8 @@ impl Raiser {
             self.permission_timeout,
             control.clone(),
         );
-        let answer = gate::wait_on_the_desktop(&self.approvals, &opened, Some(level), &mut turn);
+        let answer =
+            gate::wait_on_the_desktop(&self.approvals, &opened, Topic::Raise(level), &mut turn);
         let raised = self.outcome(agent, level, &answer);
         log(&format!("raise {agent}: {raised:?}"));
         raised

@@ -1952,7 +1952,7 @@ mod tests {
             id: "a1b2c3d4e5f6".into(),
             prompted: crate::desktop::Prompted::Dialog,
             waiting: crate::desktop::Waiting::Open,
-            raise: None,
+            topic: crate::desktop::Topic::Action,
         }
     }
 
