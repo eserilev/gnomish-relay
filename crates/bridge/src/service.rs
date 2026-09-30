@@ -422,16 +422,17 @@ mod tests {
         assert!(std::fs::metadata(&log).unwrap().len() < MAX_LOG);
     }
 
-    /// `sh run` fails at once with 127: no file `run` in the working folder.
     #[cfg(unix)]
     #[test]
     fn a_logged_run_waits_and_gives_the_exit_status() {
         let root = tempfile::tempdir().unwrap();
         let dirs = dirs(root.path());
+        let program = root.path().join("fake-app");
+        crate::fake_program::write(&program, "#!/bin/sh\nexit 7\n").unwrap();
 
-        let status = run_logged(&dirs, Path::new("/bin/sh")).unwrap();
+        let status = run_logged(&dirs, &program).unwrap();
 
-        assert_eq!(status, 127);
+        assert_eq!(status, 7);
         assert!(dirs.data.join(LOG_FILE).is_file());
     }
 
