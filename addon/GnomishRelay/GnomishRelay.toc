@@ -1,7 +1,7 @@
 ## Interface: 16001
 ## Title: Gnomish Relay
 ## Notes: Talk to your coding agents from the game.
-## Version: 0.3.1
+## Version: 0.4.0
 ## X-Curse-Project-ID: 1719624
 ## SavedVariables: GnomishRelayDB
 
