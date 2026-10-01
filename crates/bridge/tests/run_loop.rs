@@ -132,9 +132,16 @@ fn slot_body(addons: &Path) -> String {
     fs::read_to_string(addons.join(slot_name(App::Relay, 1)).join(BODY_FILE)).unwrap()
 }
 
-/// Steps until `done` holds. A publish syncs 60 files, which is slow on Windows.
+/// Steps until `done` holds. A publish syncs 60 files, and on the Windows runner of CI
+/// one publish took 14 seconds.
 fn step_until(bridge: &mut Bridge, done: impl Fn() -> bool) -> bool {
-    common::step_until_within(bridge, Duration::from_secs(30), done)
+    common::step_until_within(bridge, Duration::from_secs(90), done)
+}
+
+/// A path with `/` only. A reply goes through Markdown, where a `\` escapes the next
+/// character.
+fn slashed(path: &Path) -> String {
+    path.display().to_string().replace('\\', "/")
 }
 
 #[test]
@@ -1081,14 +1088,18 @@ fn a_new_folder_asks_for_full_auto_again() {
     let f = folders();
     let other = f.state.parent().unwrap().join("other");
     fs::create_dir_all(&other).unwrap();
-    let other = other.canonicalize().unwrap().to_string_lossy().into_owned();
+    let other = real_path(&other).unwrap();
+    let base = real_path(&std::env::temp_dir()).unwrap();
+    // The game never sends a drive, so the folder is relative to `default_cwd`.
+    let sent = slashed(other.strip_prefix(&base).unwrap());
+    let other = other.display().to_string();
     let approvals = Approvals::new(&f.state, Prompt::Off);
     let mut bridge = full_auto_bridge(&f, &approvals, Some(&["claude"]));
     let stop = Arc::new(AtomicBool::new(false));
     let answering = answer_requests(&approvals, Verdict::Approve, stop.clone());
 
     send_and_wait(&mut bridge, &f, "", 7, "level=full-auto");
-    let moved = send_and_wait(&mut bridge, &f, &other, 8, "level=full-auto");
+    let moved = send_and_wait(&mut bridge, &f, &sent, 8, "level=full-auto");
 
     stop.store(true, Ordering::SeqCst);
     let asked = answering.join().unwrap();
@@ -1687,7 +1698,7 @@ struct WhereAmI;
 impl Agent for WhereAmI {
     fn run(&self, job: &Job, _control: &Control) -> Run {
         Run {
-            reply: Ok(format!("ran in {}", job.cwd)),
+            reply: Ok(format!("ran in {}", job.cwd.replace('\\', "/"))),
             session: None,
             usage: None,
         }
@@ -1756,7 +1767,7 @@ fn a_chat_saved_with_the_home_base_keeps_its_folder_after_default_cwd_changes() 
 
     assert!(step_until_ended(&mut after, &f.addons, 8));
     let body = slot_body(&f.addons);
-    let expected = format!("ran in {}", sandcastle.display());
+    let expected = format!("ran in {}", slashed(&sandcastle));
     assert_eq!(body.matches(&expected).count(), 2, "{body}");
 }
 
@@ -1778,7 +1789,7 @@ fn a_chat_folder_in_the_home_form_runs_there_with_any_default_folder() {
     assert!(step_until_ended(&mut bridge, &f.addons, 7));
     let body = slot_body(&f.addons);
     assert!(
-        body.contains(&format!("ran in {}", sandcastle.display())),
+        body.contains(&format!("ran in {}", slashed(&sandcastle))),
         "{body}"
     );
 }
@@ -1803,7 +1814,7 @@ fn a_chat_folder_that_is_gone_says_which_folder_it_looked_for() {
     assert!(
         body.contains(&format!(
             "Can't find {}. Pick another folder.",
-            gone.display()
+            slashed(&gone)
         )),
         "{body}"
     );

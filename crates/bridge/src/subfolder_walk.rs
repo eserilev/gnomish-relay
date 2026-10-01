@@ -64,7 +64,7 @@ mod tests {
 
     fn tree() -> Tree {
         let tmp = tempfile::tempdir().unwrap();
-        let home = tmp.path().canonicalize().unwrap();
+        let home = real_path(tmp.path()).unwrap();
         Tree { _tmp: tmp, home }
     }
 

@@ -16,7 +16,7 @@ use std::time::Duration;
 
 use bridge::agent::Echo;
 use bridge::config::{Permission, Policy};
-use bridge::folder_path::path_bytes;
+use bridge::folder_path::{path_bytes, real_path};
 use bridge::ids::hex;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
@@ -108,8 +108,8 @@ fn the_log_lines_of_a_message_carry_its_chat_id_agent_and_folder() {
 
     let text = stderr.text();
     assert!(written, "{text}");
-    let folder =
-        String::from_utf8(path_bytes(&std::env::temp_dir().canonicalize().unwrap())).unwrap();
+    let real = real_path(&std::env::temp_dir()).unwrap();
+    let folder = real.display().to_string().escape_debug().to_string();
     let fields = format!(" chat=c1 message_id=7 agent=claude permission=auto-edit folder={folder}");
     for start in ["run c1 #7 ", "done c1 #7", "reply c1 #7 written"] {
         let line = text.lines().find(|l| l.contains(start)).unwrap();

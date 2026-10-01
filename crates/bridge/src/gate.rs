@@ -1462,10 +1462,8 @@ mod tests {
                     .join("approvals")
                     .join("a1b2c3d4e5f6.answer"),
             ),
-            command(
-                &s,
-                &format!("echo x > {}", s.config.join("config.toml").display()),
-            ),
+            // Relative, because Git Bash reads each `\` of a Windows path as an escape.
+            command(&s, "echo x > ../../.config/gnomish-relay/config.toml"),
         ] {
             let refusal = check(&s, &call, Permission::FullAuto, SHORT).unwrap_err();
 

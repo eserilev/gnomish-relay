@@ -84,6 +84,8 @@ pub fn game_text(base: &[u8], home: Option<&[u8]>, resolved: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
+    use crate::folder_path::path_bytes;
+
     use super::*;
 
     fn resolved(raw: &str, base: &str, home: Option<&str>, wanted: Wanted) -> Option<String> {
@@ -117,13 +119,18 @@ mod tests {
         assert_eq!(got.as_deref(), Some("/home/x/Code/~x/a"));
     }
 
+    /// The form of the resolver: `/C:/Users/x` on Windows.
+    fn resolver_form(path: &Path) -> String {
+        String::from_utf8(path_bytes(path)).unwrap()
+    }
+
     #[test]
     fn an_old_text_resolves_from_the_base_when_its_folder_is_there() {
         let tmp = tempfile::tempdir().unwrap();
-        let home = tmp.path().to_str().unwrap();
+        std::fs::create_dir_all(tmp.path().join("Code/app")).unwrap();
+        std::fs::create_dir_all(tmp.path().join("app")).unwrap();
+        let home = &resolver_form(tmp.path());
         let base = format!("{home}/Code");
-        std::fs::create_dir_all(format!("{base}/app")).unwrap();
-        std::fs::create_dir_all(format!("{home}/app")).unwrap();
 
         let got = resolved("app", &base, Some(home), Wanted::Existing);
 
@@ -133,9 +140,9 @@ mod tests {
     #[test]
     fn an_old_text_of_the_home_base_resolves_from_the_home_folder() {
         let tmp = tempfile::tempdir().unwrap();
-        let home = tmp.path().to_str().unwrap();
+        std::fs::create_dir_all(tmp.path().join("Documents/Code/Personal/sandcastle")).unwrap();
+        let home = &resolver_form(tmp.path());
         let base = format!("{home}/Documents/Code");
-        std::fs::create_dir_all(format!("{base}/Personal/sandcastle")).unwrap();
 
         let got = resolved(
             "Documents/Code/Personal/sandcastle",
@@ -152,7 +159,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let home = tmp.path().join("home");
         std::fs::create_dir_all(home.join("app")).unwrap();
-        let home = home.to_str().unwrap();
+        let home = &resolver_form(&home);
         let base = format!("{home}/Code");
 
         let got = resolved("../home/app", &base, Some(home), Wanted::Existing);
@@ -163,9 +170,9 @@ mod tests {
     #[test]
     fn a_new_folder_always_resolves_from_the_base() {
         let tmp = tempfile::tempdir().unwrap();
-        let home = tmp.path().to_str().unwrap();
+        std::fs::create_dir_all(tmp.path().join("Documents")).unwrap();
+        let home = &resolver_form(tmp.path());
         let base = format!("{home}/Code");
-        std::fs::create_dir_all(format!("{home}/Documents")).unwrap();
 
         let got = resolved("Documents", &base, Some(home), Wanted::New);
 
