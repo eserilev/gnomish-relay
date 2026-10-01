@@ -9,10 +9,12 @@ use anyhow::{Context, Result};
 use crate::config::Config;
 use crate::dirs::Dirs;
 use crate::install;
+use crate::lock;
 use crate::model::ModelChoice;
 use crate::model_setup;
 use crate::ollama_install::{self, LOCAL_STORY_MODEL};
 use crate::program::find_program;
+use crate::service;
 use crate::setup::{self, KeyChoice, Product};
 use crate::setup_command::{
     Autostart, Found, SetupArgs, autostart, new_wow, product_files, read_answer, stdin_is_terminal,
@@ -31,19 +33,48 @@ pub(crate) fn setup(dirs: &Dirs, args: &SetupArgs, found: Found) -> Result<()> {
     if let Some(line) = story_line(&config) {
         println!("{line}");
     }
-    install_story_program(dirs, args.autostart);
-    autostart(dirs, found.wow, args.autostart);
+    let install = install_story_program(dirs);
+    autostart(dirs, found.wow, args.autostart, Product::Timeways);
+    // The autostart already restarted the app, so only a setup without it restarts here.
+    if install == StoryInstall::Done && args.autostart == Autostart::Off {
+        restart_if_running(dirs);
+    }
     let (Some(changed), Some(addons)) = (changed, found.addons) else {
         println!("{NO_WOW}");
         return Ok(());
     };
     let folder = install::timeways_dir(&addons).is_some();
-    println!("{}", last_line(&changed, args.keys, folder));
+    println!("{}", last_line(install, &changed, args.keys, folder));
     Ok(())
 }
 
-const NO_WOW: &str =
-    "Timeways: WoW not found. Start WoW once, then run gnomish-relay setup --timeways.";
+const NO_WOW: &str = "Couldn't find WoW. Start WoW once, then run gnomish-relay setup --timeways.";
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum StoryInstall {
+    Done,
+    Failed,
+}
+
+/// The new programs run only after a restart. A stopped app stays stopped: the player
+/// turned the autostart off.
+fn restart_if_running(dirs: &Dirs) {
+    if !matches!(lock::status(&dirs.data), Ok(lock::Bridge::Runs(_))) {
+        println!("{NOT_RUNNING}");
+        return;
+    }
+    let restarted = std::env::current_exe()
+        .map_err(anyhow::Error::from)
+        .and_then(|exe| service::restart(dirs, &exe));
+    if let Err(e) = restarted {
+        println!(
+            "Couldn't restart the desktop app. {} To try again, run gnomish-relay restart",
+            sentence_of(&e)
+        );
+    }
+}
+
+const NOT_RUNNING: &str = "The desktop app isn't running. To start it, run gnomish-relay restart";
 
 /// Writes the first config, or adds `[story]` to a config that has none. It keeps every
 /// line of the relay part.
@@ -68,11 +99,9 @@ fn setup_story_config(
 }
 
 /// A failed step prints one line, and setup goes on (SPEC.md 11.4).
-fn install_story_program(dirs: &Dirs, autostart: Autostart) {
+fn install_story_program(dirs: &Dirs) -> StoryInstall {
     use std::io::Write;
-    println!(
-        "Timeways: installing the story program and building its lore (a download of about 133 MB)"
-    );
+    println!("{INSTALLING}");
     let bin = std::env::var_os("GNOMISH_BIN").map(PathBuf::from);
     let places = timeways_install::Places::of(dirs, bin);
     let mut shown = None;
@@ -87,14 +116,21 @@ fn install_story_program(dirs: &Dirs, autostart: Autostart) {
     if shown.is_some() {
         println!();
     }
-    let lines = match result {
-        Ok(report) => installed_lines(&report, &places, autostart),
-        Err(e) => vec![install_failed_line(&e)],
-    };
-    for line in lines {
-        println!("{line}");
+    match result {
+        Ok(report) => {
+            for line in installed_lines(&report) {
+                println!("{line}");
+            }
+            StoryInstall::Done
+        }
+        Err(e) => {
+            println!("{}", install_failed_line(&e));
+            StoryInstall::Failed
+        }
     }
 }
+
+const INSTALLING: &str = "Installing Timeways. It downloads about 133 MB of lore from Wowpedia.";
 
 const TRY_AGAIN: &str = "To try again, run gnomish-relay setup --timeways";
 
@@ -106,34 +142,18 @@ fn install_failed_line(error: &anyhow::Error) -> String {
         return line;
     }
     format!(
-        "Timeways: couldn't install the story program. {} {TRY_AGAIN}",
+        "Couldn't install Timeways. {} {TRY_AGAIN}",
         sentence_of(error)
     )
 }
 
-fn installed_lines(
-    report: &timeways_install::Report,
-    places: &timeways_install::Places,
-    autostart: Autostart,
-) -> Vec<String> {
-    let mut lines = vec![format!(
-        "Timeways story program: {} in {}",
-        report.version,
-        places.bin.display()
-    )];
-    match &report.lore {
-        Lore::Built(summary) => {
-            lines.extend(summary.iter().map(|line| format!("Timeways lore: {line}")));
-        }
-        Lore::Kept(error) => lines.push(format!(
-            "Timeways lore: {} {TRY_AGAIN}",
-            timeways_install::sentence(error)
-        )),
-    }
-    if autostart == Autostart::Off {
-        lines.push("To start the Timeways story program, run gnomish-relay restart".into());
-    }
-    lines
+/// The page counts and the folders of the lore are for the log, not for the player.
+fn installed_lines(report: &timeways_install::Report) -> Vec<String> {
+    let lore = match &report.lore {
+        Lore::Built(_) => "Lore ready".to_owned(),
+        Lore::Kept(error) => format!("{} {TRY_AGAIN}", timeways_install::sentence(error)),
+    };
+    vec![format!("Timeways {} installed", report.version), lore]
 }
 
 /// Whether setup installs a free local model for Timeways (SPEC.md 11.6).
@@ -156,10 +176,10 @@ fn story_line(config: &Config) -> Option<String> {
     let model = config.story.as_ref().map(|story| &story.model.choice);
     match model? {
         ModelChoice::Claude { model, .. } => Some(format!(
-            "Timeways story model: claude ({})",
+            "AI model: claude ({})",
             model.as_deref().unwrap_or("default")
         )),
-        ModelChoice::Local(local) => Some(format!("Timeways story model: local {}", local.model)),
+        ModelChoice::Local(local) => Some(format!("AI model: {} on this computer", local.model)),
         ModelChoice::None => None,
     }
 }
@@ -197,7 +217,7 @@ fn setup_story_model(dirs: &Dirs, config: Config, local_model: LocalModel) -> Co
     match setup::write_story_model(&dirs.config, found, &dirs.home) {
         Ok(new) => new,
         Err(e) => {
-            println!("Timeways story model: couldn't set it. {}", sentence_of(&e));
+            println!("Couldn't set the AI model. {}", sentence_of(&e));
             config
         }
     }
@@ -234,7 +254,7 @@ fn install_free_model(dirs: &Dirs, config: Config) -> Config {
         Ok(new) => new,
         Err(e) => {
             println!(
-                "Timeways story model: couldn't install the free local model. {} {TRY_AGAIN}",
+                "Couldn't install the free local model. {} {TRY_AGAIN}",
                 sentence_of(&e)
             );
             config
@@ -264,7 +284,7 @@ fn install_local_model(dirs: &Dirs, os: ollama_install::Os) -> Result<Config> {
     println!("Testing the model…");
     if let Err(e) = ollama_install::check_answer(&config) {
         println!(
-            "Timeways story model: {LOCAL_STORY_MODEL} is installed, but it didn't answer a \
+            "{LOCAL_STORY_MODEL} is installed, but it didn't answer a \
              test. {} Check that Ollama is running, then run gnomish-relay restart",
             sentence_of(&e)
         );
@@ -313,19 +333,31 @@ fn pull_with_progress(ollama: &ollama_install::Ollama) -> Result<()> {
 // TODO: add the link when the Timeways project on CurseForge has one.
 const GET_TIMEWAYS: &str = "Get the Timeways addon on CurseForge, then restart WoW.";
 
+/// A failed install already printed its reason and the command that tries again.
+const NOT_READY: &str = "Timeways isn't ready yet.";
+
 /// Setup for Timeways can come before its addon, which players get from `CurseForge`.
-/// That step replaces "all set", and comes last.
-fn last_line(changed: &setup::Changed, keys: KeyChoice, folder: bool) -> &'static str {
+/// That step replaces "all set", and comes last, also after a failure. A failure never
+/// ends with "all set".
+fn last_line(
+    install: StoryInstall,
+    changed: &setup::Changed,
+    keys: KeyChoice,
+    folder: bool,
+) -> &'static str {
     if !folder {
         return GET_TIMEWAYS;
     }
+    if install == StoryInstall::Failed {
+        return NOT_READY;
+    }
     if changed.new_slots || changed.key_addon == install::Installed::New {
-        return "Timeways: all set. Restart WoW to load the addon";
+        return "All set! Restart WoW, then type /timeways test";
     }
     if changed.key_addon == install::Installed::Updated || keys == KeyChoice::New {
-        return "Timeways: all set. Type /reload in WoW";
+        return "All set! Type /reload in WoW, then /timeways test";
     }
-    "Timeways: all set"
+    "All set! Type /timeways test in WoW to check it"
 }
 
 #[cfg(test)]
@@ -369,58 +401,39 @@ mod tests {
         assert!(!story_has_model(&none));
         assert_eq!(
             story_line(&local).as_deref(),
-            Some("Timeways story model: local llama3.2:3b")
+            Some("AI model: llama3.2:3b on this computer")
         );
     }
 
-    fn places() -> timeways_install::Places {
-        timeways_install::Places {
-            bin: PathBuf::from("/b"),
-            pack: PathBuf::from("/p"),
-            work: PathBuf::from("/w"),
-        }
-    }
-
     #[test]
-    fn the_timeways_lines_name_the_version_the_lore_and_the_next_step() {
+    fn an_install_says_the_version_and_that_the_lore_is_ready_with_no_counts_or_folders() {
         let built = timeways_install::Report {
             version: "0.1.0".into(),
             changed: vec![],
-            lore: Lore::Built(vec!["read 9 pages, skipped 1".into()]),
-        };
-        let kept = timeways_install::Report {
-            lore: Lore::Kept("Couldn't build the Timeways lore. Your old lore stays.".into()),
-            ..built
+            lore: Lore::Built(vec![
+                "read 9 pages, skipped 1".into(),
+                "wrote 30 passages to /p/lore.sqlite.new".into(),
+            ]),
         };
 
-        let lines = installed_lines(&kept, &places(), Autostart::On);
-        assert_eq!(
-            lines,
-            [
-                "Timeways story program: 0.1.0 in /b",
-                "Timeways lore: Couldn't build the Timeways lore. Your old lore stays. To try again, run gnomish-relay setup --timeways",
-            ]
-        );
-        let off = installed_lines(&kept, &places(), Autostart::Off);
-        assert_eq!(
-            off.last().unwrap(),
-            "To start the Timeways story program, run gnomish-relay restart"
-        );
+        let lines = installed_lines(&built);
+
+        assert_eq!(lines, ["Timeways 0.1.0 installed", "Lore ready"]);
     }
 
     #[test]
-    fn a_lore_error_with_no_period_stays_apart_from_the_next_step() {
+    fn a_lore_error_says_why_and_then_the_next_step() {
         let kept = timeways_install::Report {
             version: "0.1.0".into(),
             changed: vec![],
             lore: Lore::Kept("couldn't download the Wowpedia lore (no internet connection)".into()),
         };
 
-        let lines = installed_lines(&kept, &places(), Autostart::On);
+        let lines = installed_lines(&kept);
 
         assert_eq!(
             lines[1],
-            "Timeways lore: Couldn't download the Wowpedia lore (no internet connection). To try again, run gnomish-relay setup --timeways"
+            "Couldn't download the Wowpedia lore (no internet connection). To try again, run gnomish-relay setup --timeways"
         );
     }
 
@@ -430,7 +443,7 @@ mod tests {
 
         assert_eq!(
             install_failed_line(&error),
-            "Timeways: couldn't install the story program. The download of timeways-x.tar.gz has a wrong SHA-256 sum. To try again, run gnomish-relay setup --timeways"
+            "Couldn't install Timeways. The download of timeways-x.tar.gz has a wrong SHA-256 sum. To try again, run gnomish-relay setup --timeways"
         );
     }
 
@@ -445,7 +458,7 @@ mod tests {
 
         assert_eq!(
             line,
-            "Timeways: couldn't download the story program (the release isn't published yet). To try again later, run gnomish-relay setup --timeways"
+            "Couldn't download Timeways (the release isn't published yet). To try again later, run gnomish-relay setup --timeways"
         );
     }
 
@@ -457,25 +470,39 @@ mod tests {
     }
 
     #[test]
-    fn the_last_line_of_timeways_says_timeways_and_what_the_game_needs() {
+    fn the_last_line_says_all_set_and_how_to_check_it_in_the_game() {
         use install::Installed::{New, Unchanged, Updated};
-        let keep = KeyChoice::Keep;
+        let (done, keep) = (StoryInstall::Done, KeyChoice::Keep);
 
         assert_eq!(
-            last_line(&changed(true, New), keep, true),
-            "Timeways: all set. Restart WoW to load the addon"
+            last_line(done, &changed(true, New), keep, true),
+            "All set! Restart WoW, then type /timeways test"
         );
         assert_eq!(
-            last_line(&changed(false, Updated), keep, true),
-            "Timeways: all set. Type /reload in WoW"
+            last_line(done, &changed(false, Updated), keep, true),
+            "All set! Type /reload in WoW, then /timeways test"
         );
         assert_eq!(
-            last_line(&changed(false, Unchanged), KeyChoice::New, true),
-            "Timeways: all set. Type /reload in WoW"
+            last_line(done, &changed(false, Unchanged), KeyChoice::New, true),
+            "All set! Type /reload in WoW, then /timeways test"
         );
         assert_eq!(
-            last_line(&changed(false, Unchanged), keep, true),
-            "Timeways: all set"
+            last_line(done, &changed(false, Unchanged), keep, true),
+            "All set! Type /timeways test in WoW to check it"
+        );
+    }
+
+    #[test]
+    fn a_failed_install_never_ends_with_all_set() {
+        let new = changed(true, install::Installed::New);
+
+        assert_eq!(
+            last_line(StoryInstall::Failed, &new, KeyChoice::Keep, true),
+            "Timeways isn't ready yet."
+        );
+        assert_eq!(
+            last_line(StoryInstall::Failed, &new, KeyChoice::Keep, false),
+            "Get the Timeways addon on CurseForge, then restart WoW."
         );
     }
 
@@ -484,7 +511,7 @@ mod tests {
         let new = changed(true, install::Installed::New);
 
         assert_eq!(
-            last_line(&new, KeyChoice::Keep, false),
+            last_line(StoryInstall::Done, &new, KeyChoice::Keep, false),
             "Get the Timeways addon on CurseForge, then restart WoW."
         );
     }

@@ -66,8 +66,9 @@ pub enum Start {
     AtLogin,
 }
 
-/// Starts the bridge at each login, and now (SPEC.md 11.3).
-pub fn autostart(dirs: &Dirs, start: Start) -> Result<()> {
+/// Starts the bridge at each login, and now (SPEC.md 11.3). Returns the line that says
+/// where its log is, if the place isn't the usual one.
+pub fn autostart(dirs: &Dirs, start: Start) -> Result<Option<String>> {
     let exe = std::env::current_exe()?;
     if let Some(wsl) = wsl::this() {
         let distro = wsl_distro(&wsl)?;
@@ -76,29 +77,29 @@ pub fn autostart(dirs: &Dirs, start: Start) -> Result<()> {
             &windows.to_string_lossy(),
             &[wsl_launcher::AUTOSTART_COMMAND, distro],
         )?;
-        return match start {
-            Start::Now => restart(dirs, &exe),
-            Start::AtLogin => Ok(()),
-        };
+        if start == Start::Now {
+            restart(dirs, &exe)?;
+        }
+        return Ok(None);
     }
     if cfg!(windows) {
         write_run_entry(&format!("\"{}\" run --background", exe.display()))?;
         if start == Start::Now {
             restart_process(dirs, &exe)?;
         }
-    } else if cfg!(target_os = "macos") {
+        return Ok(None);
+    }
+    if cfg!(target_os = "macos") {
         // With no game, the bridge ends with success at once, and launchd leaves it.
         let log = load_launchd_agent(dirs, &exe)?;
-        println!("Log: {}", log.display());
-    } else {
-        write_systemd_unit(dirs, &exe)?;
-        command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
-        if start == Start::Now {
-            command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
-        }
-        println!("logs: journalctl --user -u gnomish-relay");
+        return Ok(Some(format!("Log: {}", log.display())));
     }
-    Ok(())
+    write_systemd_unit(dirs, &exe)?;
+    command("systemctl", &["--user", "enable", SYSTEMD_UNIT])?;
+    if start == Start::Now {
+        command("systemctl", &["--user", "restart", SYSTEMD_UNIT])?;
+    }
+    Ok(Some("logs: journalctl --user -u gnomish-relay".into()))
 }
 
 /// A service starts with almost no `PATH`, so it gets the one of this shell, and finds

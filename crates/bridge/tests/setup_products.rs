@@ -138,10 +138,17 @@ fn timeways_setup_sets_up_only_timeways_and_asks_no_relay_question() {
 
     let stdout = home.setup(&["--timeways"]);
 
-    for line in stdout.lines() {
+    for developer_word in [
+        "Agent",
+        "Sandbox",
+        "Permissions",
+        "journalctl",
+        "hooks",
+        "Log:",
+    ] {
         assert!(
-            line.contains("imeways") || line.starts_with("WoW: "),
-            "a line that isn't about Timeways: {line}\n{stdout}"
+            !stdout.contains(developer_word),
+            "a Gnomish Relay line in a Timeways setup: {developer_word}\n{stdout}"
         );
     }
     assert!(!stdout.contains("Also set up"), "{stdout}");
@@ -166,11 +173,13 @@ fn a_failed_download_of_the_story_program_prints_the_plain_line_and_logs_the_det
 
     assert!(
         stdout.contains(
-            "\nTimeways: couldn't download the story program (the release isn't published yet). \
+            "\nCouldn't download Timeways (the release isn't published yet). \
              To try again later, run gnomish-relay setup --timeways\n"
         ),
         "{stdout}"
     );
+    assert!(!stdout.contains("All set"), "{stdout}");
+    assert_eq!(stdout.lines().last(), Some("Timeways isn't ready yet."));
     assert!(!stdout.contains("curl"), "{stdout}");
     let log = home.bridge_log();
     assert!(log.contains("timeways-manifest.json"), "{log}");

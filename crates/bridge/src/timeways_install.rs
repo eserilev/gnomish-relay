@@ -168,7 +168,7 @@ fn lore_error(error: &anyhow::Error) -> String {
 /// `again` is the command that tries again, for example "run gnomish-relay update".
 pub fn download_failed_line(error: &anyhow::Error, again: &str) -> Option<String> {
     let reason = error.downcast_ref::<DownloadFailed>()?.reason;
-    let what = "Timeways: couldn't download the story program";
+    let what = "Couldn't download Timeways";
     Some(match reason {
         Reason::Missing => {
             format!("{what} (the release isn't published yet). To try again later, {again}")
@@ -247,17 +247,17 @@ mod tests {
 
         assert_eq!(
             download_failed_line(&failed(Reason::Missing), again).unwrap(),
-            "Timeways: couldn't download the story program (the release isn't published yet). \
+            "Couldn't download Timeways (the release isn't published yet). \
              To try again later, run gnomish-relay setup --timeways"
         );
         assert_eq!(
             download_failed_line(&failed(Reason::Offline), again).unwrap(),
-            "Timeways: couldn't download the story program. Check your internet connection, \
+            "Couldn't download Timeways. Check your internet connection, \
              then run gnomish-relay setup --timeways"
         );
         assert_eq!(
             download_failed_line(&failed(Reason::Other), again).unwrap(),
-            "Timeways: couldn't download the story program. To try again, run gnomish-relay \
+            "Couldn't download Timeways. To try again, run gnomish-relay \
              setup --timeways"
         );
         assert_eq!(download_failed_line(&anyhow::anyhow!("x"), again), None);

@@ -202,7 +202,7 @@ fn setup_relay(dirs: &Dirs, args: &SetupArgs, found: Found) -> Result<()> {
     let changed = product_files(dirs, found.addons.as_deref(), Product::Relay, args.keys)?;
     let config = setup_relay_config(dirs, found.wow, existing, &harnesses, args.roots)?;
     print_relay(dirs, &config);
-    autostart(dirs, found.wow, args.autostart);
+    autostart(dirs, found.wow, args.autostart, Product::Relay);
     // Setup changes no settings of an agent: they belong to the user (SPEC.md 10.5).
     println!("{}", hooks_install::SETUP_HINT);
     let (Some(changed), Some(addons)) = (changed, found.addons) else {
@@ -243,8 +243,9 @@ pub(crate) fn product_files(
     setup::install_files(&folders, product, keys).map(Some)
 }
 
-/// A failed autostart prints one line, and setup goes on (SPEC.md 11.3).
-pub(crate) fn autostart(dirs: &Dirs, wow: Option<&Path>, autostart: Autostart) {
+/// A failed autostart prints one line, and setup goes on (SPEC.md 11.3). A Timeways
+/// player gets no line when it works: the app is a detail of Timeways for them.
+pub(crate) fn autostart(dirs: &Dirs, wow: Option<&Path>, autostart: Autostart, product: Product) {
     if autostart == Autostart::Off {
         return;
     }
@@ -253,7 +254,13 @@ pub(crate) fn autostart(dirs: &Dirs, wow: Option<&Path>, autostart: Autostart) {
         None => service::Start::AtLogin,
     };
     match service::autostart(dirs, start) {
-        Ok(()) => println!("Desktop app: on, starts at login"),
+        Ok(_) if product == Product::Timeways => {}
+        Ok(log) => {
+            println!("Desktop app: on, starts at login");
+            if let Some(log) = log {
+                println!("{log}");
+            }
+        }
         Err(e) => println!(
             "Desktop app: can't start at login ({e:#}). To start it now, run gnomish-relay run"
         ),
