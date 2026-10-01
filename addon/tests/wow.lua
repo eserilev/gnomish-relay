@@ -319,6 +319,23 @@ function methods:GetText()
 	return self.text
 end
 
+-- The cursor of an edit box, in bytes, as GetUTF8CursorPosition is the one in letters.
+function methods:SetCursorPosition(position)
+	self.cursor = position
+end
+
+function methods:GetCursorPosition()
+	return self.cursor or 0
+end
+
+function methods:SetAltArrowKeyMode(on)
+	self.altArrowKeyMode = on
+end
+
+function methods:GetAltArrowKeyMode()
+	return self.altArrowKeyMode == true
+end
+
 function methods:SetWidth(w)
 	self.width = w
 end

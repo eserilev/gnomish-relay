@@ -1,5 +1,6 @@
 //! The reading and sending tools of the chat window in a fake game (SPEC.md 13.1): the
-//! summary of a long reply, the quick actions as suggestions, search, and pinned replies.
+//! summary of a long reply, the quick actions as suggestions, search, pinned replies, and
+//! earlier messages in the input.
 
 // Clippy sees helper functions outside `#[test]` as normal code, so its test exceptions miss them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -46,6 +47,7 @@ const FILES: &[&str] = &[
     "RulesGroup.lua",
     "SettingsTab.lua",
     "DiagTab.lua",
+    "InputHistory.lua",
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",
@@ -1004,4 +1006,157 @@ fn a_long_folder_name_leaves_room_at_the_right_of_the_header() {
         .as_integer()
         .unwrap();
     assert!(width <= 900 - 400 - 28 - 170 - 140, "{width}");
+}
+
+/// Types `text` in the input and presses Enter, as the player sends a message.
+fn send_typed(game: &Game, text: &str) {
+    type_into(game, "GnomishRelayInput", text, "OnEnterPressed");
+}
+
+/// Presses an arrow key in the input: "UP" or "DOWN".
+fn press(game: &Game, key: &str) {
+    game.run(&format!(
+        "GnomishRelayInput:SetFocus() \
+         GnomishRelayInput:GetScript('OnArrowPressed')(GnomishRelayInput, '{key}')"
+    ));
+}
+
+fn input_text(game: &Game) -> String {
+    game.text("return GnomishRelayInput:GetText()")
+}
+
+#[test]
+fn up_shows_the_last_sent_message_with_the_cursor_at_its_end() {
+    let game = Game::start();
+    send_typed(&game, "run the tests");
+
+    press(&game, "UP");
+
+    assert_eq!(input_text(&game), "run the tests");
+    let cursor = game.run("return GnomishRelayInput:GetCursorPosition()");
+    assert_eq!(cursor.as_integer(), Some(13));
+}
+
+#[test]
+fn each_up_goes_one_message_further_back_and_down_comes_forward() {
+    let game = Game::start();
+    send_typed(&game, "first");
+    send_typed(&game, "second");
+    send_typed(&game, "third");
+
+    press(&game, "UP");
+    press(&game, "UP");
+    press(&game, "UP");
+    assert_eq!(input_text(&game), "first");
+    press(&game, "UP");
+    assert_eq!(input_text(&game), "first", "Up at the oldest does nothing");
+    press(&game, "DOWN");
+    assert_eq!(input_text(&game), "second");
+}
+
+#[test]
+fn down_past_the_newest_message_puts_back_the_typed_text() {
+    let game = Game::start();
+    send_typed(&game, "first");
+    game.run("GnomishRelayInput:SetText('half a thought')");
+
+    press(&game, "UP");
+    assert_eq!(input_text(&game), "first");
+    press(&game, "DOWN");
+    assert_eq!(input_text(&game), "half a thought");
+    press(&game, "DOWN");
+    assert_eq!(input_text(&game), "half a thought");
+}
+
+#[test]
+fn each_chat_recalls_only_its_own_messages() {
+    let game = Game::start();
+    send_typed(&game, "in the first chat");
+    let first = game.chat_id();
+    game.run("local ns = ... ns.Window.NewChat() ns.Window.CloseBrowser()");
+
+    press(&game, "UP");
+    assert_eq!(input_text(&game), "");
+
+    game.run(&format!("local ns = ... ns.Window.Open('{first}')"));
+    press(&game, "UP");
+    assert_eq!(input_text(&game), "in the first chat");
+}
+
+#[test]
+fn a_send_starts_again_at_the_newest_message() {
+    let game = Game::start();
+    send_typed(&game, "first");
+    send_typed(&game, "second");
+    press(&game, "UP");
+    press(&game, "UP");
+
+    send_typed(&game, "third");
+    press(&game, "UP");
+
+    assert_eq!(input_text(&game), "third");
+}
+
+#[test]
+fn a_change_of_chat_starts_again_at_the_newest_message() {
+    let game = Game::start();
+    send_typed(&game, "first");
+    send_typed(&game, "second");
+    let chat = game.chat_id();
+    press(&game, "UP");
+    press(&game, "UP");
+
+    game.run("local ns = ... ns.Window.NewChat() ns.Window.CloseBrowser()");
+    game.run(&format!("local ns = ... ns.Window.Open('{chat}')"));
+    game.run("GnomishRelayInput:SetText('')");
+    press(&game, "UP");
+
+    assert_eq!(input_text(&game), "second");
+}
+
+#[test]
+fn the_earlier_messages_stay_after_a_reload() {
+    let game = Game::start();
+    send_typed(&game, "first");
+    send_typed(&game, "second");
+
+    let game = game.reload();
+    press(&game, "UP");
+    press(&game, "UP");
+
+    assert_eq!(input_text(&game), "first");
+}
+
+#[test]
+fn same_messages_in_a_row_count_once_and_a_failed_message_counts() {
+    let game = Game::start();
+    send_typed(&game, "first");
+    send_typed(&game, "again");
+    send_typed(&game, "again");
+    game.answer(Status::Error, b"Not sent.".to_vec());
+
+    press(&game, "UP");
+    assert_eq!(input_text(&game), "again");
+    press(&game, "UP");
+    assert_eq!(input_text(&game), "first");
+}
+
+#[test]
+fn a_commit_message_does_not_count() {
+    let game = Game::start();
+    send_typed(&game, "first");
+    game.run("local ns = ... ns.Transport.Git(ns.Window.SelectedChat(), 'commit', 'Fix the bug')");
+
+    press(&game, "UP");
+
+    assert_eq!(input_text(&game), "first");
+}
+
+#[test]
+fn the_input_gets_the_arrow_keys_without_alt() {
+    let game = Game::start();
+
+    let mode = game.run("return GnomishRelayInput.altArrowKeyMode");
+
+    assert_eq!(mode.as_boolean(), Some(false));
 }
