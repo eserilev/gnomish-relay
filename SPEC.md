@@ -772,7 +772,7 @@ token \x1F chat \x1F id \x1F cwd \x1F flags \x1F name \x1F text
 
 #### 7.1.1 Flags
 
-The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `list=settings`, `mkdir=1`, `branch=1`, `git=`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
+The flags split in two (9.7, decision 6). Every app sends the **transport flags**: `h`, `next=`, `read=`, `ver=`, `build=`, `out=`, `in=`, and `restored`. Only the relay reads the **coding flags**: `perm=`, `level=`, `agent=`, `attach=`, `list`, `list=folders`, `list=subfolders`, `list=settings`, `mkdir=1`, `branch=1`, `git=`, `d`, `n`, and `stop`. `flags.rs` has one parser for each part, so a coding flag in a record of another app does nothing.
 
 | Flag | Meaning |
 |---|---|
@@ -781,6 +781,7 @@ The flags split in two (9.7, decision 6). Every app sends the **transport flags*
 | `d` | The chat is deleted. The bridge stops its runs, and drops its replies, its session link, and its history. A reply of a deleted chat can never be read, so it must leave the body (7.3). The addon keeps the id in `db.forget`, and sends it with each strip until a strip goes out while the bridge is online. The agent session itself stays, so Resume can bring the chat back. |
 | `list` | Asks for the saved sessions of the agents (9.6). The record is a message of the chat `relay`, and the reply is the list. |
 | `list=folders` | Asks for the folder tree of the browser (9.9). The record is a message of the chat `folders`, and the reply is the tree. Any other `list=` value is ignored. |
+| `list=subfolders` | Asks for the subfolders of the folder in `cwd`, for the browser (9.9, "One folder"). The record is a message of the chat `subfolders`, and the reply is a tree in the form of `list=folders`. |
 | `list=settings` | Asks for the settings list of the bridge (13.4). The record is a message of the chat `settings`, and the reply is the list. |
 | `mkdir=1` | The folder of the record is a new folder. The bridge makes its last part before the run (9.9). Only a record with `n` makes it. Any other `mkdir=` value is ignored. |
 | `branch=1` | The chat works on its own branch, in its own copy of the repository (9.11). The addon sends it with every message of such a chat. Any other `branch=` value is ignored. |
@@ -1803,6 +1804,7 @@ parent \t name \t mark
 - `parent` is the line number of the parent folder. The first folder is on line 1. A root has parent 0.
 - `name` is the name of the folder. A root has its whole path as its name.
 - `mark` is `g` for a git repository, else empty.
+- A line `?` with a list of line numbers names the folders whose subfolders the reply does not hold in full, for example `?812-2950,3001`. A number is the number of the folder line, as in `parent`, and a range includes both ends. The line comes after the last folder. With no such folder, the line is not there.
 - A last line `+` says that the tree is cut.
 - A path in the home folder starts with `~/`, for example `~/Documents/Code`. This form is used only when `default_cwd` and every root are in the home folder. Else every path is whole. So the addon can compare the parts of any two paths.
 
@@ -1818,21 +1820,33 @@ parent \t name \t mark
 - **The home folder** (9.12). After the roots, a second walk goes through the home folder with the same rules: at most 3 levels below it, at most 1000 folders, and 1 second. It never goes into a root, because the first walk has it. It asks the classifier with the home folder as the only root, so only a folder that the classifier reads with no question shows, as in the first walk. It always goes down to each root inside the home folder, also below 3 levels, so each such root hangs in the tree of the home folder. A root outside the home folder stays a root of its own. With no home folder, only the roots show.
 - The order of the reply: the home folder, then the folders on the way down to each root, then the folders of the roots breadth first, then the other folders of the home folder breadth first. So the size cut takes the folders of the home folder first, and the projects of the roots stay.
 - It reads at most 3000 folders, and stops after 2 seconds. A stop at one of these two limits cuts the tree. The depth limit does not.
+- **Not walked.** A folder is in the `?` line when the walk did not list all of its subfolders: it is at the depth limit, a limit of visits or time stopped the walk before its subfolders, or the size cut left out one of them. A folder that does not show, or that the game cannot send back, does not count: the browser never shows it. An older addon skips the `?` line, because it is not a folder line. A mark on each folder line would hide the folder in an older addon (9.12, decision 4).
 - A repository is a folder with a `.git` entry: a folder, or a file as in a worktree. The walk never reads the `gitdir:` line of such a file, because it can lead out of the roots.
 - The walk asks the classifier (6.6.3) for a read of each folder, with the folder as the chat folder. Only a folder with the answer `allow` shows, and a folder that does not show hides its subfolders. So the config folder and the data folder of the bridge (`deny`) and credential folders such as `snap/firefox` (`desktop`) never show. This is a filter of the tree, not a wall: the classifier still checks every tool call in the chat.
 - A folder that the game cannot send back is left out with its subfolders: a relative path with a control character, a path that is not UTF-8 or longer than 255 bytes, a name that fails the name rules below, or a `:` on Windows (7.1.1).
 - The walk never fails. A folder that it cannot read is left out.
 
-**The size cut.** The reply is one record, at most 32 KB after the Lua escape (S12). A tab, a newline, and a byte that is not printable ASCII cost 4 bytes there. The bridge keeps the longest start of the reply that fits, and adds the `+` line. So the shallow folders of the roots always come.
+**The size cut.** The reply is one record, at most 32 KB after the Lua escape (S12). A tab, a newline, and a byte that is not printable ASCII cost 4 bytes there. The bridge keeps the longest start of the reply that fits, and adds the `+` line. So the shallow folders of the roots always come. The bridge keeps 1 KB of the record for the `?` line. A longer `?` line becomes one range, from the first folder that is not walked to the last folder line. A folder in the range that has all its subfolders only costs one more request.
+
+**One folder.** The browser asks for the subfolders of one folder when the player goes into a folder of the `?` line. The request is a `list=subfolders` record of the chat `subfolders`, with the folder in the `cwd` field, in the form that the game sends back. Only a tree with a `?` line makes the addon send it, so an older bridge never gets it.
+
+- The relay takes the folder when it is inside a root, or inside the home folder with no part below the home folder that the walk skips (9.12, rule 2). The home folder itself is fine here: the request only reads names. Any other folder ends the request with the error "That folder isn't in your folder list."
+- The bridge resolves the folder with `canonicalize`, and checks it again, so a link cannot lead out. The walk starts at the folder, with the rules and the limits of the walk of the roots: the same skipped names, the same depth, visits, and time, no links, and the classifier filter. The classifier gets the roots, or the home folder as the only root for a folder under no root, as in the home walk. A folder that fails a check gives a tree with no folders.
+- The reply has the form and the size cut of the tree, with the folder as its only root line, and its own `?` line.
+- The addon adds the folders of the reply under the folders of its tree with the same path. A folder that the tree does not have is left out with its subfolders, so the reply never widens the tree. A folder of the reply takes its `?` mark from the reply. The added folders stay until `/reload`.
+- The addon asks at most once for each folder while the browser is open. The spinner turns while the request waits.
 
 **The browser.** It is a panel with a gold title, "Pick a project folder". The player sees at once what it is for and what to do.
 
 - A search box under the title has the focus when the browser opens. While it is empty, it shows the grey hint "Search folders". It matches the folders of the tree, as the game sends them back, by subsequence and without case. Repositories come first, then the shorter paths, at most 16 rows. Each row shows the name, a `git` mark for a repository, and the parent folder in grey at the right. Escape clears the focus and closes the browser, so the keys of the game work again. A typed text is only a filter, never a path.
 - With an empty search, the browser shows at most 5 recent folders: the folders of the newest chats, then the folders of the Resume list (9.6). They need no request. A folder that the last tree does not have is gone, and it does not show.
-- Below them is a gold breadcrumb, for example `Code › Personal › gnomish-relay`. A click on a part goes up to it. The first part is the top of the tree: the home folder (`~`), or a root outside it. The player cannot go above it. With more than one top, the first part is "All folders", and it lists them.
-- Then come the subfolders of the current folder. The folder of the chat is green. A folder with subfolders has a gold `›` at the right. A click on the `›` goes into the folder.
-- **Choose a folder.** A click on any folder row highlights it. Up and Down move the highlight. A search highlights its first match. A double-click on a row, Enter in the search box, or **Open** starts the chat in the highlighted folder. With no highlight, Enter and **Open** take the current folder of the breadcrumb. With nothing to open, Enter only clears the focus.
-- The buttons at the bottom: **New folder** at the left, then **Open** and **Cancel** at the right. **Cancel** does what Escape does. **New folder** shows an edit box as the last row, in the current folder. The addon checks the name: it is not empty, `.`, or `..`, it has no `/`, `\`, or control character, it is at most 255 bytes, and no subfolder there has the name (without case). A refused name shows a short reason in red. Enter sets `<current folder>/<name>` as the folder of the chat, and the header marks it "new". Escape in the edit box hides it.
+- Below them is a breadcrumb, for example `Code › Personal › gnomish-relay`. The last part is white: the folder that the player is in. The parts before it are light grey. A part turns gold and gets a highlight under the mouse, and a click on it goes there. The first part is the top of the tree: the home folder (`~`), or a root outside it. The player cannot go above it. With more than one top, the first part is "All folders", and it lists them.
+- Then come the subfolders of the current folder. The folder of the chat is green. When the current folder has no subfolders, a grey line says "No subfolders.", and **Chat here** and **New folder** stay. While the request of one folder waits for it, the line says "Loading folders..." instead.
+- **Go into a folder.** Every folder row has a gold arrow button at the right: a row of the recent folders, of the subfolders, and of a search. A double-click on a row or a click on its arrow goes into the folder, also when the tree knows no subfolders of it. A row of the recent folders or of a search also clears the search. A single click never goes anywhere.
+- **Back.** A **‹ Back** button is at the left of the search box. It goes to the folder above. From a top, it goes to "All folders" when there are more tops. At the top it is grey and does nothing. While a search has text, Back clears the search.
+- **Keys in the search box.** While the search box is empty: Backspace and Left go up, as Back does, and Right goes into the highlighted folder. With text, these keys edit the text. Up, Down, Enter, and Escape work as below. The keys only work while the search box has the focus, so the chat input and the keys of the game never change. A click on a row gives the focus back to the search box.
+- **Choose a folder.** A click on any folder row highlights it. Up and Down move the highlight. A search highlights its first match. Enter in the search box or **Chat here** starts the chat in the highlighted folder. With no highlight, they take the current folder of the breadcrumb. With nothing to open, Enter only clears the focus.
+- The buttons at the bottom: **New folder** at the left, then **Chat here** and **Cancel** at the right. **Cancel** does what Escape does. **New folder** shows an edit box as the last row, in the current folder. The addon checks the name: it is not empty, `.`, or `..`, it has no `/`, `\`, or control character, it is at most 255 bytes, and no subfolder there has the name (without case). A refused name shows a short reason in red. Enter sets `<current folder>/<name>` as the folder of the chat, and the header marks it "new". Escape in the edit box hides it.
 - **Never a silent empty list.** A grey line under the rows says why the list is empty:
   - No tree yet, while the bridge state is "checking" or a list request waits: "Loading your folders..." The spinner turns.
   - No tree yet, and the desktop app is offline: "The desktop app isn't running, so your folders can't load. On your desktop, run gnomish-relay restart." The spinner stops, because no answer comes.
@@ -1844,7 +1858,7 @@ parent \t name \t mark
 **The chat.**
 
 - A choice sets the folder of the chat. The chat takes the name of the folder, with " 2", " 3", and so on when another chat has the name. A chat in the default folder keeps its "Chat N" name.
-- The first message fixes the folder (9.5). After it, the button of the browser says "New chat here", and each choice makes a new chat in the chosen folder, with the agent of the chat.
+- The first message fixes the folder (9.5). Before it, the button of the browser says "Chat here". After it, the button says "New chat here", and each choice makes a new chat in the chosen folder, with the agent of the chat.
 - The header shows the folder as the player reads it, with the folder icon and the dropdown arrow. Before the first tree, it shows the relative folder, and nothing for the default folder.
 
 **A new folder.** The first message of a chat in a new folder has the flag `mkdir=1` next to `n`. The folder of the record is the new folder. The bridge makes it before the run starts, so a chat that never sends leaves no empty folder.
@@ -1879,6 +1893,14 @@ parent \t name \t mark
 17. **"New folder" is a button, not a row.** As a row, it looked like a folder.
 18. **A line for each empty state.** An empty list always shows a reason and a next step.
 19. **The empty tree does not say "pick a folder from your home folder".** The home folder is in the tree when it exists (9.12). So an empty tree has no home folder to pick from, and only the default folder is left.
+
+**Decisions of 2026-09-30, after a second test in the game.** The user could not get into a folder: a double-click started the chat, the `›` was small and showed only on some rows, and the breadcrumb did not look like a button. In the user's words: "I want to expand the folder and navigate into a subfolder", and "I need an easy way to go back". So the browser now works as the "Select folder" dialog of Windows and macOS.
+
+20. **A double-click goes into a folder.** Every file explorer does this. This replaces decision 16 for the double-click: one click still only highlights.
+21. **An arrow on every folder row.** A folder at the depth limit looked empty, so the arrow showed nowhere useful. Now the arrow shows on each row, and an empty folder says so.
+22. **Back at the top left, and keys.** The player always sees the way out. Backspace and Left work only in an empty search box, so a typed search keeps its normal keys.
+23. **"Chat here", not "Open".** In a file explorer, Open on a folder goes into it. "Chat here" names the goal, and it matches "New chat here".
+24. **A request for one folder, not a deeper walk.** A deeper walk does not fit in one record, and the size cut takes the deep folders first. So the bridge lists a deep folder when the player goes into it. The `?` line says which folders need it, so a folder that the tree has in full costs no request and no slot.
 
 **The browser** is in 13.1.
 
