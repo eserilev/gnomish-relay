@@ -3008,8 +3008,6 @@ fn a_failed_list_shows_its_error() {
 /// The default folder, then one line per folder: `parent \t name \t mark`.
 const TREE: &str = "~/Code\n0\t~/Code\t\n1\tPersonal\t\n1\tscratch\t\n2\tgnomish-relay\tg\n2\ttimeways\tg\n4\tcrates\t\nbroken line";
 
-const NEW_FOLDER_ROW: &str = "|cff9fe39fNew folder|r";
-
 /// A new chat opens the folder browser. Escape closes it and keeps the default folder.
 fn click_new_chat(game: &Game) {
     game.run("local ns = ... ns.Window.Open()");
@@ -3021,6 +3019,19 @@ fn click_new_chat(game: &Game) {
 fn open_browser_with(game: &Game, tree: &str, status: Status) -> u32 {
     let before = game.shots();
     game.run("GnomishRelayFolderButton:Click()");
+    answer_folder_list(game, before, tree, status)
+}
+
+/// Clicks New chat, and answers the folder list request with `tree`.
+fn new_chat_with_tree(game: &Game, tree: &str) {
+    game.run("local ns = ... ns.Window.Open()");
+    let before = game.shots();
+    game.run(&format!("GnomishRelayTile{}:Click()", chat_count(game) + 1));
+    answer_folder_list(game, before, tree, Status::Done);
+}
+
+/// Waits for the first folder list request after shot `before`, and answers it.
+fn answer_folder_list(game: &Game, before: usize, tree: &str, status: Status) -> u32 {
     game.advance(2.0);
     let request = (before + 1..=game.shots())
         .flat_map(|n| game.strip(n))
@@ -3038,6 +3049,18 @@ fn open_browser(game: &Game) -> u32 {
 
 fn shown(game: &Game, frame: &str) -> bool {
     text_of(game, &format!("{frame}:IsVisible() and 'yes' or 'no'")) == "yes"
+}
+
+/// WoW runs `OnClick` for each of the two clicks, then `OnDoubleClick`.
+fn double_click(game: &Game, frame: &str) {
+    game.run(&format!(
+        "{frame}:Click() {frame}:Click() {frame}:GetScript('OnDoubleClick')({frame})"
+    ));
+}
+
+/// The grey line that says why the list of the browser is empty, or nil.
+fn browser_note(game: &Game) -> Option<String> {
+    shown_text(game, "GnomishRelayBrowserNote")
 }
 
 /// The text of each shown row of the browser. A hidden row gives an empty text.
@@ -3140,12 +3163,17 @@ fn the_browser_shows_the_subfolders_with_a_git_mark_under_a_breadcrumb() {
 
     assert_eq!(crumbs(&game), ["|cffffd100Code|r"]);
     assert_eq!(
-        browse_rows(&game, 5),
-        ["", "Personal", "scratch", NEW_FOLDER_ROW, ""],
-        "the breadcrumb row, the subfolders, and New folder; a broken line is skipped"
+        browse_rows(&game, 4),
+        ["", "Personal", "scratch", ""],
+        "the breadcrumb row and the subfolders; a broken line is skipped"
     );
+    assert!(
+        shown(&game, "GnomishRelayBrowseGo2"),
+        "Personal has subfolders"
+    );
+    assert!(!shown(&game, "GnomishRelayBrowseGo3"), "scratch has none");
 
-    game.run("GnomishRelayBrowseRow2:Click()");
+    game.run("GnomishRelayBrowseGo2:Click()");
 
     assert_eq!(
         crumbs(&game),
@@ -3163,8 +3191,8 @@ fn the_breadcrumb_goes_up_but_never_above_the_root() {
     let game = Game::start();
     click_new_chat(&game);
     open_browser(&game);
-    game.run("GnomishRelayBrowseRow2:Click()");
-    game.run("GnomishRelayBrowseRow2:Click()");
+    game.run("GnomishRelayBrowseGo2:Click()");
+    game.run("GnomishRelayBrowseGo2:Click()");
     assert_eq!(crumbs(&game).len(), 3);
 
     game.run("GnomishRelayCrumb2:Click()");
@@ -3180,8 +3208,8 @@ fn open_sets_the_folder_and_the_first_message_carries_it() {
     let game = Game::start();
     click_new_chat(&game);
     open_browser(&game);
-    game.run("GnomishRelayBrowseRow2:Click()");
-    game.run("GnomishRelayBrowseRow2:Click()");
+    game.run("GnomishRelayBrowseGo2:Click()");
+    game.run("GnomishRelayBrowseGo2:Click()");
     assert_eq!(text_of(&game, "GnomishRelayBrowserOpen:GetText()"), "Open");
 
     game.run("GnomishRelayBrowserOpen:Click()");
@@ -3240,8 +3268,194 @@ fn escape_closes_the_browser_and_gives_the_keys_back_to_the_game() {
     );
 }
 
+const LOADING: &str = "Loading your folders...";
+
 #[test]
-fn a_recent_folder_sets_the_folder_in_one_click_and_a_gone_folder_does_not_show() {
+fn a_new_chat_shows_the_picker_title_the_search_hint_and_the_folder_list() {
+    let game = Game::start();
+
+    new_chat_with_tree(&game, TREE);
+
+    assert_eq!(
+        shown_text(&game, "GnomishRelayBrowserTitle").as_deref(),
+        Some("Pick a project folder")
+    );
+    assert_eq!(
+        shown_text(&game, "GnomishRelayBrowserHint").as_deref(),
+        Some("Search folders")
+    );
+    assert_eq!(browse_rows(&game, 4), ["", "Personal", "scratch", ""]);
+    assert_eq!(browser_note(&game), None);
+    for button in ["Open", "NewFolder", "Cancel"] {
+        assert!(
+            shown(&game, &format!("GnomishRelayBrowser{button}")),
+            "{button}"
+        );
+    }
+    assert_eq!(
+        text_of(&game, "GnomishRelayBrowserNewFolder:GetText()"),
+        "New folder"
+    );
+    game.run("GnomishRelayBrowserFilter:SetText('p')");
+    assert_eq!(shown_text(&game, "GnomishRelayBrowserHint"), None);
+}
+
+#[test]
+fn the_picker_says_it_is_loading_until_the_folder_list_comes() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+
+    game.run("GnomishRelayTile1:Click()");
+
+    assert_eq!(browser_note(&game).as_deref(), Some(LOADING));
+    assert!(shown(&game, "GnomishRelayBrowserSpinner"));
+}
+
+#[test]
+fn the_picker_says_the_desktop_app_is_offline_and_how_to_start_it() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Transport.Poll() ns.Window.Open()");
+
+    game.run("GnomishRelayTile1:Click()");
+
+    assert_eq!(
+        browser_note(&game).as_deref(),
+        Some(
+            "The desktop app isn't running, so your folders can't load. \
+             On your desktop, run gnomish-relay restart."
+        )
+    );
+    assert!(
+        !shown(&game, "GnomishRelayBrowserSpinner"),
+        "no answer comes"
+    );
+}
+
+#[test]
+fn the_picker_shows_the_error_of_a_failed_first_folder_list() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    let before = game.shots();
+    game.run("GnomishRelayTile1:Click()");
+
+    answer_folder_list(&game, before, "can't read the roots", Status::Error);
+
+    assert_eq!(
+        browser_note(&game).as_deref(),
+        Some("|cffff2020can't read the roots|r")
+    );
+}
+
+#[test]
+fn the_picker_says_when_it_finds_no_folder_and_what_to_do() {
+    let game = Game::start();
+
+    new_chat_with_tree(&game, "~/Code");
+
+    assert_eq!(
+        browser_note(&game).as_deref(),
+        Some("No folders found. Click Cancel to chat in your default folder.")
+    );
+    assert!(!shown(&game, "GnomishRelayBrowserOpen"));
+    assert!(shown(&game, "GnomishRelayBrowserCancel"));
+}
+
+#[test]
+fn a_search_with_no_match_says_so() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+
+    game.run("GnomishRelayBrowserFilter:SetText('zzz')");
+
+    assert_eq!(browser_note(&game).as_deref(), Some("No folder matches."));
+    assert!(!shown(&game, "GnomishRelayBrowserOpen"));
+}
+
+#[test]
+fn a_click_highlights_a_folder_and_open_starts_the_chat_there_with_the_folder_in_the_header() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+
+    game.run("GnomishRelayBrowseRow2:Click()");
+
+    assert!(
+        shown(&game, "GnomishRelayBrowser"),
+        "one click starts nothing"
+    );
+    assert_eq!(chat_field(&game, 1, "cwd"), "");
+    assert_eq!(
+        text_of(
+            &game,
+            "GnomishRelayBrowseRow2.choice:IsShown() and 'yes' or 'no'"
+        ),
+        "yes"
+    );
+
+    game.run("GnomishRelayBrowserOpen:Click()");
+
+    assert!(!shown(&game, "GnomishRelayBrowser"));
+    assert_eq!(chat_field(&game, 1, "cwd"), "Personal");
+    assert_eq!(header_folder(&game), "~/Code/Personal");
+}
+
+#[test]
+fn a_double_click_on_a_folder_starts_the_chat_there() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+
+    double_click(&game, "GnomishRelayBrowseRow3");
+
+    assert!(!shown(&game, "GnomishRelayBrowser"));
+    assert_eq!(chat_field(&game, 1, "cwd"), "scratch");
+    assert_eq!(header_folder(&game), "~/Code/scratch");
+}
+
+#[test]
+fn enter_starts_the_chat_in_the_folder_that_the_arrows_highlight() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+
+    filter_key(&game, "OnArrowPressed", "DOWN");
+    filter_key(&game, "OnArrowPressed", "DOWN");
+    filter_key(&game, "OnArrowPressed", "UP");
+    filter_key(&game, "OnEnterPressed", "");
+
+    assert_eq!(
+        chat_field(&game, 1, "cwd"),
+        "Personal",
+        "the highlight skips the breadcrumb"
+    );
+    assert_eq!(
+        text_of(
+            &game,
+            "GnomishRelayBrowserFilter:HasFocus() and 'yes' or 'no'"
+        ),
+        "no"
+    );
+}
+
+#[test]
+fn cancel_keeps_the_default_folder_and_gives_the_keys_back_to_the_game() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+    game.run("GnomishRelayBrowseRow2:Click()");
+
+    game.run("GnomishRelayBrowserCancel:Click()");
+
+    assert!(!shown(&game, "GnomishRelayBrowser"));
+    assert!(shown(&game, "GnomishRelayTranscript"));
+    assert_eq!(chat_field(&game, 1, "cwd"), "");
+    assert_eq!(
+        text_of(
+            &game,
+            "GnomishRelayBrowserFilter:HasFocus() and 'yes' or 'no'"
+        ),
+        "no"
+    );
+}
+
+#[test]
+fn a_double_click_on_a_recent_folder_sets_it_and_a_gone_folder_does_not_show() {
     let game = Game::start();
     game.run("local ns = ... ns.Store.SetFolder(ns.Store.NewChat(), 'gone', 'gone')");
     game.run(
@@ -3255,7 +3469,7 @@ fn a_recent_folder_sets_the_folder_in_one_click_and_a_gone_folder_does_not_show(
         text_of(&game, "GnomishRelayBrowseRow1.right:GetText()"),
         "~/Code/Personal"
     );
-    game.run("GnomishRelayBrowseRow1:Click()");
+    double_click(&game, "GnomishRelayBrowseRow1");
 
     assert_eq!(chat_field(&game, 3, "cwd"), "Personal/timeways");
     assert_eq!(chat_field(&game, 3, "name"), "timeways 2");
@@ -3266,7 +3480,7 @@ fn new_folder_checks_the_name_and_sets_the_folder_with_a_mark() {
     let game = Game::start();
     click_new_chat(&game);
     open_browser(&game);
-    game.run("GnomishRelayBrowseRow4:Click()");
+    game.run("GnomishRelayBrowserNewFolder:Click()");
     assert!(shown(&game, "GnomishRelayBrowserName"));
     assert_eq!(
         text_of(
@@ -3363,7 +3577,7 @@ fn two_roots_give_a_top_level_that_lists_them() {
         "a list of roots is no folder"
     );
 
-    game.run("GnomishRelayBrowseRow3:Click()");
+    game.run("GnomishRelayBrowseGo3:Click()");
     game.run("GnomishRelayBrowseRow2:Click()");
     game.run("GnomishRelayBrowserOpen:Click()");
 

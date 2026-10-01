@@ -6,19 +6,28 @@ local Browser = {}
 ns.Browser = Browser
 
 local ROWS = 16
-local ROW_HEIGHT = 19
-local ROWS_TOP = 38
+local ROW_HEIGHT = 18
+local ROWS_TOP = 58
 local CRUMBS = 7
 local RECENTS = 5
 local GOLD = "ffd100"
 local GREEN = "1eff00"
-local NEW = "9fe39f"
+local RED = "ff2020"
 local GIT = "|cff8fb6e8git|r"
+local INTO = "|cffffd100\226\128\186|r"
 local SPINNER = "Interface\\Icons\\INV_Misc_Gear_01"
+
+local TITLE = "Pick a project folder"
+local HINT = "Search folders"
+local LOADING = "Loading your folders..."
+local OFFLINE = "The desktop app isn't running, so your folders can't load. On your desktop, run gnomish-relay restart."
+local NO_FOLDERS = "No folders found. Click Cancel to chat in your default folder."
+local NO_MATCH = "No folder matches."
 
 local ui = {}
 -- `at` is the folder of the browser, as the game sends it. nil is the list of roots.
-local state = { open = false, offset = 0, choice = 1 }
+-- `choice` is the index of the highlighted line, 0 for none.
+local state = { open = false, offset = 0, choice = 0 }
 
 local function Label(parent, font, point, x, y)
 	local text = parent:CreateFontString(nil, "OVERLAY", font)
@@ -54,9 +63,20 @@ local function Query()
 	return strtrim(ui.filter:GetText() or "")
 end
 
+local function Searching()
+	return Query() ~= ""
+end
+
+-- No answer comes while the desktop app is off, so the browser stops waiting for one.
+local function Offline()
+	return ns.Transport.Bridge() == "offline"
+end
+
 local function StartNaming()
 	state.naming = true
 	state.problem = nil
+	-- The edit box is the last line, so the list scrolls to the end.
+	state.offset = math.huge
 	ui.name:SetText("")
 	Browser.Refresh()
 	ui.name:SetFocus()
@@ -70,21 +90,20 @@ end
 
 local function Go(folder)
 	state.at = folder
-	state.offset = 0
+	state.offset, state.choice = 0, 0
 	StopNaming()
 	Browser.Refresh()
 end
 
+-- A line that names a folder has `folder` and `name`, so a click can highlight it.
 local function MatchLines(tree, lines)
-	for i, node in ipairs(ns.Folders.Search(tree, Query(), ROWS)) do
+	for _, node in ipairs(ns.Folders.Search(tree, Query(), ROWS)) do
 		table.insert(lines, {
 			text = ns.Relay.Plain(node.name),
 			mark = node.repo and GIT or "",
 			right = ns.Relay.Plain(ns.Folders.ParentDisplay(tree, node.folder)),
-			chosen = i == state.choice,
-			click = function()
-				Choose(node.folder, node.name)
-			end,
+			folder = node.folder,
+			name = node.name,
 		})
 	end
 end
@@ -95,9 +114,8 @@ local function RecentLines(tree, chat, lines)
 		table.insert(lines, {
 			text = ns.Relay.Plain(name),
 			right = ns.Relay.Plain(ns.Folders.ParentDisplay(tree, folder)),
-			click = function()
-				Choose(folder, name)
-			end,
+			folder = folder,
+			name = name,
 		})
 	end
 end
@@ -112,20 +130,54 @@ local function ChildLines(tree, current, chat, lines)
 		table.insert(lines, {
 			text = text,
 			mark = node.repo and GIT or "",
-			click = function()
-				Go(node.folder)
-			end,
+			folder = node.folder,
+			name = node.name,
+			into = #node.children > 0 and node.folder or nil,
 		})
 	end
-	if current then
-		table.insert(lines, { new = true, text = "|cff" .. NEW .. "New folder|r", click = StartNaming })
+	if current and state.naming then
+		table.insert(lines, { new = true })
 	end
 end
 
 local function BrowseLines(tree, chat, lines)
 	RecentLines(tree, chat, lines)
-	table.insert(lines, { crumbs = true })
+	if tree and #tree.roots > 0 then
+		table.insert(lines, { crumbs = true })
+	end
 	ChildLines(tree, Current(tree), chat, lines)
+end
+
+local function Lines(tree, chat)
+	local lines = {}
+	if Searching() then
+		MatchLines(tree, lines)
+	else
+		BrowseLines(tree, chat, lines)
+	end
+	return lines
+end
+
+-- The highlighted folder, else the folder of the breadcrumb. A search has no breadcrumb.
+local function Target(tree, lines)
+	local line = lines[state.choice]
+	if line and line.folder then
+		return line.folder, line.name
+	end
+	local current = Current(tree)
+	if current and not Searching() then
+		return current.folder, current.name
+	end
+end
+
+local function OpenTarget()
+	local tree = ns.Folders.Tree()
+	local folder, name = Target(tree, Lines(tree, Chat()))
+	if not folder then
+		return false
+	end
+	Choose(folder, name)
+	return true
 end
 
 -- The parts of the breadcrumb, from the root to the folder of the browser.
@@ -159,21 +211,26 @@ local function ShowCrumbs(tree, y)
 	end
 end
 
-local function ShowRow(row, line, y)
+local function ShowRow(row, line, index, y)
 	row.line = line
+	row.index = index
 	row:SetShown(line ~= nil and not line.crumbs)
 	if not line or line.crumbs then
 		return
 	end
-	row.text:SetText(line.text)
+	row.text:SetText(line.text or "")
 	row.mark:SetText(line.mark or "")
 	row.right:SetText(line.right or "")
-	row.choice:SetShown(line.chosen == true)
-	if line.new and state.naming then
-		row.text:SetText("")
-		row.right:SetText(state.problem and ("|cffff2020" .. state.problem .. "|r") or "")
+	row.choice:SetShown(index == state.choice and line.folder ~= nil)
+	row.go:SetShown(line.into ~= nil)
+	if line.new then
+		row.right:SetText(state.problem and ("|cff" .. RED .. state.problem .. "|r") or "")
 		ui.name:SetPoint("TOPLEFT", ui.frame, "TOPLEFT", 24, y)
 	end
+end
+
+local function RowY(i)
+	return -ROWS_TOP - (i - 1) * ROW_HEIGHT
 end
 
 local function ShowRows(tree, lines)
@@ -181,14 +238,14 @@ local function ShowRows(tree, lines)
 	local crumbsShown = false
 	local namingShown = false
 	for i, row in ipairs(ui.rows) do
-		local line = lines[state.offset + i]
-		local y = -ROWS_TOP - (i - 1) * ROW_HEIGHT
-		ShowRow(row, line, y)
+		local index = state.offset + i
+		local line = lines[index]
+		ShowRow(row, line, index, RowY(i))
 		if line and line.crumbs then
-			ShowCrumbs(tree, y)
+			ShowCrumbs(tree, RowY(i))
 			crumbsShown = true
 		end
-		namingShown = namingShown or (line ~= nil and line.new == true and state.naming == true)
+		namingShown = namingShown or (line ~= nil and line.new == true)
 	end
 	if not crumbsShown then
 		for _, button in ipairs(ui.crumbs) do
@@ -198,23 +255,55 @@ local function ShowRows(tree, lines)
 	ui.name:SetShown(namingShown)
 end
 
+local function NoTreeNote()
+	local saved = ns.Store.db.folders
+	if Offline() then
+		return OFFLINE
+	end
+	if saved and saved.error and not ns.Transport.ListingFolders() then
+		return "|cff" .. RED .. ns.Relay.Plain(saved.error) .. "|r"
+	end
+	return LOADING
+end
+
+-- Why the list is empty, so the player never sees a silent empty box.
+local function Note(tree, lines)
+	if not tree then
+		return NoTreeNote()
+	end
+	if Searching() and #lines == 0 then
+		return NO_MATCH
+	end
+	if #tree.list == 0 then
+		return NO_FOLDERS
+	end
+	return ""
+end
+
+local function ShowNote(text, lines)
+	ui.note:SetText(text)
+	ui.note:SetShown(text ~= "")
+	local row = math.min(#lines - state.offset + 1, ROWS)
+	ui.note:SetPoint("TOPLEFT", ui.frame, "TOPLEFT", 14, RowY(row) - 3)
+end
+
+local function ShowButtons(tree, lines)
+	ui.open:SetText(Fixed(Chat()) and "New chat here" or "Open")
+	ui.open:SetShown(Target(tree, lines) ~= nil)
+	ui.newFolder:SetShown(not Searching() and Current(tree) ~= nil)
+end
+
 function Browser.Refresh()
 	if not state.open then
 		return
 	end
 	local tree = ns.Folders.Tree()
-	local chat = Chat()
-	local lines = {}
-	local filtering = Query() ~= ""
-	if filtering then
-		MatchLines(tree, lines)
-	else
-		BrowseLines(tree, chat, lines)
-	end
+	local lines = Lines(tree, Chat())
 	ShowRows(tree, lines)
-	ui.open:SetText(Fixed(chat) and "New chat here" or "Open")
-	ui.open:SetShown(not filtering and Current(tree) ~= nil)
-	ui.spinner:SetShown(ns.Transport.ListingFolders())
+	ShowNote(Note(tree, lines), lines)
+	ShowButtons(tree, lines)
+	ui.hint:SetShown(ui.filter:GetText() == "")
+	ui.spinner:SetShown(ns.Transport.ListingFolders() and not Offline())
 end
 
 function Browser.IsOpen()
@@ -227,7 +316,7 @@ function Browser.Open(chat)
 	local folder = chat and chat.cwd or ""
 	state.open = true
 	state.at = ns.Folders.Find(tree, folder) and folder or ""
-	state.offset, state.choice = 0, 1
+	state.offset, state.choice = 0, 0
 	StopNaming()
 	ns.Transport.ListFolders()
 	ui.filter:SetText("")
@@ -250,50 +339,60 @@ function Browser.Show(shown)
 	end
 end
 
-local function MoveChoice(key)
+local function Step(key)
 	if key == "UP" then
-		state.choice = math.max(1, state.choice - 1)
+		return -1
 	elseif key == "DOWN" then
-		state.choice = state.choice + 1
+		return 1
 	end
-	local count = #ns.Folders.Search(ns.Folders.Tree(), Query(), ROWS)
-	state.choice = math.max(1, math.min(state.choice, count))
+	return 0
+end
+
+-- The highlight skips the breadcrumb and the edit box, and stays in view.
+local function MoveChoice(key)
+	local step = Step(key)
+	local lines = Lines(ns.Folders.Tree(), Chat())
+	local i = state.choice + step
+	while lines[i] and not lines[i].folder do
+		i = i + step
+	end
+	if step == 0 or not lines[i] then
+		return
+	end
+	state.choice = i
+	state.offset = math.max(math.min(state.offset, i - 1), i - ROWS)
 	Browser.Refresh()
 end
 
-local function PickChoice()
-	local tree = ns.Folders.Tree()
-	local node = ns.Folders.Search(tree, Query(), ROWS)[state.choice]
-	if node then
-		Choose(node.folder, node.name)
-	end
+local function Cancel()
+	ui.filter:ClearFocus()
+	ns.Window.CloseBrowser()
 end
 
 -- A typed text is only a filter, never a path.
 local function BuildFilter(frame)
 	ui.filter = CreateFrame("EditBox", "GnomishRelayBrowserFilter", frame, "InputBoxTemplate")
-	ui.filter:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -8)
+	ui.filter:SetPoint("TOPLEFT", frame, "TOPLEFT", 18, -30)
 	ui.filter:SetHeight(22)
 	ui.filter:SetAutoFocus(false)
 	ui.filter:SetScript("OnTextChanged", function()
-		state.choice, state.offset = 1, 0
+		state.choice = Searching() and 1 or 0
+		state.offset = 0
 		Browser.Refresh()
 	end)
 	ui.filter:SetScript("OnArrowPressed", function(_, key)
 		MoveChoice(key)
 	end)
 	ui.filter:SetScript("OnEnterPressed", function(self)
-		if Query() == "" then
+		if not OpenTarget() then
 			self:ClearFocus()
-		else
-			PickChoice()
 		end
 	end)
 	-- Escape gives the keys back to the game.
-	ui.filter:SetScript("OnEscapePressed", function(self)
-		self:ClearFocus()
-		ns.Window.CloseBrowser()
-	end)
+	ui.filter:SetScript("OnEscapePressed", Cancel)
+	ui.hint = ui.filter:CreateFontString("GnomishRelayBrowserHint", "OVERLAY", "GameFontDisable")
+	ui.hint:SetPoint("LEFT", ui.filter, "LEFT", 2, 0)
+	ui.hint:SetText(HINT)
 end
 
 local function BuildName(frame)
@@ -324,29 +423,52 @@ local function BuildName(frame)
 	ui.name:Hide()
 end
 
+local function BuildGo(row, i)
+	row.go = CreateFrame("Button", "GnomishRelayBrowseGo" .. i, row)
+	row.go:SetSize(24, ROW_HEIGHT)
+	row.go:SetPoint("RIGHT", row, "RIGHT", -2, 0)
+	row.go.text = Label(row.go, "GameFontNormal", "CENTER", 0, 0)
+	row.go.text:SetText(INTO)
+	row.go:SetScript("OnClick", function()
+		Go(row.line.into)
+	end)
+end
+
+local function BuildRow(frame, i)
+	local row = CreateFrame("Button", "GnomishRelayBrowseRow" .. i, frame)
+	row:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, RowY(i))
+	row:SetHeight(ROW_HEIGHT)
+	row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
+	row.choice = row:CreateTexture(nil, "BACKGROUND")
+	row.choice:SetAllPoints()
+	row.choice:SetColorTexture(0.3, 0.25, 0.1, 0.6)
+	row.text = Label(row, "GameFontHighlight", "LEFT", 4, 0)
+	row.text:SetWordWrap(false)
+	row.mark = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+	row.mark:SetPoint("LEFT", row.text, "RIGHT", 6, 0)
+	row.right = Label(row, "GameFontDisableSmall", "RIGHT", -4, 0)
+	row.right:SetJustifyH("RIGHT")
+	BuildGo(row, i)
+	-- WoW runs OnClick for each click of a double-click, so one click only highlights.
+	row:SetScript("OnClick", function(self)
+		if self.line.folder then
+			state.choice = self.index
+			Browser.Refresh()
+		end
+	end)
+	row:SetScript("OnDoubleClick", function(self)
+		if self.line.folder then
+			Choose(self.line.folder, self.line.name)
+		end
+	end)
+	row:Hide()
+	return row
+end
+
 local function BuildRows(frame)
 	ui.rows = {}
 	for i = 1, ROWS do
-		local row = CreateFrame("Button", "GnomishRelayBrowseRow" .. i, frame)
-		row:SetPoint("TOPLEFT", frame, "TOPLEFT", 8, -ROWS_TOP - (i - 1) * ROW_HEIGHT)
-		row:SetHeight(ROW_HEIGHT)
-		row:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
-		row.choice = row:CreateTexture(nil, "BACKGROUND")
-		row.choice:SetAllPoints()
-		row.choice:SetColorTexture(0.3, 0.25, 0.1, 0.6)
-		row.text = Label(row, "GameFontHighlight", "LEFT", 4, 0)
-		row.text:SetWordWrap(false)
-		row.mark = row:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
-		row.mark:SetPoint("LEFT", row.text, "RIGHT", 6, 0)
-		row.right = Label(row, "GameFontDisableSmall", "RIGHT", -4, 0)
-		row.right:SetJustifyH("RIGHT")
-		row:SetScript("OnClick", function(self)
-			if self.line and self.line.click then
-				self.line.click()
-			end
-		end)
-		row:Hide()
-		ui.rows[i] = row
+		ui.rows[i] = BuildRow(frame, i)
 	end
 end
 
@@ -367,7 +489,7 @@ end
 local function BuildSpinner(frame)
 	ui.spinner = frame:CreateTexture("GnomishRelayBrowserSpinner", "OVERLAY")
 	ui.spinner:SetSize(16, 16)
-	ui.spinner:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -11)
+	ui.spinner:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -14, -33)
 	ui.spinner:SetTexture(SPINNER)
 	frame:SetScript("OnUpdate", function()
 		if ui.spinner:IsShown() then
@@ -376,23 +498,37 @@ local function BuildSpinner(frame)
 	end)
 end
 
-local function BuildOpen(frame)
-	ui.open = CreateFrame("Button", "GnomishRelayBrowserOpen", frame, "UIPanelButtonTemplate")
-	ui.open:SetSize(120, 22)
-	ui.open:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
-	ui.open:SetScript("OnClick", function()
-		local tree = ns.Folders.Tree()
-		local current = Current(tree)
-		if current then
-			Choose(current.folder, current.name)
-		end
-	end)
+local function Button(frame, name, text, width, onClick)
+	local button = CreateFrame("Button", name, frame, "UIPanelButtonTemplate")
+	button:SetSize(width, 22)
+	button:SetText(text)
+	button:SetScript("OnClick", onClick)
+	return button
+end
+
+local function BuildButtons(frame)
+	ui.cancel = Button(frame, "GnomishRelayBrowserCancel", "Cancel", 100, Cancel)
+	ui.cancel:SetPoint("BOTTOMRIGHT", frame, "BOTTOMRIGHT", -10, 10)
+	ui.open = Button(frame, "GnomishRelayBrowserOpen", "Open", 120, OpenTarget)
+	ui.open:SetPoint("BOTTOMRIGHT", ui.cancel, "BOTTOMLEFT", -6, 0)
+	ui.newFolder = Button(frame, "GnomishRelayBrowserNewFolder", "New folder", 110, StartNaming)
+	ui.newFolder:SetPoint("BOTTOMLEFT", frame, "BOTTOMLEFT", 10, 10)
+end
+
+local function BuildTexts(frame)
+	ui.title = frame:CreateFontString("GnomishRelayBrowserTitle", "OVERLAY", "GameFontNormalLarge")
+	ui.title:SetPoint("TOPLEFT", frame, "TOPLEFT", 14, -10)
+	ui.title:SetText(TITLE)
+	ui.note = frame:CreateFontString("GnomishRelayBrowserNote", "OVERLAY", "GameFontDisable")
+	ui.note:SetJustifyH("LEFT")
+	ui.note:Hide()
 end
 
 -- The window calls this at each new size, so the filter and the rows use the room.
 function Browser.Resize(width)
 	ui.frame:SetWidth(width)
 	ui.filter:SetWidth(width - 60)
+	ui.note:SetWidth(width - 28)
 	for _, row in ipairs(ui.rows) do
 		row:SetWidth(width - 16)
 	end
@@ -403,12 +539,13 @@ function Browser.Build(parent, left, width, bottom)
 	frame:SetPoint("TOPLEFT", parent, "TOPLEFT", left, -84)
 	frame:SetPoint("BOTTOMLEFT", parent, "BOTTOMLEFT", left, bottom)
 	ui.frame = frame
+	BuildTexts(frame)
 	BuildFilter(frame)
 	BuildSpinner(frame)
 	BuildRows(frame)
 	BuildCrumbs(frame)
 	BuildName(frame)
-	BuildOpen(frame)
+	BuildButtons(frame)
 	frame:EnableMouseWheel(true)
 	frame:SetScript("OnMouseWheel", function(_, delta)
 		state.offset = state.offset - delta * 3
