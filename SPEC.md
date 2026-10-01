@@ -1890,14 +1890,24 @@ Agents cost money, and a player in the game cannot see a bill. So the bridge rec
 
 | Agent | Where | Tokens | Cost |
 |---|---|---|---|
-| `claude` | The `result` message at the end of the turn: `usage` and `total_cost_usd`. | In: `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`. Out: `output_tokens`. Cached: `cache_read_input_tokens`. | `total_cost_usd` |
+| `claude` | The `result` message at the end of the turn: `usage` and `total_cost_usd`. | In: `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens`. Out: `output_tokens`. Cached: `cache_read_input_tokens`. | `total_cost_usd`, only for a run that pays with an API key (below) |
 | `codex` | The `thread/tokenUsage/updated` notification, after each model call of the turn. `tokenUsage.total` counts the whole thread, and `tokenUsage.last` the last call. | The turn is the newest `total` less the `total` before the first call of the turn (the first `total` less its `last`). In: `inputTokens`, which holds the cached ones. Out: `outputTokens`. Cached: `cachedInputTokens`. | none |
 | `acp`, `command`, `echo` | none | none | none |
 
 - A run with no report records nothing and shows nothing. So does an attach (9.6): it calls no model.
 - A number that is missing, negative, or not a number counts as 0. A cost that is not a finite number of at least 0 counts as no cost.
 
-**In the game.** A `done` reply with a report carries the line of block `u` (7.3.1), for example "1.2k in · 350 out · $0.04". Codex gives no cost, so its line is "1.2k in · 350 out". The addon shows the line in grey below the reply, and never in the whisper line.
+**A cost only for an API key.** The user decided on 2026-09-30: "showing the dollar cost of the Claude LLM usage should only be when it's used via API on a per-credit charge basis. An LLM subscription should not show cost, just token usage." Claude Code gives `total_cost_usd` also for a Claude Pro or Max login. Then the number is only an estimate at API prices, and the user does not pay it.
+
+- The bridge reads `apiKeySource` of the `system` message with subtype `init`, which Claude Code sends at the start of each turn. It is the source of the credential of the API requests. It is never the credential itself, and the bridge reads no credential file.
+- Checked in the schema of the init message of Claude Code 2.1.286: the values are `ANTHROPIC_API_KEY` (the variable), `apiKeyHelper` (the helper command of the settings), `/login managed key` (a key of an Anthropic Console account), and `none` (no API key: a claude.ai login, a bearer token, or a cloud provider). `user`, `project`, `org`, `temporary`, and `oauth` are old values that current versions never send.
+- A run keeps its cost only when `apiKeySource` is `ANTHROPIC_API_KEY`, `apiKeyHelper`, or `/login managed key` (test `an_api_key_run_keeps_its_cost`).
+- With `none`, the run has its tokens and no cost (test `a_subscription_run_has_tokens_and_no_cost`). Its line is "4.7k in · 350 out".
+- With an old value, another value, or no `apiKeySource` at all, the bridge is not sure, so the run has no cost (test `a_run_with_no_key_source_has_no_cost`). A wrong cost is worse than a missing one.
+- The rule applies where the report enters the bridge. So a run with no cost shows none in block `u`, adds no cost to `usage.json` and to the total for today in the Settings tab, and never raises the total toward the daily cap.
+- A reply saved before this rule keeps its line, and `usage.json` keeps its old costs. The bridge does not rewrite them.
+
+**In the game.** A `done` reply with a report carries the line of block `u` (7.3.1), for example "1.2k in · 350 out · $0.04". Codex and a Claude subscription give no cost, so their line is "1.2k in · 350 out". The addon shows the line in grey below the reply, and never in the whisper line.
 
 - A count below 1000 shows as it is. Up to 999,999 it shows in thousands with one decimal ("1.2k", and "12k" from 10,000). From a million it shows in millions ("1.2M").
 - A cost shows with two decimals ("$0.04"). A cost above 0 and below one cent shows as "<$0.01".
@@ -1910,7 +1920,7 @@ Agents cost money, and a player in the game cannot see a bill. So the bridge rec
 **The daily cap.** `daily_cost_cap_usd` in the config (12) is off by default. When the cost of today reaches the cap, a new message does not start its agent. Its reply is the error "Not started: today's agent cost reached your $5.00 limit. It resets at 00:00 UTC, or raise daily_cost_cap_usd in config.toml on your desktop."
 
 - The check comes when the message would start. A run in progress goes on past the cap: a stop in the middle of a task leaves half-changed files.
-- Only a cost counts. Codex reports no cost, so its runs never raise the total. The cap still stops a Codex message when the cost of other agents reached it.
+- Only a cost counts. Codex and a Claude subscription report no cost, so their runs never raise the total. The cap still stops a Codex message when the cost of other agents reached it.
 - A list and an attach never call a model, so the cap never stops them.
 
 ### 9.11 Git in a chat
