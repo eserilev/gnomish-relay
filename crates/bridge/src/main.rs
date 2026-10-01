@@ -17,6 +17,7 @@ use bridge::forward;
 use bridge::gate::Places;
 use bridge::hooks_install;
 use bridge::install;
+use bridge::report;
 use bridge::run::now;
 use bridge::selftest;
 use bridge::service;
@@ -44,6 +45,7 @@ Run
   restart                 Restart the desktop app, for example after you edit config.toml
   status                  Check the desktop app, config.toml, the sandbox, and the agent
   check-agent <name>      Start an agent from config.toml and show what it supports
+  report                  Save a file to attach to a bug report
 
 Approvals
   approve [id]            List the requests that wait for your approval, or approve one
@@ -94,6 +96,24 @@ fn print_status(dirs: &Dirs) -> Result<()> {
     for line in status::status_lines(&places, &path, now()) {
         println!("{line}");
     }
+    Ok(())
+}
+
+/// Writes a file for a bug report, and uploads nothing (SPEC.md 8.5).
+fn write_report(dirs: &Dirs) -> Result<()> {
+    let places = Places::of(dirs);
+    std::fs::create_dir_all(places.data_dir)?;
+    let path = std::env::var_os("PATH").unwrap_or_default();
+    let status = status::status_lines(&places, &path, now());
+    let file = report::write_report(dirs, u64::from(now()), &status)?;
+    println!("Saved your bug report: {}", file.display());
+    println!(
+        "It has your recent log, status, and settings, with keys and tokens removed. Nothing was uploaded."
+    );
+    println!(
+        "To report a bug, attach this file to a new issue: {}",
+        report::ISSUES
+    );
     Ok(())
 }
 
@@ -186,6 +206,7 @@ fn main() -> Result<()> {
         }
         ["restart"] => service::restart(&Dirs::from_env()?, &std::env::current_exe()?),
         ["status"] => print_status(&Dirs::from_env()?),
+        ["report"] => write_report(&Dirs::from_env()?),
         ["update"] => update::self_update(&Dirs::from_env()?),
         ["update", "--timeways-only"] => update::timeways_only(&Dirs::from_env()?),
         ["check-agent", name] => {

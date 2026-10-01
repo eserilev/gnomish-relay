@@ -47,9 +47,14 @@ fn hide_secrets(line: &str) -> String {
     words.join(" ")
 }
 
-fn hidden_word(word: &str) -> String {
+/// A word that starts like a known token, also after a quote.
+pub fn looks_like_token(word: &str) -> bool {
     let bare = word.trim_start_matches(['"', '\'']);
-    if TOKEN_STARTS.iter().any(|start| bare.starts_with(start)) {
+    TOKEN_STARTS.iter().any(|start| bare.starts_with(start))
+}
+
+fn hidden_word(word: &str) -> String {
+    if looks_like_token(word) {
         return HIDDEN.to_owned();
     }
     let Some((name, _)) = word.split_once('=') else {
@@ -76,7 +81,7 @@ fn is_variable_name(name: &str) -> bool {
         && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
-fn has_secret_name(name: &str) -> bool {
+pub fn has_secret_name(name: &str) -> bool {
     let lower = name.to_ascii_lowercase();
     SECRET_NAMES.iter().any(|secret| lower.contains(secret))
 }
