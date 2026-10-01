@@ -154,10 +154,28 @@ fn at_auto_edit_with_no_game_a_command_is_declined_and_a_change_in_the_folder_ru
     );
 }
 
+/// Codex retries an allowed command outside its sandbox, so "It stays in the sandbox"
+/// would be false for it. A Codex job at full-auto works as auto-edit (SPEC.md 9.3).
 #[test]
-fn at_full_auto_each_approval_is_accepted_once() {
+fn codex_at_full_auto_works_as_auto_edit_and_a_command_still_needs_the_game() {
     let reply = run(&agent("approval"), Permission::FullAuto).unwrap();
-    assert_eq!(reply, "command accept, change accept");
+    assert_eq!(
+        reply,
+        "command decline, change accept\n\nNot allowed from the game: clean the build"
+    );
+}
+
+#[test]
+fn codex_at_full_auto_still_asks_the_game_for_a_command() {
+    let (reply, events) =
+        run_with_game(&agent("approval"), Permission::FullAuto, |_| Some(Some(0)));
+
+    assert_eq!(reply.unwrap(), "command accept, change accept");
+    let questions = events
+        .iter()
+        .filter(|e| matches!(e, Event::Question(_)))
+        .count();
+    assert_eq!(questions, 1);
 }
 
 #[test]

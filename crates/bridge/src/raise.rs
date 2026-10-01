@@ -73,24 +73,18 @@ pub enum Commands {
     NoQuestion,
 }
 
-/// Fixed text and the name of the agent from the config, never text from the game.
+/// Fixed text and the name of the agent from the config, never text from the game. A
+/// raise goes up to `auto-edit` only: full-auto is for one chat (SPEC.md 9.3).
 pub fn raise_text(agent: &str, level: Permission, commands: Commands) -> String {
     let word = level.word();
-    match (level, commands) {
-        (Permission::AutoEdit, Commands::NoQuestion) => format!(
+    match commands {
+        Commands::NoQuestion => format!(
             "A chat from WoW asks for more access. Allow {agent} to edit files in the chat \
              folder AND run its own commands without asking, in every chat from WoW? It \
              runs them inside the sandbox. This writes permission = \"{word}\" to \
              config.toml. Approve only if you just sent a message from WoW."
         ),
-        (Permission::FullAuto, _) => format!(
-            "A chat from WoW asks for full access. Allow {agent} to edit files AND run \
-             commands without asking, in every chat from WoW? Any addon that can send a \
-             chat message can then run code on this computer, inside the sandbox. The \
-             Gnomish Relay addon never asks for this by itself. This writes \
-             permission = \"{word}\" to config.toml."
-        ),
-        (Permission::AutoEdit | Permission::Ask, _) => format!(
+        Commands::Ask => format!(
             "A chat from WoW asks for more access. Allow {agent} to edit files in the chat \
              folder without asking, in every chat from WoW? Claude Code also runs commands \
              inside the sandbox without asking. Risky commands still ask in the game. This \
@@ -392,10 +386,7 @@ mod tests {
     }
 
     #[test]
-    fn full_auto_gets_a_stronger_warning() {
-        let text = raise_text("claude", Permission::FullAuto, Commands::Ask);
-        assert!(text.contains("run commands without asking"), "{text}");
-        assert!(text.contains("never asks for this by itself"), "{text}");
+    fn a_raise_of_a_command_agent_says_that_its_commands_never_ask() {
         let text = raise_text("claude", Permission::AutoEdit, Commands::Ask);
         assert!(
             text.contains("Risky commands still ask in the game."),

@@ -889,6 +889,31 @@ fn a_denied_raise_keeps_the_config_and_the_run_goes_on_at_its_level() {
 }
 
 #[test]
+fn a_chat_at_full_auto_raises_the_config_to_auto_edit_only() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let (mut bridge, config) = raising_bridge(&f, &approvals);
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_raises(&approvals, Verdict::Approve, stop.clone());
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "level=full-auto", "edit it"),
+    )
+    .unwrap();
+
+    let done = step_until(&mut bridge, || slot_body(&f.addons).contains("ran at"));
+    stop.store(true, Ordering::SeqCst);
+    assert!(done);
+    assert_eq!(answering.join().unwrap(), 1);
+    assert!(slot_body(&f.addons).contains("ran at auto-edit"));
+    assert!(
+        fs::read_to_string(config)
+            .unwrap()
+            .contains("permission = \"auto-edit\"")
+    );
+}
+
+#[test]
 fn two_chats_that_ask_for_more_at_once_get_one_dialog() {
     let f = folders();
     let approvals = Approvals::new(&f.state, Prompt::Off);

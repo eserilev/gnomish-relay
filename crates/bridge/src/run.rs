@@ -720,6 +720,11 @@ impl RelayLane {
     }
 
     fn start_run(&mut self, job: Job) {
+        // A message saved by an older bridge can hold full-auto from the config.
+        let job = Job {
+            permission: job.permission.min(Permission::AutoEdit),
+            ..job
+        };
         log(&format!(
             "run {} #{} with {} at {:?}",
             job.chat, job.id.0, job.agent, job.permission
@@ -859,14 +864,14 @@ impl RelayLane {
     /// user never approves a change that the bridge cannot write.
     fn raise_for(&mut self, job: &Job) -> Option<(Raiser, Permission)> {
         let raiser = self.raiser.as_ref()?;
-        if job.work != Work::Prompt || job.permission >= job.asked {
+        if job.work != Work::Prompt || !job.lowered_by_config() {
             return None;
         }
         if !self.raises.may_ask(&job.agent, Instant::now()) {
             log(&format!("raise {}: no dialog now", job.agent));
             return None;
         }
-        if let Err(e) = raiser.can_raise(&job.agent, job.asked) {
+        if let Err(e) = raiser.can_raise(&job.agent, job.asked_of_config()) {
             log(&format!(
                 "raise {}: config.toml cannot change: {e:#}",
                 job.agent
@@ -876,7 +881,7 @@ impl RelayLane {
             return None;
         }
         self.raises.asked();
-        Some((raiser.clone(), job.asked))
+        Some((raiser.clone(), job.asked_of_config()))
     }
 
     fn start_list(&self, job: Job) {

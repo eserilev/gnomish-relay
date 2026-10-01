@@ -62,7 +62,10 @@ impl Permission {
                 "Agents edit files and run commands in the sandbox on their own, and ask you \
                  before anything risky."
             }
-            Permission::FullAuto => "Agents edit files and run commands on their own.",
+            Permission::FullAuto => {
+                "Same as auto-edit. To let a chat run anything without asking, pick \
+                 full-auto for that chat in the game."
+            }
         }
     }
 
@@ -82,14 +85,16 @@ impl Permission {
         }
     }
 
-    /// The game can lower the level of the config, never raise it (S6).
+    /// The game can lower the level of the config, never raise it (S6). The config gives
+    /// at most `auto-edit`: only a desktop Approve for one chat gives full-auto (SPEC.md 9.3).
     #[must_use]
     pub fn ceiling(self, requested: Option<Permission>) -> Permission {
+        let config = self.min(Permission::AutoEdit);
         match requested {
             Some(requested) => {
-                Permission::from_level(effective_level(self.level(), requested.level()))
+                Permission::from_level(effective_level(config.level(), requested.level()))
             }
-            None => self,
+            None => config,
         }
     }
 }
@@ -1682,6 +1687,15 @@ mod tests {
         assert_eq!(edit.ceiling(Some(ask)), ask);
         assert_eq!(edit.ceiling(None), edit);
         assert_eq!(Permission::from_game("root"), ask);
+    }
+
+    #[test]
+    fn full_auto_in_the_config_counts_as_auto_edit() {
+        let full = Permission::FullAuto;
+
+        assert_eq!(full.ceiling(Some(full)), Permission::AutoEdit);
+        assert_eq!(full.ceiling(None), Permission::AutoEdit);
+        assert_eq!(full.ceiling(Some(Permission::Ask)), Permission::Ask);
     }
 
     #[cfg(unix)]

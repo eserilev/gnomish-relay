@@ -153,6 +153,20 @@ pub fn policy(roots: &[PathBuf], chat: &Path, deny: &[PathBuf], allow: &[Vec<Str
     }
 }
 
+/// The walls of the sandbox for the file tools at `full-auto` (SPEC.md 9.3). Every
+/// path is in the one root `/`, and no write pattern applies, so `desktop` means a secret
+/// path, a write outside the chat folder, or a path that does not resolve.
+pub fn wall_policy(chat: &Path, deny: &[PathBuf]) -> Policy {
+    Policy {
+        roots: vec![b"/".to_vec()],
+        chat: resolved_bytes(chat),
+        deny_folders: deny.iter().map(|d| resolved_bytes(d)).collect(),
+        desktop_paths: patterns(DESKTOP_PATHS),
+        desktop_writes: Vec::new(),
+        allow: Vec::new(),
+    }
+}
+
 /// A path that does not resolve keeps its text. The classifier then answers `desktop`
 /// unless the text is a clean path inside the folders.
 fn call_path(path: &Path) -> Vec<u8> {

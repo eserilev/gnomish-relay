@@ -182,6 +182,16 @@ impl Job {
     pub fn resume_id(&self) -> Option<&str> {
         self.resume.as_ref().map(SessionId::as_str)
     }
+
+    /// The most that the config can give the chat. Only a desktop Approve for the chat
+    /// gives full-auto (SPEC.md 9.3).
+    pub fn asked_of_config(&self) -> Permission {
+        self.asked.min(Permission::AutoEdit)
+    }
+
+    pub fn lowered_by_config(&self) -> bool {
+        self.permission < self.asked_of_config()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -894,7 +904,7 @@ impl Relay {
     /// The first progress line of a run says its level, so the game shows the level
     /// that applies, not the one that the chat asked for (SPEC.md 9.3).
     pub fn begin(&mut self, job: &Job) {
-        self.show_level(&job.chat, job.id, job.permission, job.asked);
+        self.show_level(&job.chat, job.id, job.permission, job.asked_of_config());
     }
 
     pub fn show_level(
@@ -1296,7 +1306,7 @@ impl Relay {
 
 /// The addon cannot tell this note from agent text, so it is for the player only.
 fn with_level_note(job: &Job, text: String) -> String {
-    if job.work != Work::Prompt || job.permission >= job.asked {
+    if job.work != Work::Prompt || !job.lowered_by_config() {
         return text;
     }
     let level = job.permission.word();
@@ -1856,6 +1866,19 @@ mod tests {
         let job = relay.next_job().unwrap();
         relay.begin(&job);
         let live = String::from_utf8(relay.live_file(&no_notices())).unwrap();
+        assert!(live.contains(r#"lines = {"Level: auto-edit", }"#), "{live}");
+        relay.finish(&job, Ok("done".into()));
+        assert!(!body(&relay).contains("Ran at"));
+    }
+
+    #[test]
+    fn a_full_auto_chat_with_no_approval_runs_at_auto_edit_with_no_config_note() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "level=full-auto", "hi")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.begin(&job);
+        let live = String::from_utf8(relay.live_file(&no_notices())).unwrap();
+        assert_eq!(job.permission, Permission::AutoEdit);
         assert!(live.contains(r#"lines = {"Level: auto-edit", }"#), "{live}");
         relay.finish(&job, Ok("done".into()));
         assert!(!body(&relay).contains("Ran at"));
