@@ -60,6 +60,7 @@ local function MarkSelected(chatId)
 		-- A search finds text in one chat, so another chat closes it.
 		if chat ~= Selected() then
 			ns.Search.Close()
+			ns.InputHistory.Reset()
 		end
 		ns.Store.db.selected = chat.id
 		chat.unread = nil
@@ -550,6 +551,7 @@ function Window.Send(text)
 		UIErrorsFrame:AddMessage("Too long to send. Try a shorter message.", 1, 0.1, 0.1)
 		return false
 	end
+	ns.InputHistory.Reset()
 	Window.Refresh()
 	return true
 end
@@ -630,6 +632,23 @@ local function RefreshInputHelp()
 		ui.count:SetText(string.format("%d left", left))
 	end
 	RefreshInputRow()
+end
+
+local function RecallMessage(input, key)
+	local chat = Selected()
+	if not chat then
+		return
+	end
+	local text
+	if key == "UP" then
+		text = ns.InputHistory.Older(chat, input:GetText() or "")
+	elseif key == "DOWN" then
+		text = ns.InputHistory.Newer(chat)
+	end
+	if text then
+		input:SetText(text)
+		input:SetCursorPosition(#text)
+	end
 end
 
 local function BuildInputHelp()
@@ -720,6 +739,9 @@ local function BuildCenter()
 	ui.input:SetScript("OnEscapePressed", function(self)
 		self:ClearFocus()
 	end)
+	-- In Alt arrow mode, OnArrowPressed gets the arrows only with Alt held.
+	ui.input:SetAltArrowKeyMode(false)
+	ui.input:SetScript("OnArrowPressed", RecallMessage)
 	BuildInputHelp()
 end
 

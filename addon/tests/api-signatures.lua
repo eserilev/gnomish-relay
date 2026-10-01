@@ -338,6 +338,12 @@ return {
 				{ Name = "stop", Type = "number", Nilable = false, Default = -1 },
 			},
 		},
+		["SimpleEditBoxAPI:SetAltArrowKeyMode"] = {
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "altMode", Type = "bool", Nilable = false, Default = false },
+			},
+		},
 		["SimpleEditBoxAPI:SetAutoFocus"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {
