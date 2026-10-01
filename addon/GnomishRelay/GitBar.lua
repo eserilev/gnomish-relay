@@ -57,6 +57,8 @@ local function ShowBranch(branch)
 	ui.branch:SetText(string.format("|cff%s%s|r", GREY, branch.name))
 	ui.branch:ClearAllPoints()
 	ui.branch:SetPoint("RIGHT", own and ui.merge or ui.checks, "LEFT", -8, 0)
+	-- A long name gets cut with "..." at the left edge of the transcript.
+	ui.branch:SetPoint("LEFT", ui.parent, "TOPLEFT", ui.left, ui.y - 10)
 end
 
 -- The branch of the chat comes from the last reply with a branch block.
@@ -143,6 +145,7 @@ end
 -- The header of a chat has Pinned and Search at its right end, so the bar takes the row
 -- above the header, `right` in from the right edge and `y` down from the top.
 function GitBar.Build(parent, right, y)
+	ui.parent, ui.left, ui.y = parent, right, y
 	BuildBox(parent, right, y)
 	ui.checks = Button(parent, "GnomishRelayGitChecks", "Checks", function()
 		Send("checks")
@@ -155,6 +158,7 @@ function GitBar.Build(parent, right, y)
 	end)
 	ui.merge:SetPoint("RIGHT", ui.discard, "LEFT", -4, 0)
 	ui.branch = parent:CreateFontString("GnomishRelayGitBranch", "OVERLAY", "GameFontHighlightSmall")
-	ui.branch:SetPoint("RIGHT", ui.merge, "LEFT", -8, 0)
+	ui.branch:SetJustifyH("RIGHT")
+	ui.branch:SetWordWrap(false)
 	ui.branch:Hide()
 end

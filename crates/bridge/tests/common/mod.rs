@@ -311,3 +311,32 @@ pub fn step_until_within(bridge: &mut Bridge, limit: Duration, done: impl Fn() -
     }
     false
 }
+
+/// WoW cuts a text with "..." only with no word wrap and a width: its own, or from a left
+/// and a right edge.
+pub fn is_cut(text: &Table) -> bool {
+    let anchors: Option<Table> = text.get("anchors").unwrap();
+    let has_edge = |points: [&str; 3]| {
+        anchors
+            .as_ref()
+            .is_some_and(|a| points.iter().any(|p| a.contains_key(*p).unwrap()))
+    };
+    let both_edges = has_edge(["LEFT", "TOPLEFT", "BOTTOMLEFT"])
+        && has_edge(["RIGHT", "TOPRIGHT", "BOTTOMRIGHT"]);
+    let width = text.get::<Option<f64>>("width").unwrap().unwrap_or(0.0);
+    let no_wrap = text.get::<Option<bool>>("wordWrap").unwrap() == Some(false);
+    no_wrap && (width > 0.0 || both_edges)
+}
+
+/// The font string of the fake game that shows `shown`.
+pub fn font_string_with(wow: &Table, shown: &str) -> Table {
+    let frames: Table = wow.get("frames").unwrap();
+    frames
+        .sequence_values::<Table>()
+        .map(Result::unwrap)
+        .find(|f| {
+            f.get::<String>("kind").unwrap() == "FontString"
+                && f.get::<Option<String>>("text").unwrap().as_deref() == Some(shown)
+        })
+        .unwrap_or_else(|| panic!("no text {shown:?}"))
+}

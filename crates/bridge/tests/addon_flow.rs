@@ -16,8 +16,8 @@ use bridge::relay::{Folders, Relay};
 use bridge::settings_list::{BridgeSettings, StorySettings, settings_reply};
 use bridge::strip::{self, Image};
 use common::{
-    fake_game_for, fire, game_lua_for, load_into, lua_value, measured, repo_file, screenshot_png,
-    start_addon,
+    fake_game_for, fire, font_string_with, game_lua_for, is_cut, load_into, lua_value, measured,
+    repo_file, screenshot_png, start_addon,
 };
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
@@ -1824,6 +1824,39 @@ fn a_chat_that_waits_for_a_popup_answer_says_so_in_activity_and_on_its_tile() {
 
     click_popup(&game, 1);
     assert_eq!(tile_mark(&game), "...");
+}
+
+#[test]
+fn every_text_of_a_chat_card_is_cut_at_the_card_edge() {
+    let game = Game::start();
+    game.send("hi");
+    game.run(
+        "GnomishRelayDB.chats[1].name = 'Multi-agent code review system' \
+         local ns = ... ns.Window.Open() ns.Window.Refresh()",
+    );
+
+    let name = game.run("return GnomishRelayTile1.name");
+    let agent = game.run("return GnomishRelayTile1.agent");
+
+    assert!(is_cut(name.as_table().unwrap()));
+    assert!(is_cut(agent.as_table().unwrap()));
+}
+
+#[test]
+fn the_agent_and_permissions_in_the_chat_header_are_cut_before_the_folder() {
+    let game = Game::start();
+    game.send("hi");
+    game.run("local ns = ... ns.Window.Open() ns.Window.Refresh()");
+
+    let shown = game
+        .run(
+            "local ns = ... local chat = GnomishRelayDB.chats[1] \
+             return ns.Relay.AgentName(chat.agent) .. ' · ' .. (chat.level or chat.mode)",
+        )
+        .as_string_lossy()
+        .unwrap();
+
+    assert!(is_cut(&font_string_with(&game.wow, &shown)));
 }
 
 fn tile_mark(game: &Game) -> String {
