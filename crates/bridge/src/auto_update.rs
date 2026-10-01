@@ -354,6 +354,7 @@ mod tests {
         assert_eq!(d.parts.wanted(), Wanted::default());
     }
 
+    #[cfg(unix)]
     fn updater_with_marker(d: &Disk) -> (AutoUpdater, PathBuf) {
         let program = d.parts.data.join("fake-gnomish-relay");
         let marker = d.parts.data.join("started");
@@ -362,6 +363,7 @@ mod tests {
         (AutoUpdater::new(d.parts.clone(), program), marker)
     }
 
+    #[cfg(unix)]
     fn wait_for(file: &Path) -> Option<String> {
         for _ in 0..200 {
             if let Ok(text) = fs::read_to_string(file) {
