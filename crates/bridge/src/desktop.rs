@@ -9,10 +9,11 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use protocol::live::MAX_LINE;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Permission;
-use crate::dialog::{self, Dialog, Shown, Tool, show_notice};
+use crate::dialog::{self, Button, CloseReason, Dialog, Ended, Shown, Tool, show_notice};
 use crate::fs_safe::check_real_dir;
 use crate::ids::random_hex;
 use crate::run::log;
@@ -96,21 +97,76 @@ impl Kind {
     }
 }
 
-/// One log line for each request. The popup text stays out: it holds the raw command and
-/// the words of the agent (SPEC.md 6.6.3, "The log of requests").
+/// The command of a request in the log, so the user can see what was asked.
+const LOG_COMMAND: usize = 300;
+const CUT_MARK: &str = "...";
+
+/// The first line of `text` with no control characters, cut to `max` bytes at a
+/// character boundary. A cut text ends with "...".
+pub fn first_line_cut(text: &str, max: usize) -> String {
+    let line: String = text
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    if line.len() <= max {
+        return line;
+    }
+    let mut end = max.saturating_sub(CUT_MARK.len());
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{CUT_MARK}", &line[..end])
+}
+
+/// One log line for each request. For a tool call it ends with the first line of the
+/// popup text: the command, but not the words of the agent (SPEC.md 6.6.3, "The log of
+/// requests").
 fn request_line(pending: &Pending, summary: &str) -> String {
     let asks = if summary.is_empty() {
         String::new()
     } else {
         format!(": {summary}")
     };
-    format!(
+    let line = format!(
         "desktop request {id} ({kind}): {agent} in {folder}{asks}. To approve, run gnomish-relay approve {id}",
         id = pending.id,
         kind = pending.kind.word(),
         agent = pending.agent,
         folder = pending.folder,
-    )
+    );
+    let command = first_line_cut(&pending.text, LOG_COMMAND);
+    if pending.kind != Kind::ToolCall || command.is_empty() {
+        return line;
+    }
+    format!("{line}. Wants to: {command}")
+}
+
+/// How one dialog of a request ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Watched {
+    Answered(Verdict),
+    /// Closed with no button press. The request still waits.
+    NoAnswer(Option<CloseReason>),
+    /// Another answer, Stop, a new message, or the timeout ended the request first.
+    Ended,
+    /// The program of the dialog did not start.
+    NotShown,
+}
+
+fn watched_line(id: &str, watched: Watched) -> String {
+    let how = match watched {
+        Watched::Answered(verdict) => format!("{verdict:?} in the dialog"),
+        Watched::NoAnswer(reason) => format!(
+            "the dialog closed with no answer ({}). The request still waits",
+            reason.map_or("reason unknown", CloseReason::words)
+        ),
+        Watched::Ended => "the request ended before the dialog answered".to_owned(),
+        Watched::NotShown => "the dialog did not start".to_owned(),
+    };
+    format!("desktop request {id}: {how}")
 }
 
 /// An answer from the desktop.
@@ -142,6 +198,8 @@ pub enum Prompted {
 pub struct Opened {
     pub id: String,
     pub prompted: Prompted,
+    /// What the game shows of the request: see `game_text`.
+    pub asks: String,
 }
 
 /// Where a desktop request of a run stands.
@@ -161,6 +219,8 @@ pub struct Notice {
     pub prompted: Prompted,
     pub waiting: Waiting,
     pub topic: Topic,
+    /// The text of the `Desktop: asks` line. Empty for no line.
+    pub asks: String,
 }
 
 /// What a desktop request of a run asks for, as the game shows it.
@@ -176,6 +236,19 @@ pub enum Topic {
 
 /// Only the bridge writes a progress line with this start.
 pub const NOTICE: &str = "Desktop: ";
+/// The second line of a desktop request. It starts with `NOTICE`, so no agent line can.
+const ASKS: &str = "Desktop: asks ";
+
+/// What the game shows of a request, so that `Desktop: asks <text>` fits one progress
+/// line. A raise and a full-auto request have none: the whisper line names the level.
+fn game_text(pending: &Pending) -> String {
+    let text = match pending.kind {
+        Kind::ToolCall | Kind::Merge => &pending.text,
+        Kind::Folder => &pending.folder,
+        Kind::Raise | Kind::FullAuto => return String::new(),
+    };
+    first_line_cut(text, MAX_LINE - ASKS.len())
+}
 
 impl Notice {
     /// For example `Desktop: wait a1b2c3d4e5f6 dialog raise auto-edit`. The id comes
@@ -197,6 +270,15 @@ impl Notice {
             Topic::Raise(level) => format!("{line} raise {}", level.word()),
             Topic::Folder => format!("{line} folder"),
         }
+    }
+
+    /// The notice line, and the `Desktop: asks` line when the request has a text.
+    pub fn lines(&self) -> Vec<String> {
+        let mut lines = vec![self.line()];
+        if !self.asks.is_empty() {
+            lines.push(format!("{ASKS}{}", self.asks));
+        }
+        lines
     }
 
     #[must_use]
@@ -346,6 +428,7 @@ impl Approvals {
             wait_minutes: self.wait.as_secs().div_ceil(60),
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
+        let asks = game_text(&pending);
         let span = crate::logging::request_span(&id, kind.word());
         span.in_scope(|| log(&request_line(&pending, summary)));
         let tool = match self.prompt {
@@ -361,7 +444,7 @@ impl Approvals {
             let approvals = self.clone();
             std::thread::spawn(move || span.in_scope(|| approvals.ask_the_desktop(&pending, tool)));
         }
-        Ok(Opened { id, prompted })
+        Ok(Opened { id, prompted, asks })
     }
 
     /// With no dialog tool, a plain notice names the command that answers.
@@ -375,33 +458,61 @@ impl Approvals {
             ));
             return;
         };
-        log(&format!("desktop request {}: dialog {tool:?}", pending.id));
-        let answer = self.watch(&pending.id, &dialog::dialog(tool, &text));
-        log(&format!(
-            "desktop request {}: {answer:?} in the dialog",
-            pending.id
-        ));
+        let mut dialogs = vec![dialog::dialog(tool, &text)];
+        dialogs.extend(dialog::find_next_tool(tool).map(|next| dialog::dialog(next, &text)));
+        self.ask_in_turn(&pending.id, &dialogs);
     }
 
-    /// Shows `dialog` until it answers, or until the request no longer waits: an
-    /// answer from the command line, Stop, or the timeout. Returns the
-    /// answer of the dialog when it counted.
-    pub fn watch(&self, id: &str, dialog: &Dialog) -> Option<Verdict> {
-        let mut shown = Shown::start(dialog)?;
+    /// Shows the dialogs one after the other while each closes with no answer. After
+    /// the last one, only the command line and the game line ask (SPEC.md 6.6.3).
+    pub fn ask_in_turn(&self, id: &str, dialogs: &[Dialog]) -> Watched {
+        let mut watched = Watched::NotShown;
+        for dialog in dialogs {
+            if !self.is_waiting(id) {
+                return Watched::Ended;
+            }
+            log(&format!("desktop request {id}: dialog {:?}", dialog.tool));
+            watched = self.watch(id, dialog);
+            log(&watched_line(id, watched));
+            if !matches!(watched, Watched::NoAnswer(_)) {
+                return watched;
+            }
+        }
+        log(&format!(
+            "desktop request {id}: no more dialogs. To approve, run gnomish-relay approve {id}"
+        ));
+        watched
+    }
+
+    /// Shows `dialog` until it ends, or until the request no longer waits: an
+    /// answer from the command line, Stop, or the timeout.
+    pub fn watch(&self, id: &str, dialog: &Dialog) -> Watched {
+        let Some(mut shown) = Shown::start(dialog) else {
+            return Watched::NotShown;
+        };
         loop {
-            if let Some(approve) = shown.answer() {
-                let verdict = if approve {
-                    Verdict::Approve
-                } else {
-                    Verdict::Deny
-                };
-                return self.answer(id, verdict).ok().map(|()| verdict);
+            match shown.ended() {
+                Some(Ended::Pressed(button)) => return self.pressed(id, button),
+                Some(Ended::NoButton) => return Watched::NoAnswer(shown.close_reason()),
+                None => {}
             }
             if !self.is_waiting(id) {
                 shown.stop();
-                return None;
+                return Watched::Ended;
             }
             std::thread::sleep(POLL);
+        }
+    }
+
+    /// A press counts only while the request waits: the first answer wins.
+    fn pressed(&self, id: &str, button: Button) -> Watched {
+        let verdict = match button {
+            Button::Approve => Verdict::Approve,
+            Button::Deny => Verdict::Deny,
+        };
+        match self.answer(id, verdict) {
+            Ok(()) => Watched::Answered(verdict),
+            Err(_) => Watched::Ended,
         }
     }
 
@@ -519,7 +630,7 @@ mod tests {
     }
 
     #[test]
-    fn the_log_line_of_a_request_has_its_kind_and_summary_and_no_popup_text() {
+    fn the_log_line_of_a_request_has_its_kind_its_summary_and_its_command() {
         let (_data, approvals) = approvals();
         let text = "cat ~/.ssh/id_rsa\nthe agent says: Bash: read the secret";
         approvals
@@ -533,10 +644,35 @@ mod tests {
             line,
             format!(
                 "desktop request {id} (tool call): claude in /w/app: command cat. \
-                 To approve, run gnomish-relay approve {id}",
+                 To approve, run gnomish-relay approve {id}. Wants to: cat ~/.ssh/id_rsa",
                 id = pending.id
             )
         );
+    }
+
+    #[test]
+    fn the_log_line_cuts_a_long_command_and_drops_control_characters() {
+        let (_data, approvals) = approvals();
+        let text = format!("echo \u{1b}[2J{}\nthe agent says: x", "é".repeat(400));
+        approvals
+            .open("claude", "/w", &text, "command echo", 7)
+            .unwrap();
+        let pending = approvals.list().remove(0);
+
+        let line = request_line(&pending, "command echo");
+
+        let (_, command) = line.split_once(". Wants to: ").unwrap();
+        assert!(command.starts_with("echo [2Jé"), "{command}");
+        assert!(command.ends_with("é..."), "{command}");
+        assert!(command.len() <= 300, "{}", command.len());
+        assert!(!line.contains("the agent says"), "{line}");
+    }
+
+    #[test]
+    fn a_short_first_line_stays_whole() {
+        assert_eq!(first_line_cut("ls -la\nthe agent says: x", 300), "ls -la");
+        assert_eq!(first_line_cut("", 300), "");
+        assert_eq!(first_line_cut("abcdef", 5), "ab...");
     }
 
     #[test]
@@ -617,6 +753,20 @@ mod tests {
             program: "sh".into(),
             args: vec!["-c".into(), script.into()],
             env: Vec::new(),
+            close_watch: None,
+        }
+    }
+
+    /// A fake `gdbus monitor` that prints the close of notice 7 with `reason`.
+    #[cfg(unix)]
+    fn closes_notice_7(reason: u32) -> dialog::CloseWatch {
+        let line = format!(
+            "/org/freedesktop/Notifications: org.freedesktop.Notifications.NotificationClosed \
+             (uint32 7, uint32 {reason})"
+        );
+        dialog::CloseWatch {
+            program: "sh".into(),
+            args: vec!["-c".into(), format!("echo '{line}'; sleep 30")],
         }
     }
 
@@ -625,18 +775,118 @@ mod tests {
     fn a_click_on_approve_in_the_dialog_answers_the_request() {
         let (_data, approvals) = approvals();
         let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
-        let answer = approvals.watch(&id, &fake("echo approve"));
-        assert_eq!(answer, Some(Verdict::Approve));
+        let answer = approvals.watch(&id, &fake("echo 7; echo approve"));
+        assert_eq!(answer, Watched::Answered(Verdict::Approve));
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Approve));
     }
 
     #[cfg(unix)]
     #[test]
-    fn a_dismissed_dialog_denies() {
+    fn a_click_on_deny_in_the_dialog_denies() {
         let (_data, approvals) = approvals();
         let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
-        assert_eq!(approvals.watch(&id, &fake("exit 0")), Some(Verdict::Deny));
+        let answer = approvals.watch(&id, &fake("echo 7; echo deny"));
+        assert_eq!(answer, Watched::Answered(Verdict::Deny));
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Deny));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_dismissed_dialog_leaves_the_request_waiting() {
+        let (_data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
+
+        let watched = approvals.watch(&id, &fake("echo 7"));
+
+        assert_eq!(watched, Watched::NoAnswer(None));
+        assert_eq!(approvals.answer_of(&id), None);
+        assert_eq!(approvals.list().len(), 1, "the request still waits");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_closed_notice_gives_the_reason_from_the_notice_server() {
+        let (_data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
+        let dismissed = Dialog {
+            close_watch: Some(closes_notice_7(2)),
+            ..fake("sleep 0.2; echo 7")
+        };
+        let expired = Dialog {
+            close_watch: Some(closes_notice_7(1)),
+            ..fake("sleep 0.2; echo 7")
+        };
+
+        let first = approvals.watch(&id, &dismissed);
+        let second = approvals.watch(&id, &expired);
+
+        assert_eq!(first, Watched::NoAnswer(Some(CloseReason::Dismissed)));
+        assert_eq!(second, Watched::NoAnswer(Some(CloseReason::Expired)));
+        assert_eq!(approvals.answer_of(&id), None);
+    }
+
+    #[test]
+    fn the_log_line_of_a_closed_dialog_says_that_the_request_still_waits() {
+        let line = watched_line(
+            "a1b2c3d4e5f6",
+            Watched::NoAnswer(Some(CloseReason::Dismissed)),
+        );
+        let unknown = watched_line("a1b2c3d4e5f6", Watched::NoAnswer(None));
+        let approved = watched_line("a1b2c3d4e5f6", Watched::Answered(Verdict::Approve));
+
+        assert_eq!(
+            line,
+            "desktop request a1b2c3d4e5f6: the dialog closed with no answer \
+             (dismissed by the user). The request still waits"
+        );
+        assert!(unknown.contains("(reason unknown)"), "{unknown}");
+        assert_eq!(
+            approved,
+            "desktop request a1b2c3d4e5f6: Approve in the dialog"
+        );
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn after_a_closed_dialog_the_next_dialog_asks() {
+        let (_data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
+
+        let watched = approvals.ask_in_turn(&id, &[fake("echo 7"), fake("echo approve")]);
+
+        assert_eq!(watched, Watched::Answered(Verdict::Approve));
+        assert_eq!(approvals.answer_of(&id), Some(Verdict::Approve));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn after_the_last_closed_dialog_no_dialog_asks_and_the_request_waits() {
+        let (data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
+        let shown = data.path().join("shown");
+        let count = format!("echo x >> '{}'", shown.display());
+
+        let watched = approvals.ask_in_turn(&id, &[fake(&count), fake(&count)]);
+
+        assert_eq!(watched, Watched::NoAnswer(None));
+        assert_eq!(fs::read_to_string(&shown).unwrap(), "x\nx\n");
+        assert_eq!(approvals.answer_of(&id), None);
+        assert_eq!(approvals.list().len(), 1, "the request still waits");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn an_answer_from_the_command_line_shows_no_more_dialogs() {
+        let (data, approvals) = approvals();
+        let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
+        let shown = data.path().join("shown");
+        approvals.answer(&id, Verdict::Approve).unwrap();
+
+        let watched =
+            approvals.ask_in_turn(&id, &[fake(&format!("echo x >> '{}'", shown.display()))]);
+
+        assert_eq!(watched, Watched::Ended);
+        assert!(!shown.exists(), "no dialog after an answer");
     }
 
     #[cfg(unix)]
@@ -646,7 +896,10 @@ mod tests {
         let id = approvals.open("claude", "/w", "x", "", 1).unwrap().id;
         approvals.answer(&id, Verdict::Deny).unwrap();
         let started = std::time::Instant::now();
-        assert_eq!(approvals.watch(&id, &fake("sleep 30; echo approve")), None);
+        assert_eq!(
+            approvals.watch(&id, &fake("sleep 30; echo approve")),
+            Watched::Ended
+        );
         assert!(started.elapsed() < std::time::Duration::from_secs(10));
         assert_eq!(approvals.answer_of(&id), Some(Verdict::Deny));
     }
@@ -662,7 +915,10 @@ mod tests {
             std::thread::sleep(std::time::Duration::from_millis(300));
             closing.close(&closed);
         });
-        assert_eq!(approvals.watch(&id, &fake("sleep 30; echo approve")), None);
+        assert_eq!(
+            approvals.watch(&id, &fake("sleep 30; echo approve")),
+            Watched::Ended
+        );
         assert_eq!(approvals.answer_of(&id), None);
     }
 
@@ -674,12 +930,79 @@ mod tests {
     }
 
     #[test]
+    fn a_tool_call_tells_the_game_its_command_and_a_folder_request_its_folder() {
+        let (_data, approvals) = approvals();
+        let tool = approvals
+            .open("claude", "/w", "rm -rf build\nthe agent says: x", "", 1)
+            .unwrap();
+        let folder = approvals
+            .open_folder("claude", "/home/x/lighthouse", "Let agents work?", 1)
+            .unwrap();
+        let raise = approvals
+            .open_raise("claude", "/c/config.toml", "A chat asks", 1)
+            .unwrap();
+        let merge = approvals
+            .open_merge("/w", "A chat from WoW asks to merge x into main in /w.", 1)
+            .unwrap();
+
+        assert_eq!(tool.asks, "rm -rf build");
+        assert_eq!(folder.asks, "/home/x/lighthouse");
+        assert_eq!(raise.asks, "");
+        assert_eq!(
+            merge.asks,
+            "A chat from WoW asks to merge x into main in /w."
+        );
+    }
+
+    #[test]
+    fn the_asks_line_of_a_long_command_fits_one_progress_line() {
+        let (_data, approvals) = approvals();
+        let command = format!("echo {}\u{7}", "a".repeat(400));
+
+        let opened = approvals.open("claude", "/w", &command, "", 1).unwrap();
+        let notice = Notice {
+            id: opened.id,
+            prompted: opened.prompted,
+            waiting: Waiting::Open,
+            topic: Topic::Action,
+            asks: opened.asks,
+        };
+
+        let lines = notice.lines();
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[1].starts_with("Desktop: asks echo aaa"),
+            "{}",
+            lines[1]
+        );
+        assert!(lines[1].ends_with("..."), "{}", lines[1]);
+        assert_eq!(lines[1].len(), MAX_LINE);
+    }
+
+    #[test]
+    fn a_notice_with_no_text_has_one_line() {
+        let notice = Notice {
+            id: "a1b2c3d4e5f6".into(),
+            prompted: Prompted::Dialog,
+            waiting: Waiting::Open,
+            topic: Topic::Raise(Permission::AutoEdit),
+            asks: String::new(),
+        };
+
+        assert_eq!(
+            notice.lines(),
+            ["Desktop: wait a1b2c3d4e5f6 dialog raise auto-edit"]
+        );
+    }
+
+    #[test]
     fn a_notice_line_holds_the_state_the_id_and_how_the_desktop_asks() {
         let notice = Notice {
             id: "a1b2c3d4e5f6".into(),
             prompted: Prompted::Dialog,
             waiting: Waiting::Open,
             topic: Topic::Action,
+            asks: String::new(),
         };
         assert_eq!(notice.line(), "Desktop: wait a1b2c3d4e5f6 dialog");
         let folder = Notice {
@@ -831,6 +1154,6 @@ mod tests {
         let tool = dialog::find_tool().expect("no dialog tool here");
         let pending = &approvals.list()[0];
         let answer = approvals.watch(&id, &dialog::dialog(tool, &dialog_text(pending)));
-        assert_eq!(answer, Some(Verdict::Approve));
+        assert_eq!(answer, Watched::Answered(Verdict::Approve));
     }
 }

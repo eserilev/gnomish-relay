@@ -33,6 +33,8 @@ local DESKTOP_STATES = {
 local DESKTOP_HOW = { dialog = true, command = true }
 -- A folder under no root waits for one click on the desktop (SPEC.md 9.12).
 local FOLDER_WAIT = "Approve this folder on your desktop"
+-- The line right after the desktop line: what the request is for.
+local ASKS = "Desktop: asks "
 -- The bridge writes this line as the only line of a message that waits for other chats,
 -- and no agent line can start with "Waiting:" (SPEC.md 8.2).
 local WAITING = "Waiting: "
@@ -404,6 +406,11 @@ local function ApplyDesktop(chat, working, lines)
 	working.desktop = notice
 	if not notice then
 		return
+	end
+	local asks = lines[at + 1]
+	if type(asks) == "string" and asks:sub(1, #ASKS) == ASKS then
+		notice.asks = asks:sub(#ASKS + 1)
+		table.remove(lines, at + 1)
 	end
 	if notice.folder and notice.state == "wait" then
 		lines[at] = FOLDER_WAIT

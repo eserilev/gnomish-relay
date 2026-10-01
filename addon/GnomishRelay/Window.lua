@@ -412,12 +412,13 @@ local function FitTranscript(bottom)
 end
 
 -- The search bar, the banner, and the byte counter share the row above the input. While
--- none of them shows, the transcript takes the row.
+-- none of them shows, the transcript takes the row. A desktop request sits above it.
 local function RefreshInputRow()
 	local chats = ui.tab == "chats" and not ui.picking
 	ns.Search.Show(chats)
 	local rowUsed = ns.Search.IsOpen() or ui.banner:IsShown() or ui.count:IsShown()
-	FitTranscript(rowUsed and LOG_BOTTOM_ROW or LOG_BOTTOM)
+	local bottom = rowUsed and LOG_BOTTOM_ROW or LOG_BOTTOM
+	FitTranscript(bottom + ns.DesktopRequest.Place(SIDE + 14, bottom))
 end
 
 local function RefreshChats(chat)
@@ -434,6 +435,7 @@ local function RefreshChats(chat)
 	end
 	RefreshActivity(not ui.picking and chat or nil)
 	RefreshStatus(not ui.picking and chat or nil)
+	ns.DesktopRequest.Refresh(not ui.picking and not browsing and chat or nil)
 	RefreshInputRow()
 	ui.pinned:SetShown(not ui.picking)
 	ui.searchButton:SetShown(not ui.picking)
@@ -457,6 +459,7 @@ function Window.Refresh()
 			part:Hide()
 		end
 		ns.Browser.Show(false)
+		ns.DesktopRequest.Refresh(nil)
 		RefreshInputRow()
 		ns.GitBar.Refresh(nil)
 	end
@@ -689,6 +692,7 @@ local function BuildCenter()
 	ns.Transcript.Build(log, TranscriptSize())
 	ns.Suggestions.Build(log, CenterWidth() - 16)
 	ns.GitBar.Build(frame, left, -34)
+	ns.DesktopRequest.Build(frame)
 
 	ui.picker = Inset(frame, left, -84, width, 16)
 	Stretch(ui.picker, left, -84)

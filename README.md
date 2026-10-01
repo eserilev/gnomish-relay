@@ -189,7 +189,8 @@ macOS). Other agents run at `auto-edit`. To turn full-auto off for every chat, a
 
 ### Answer a desktop request in a terminal
 
-If your computer shows no dialog, answer in a terminal:
+If your computer shows no dialog, or you closed it, answer in a terminal. The chat in WoW
+shows what the agent wants to do and the command to run, with a **Copy** button:
 
 ```sh
 gnomish-relay approve          # list the requests waiting for you
