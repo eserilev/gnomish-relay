@@ -1,15 +1,18 @@
 //! `gnomish-relay setup` (SPEC.md 11.3): find the game, make the strip key, write the
 //! key addons, and find the agents. The caller writes the config and the slots.
 
+use std::collections::VecDeque;
 use std::ffi::OsStr;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, bail};
 use protocol::apps::App;
 
 use crate::app_files::{key_addon_name, key_global};
 use crate::config::{Found, Kind};
+use crate::folder_walk::{Limits, is_repo, subfolders};
 use crate::fs_safe::{check_real_dir, make_private_dir, write_atomic_unsynced, write_private};
 use crate::ids::random_hex;
 use crate::wsl;
@@ -433,7 +436,7 @@ pub fn needs_login(error: &str) -> bool {
     error.contains("auth") || error.contains("login") || error.contains("log in")
 }
 
-/// The usual folders of code projects that hold at least one git repository. On
+/// The usual folders of code projects that hold a git repository a few levels down. On
 /// Windows and macOS, `code` and `Code` are one folder, so it is named once.
 pub fn suggest_roots(home: &Path) -> Vec<PathBuf> {
     const NAMES: [&str; 9] = [
@@ -447,19 +450,44 @@ pub fn suggest_roots(home: &Path) -> Vec<PathBuf> {
         "repos",
         "workspace",
     ];
-    NAMES
-        .iter()
-        .map(|name| home.join(name))
-        .filter(|dir| {
-            fs::read_dir(dir)
-                .is_ok_and(|entries| entries.flatten().any(|e| e.path().join(".git").exists()))
-        })
-        .fold(Vec::new(), |mut found: Vec<PathBuf>, dir| {
-            if !found.iter().any(|f| same_folder(f, &dir)) {
-                found.push(dir);
+    let mut found: Vec<PathBuf> = Vec::new();
+    for dir in NAMES.iter().map(|name| home.join(name)) {
+        let known = found.iter().any(|f| same_folder(f, &dir));
+        if !known && holds_repo(&dir, &REPO_SEARCH) {
+            found.push(dir);
+        }
+    }
+    found
+}
+
+/// Repos often sit in group folders, such as `~/Documents/Code/Personal/app`.
+const REPO_SEARCH: Limits = Limits {
+    depth: 3,
+    visits: 2000,
+    time: Duration::from_secs(1),
+};
+
+/// True when a git repository is at most `limits.depth` levels below `top`. The walk
+/// skips links and the folders that the folder browser skips, and stops at the first repo.
+fn holds_repo(top: &Path, limits: &Limits) -> bool {
+    let deadline = Instant::now() + limits.time;
+    let mut queue = VecDeque::from([(top.to_owned(), 0)]);
+    let mut visits = 0;
+    while let Some((dir, depth)) = queue.pop_front() {
+        if visits >= limits.visits || Instant::now() >= deadline {
+            return false;
+        }
+        visits += 1;
+        for below in subfolders(&dir) {
+            if is_repo(&below) {
+                return true;
             }
-            found
-        })
+            if depth + 1 < limits.depth {
+                queue.push_back((below, depth + 1));
+            }
+        }
+    }
+    false
 }
 
 #[cfg(unix)]
@@ -1046,6 +1074,50 @@ mod tests {
         fs::create_dir_all(home.path().join("code/lighthouse/.git")).unwrap();
         fs::create_dir_all(home.path().join("src/notes")).unwrap();
         assert_eq!(suggest_roots(home.path()), [home.path().join("code")]);
+    }
+
+    #[test]
+    fn a_repo_two_or_three_levels_below_documents_code_makes_it_a_suggested_root() {
+        for repo in [
+            "Documents/Code/Personal/gnomish-relay",
+            "Documents/Code/Ethereum/Consensus/lighthouse",
+        ] {
+            let home = tempfile::tempdir().unwrap();
+            fs::create_dir_all(home.path().join(repo).join(".git")).unwrap();
+
+            let found = suggest_roots(home.path());
+
+            assert_eq!(found, [home.path().join("Documents/Code")], "{repo}");
+        }
+    }
+
+    #[test]
+    fn a_repo_four_levels_below_a_code_folder_is_not_found() {
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("code/a/b/c/app/.git")).unwrap();
+
+        assert!(suggest_roots(home.path()).is_empty());
+    }
+
+    #[test]
+    fn a_repo_in_a_hidden_or_skipped_folder_does_not_count() {
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("code/.cache/app/.git")).unwrap();
+        fs::create_dir_all(home.path().join("code/web/node_modules/lib/.git")).unwrap();
+
+        assert!(suggest_roots(home.path()).is_empty());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn the_root_search_never_follows_a_link() {
+        let home = tempfile::tempdir().unwrap();
+        let elsewhere = home.path().join("elsewhere");
+        fs::create_dir_all(elsewhere.join("app/.git")).unwrap();
+        fs::create_dir_all(home.path().join("code")).unwrap();
+        std::os::unix::fs::symlink(elsewhere.join("app"), home.path().join("code/link")).unwrap();
+
+        assert!(suggest_roots(home.path()).is_empty());
     }
 
     #[test]
