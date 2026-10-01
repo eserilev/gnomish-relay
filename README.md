@@ -268,8 +268,10 @@ and a sound. A notification never runs anything: you answer in the terminal.
 ## Update
 
 - **The addon:** the CurseForge app keeps it up to date.
-- **The desktop app:** run `gnomish-relay update`. It installs the latest version and
-  restarts itself. Then type `/reload` in WoW.
+- **The desktop app:** updates itself when CurseForge updates the addon. It waits until
+  no chat is running. To update it yourself, run `gnomish-relay update`, then type
+  `/reload` in WoW. To turn automatic updates off, add `auto_update = false` to
+  `config.toml`.
 
 ## Troubleshooting
 
