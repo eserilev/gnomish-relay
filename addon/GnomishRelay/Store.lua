@@ -180,8 +180,12 @@ function Store.Open()
 end
 
 -- The reply to an attach holds the last prompt on its first line, and the answer below.
+-- A desktop app before 2026-09-30 sent only the marker and the blocks, with no prompt line.
 local function AddExchange(chat, id, text)
 	local prompt, answer = tostring(text):match("^([^\n]*)\n?(.*)$")
+	if ns.Blocks.IsRendered(text) then
+		prompt, answer = "", text
+	end
 	if prompt ~= "" then
 		Append(chat, { role = "user", text = prompt, answered = true })
 	end

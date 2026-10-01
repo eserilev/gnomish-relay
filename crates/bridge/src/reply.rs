@@ -35,6 +35,27 @@ pub fn render_reply(work: &Work, text: &str) -> String {
     }
 }
 
+/// The prompt line of an attach reply and the rest. The blocks of the bridge and the
+/// usage line go into the rest, so the first line stays the prompt (SPEC.md 9.6).
+pub fn split_prompt<'a>(work: &Work, rendered: &'a str) -> (Option<&'a str>, &'a str) {
+    if !matches!(work, Work::Attach { .. }) {
+        return (None, rendered);
+    }
+    match rendered.split_once('\n') {
+        Some((prompt, answer)) => (Some(prompt), answer),
+        None => (Some(rendered), ""),
+    }
+}
+
+/// An empty attach reply stays empty, so the game shows nothing.
+pub fn join_prompt(prompt: Option<&str>, answer: &str) -> String {
+    match prompt {
+        None => answer.to_owned(),
+        Some("") if answer.is_empty() => String::new(),
+        Some(prompt) => format!("{prompt}\n{answer}"),
+    }
+}
+
 /// The usage line goes first, so a cut of a long reply never drops it (SPEC.md 9.10).
 /// Only a reply of blocks, or an empty one, takes it.
 pub fn with_usage(rendered: &str, usage: &Usage) -> String {
@@ -107,6 +128,24 @@ mod tests {
         );
         assert_eq!(render_reply(&work, "just a prompt\n"), "just a prompt\n");
         assert_eq!(render_reply(&work, ""), "");
+    }
+
+    #[test]
+    fn an_attach_reply_splits_at_its_first_line_and_joins_back() {
+        let work = Work::Attach {
+            session: "s1".into(),
+            open: crate::relay::Open::Same,
+        };
+        let rendered = render_reply(&work, "fix it\nDone.");
+
+        let (prompt, answer) = split_prompt(&work, &rendered);
+
+        assert_eq!(prompt, Some("fix it"));
+        assert_eq!(answer, "\x1bM1\np\x1fDone.\n");
+        assert_eq!(join_prompt(prompt, answer), rendered);
+        assert_eq!(split_prompt(&work, "only"), (Some("only"), ""));
+        assert_eq!(join_prompt(Some(""), ""), "");
+        assert_eq!(split_prompt(&Work::Prompt, "a\nb"), (None, "a\nb"));
     }
 
     #[test]

@@ -242,9 +242,20 @@ function methods:SetColorTexture(r, g, b)
 	self.color = { r, g, b }
 end
 
+-- `anchors` keeps every point, so a test can see a text with a left and a right edge.
 function methods:SetPoint(point, relative, relativePoint, x, y)
 	self.x, self.y = x or 0, y or 0
 	self.anchor = { point, relative, relativePoint, x, y }
+	self.anchors = self.anchors or {}
+	self.anchors[point] = self.anchor
+end
+
+function methods:ClearAllPoints()
+	self.anchor, self.anchors = nil, nil
+end
+
+function methods:SetWordWrap(wrap)
+	self.wordWrap = wrap
 end
 
 -- The fake has no layout, so a test sets `center` on the objects that need it.

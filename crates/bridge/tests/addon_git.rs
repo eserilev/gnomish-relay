@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{fake_game_for, game_lua_for, load_into, measured, start_addon};
+use common::{fake_game_for, game_lua_for, is_cut, load_into, measured, start_addon};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::cell::decode_cells;
@@ -329,6 +329,21 @@ fn a_plain_branch_shows_its_name_and_no_merge() {
 
     assert!(game.shown("GnomishRelayGitBranch"));
     assert!(!game.shown("GnomishRelayGitMerge"));
+}
+
+#[test]
+fn a_long_branch_name_is_cut_inside_the_bar() {
+    let game = Game::start();
+    game.send("go");
+
+    game.reply(
+        game.last_id(),
+        Status::Done,
+        "\x1bM1\nB\x1fgnomish/multi-agent-code-review-system-and-more\x1f1\x1fmain\np\x1fDone.\n",
+    );
+
+    let branch: Table = game.lua.globals().get("GnomishRelayGitBranch").unwrap();
+    assert!(is_cut(&branch));
 }
 
 #[test]

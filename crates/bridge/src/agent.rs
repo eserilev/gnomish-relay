@@ -18,6 +18,7 @@ use crate::config::{AgentSpec, Kind, Permission, RelayConfig};
 use crate::desktop::Notice;
 use crate::gate::Gate;
 use crate::harness::CommandAgent;
+use crate::harness_output;
 use crate::raise::Raised;
 use crate::relay::{ChatId, Job, MessageId};
 use crate::trust::Trusted;
@@ -37,13 +38,15 @@ When a reply is longer than about 8 lines, start it with a summary of one or two
 sentences as its own paragraph. Put no heading or label before the summary.";
 
 /// The last exchange of a saved session for an attach (SPEC.md 9.6): the prompt on the
-/// first line, the answer below. An empty session gives an empty text.
+/// first line, the answer below. An empty session gives an empty text. A saved session
+/// can hold terminal output, and the game shows its escape bytes as boxes.
 pub fn exchange_text(prompt: &str, answer: &str) -> String {
     if prompt.is_empty() && answer.is_empty() {
         return String::new();
     }
+    let prompt = harness_output::clean(prompt.as_bytes());
     let prompt: String = prompt.split_whitespace().collect::<Vec<_>>().join(" ");
-    format!("{prompt}\n{answer}")
+    format!("{prompt}\n{}", harness_output::clean(answer.as_bytes()))
 }
 
 /// Why a run in progress stops.
@@ -351,6 +354,16 @@ pub fn check(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_replayed_exchange_loses_terminal_colors_and_control_bytes() {
+        let prompt = "! cargo test \x1b[1m\x1b[32mok\x1b[0m\x07";
+        let answer = "\x1b]0;title\x07All \x1b[31mgreen\x1b[0m.\n\tdone\x7f\x00";
+
+        let text = exchange_text(prompt, answer);
+
+        assert_eq!(text, "! cargo test ok\nAll green.\n\tdone");
+    }
     use crate::config::Permission;
     use crate::relay::{Session, Work};
 

@@ -16,8 +16,8 @@ use bridge::relay::{Folders, Relay};
 use bridge::settings_list::{BridgeSettings, StorySettings, settings_reply};
 use bridge::strip::{self, Image};
 use common::{
-    fake_game_for, fire, game_lua_for, load_into, lua_value, measured, repo_file, screenshot_png,
-    start_addon,
+    fake_game_for, fire, font_string_with, game_lua_for, is_cut, load_into, lua_value, measured,
+    repo_file, screenshot_png, start_addon,
 };
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
@@ -1826,6 +1826,39 @@ fn a_chat_that_waits_for_a_popup_answer_says_so_in_activity_and_on_its_tile() {
     assert_eq!(tile_mark(&game), "...");
 }
 
+#[test]
+fn every_text_of_a_chat_card_is_cut_at_the_card_edge() {
+    let game = Game::start();
+    game.send("hi");
+    game.run(
+        "GnomishRelayDB.chats[1].name = 'Multi-agent code review system' \
+         local ns = ... ns.Window.Open() ns.Window.Refresh()",
+    );
+
+    let name = game.run("return GnomishRelayTile1.name");
+    let agent = game.run("return GnomishRelayTile1.agent");
+
+    assert!(is_cut(name.as_table().unwrap()));
+    assert!(is_cut(agent.as_table().unwrap()));
+}
+
+#[test]
+fn the_agent_and_permissions_in_the_chat_header_are_cut_before_the_folder() {
+    let game = Game::start();
+    game.send("hi");
+    game.run("local ns = ... ns.Window.Open() ns.Window.Refresh()");
+
+    let shown = game
+        .run(
+            "local ns = ... local chat = GnomishRelayDB.chats[1] \
+             return ns.Relay.AgentName(chat.agent) .. ' · ' .. (chat.level or chat.mode)",
+        )
+        .as_string_lossy()
+        .unwrap();
+
+    assert!(is_cut(&font_string_with(&game.wow, &shown)));
+}
+
 fn tile_mark(game: &Game) -> String {
     game.run("return GnomishRelayTile1.mark:GetText()")
         .as_string_lossy()
@@ -2934,6 +2967,55 @@ fn a_click_on_a_session_opens_a_chat_that_asks_to_attach_it() {
     assert_eq!(record.cwd, b"app");
     assert!(record.text.is_empty());
     assert_eq!(text_of(&game, "GnomishRelayDB.chats[1].name"), "Fix bugs");
+}
+
+/// An older desktop app sent the marker and the branch block with no prompt line.
+#[test]
+fn an_attach_reply_that_starts_with_blocks_shows_no_prompt_line() {
+    let game = Game::start();
+    open_sessions(&game, LIST, Status::Done);
+    game.run("GnomishRelayPick2:Click()");
+    game.advance(1.0);
+    let chat = game.chat_id();
+    game.publish(&[reply(
+        &chat,
+        first_message_id(&game),
+        Status::Done,
+        "\x1bM1\nB\x1fmaster\x1f0\x1f\n",
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    assert!(
+        lines
+            .iter()
+            .all(|l| !l.contains("[You]") && !l.contains("M1")),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn an_attach_reply_shows_the_prompt_above_the_answer_and_its_blocks() {
+    let game = Game::start();
+    open_sessions(&game, LIST, Status::Done);
+    game.run("GnomishRelayPick2:Click()");
+    game.advance(1.0);
+    let chat = game.chat_id();
+    game.publish(&[reply(
+        &chat,
+        first_message_id(&game),
+        Status::Done,
+        "fix the bugs\n\x1bM1\nB\x1fmaster\x1f0\x1f\np\x1fAll fixed.\n",
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    assert!(
+        lines[1].contains("[You]") && lines[1].contains("fix the bugs"),
+        "{lines:?}"
+    );
+    assert!(lines.iter().any(|l| l.contains("All fixed.")), "{lines:?}");
+    assert!(lines.iter().all(|l| !l.contains('\x1f')), "{lines:?}");
 }
 
 #[test]

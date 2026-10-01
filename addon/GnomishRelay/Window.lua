@@ -10,6 +10,8 @@ local WIDTH, HEIGHT = 900, 560
 local GRIP = "Interface\\ChatFrame\\UI-ChatIM-SizeGrabber-"
 local SIDE = 200
 local TILE_HEIGHT = 48
+-- The room at the right end of a chat card for its mark: "?", "!", or "...".
+local MARK_ROOM = 28
 local TAB_WIDTH = 74
 local STEP_ROWS = 14
 -- The cast bar text changes at most this often, in seconds.
@@ -92,6 +94,13 @@ local function Label(parent, font, point, x, y)
 	return text
 end
 
+-- WoW cuts the text with "..." at `right` from the right edge of `parent`, so a long
+-- text never runs over the next panel.
+local function CutAtRight(text, parent, point, right, y)
+	text:SetPoint(point, parent, point, -right, y)
+	text:SetWordWrap(false)
+end
+
 local function Tile(index)
 	local tile = tiles[index]
 	if tile then
@@ -105,6 +114,8 @@ local function Tile(index)
 	tile:SetHighlightTexture("Interface\\QuestFrame\\UI-QuestTitleHighlight", "ADD")
 	tile.name = Label(tile, "GameFontNormal", "TOPLEFT", 10, -9)
 	tile.agent = Label(tile, "GameFontHighlightSmall", "BOTTOMLEFT", 10, 9)
+	CutAtRight(tile.name, tile, "TOPRIGHT", MARK_ROOM, -9)
+	CutAtRight(tile.agent, tile, "BOTTOMRIGHT", MARK_ROOM, 9)
 	tile.mark = Label(tile, "GameFontNormalLarge", "RIGHT", -10, 0)
 	tile:RegisterForClicks("LeftButtonUp", "RightButtonUp")
 	tile:SetScript("OnClick", function(self, button)
@@ -643,6 +654,8 @@ local function BuildCenter()
 	local width = WIDTH - 2 * SIDE - 28
 
 	ui.agent = Label(frame, "GameFontNormal", "TOPLEFT", left, -64)
+	ui.agent:SetWidth(160)
+	ui.agent:SetWordWrap(false)
 	BuildFolderButton(left + 170)
 	ui.pinned = ns.Pins.Build(frame, left, -61)
 	ui.searchButton = ns.Search.Build(frame, left + 6, 46, ui.pinned)
