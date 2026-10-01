@@ -11,6 +11,9 @@ local MAX_FOLDER = 255
 local MAX_PATH = 1024
 local CUT = "+"
 local NOT_WALKED = "?"
+-- The line of the home folder: `~`, a tab, and the path. Only a bridge that takes the
+-- home form sends it.
+local HOME_LINE = "\n~\t([^\n]*)"
 -- The listings of single folders that the browser keeps until /reload.
 local MAX_LISTINGS = 64
 
@@ -67,8 +70,7 @@ local function Copy(list)
 	return out
 end
 
--- The path from `base` to `parts`. It is the form of the bridge, so the same folder
--- always gives the same text.
+-- The path from `base` to `parts`, with `..` for each step up.
 local function Relative(base, parts)
 	local same = 0
 	while same < #base and same < #parts and base[same + 1] == parts[same + 1] do
@@ -101,9 +103,37 @@ local function Shown(tree, parts)
 	return tree.lead .. table.concat(parts, "/")
 end
 
+-- The text that the game sends for a folder (SPEC.md 9.9): the home form, so a change
+-- of the default folder never moves a chat. An older bridge takes only the old form,
+-- the path from the default folder, and so does a folder on another drive on Windows.
+local function FolderText(tree, parts)
+	if tree.homeParts then
+		local rest = Relative(tree.homeParts, parts)
+		if rest == "" then
+			return "~"
+		end
+		if not rest:find(":", 1, true) then
+			return "~/" .. rest
+		end
+	end
+	return Relative(tree.baseParts, parts)
+end
+
+local function IsHomeForm(folder)
+	return folder == "~" or folder:sub(1, 2) == "~/"
+end
+
+-- The parts of a folder text in the home form or the old form.
+local function PartsOf(tree, folder)
+	if tree.homeParts and IsHomeForm(folder) then
+		return Apply(tree.homeParts, folder:sub(3))
+	end
+	return Apply(tree.baseParts, folder)
+end
+
 -- `parent` is nil for a root. Returns nil for a folder that the tree already has.
 local function NewNode(tree, parent, parts, name, repo)
-	local folder = Relative(tree.baseParts, parts)
+	local folder = FolderText(tree, parts)
 	if #folder > MAX_FOLDER or tree.byFolder[folder] then
 		return nil
 	end
@@ -111,6 +141,8 @@ local function NewNode(tree, parent, parts, name, repo)
 		name = parts[#parts] or name,
 		parts = parts,
 		folder = folder,
+		-- The search matches the path from the default folder, which has no common start.
+		below = Relative(tree.baseParts, parts),
 		repo = repo,
 		children = {},
 		parent = parent,
@@ -169,12 +201,22 @@ local function MarkNotWalked(tree, ranges, lines)
 	end
 end
 
+local function HomeParts(text)
+	local home = text:match(HOME_LINE)
+	if home and home ~= "" and #home <= MAX_PATH and not HasControl(home) then
+		return Split(home, "/")
+	end
+end
+
 -- The first line is the default folder. Then one line per folder, breadth first:
 -- `parent \t name \t mark`. A root has parent 0 and its whole path as its name.
 function Folders.Parse(text)
+	text = tostring(text)
 	local tree = { nodes = {}, byFolder = {}, list = {}, roots = {}, cut = false }
+	-- The line comes after the folders, and each folder needs it for its text.
+	tree.homeParts = HomeParts(text)
 	local number = 0
-	for line in (tostring(text) .. "\n"):gmatch("([^\n]*)\n") do
+	for line in (text .. "\n"):gmatch("([^\n]*)\n") do
 		if number == 0 then
 			tree.base = (#line <= MAX_PATH and not HasControl(line)) and line or ""
 			tree.lead = tree.base:sub(1, 1) == "/" and "/" or ""
@@ -229,6 +271,52 @@ function Folders.AddListing(text)
 	end
 end
 
+-- The node of a folder text in either form, or nil.
+function Folders.Find(tree, folder)
+	if not tree or type(folder) ~= "string" then
+		return nil
+	end
+	return tree.byFolder[folder] or tree.byFolder[FolderText(tree, PartsOf(tree, folder))]
+end
+
+-- From the home folder, only plain names lead to a folder where a chat can work.
+local function HasOnlyNames(folder)
+	if folder == "" or folder:sub(1, 1) == "/" then
+		return false
+	end
+	for _, part in ipairs(Split(folder, "/")) do
+		if part == "." or part == ".." then
+			return false
+		end
+	end
+	return true
+end
+
+-- An old text names a folder from the default folder, else from the home folder: it
+-- was saved before the default folder changed. The bridge looks in the same order.
+local function OldTextNode(tree, folder)
+	local node = Folders.Find(tree, folder)
+	if node or not HasOnlyNames(folder) then
+		return node
+	end
+	return tree.byFolder[FolderText(tree, Apply(tree.homeParts, folder))]
+end
+
+-- Gives each saved chat with an old text the home form, once the tree knows the home
+-- folder. A text that names no folder of the tree stays: the bridge still finds it.
+local function RewriteOldTexts(tree)
+	if not tree.homeParts then
+		return
+	end
+	for _, chat in ipairs(ns.Store.db.chats) do
+		local cwd = chat.cwd
+		if type(cwd) == "string" and not IsHomeForm(cwd) and not chat.newFolder then
+			local node = OldTextNode(tree, cwd)
+			chat.cwd = node and node.folder or cwd
+		end
+	end
+end
+
 local cache = {}
 
 -- The last tree of the bridge with the listings of single folders, or nil before the
@@ -245,12 +333,27 @@ function Folders.Tree()
 		for _, listing in ipairs(listings) do
 			Merge(cache.tree, listing)
 		end
+		RewriteOldTexts(cache.tree)
 	end
 	return cache.tree
 end
 
-function Folders.Find(tree, folder)
-	return tree and tree.byFolder[folder]
+-- The text of a Resume row in the form of the tree. The bridge wrote the row in the
+-- old form, from the default folder of the tree.
+function Folders.FromList(tree, folder)
+	if not tree or not tree.homeParts or type(folder) ~= "string" then
+		return folder
+	end
+	return FolderText(tree, Apply(tree.baseParts, folder))
+end
+
+-- Whether the folder is the default folder, where a chat keeps its "Chat N" name.
+function Folders.IsDefault(tree, folder)
+	if folder == "" then
+		return true
+	end
+	local node = Folders.Find(tree, folder)
+	return node ~= nil and node == Folders.Find(tree, "")
 end
 
 -- The folder as the player reads it, for example `~/Code/app`.
@@ -258,7 +361,7 @@ function Folders.Display(tree, folder)
 	if not tree or tree.base == "" then
 		return folder
 	end
-	return Shown(tree, Apply(tree.baseParts, folder))
+	return Shown(tree, PartsOf(tree, folder))
 end
 
 -- The last part of the folder, the name of a chat in it.
@@ -267,13 +370,13 @@ function Folders.Label(tree, folder)
 	if node then
 		return node.name
 	end
-	local parts = tree and Apply(tree.baseParts, folder) or Split(folder, "/")
+	local parts = tree and PartsOf(tree, folder) or Split(folder, "/")
 	return parts[#parts] or folder
 end
 
 -- The folder above, as the player reads it, to tell two folders with one name apart.
 function Folders.ParentDisplay(tree, folder)
-	local parts = tree and Apply(tree.baseParts, folder) or Split(folder, "/")
+	local parts = tree and PartsOf(tree, folder) or Split(folder, "/")
 	table.remove(parts)
 	return (tree and tree.lead or "") .. table.concat(parts, "/")
 end
@@ -282,17 +385,17 @@ local function Before(a, b)
 	if a.repo ~= b.repo then
 		return a.repo
 	end
-	if #a.folder ~= #b.folder then
-		return #a.folder < #b.folder
+	if #a.below ~= #b.below then
+		return #a.below < #b.below
 	end
-	return a.folder < b.folder
+	return a.below < b.below
 end
 
 -- Repositories first, then the shorter paths.
 function Folders.Search(tree, query, max)
 	local found = {}
 	for _, node in ipairs(tree and tree.list or {}) do
-		if Folders.Matches(query, node.folder) then
+		if Folders.Matches(query, node.below) then
 			table.insert(found, node)
 		end
 	end
@@ -304,10 +407,15 @@ function Folders.Search(tree, query, max)
 end
 
 local function AddRecent(recents, seen, tree, folder)
-	if type(folder) ~= "string" or seen[folder] then
+	if type(folder) ~= "string" then
 		return
 	end
-	if tree and not Folders.Find(tree, folder) then
+	local node = Folders.Find(tree, folder)
+	if tree and not node then
+		return
+	end
+	folder = node and node.folder or folder
+	if seen[folder] then
 		return
 	end
 	seen[folder] = true

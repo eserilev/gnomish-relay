@@ -5075,3 +5075,130 @@ fn a_timer_order_that_the_fake_does_not_model_stops_the_fake_at_load() {
 
     assert!(loaded.is_err());
 }
+
+/// `TREE` from a desktop app that takes the home form: the `~` line names the home folder.
+const HOME_TREE: &str = "~/Code\n0\t~/Code\t\n1\tPersonal\t\n1\tscratch\t\n2\tgnomish-relay\tg\n\
+                         2\ttimeways\tg\n4\tcrates\t\n~\t~";
+
+#[test]
+fn with_the_home_line_a_chosen_folder_goes_out_in_the_home_form() {
+    let game = Game::start();
+    click_new_chat(&game);
+    open_browser_with(&game, HOME_TREE, Status::Done);
+    game.run("GnomishRelayBrowseGo2:Click()");
+    game.run("GnomishRelayBrowseGo2:Click()");
+
+    game.run("GnomishRelayBrowserOpen:Click()");
+
+    assert_eq!(chat_field(&game, 1, "name"), "gnomish-relay");
+    assert_eq!(header_folder(&game), "~/Code/Personal/gnomish-relay");
+    game.send("hi");
+    game.advance(1.0);
+    let record = sent_by_chat(&game, b"hi");
+    assert_eq!(record.cwd, b"~/Code/Personal/gnomish-relay");
+}
+
+#[test]
+fn with_the_home_line_the_search_still_matches_the_path_from_the_default_folder() {
+    let game = Game::start();
+    click_new_chat(&game);
+    open_browser_with(&game, HOME_TREE, Status::Done);
+
+    game.run("GnomishRelayBrowserFilter:SetText('cod')");
+
+    assert_eq!(
+        browser_note(&game).as_deref(),
+        Some("No folder matches."),
+        "~/Code is the start of every path, so it matches no query"
+    );
+}
+
+/// The bug of 2026-09-30 (SPEC.md 9.9): the chat was saved while the default folder was
+/// `~`, and the default folder is now `~/Code`.
+#[test]
+fn a_saved_chat_of_the_home_base_gets_the_home_form_and_keeps_its_folder() {
+    let game = Game::start();
+    click_new_chat(&game);
+    game.run("GnomishRelayDB.chats[1].cwd = 'Code/Personal/gnomish-relay'");
+
+    open_browser_with(&game, HOME_TREE, Status::Done);
+
+    assert_eq!(chat_field(&game, 1, "cwd"), "~/Code/Personal/gnomish-relay");
+    assert_eq!(header_folder(&game), "~/Code/Personal/gnomish-relay");
+    game.run("GnomishRelayFolderButton:Click()");
+    game.send("hi");
+    game.advance(1.0);
+    assert_eq!(
+        sent_by_chat(&game, b"hi").cwd,
+        b"~/Code/Personal/gnomish-relay"
+    );
+}
+
+#[test]
+fn a_saved_chat_of_the_current_default_folder_gets_the_home_form_of_that_folder() {
+    let game = Game::start();
+    click_new_chat(&game);
+    game.run("GnomishRelayDB.chats[1].cwd = 'Personal'");
+
+    open_browser_with(&game, HOME_TREE, Status::Done);
+
+    assert_eq!(chat_field(&game, 1, "cwd"), "~/Code/Personal");
+}
+
+#[test]
+fn a_saved_text_that_names_no_folder_of_the_tree_stays_as_it_is() {
+    let game = Game::start();
+    click_new_chat(&game);
+    game.run("GnomishRelayDB.chats[1].cwd = 'deep/below/the/walk'");
+
+    open_browser_with(&game, HOME_TREE, Status::Done);
+
+    assert_eq!(chat_field(&game, 1, "cwd"), "deep/below/the/walk");
+}
+
+#[test]
+fn without_the_home_line_a_saved_chat_keeps_its_old_text() {
+    let game = Game::start();
+    click_new_chat(&game);
+    game.run("GnomishRelayDB.chats[1].cwd = 'Personal'");
+
+    open_browser(&game);
+
+    assert_eq!(chat_field(&game, 1, "cwd"), "Personal");
+}
+
+#[test]
+fn a_chat_in_the_default_folder_keeps_its_place_and_its_name_with_the_home_line() {
+    let game = Game::start();
+    click_new_chat(&game);
+
+    open_browser_with(&game, HOME_TREE, Status::Done);
+    game.run("GnomishRelayBrowserOpen:Click()");
+
+    assert_eq!(chat_field(&game, 1, "cwd"), "~/Code");
+    assert_eq!(chat_field(&game, 1, "name"), "Chat 1");
+}
+
+#[test]
+fn a_resumed_session_goes_out_in_the_home_form_of_its_listed_folder() {
+    let game = Game::start();
+    game.run(&format!(
+        "GnomishRelayDB.folders = {{ id = 1, text = {} }}",
+        lua_quote(HOME_TREE)
+    ));
+    open_sessions(&game, LIST, Status::Done);
+
+    game.run("GnomishRelayPick2:Click()");
+    game.advance(1.0);
+
+    let record = game
+        .last_strip()
+        .into_iter()
+        .find(|r| r.chat == game.chat_id().as_bytes())
+        .unwrap();
+    assert_eq!(record.cwd, b"~/Code/app");
+}
+
+fn lua_quote(text: &str) -> String {
+    format!("{text:?}")
+}

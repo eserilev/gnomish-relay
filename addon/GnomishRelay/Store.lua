@@ -99,7 +99,7 @@ end
 function Store.SetFolder(chat, folder, name, isNew)
 	chat.cwd = folder
 	chat.newFolder = isNew or nil
-	if folder == "" then
+	if ns.Folders.IsDefault(ns.Folders.Tree(), folder) then
 		chat.name = chat.defaultName or chat.name
 	else
 		chat.name = FreeName(name, chat)
@@ -114,7 +114,7 @@ function Store.ResumeChat(row)
 		name = row.title ~= "" and row.title or row.repo,
 		agent = row.agent,
 		mode = DEFAULT_MODE,
-		cwd = row.folder,
+		cwd = ns.Folders.FromList(ns.Folders.Tree(), row.folder),
 		history = {},
 		attach = row.session,
 	}
