@@ -1586,6 +1586,7 @@ agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder na
 - The attach of a session in a new folder waits for the desktop request of 9.12, as a message in a new folder does: "Let agents from WoW work in <folder>? …". After Approve, the folder is a root, and the attach runs. Deny and no answer end the attach with the reply of 9.12, and nothing attaches.
 - An active session gets `session/fork`: the chat continues a copy, and the terminal keeps the original. With no fork, the chat continues the session itself.
 - The bridge replays the session with `session/load`, and answers with the last exchange: the last prompt on the first line, and the last answer below it. The addon shows them as history, with no whisper.
+- The prompt and the answer lose each terminal escape sequence (color, title) and each control character but newline and tab. A session can hold terminal output, and the game shows those bytes as boxes.
 - The chat then works as any other chat. Its next message resumes the session (9.5). The level ceiling of the config applies (S6).
 - A delete of the chat (7.1.1, `d`) never deletes the session. A later Resume brings it back.
 
