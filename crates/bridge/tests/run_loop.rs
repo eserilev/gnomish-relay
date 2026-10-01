@@ -743,12 +743,11 @@ fn list_strip(f: &Dirs) {
 #[test]
 fn a_list_request_comes_back_with_the_sessions_of_the_agents() {
     let f = folders();
+    let app = tempfile::tempdir().unwrap();
     let found = vec![bridge::agent::SessionInfo {
         id: "a1".into(),
-        cwd: std::env::temp_dir()
-            .canonicalize()
+        cwd: real_path(app.path())
             .unwrap()
-            .join("app")
             .to_string_lossy()
             .into_owned(),
         title: "Fix bugs".into(),
@@ -1234,4 +1233,186 @@ fn the_folder_list_shows_the_home_folder_but_no_hidden_or_private_folder() {
     for hidden in [".secret", "inside", "firefox", "\\009data\\009"] {
         assert!(!body.contains(hidden), "{hidden}: {body}");
     }
+}
+
+/// An agent with saved sessions that counts its attaches.
+struct Saved {
+    sessions: Vec<bridge::agent::SessionInfo>,
+    attaches: Arc<AtomicUsize>,
+}
+
+impl Agent for Saved {
+    fn run(&self, job: &Job, _control: &Control) -> Run {
+        self.attaches.fetch_add(1, Ordering::SeqCst);
+        Run {
+            reply: Ok(format!("attached in {}", job.cwd)),
+            session: None,
+            usage: None,
+        }
+    }
+
+    fn sessions(&self, _cwd: &str) -> Result<Vec<bridge::agent::SessionInfo>, String> {
+        Ok(self.sessions.clone())
+    }
+}
+
+fn saved_session(id: &str, folder: &Path) -> bridge::agent::SessionInfo {
+    bridge::agent::SessionInfo {
+        id: id.into(),
+        cwd: folder.to_string_lossy().into_owned(),
+        title: format!("work in {id}"),
+        updated: now() - 7200,
+    }
+}
+
+const NO_ROOTS_CONFIG: &str = "allowed_roots = []\ndefault_agent = \"claude\"\n\
+    [wow]\npath = \"~/wow\"\n\
+    [agents.claude]\nkind = \"claude\"\ncommand = [\"claude\"]\npermission = \"auto-edit\"\n";
+
+/// A bridge in the home folder of `f` with no root, as after a setup that found no code
+/// folder. Its folder requests answer through `approvals` (SPEC.md 9.12).
+fn bridge_with_no_roots(f: &Dirs, approvals: &Approvals, agent: Saved) -> Trusting {
+    let home = real_path(f.state.parent().unwrap()).unwrap();
+    let config_dir = home.join("config");
+    fs::create_dir_all(&config_dir).unwrap();
+    bridge::fs_safe::write_private(&config_dir, "config.toml", NO_ROOTS_CONFIG).unwrap();
+    let policy = Policy {
+        folders: Folders {
+            roots: Vec::new(),
+            base: path_bytes(&home),
+        },
+        ..policy()
+    };
+    let truster = Truster {
+        approvals: approvals.clone(),
+        config_dir: config_dir.clone(),
+        home: home.clone(),
+        permission_timeout: Duration::from_secs(20),
+        roots: Roots::new(Vec::new()),
+    };
+    let bridge = bridge_in(f, policy, Arc::new(agent)).with_trust(truster);
+    Trusting {
+        bridge,
+        home,
+        config: config_dir.join("config.toml"),
+    }
+}
+
+/// Sends a Resume list, and waits for its reply.
+fn resume_list(f: &Dirs, bridge: &mut Bridge) -> String {
+    list_strip(f);
+    let addons = f.addons.clone();
+    assert!(step_until(bridge, || slot_body(&addons)
+        .contains(r#"chat = "relay", id = 8, status = "done""#)));
+    slot_body(&f.addons)
+}
+
+#[test]
+fn resume_with_no_roots_lists_sessions_in_the_home_folder_but_no_gone_hidden_or_private_one() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let home = real_path(f.state.parent().unwrap()).unwrap();
+    for folder in ["lighthouse", ".secret", "snap/firefox"] {
+        fs::create_dir_all(home.join(folder)).unwrap();
+    }
+    let sessions = ["lighthouse", "gone", ".secret", "snap/firefox", "data", ""]
+        .iter()
+        .zip(1..)
+        .map(|(folder, n)| saved_session(&format!("s{n}"), &home.join(folder)))
+        .collect();
+    let agent = Saved {
+        sessions,
+        attaches: Arc::default(),
+    };
+    let mut t = bridge_with_no_roots(&f, &approvals, agent);
+
+    let body = resume_list(&f, &mut t.bridge);
+
+    assert!(body.contains("work in s1"), "{body}");
+    for hidden in ["s2", "s3", "s4", "s5", "s6"] {
+        assert!(
+            !body.contains(&format!("work in {hidden}")),
+            "{hidden}: {body}"
+        );
+    }
+}
+
+#[test]
+fn picking_a_session_under_no_root_asks_on_the_desktop_and_attaches_after_approve() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let home = real_path(f.state.parent().unwrap()).unwrap();
+    fs::create_dir_all(home.join("lighthouse")).unwrap();
+    let attaches = Arc::new(AtomicUsize::new(0));
+    let agent = Saved {
+        sessions: vec![saved_session("s1", &home.join("lighthouse"))],
+        attaches: attaches.clone(),
+    };
+    let mut t = bridge_with_no_roots(&f, &approvals, agent);
+    resume_list(&f, &mut t.bridge);
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_3.png"),
+        chat_strip("c9", 9, "attach=s1", ""),
+    )
+    .unwrap();
+
+    let addons = f.addons.clone();
+    assert!(step_until(&mut t.bridge, || live_text(&addons)
+        .contains(" command folder")));
+    assert_eq!(
+        attaches.load(Ordering::SeqCst),
+        0,
+        "no attach before the click"
+    );
+    let open = approvals.list();
+    assert_eq!(open.len(), 1);
+    assert!(
+        open[0]
+            .text
+            .starts_with("Let agents from WoW work in ~/lighthouse?"),
+        "{}",
+        open[0].text
+    );
+    approvals.answer(&open[0].id, Verdict::Approve).unwrap();
+    assert!(step_until(&mut t.bridge, || slot_body(&addons).contains("attached in")));
+    assert_eq!(attaches.load(Ordering::SeqCst), 1);
+    let config = fs::read_to_string(&t.config).unwrap();
+    assert!(
+        config.starts_with("allowed_roots = [\"~/lighthouse\"]\ndefault_cwd = \"~\"\n"),
+        "{config}"
+    );
+}
+
+#[test]
+fn a_denied_session_folder_attaches_nothing() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let home = real_path(f.state.parent().unwrap()).unwrap();
+    fs::create_dir_all(home.join("lighthouse")).unwrap();
+    let attaches = Arc::new(AtomicUsize::new(0));
+    let agent = Saved {
+        sessions: vec![saved_session("s1", &home.join("lighthouse"))],
+        attaches: attaches.clone(),
+    };
+    let mut t = bridge_with_no_roots(&f, &approvals, agent);
+    resume_list(&f, &mut t.bridge);
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_raises(&approvals, Verdict::Deny, stop.clone());
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_3.png"),
+        chat_strip("c9", 9, "attach=s1", ""),
+    )
+    .unwrap();
+
+    let addons = f.addons.clone();
+    let done = step_until(&mut t.bridge, || {
+        slot_body(&addons).contains("Denied on your desktop. Agents can't work in this folder.")
+    });
+    stop.store(true, Ordering::SeqCst);
+    assert!(done, "{}", slot_body(&f.addons));
+    assert_eq!(answering.join().unwrap(), 1);
+    assert_eq!(attaches.load(Ordering::SeqCst), 0);
+    assert_eq!(fs::read_to_string(&t.config).unwrap(), NO_ROOTS_CONFIG);
 }
