@@ -3917,7 +3917,7 @@ fn a_reply_shows_its_usage_line_in_grey_below_the_blocks_and_not_in_the_whisper(
 }
 
 #[test]
-fn a_long_reply_shown_as_its_summary_keeps_its_usage_line() {
+fn a_long_reply_shown_in_full_keeps_its_usage_line() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("go");
@@ -3936,8 +3936,8 @@ fn a_long_reply_shown_as_its_summary_keeps_its_usage_line() {
     game.advance(5.0);
 
     let lines = texts(&transcript(&game));
-    assert!(lines.iter().any(|t| t.contains("Show more")), "{lines:?}");
-    assert!(!lines.iter().any(|t| t.contains("Detail 9")), "{lines:?}");
+    assert!(!lines.iter().any(|t| t.contains("Show more")), "{lines:?}");
+    assert!(lines.iter().any(|t| t.contains("Detail 9")), "{lines:?}");
     assert!(
         lines
             .iter()

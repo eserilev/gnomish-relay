@@ -29,9 +29,6 @@ local PIN_WIDTH = 44
 local GOLD = "ffd100"
 -- Four no-break spaces: SimpleHTML drops normal spaces at the start of a line.
 local INDENT = ("\194\160"):rep(4)
--- A reply over either limit shows its summary first (SPEC.md 13.1).
-local LONG_BLOCKS = 8
-local LONG_BYTES = 800
 
 local ui = {}
 local width, viewHeight
@@ -40,8 +37,6 @@ local contentHeight = 0
 -- entry i, `tops[i]` is its y and `marks[i]` the pool counts before it, so a draw can
 -- start again from it.
 local drawn = { count = 0, tops = {}, marks = {} }
--- The long replies that the player opened. An entry that the history drops goes too.
-local opened = setmetatable({}, { __mode = "k" })
 -- The entry that the last jump marked with a band, or nil.
 local marked
 -- The drawn messages with no final reply, each with the line of its delivery state.
@@ -385,32 +380,6 @@ local function DrawLink(text, action, x, y)
 	return button
 end
 
-local function BlockBytes(block)
-	if block.kind == "row" then
-		return #table.concat(block.cells)
-	end
-	return #(block.text or "")
-end
-
-local function IsLong(blocks)
-	if #blocks > LONG_BLOCKS then
-		return true
-	end
-	local bytes = 0
-	for _, block in ipairs(blocks) do
-		bytes = bytes + BlockBytes(block)
-	end
-	return bytes > LONG_BYTES
-end
-
--- The agent writes a summary paragraph first. An agent that does not gets its first two blocks.
-local function Summary(blocks)
-	if blocks[1].kind == "paragraph" then
-		return { blocks[1] }
-	end
-	return { blocks[1], blocks[2] }
-end
-
 local function DrawUsage(text, y)
 	local usage = ns.Blocks.Usage(text)
 	if not usage then
@@ -419,19 +388,9 @@ local function DrawUsage(text, y)
 	return TextLine(string.format("|cff%s%s|r", GREY, ns.Relay.Plain(usage)), PAD, y, width - PAD)
 end
 
--- The link to open or fold a long reply goes right under its text.
 local function DrawRendered(entry, prefix, y)
 	y = TextLine(prefix, 0, y, width - PIN_WIDTH)
-	local blocks = ns.Blocks.Parse(entry.text)
-	if not IsLong(blocks) then
-		return DrawBlocks(blocks, PAD, y + 2)
-	end
-	local isOpen = opened[entry] == true
-	y = DrawBlocks(isOpen and blocks or Summary(blocks), PAD, y + 2)
-	DrawLink(isOpen and "Show less" or "Show more", function()
-		Transcript.Toggle(entry)
-	end, PAD, y)
-	return y + 18
+	return DrawBlocks(ns.Blocks.Parse(entry.text), PAD, y + 2)
 end
 
 local function SetPinText(button, entry)
@@ -666,27 +625,10 @@ local function RedrawFrom(entry)
 	ScrollTo(offset)
 end
 
-function Transcript.Toggle(entry)
-	opened[entry] = not opened[entry] or nil
-	RedrawFrom(entry)
-end
-
-local function IsClosedLong(entry)
-	if entry.role ~= "agent" or opened[entry] or not ns.Blocks.IsRendered(entry.text) then
-		return false
-	end
-	return IsLong(ns.Blocks.Parse(entry.text))
-end
-
--- Scrolls `entry` to the top and marks it with a band. A closed long reply opens first.
+-- Scrolls `entry` to the top and marks it with a band.
 function Transcript.JumpTo(entry)
 	marked = entry
-	if IsClosedLong(entry) then
-		opened[entry] = true
-		RedrawFrom(entry)
-	else
-		PlaceMark()
-	end
+	PlaceMark()
 	local i = drawn.chat and IndexOf(drawn.chat.history, entry)
 	if i then
 		ScrollTo(drawn.tops[i] - 2)

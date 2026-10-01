@@ -53,7 +53,7 @@ const FILES: &[&str] = &[
     "Core.lua",
 ];
 
-/// Eleven paragraphs: long enough to show only the summary.
+/// Eleven paragraphs: a reply with more than 8 blocks.
 const LONG: &str = "Fixed the flaky test.\n\n\
     Two.\n\nThree.\n\nFour.\n\nFive.\n\nSix.\n\nSeven.\n\nEight.\n\nNine.\n\nTen.\n\nThe last line.";
 
@@ -202,22 +202,6 @@ impl Game {
             .collect()
     }
 
-    /// The shown object of the transcript whose text holds `part`.
-    fn drawn(&self, part: &str) -> Table {
-        let find: Function = self
-            .lua
-            .load(
-                "local wow, part = ... \
-                 for _, d in ipairs(wow.Drawn(GnomishRelayTranscript)) do \
-                   if d.text and d.text:find(part, 1, true) then return d.object end \
-                 end \
-                 error('nothing shows ' .. part)",
-            )
-            .into_function()
-            .unwrap();
-        find.call((self.wow.clone(), part)).unwrap()
-    }
-
     fn shows(&self, part: &str) -> bool {
         self.transcript().iter().any(|t| t.contains(part))
     }
@@ -243,111 +227,20 @@ impl Game {
 }
 
 #[test]
-fn a_long_reply_shows_its_first_paragraph_and_a_show_more_link() {
+fn a_long_reply_draws_all_its_blocks_and_no_show_more_link() {
     let game = Game::start();
-
-    game.exchange("fix it", LONG);
-
-    assert!(game.shows("Fixed the flaky test."));
-    assert!(!game.shows("The last line."));
-    assert!(game.shows("Show more"));
-}
-
-#[test]
-fn show_more_opens_the_whole_reply_in_place_and_show_less_closes_it() {
-    let game = Game::start();
-    game.exchange("fix it", LONG);
-
-    game.click_link("Show more");
-
-    assert!(game.shows("The last line."));
-    assert!(game.shows("Show less"));
-    assert!(!game.shows("Show more"));
-
-    game.click_link("Show less");
-
-    assert!(!game.shows("The last line."));
-    assert!(game.shows("Show more"));
-}
-
-#[test]
-fn a_short_reply_shows_in_full_with_no_link() {
-    let game = Game::start();
-
-    game.exchange("status?", "All tests pass.\n\nNothing else changed.");
-
-    assert!(game.shows("Nothing else changed."));
-    assert!(!game.shows("Show more"));
-}
-
-#[test]
-fn a_long_reply_that_starts_with_a_heading_shows_its_first_two_blocks() {
-    let game = Game::start();
-    let reply = format!("# Result\n\nThe build is green.\n\n{LONG}");
-
-    game.exchange("build", &reply);
-
-    assert!(game.shows("<h1>Result</h1>"));
-    assert!(game.shows("The build is green."));
-    assert!(!game.shows("Fixed the flaky test."));
-}
-
-#[test]
-fn a_long_reply_with_few_blocks_but_many_bytes_shows_only_its_summary() {
-    let game = Game::start();
-    let reply = format!("Short summary.\n\n{}", "word ".repeat(200));
+    let paragraphs: Vec<String> = (1..=10)
+        .map(|n| format!("Paragraph {n}: {}", "word ".repeat(20)))
+        .collect();
+    let reply = paragraphs.join("\n\n");
+    assert!(reply.len() > 800, "more than 800 bytes");
 
     game.exchange("explain", &reply);
 
-    assert!(game.shows("Short summary."));
-    assert!(!game.shows("word word"));
-    assert!(game.shows("Show more"));
-}
-
-#[test]
-fn show_more_leaves_the_entries_above_it_as_they_are() {
-    let game = Game::start();
-    game.exchange("first", "ok");
-    game.exchange("fix it", LONG);
-    let first = game.drawn("[You]|r: first");
-    let drawn_at: i64 = first.get("textAt").unwrap();
-    game.advance(1.0);
-
-    game.click_link("Show more");
-
-    assert_eq!(game.drawn("[You]|r: first"), first);
-    assert_eq!(
-        first.get::<i64>("textAt").unwrap(),
-        drawn_at,
-        "no second draw"
-    );
-    assert!(game.shows("The last line."));
-}
-
-#[test]
-fn an_opened_reply_comes_back_closed_after_a_reload() {
-    let game = Game::start();
-    game.exchange("fix it", LONG);
-    game.click_link("Show more");
-
-    let game = game.reload();
-
-    assert!(game.shows("Show more"));
-    assert!(!game.shows("The last line."));
-}
-
-#[test]
-fn a_message_below_an_opened_reply_keeps_its_delivery_state() {
-    let game = Game::start();
-    game.exchange("fix it", LONG);
-    game.send("and the docs");
-
-    game.click_link("Show more");
-
-    assert!(game.shows("Sending..."));
-    game.answer(Status::Working, Vec::new());
-    assert!(game.shows("Delivered"));
-    assert!(!game.shows("Sending..."));
+    for n in 1..=10 {
+        assert!(game.shows(&format!("Paragraph {n}:")), "paragraph {n}");
+    }
+    assert!(!game.shows("Show more"));
 }
 
 // Quick actions: suggestions in an empty chat
@@ -852,7 +745,7 @@ fn a_pinned_reply_shows_its_codes_as_text() {
 }
 
 #[test]
-fn a_click_on_a_pinned_reply_jumps_to_it_opens_it_and_marks_it() {
+fn a_click_on_a_pinned_reply_jumps_to_it_and_marks_it() {
     let game = Game::start();
     game.exchange("fix it", LONG);
     game.click_link("Pin");
@@ -865,7 +758,6 @@ fn a_click_on_a_pinned_reply_jumps_to_it_opens_it_and_marks_it() {
     game.click("GnomishRelayPinnedRow1");
 
     assert!(scroll(&game) < bottom);
-    assert!(game.shows("The last line."));
     assert!(game.shown("GnomishRelayMark"));
     assert!(!game.shown("GnomishRelayPinnedList"));
 }
@@ -1015,15 +907,15 @@ fn a_search_with_no_match_says_so_and_marks_nothing() {
 }
 
 #[test]
-fn a_match_in_the_closed_part_of_a_long_reply_opens_it() {
+fn a_match_in_the_last_paragraph_of_a_long_reply_marks_the_reply() {
     let game = Game::start();
     game.exchange("fix it", LONG);
     game.exchange("thanks", "You're welcome.");
 
     search_for(&game, "last line");
 
-    assert!(game.shows("The last line."));
-    assert!(game.shows("Show less"));
+    assert_eq!(search_count(&game), "1 of 1");
+    assert!(marked(&game).starts_with("|cffff7d0a[Claude]"));
 }
 
 #[test]

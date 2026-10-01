@@ -704,25 +704,6 @@ fn the_answer_to_checks_with_no_checks_says_so_with_no_empty_line() {
     );
 }
 
-#[test]
-fn show_more_above_a_reply_with_changes_leaves_one_change_block() {
-    let game = Game::start();
-    game.send("explain it");
-    let long = String::from_utf8(render_markdown("x\n\n".repeat(10).as_bytes())).unwrap();
-    game.reply(game.last_id(), Status::Done, &long);
-    game.send("fix it");
-    game.reply(game.last_id(), Status::Done, REPLY);
-
-    game.run("local ns = ... ns.Transcript.Toggle(ns.Store.db.chats[1].history[2])");
-
-    let blocks = game
-        .texts()
-        .iter()
-        .filter(|t| t.contains("2 files changed"))
-        .count();
-    assert_eq!(blocks, 1);
-}
-
 /// A long reply with a usage line, a change summary, a test line, and a CI line.
 const LONG_REPLY: &str = "\x1bM1\nu\x1f1.2k in · 350 out\nG\x1f1\x1f4\x1f1\nF\x1fsrc/a.rs\x1f4\x1f1\x1fM\nT\x1f41\x1f2\x1f0\nC\x1f5\x1f1\x1f0\x1flint\np\x1fFixed the test.\np\x1fTwo.\np\x1fThree.\np\x1fFour.\np\x1fFive.\np\x1fSix.\np\x1fSeven.\np\x1fEight.\np\x1fThe last line.\n";
 
@@ -745,28 +726,15 @@ fn is_top_down(places: &[usize]) -> bool {
 }
 
 #[test]
-fn a_long_reply_shows_its_text_then_the_link_the_changes_the_tests_the_ci_and_the_usage() {
+fn a_long_reply_shows_its_text_then_the_changes_the_tests_the_ci_and_the_usage() {
     let game = Game::start();
     game.send("fix it");
     game.reply(game.last_id(), Status::Done, LONG_REPLY);
 
-    let closed = places(
-        &game,
-        &[
-            "Fixed the test.",
-            "Show more",
-            "1 file changed",
-            "Tests:",
-            "CI:",
-            "1.2k in",
-        ],
-    );
-    game.run("local ns = ... local h = ns.Store.db.chats[1].history ns.Transcript.Toggle(h[#h])");
-    let open = places(
+    let order = places(
         &game,
         &[
             "The last line.",
-            "Show less",
             "1 file changed",
             "Tests:",
             "CI:",
@@ -774,6 +742,5 @@ fn a_long_reply_shows_its_text_then_the_link_the_changes_the_tests_the_ci_and_th
         ],
     );
 
-    assert!(is_top_down(&closed), "{closed:?}");
-    assert!(is_top_down(&open), "{open:?}");
+    assert!(is_top_down(&order), "{order:?}");
 }
