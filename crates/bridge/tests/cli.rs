@@ -293,6 +293,29 @@ fn setup_with_no_code_folder_trusts_no_folder_and_says_to_pick_one_in_the_game()
     );
 }
 
+#[cfg(target_os = "linux")]
+#[test]
+fn setup_again_fills_empty_roots_with_the_code_folders_it_finds_now() {
+    let home = tempfile::tempdir().unwrap();
+    let (_, first) = relay_setup(home.path());
+    assert!(first.contains("allowed_roots = []\n"), "{first}");
+    std::fs::create_dir_all(home.path().join("Documents/Code/Personal/app/.git")).unwrap();
+
+    let out = setup_in(home.path(), &[]);
+
+    let config = config_of(home.path());
+    assert!(out.status.success(), "{}{}", stdout(&out), stderr(&out));
+    assert!(
+        config.contains("allowed_roots = [\"~/Documents/Code\"]\ndefault_cwd = \"~\"\n"),
+        "{config}"
+    );
+    assert!(
+        stdout(&out).contains("\nAgents can work in ~/Documents/Code."),
+        "{}",
+        stdout(&out)
+    );
+}
+
 /// Setup with the given arguments in a fresh home, with no agent and stdin closed.
 #[cfg(target_os = "linux")]
 fn setup_in(home: &std::path::Path, args: &[&str]) -> Output {

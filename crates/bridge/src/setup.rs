@@ -247,6 +247,16 @@ pub fn config_text(existing: Option<&str>, parts: &ConfigParts) -> Result<Option
     Ok((text != existing).then_some(text))
 }
 
+/// The roots for a relay config that has none yet. Each root goes in through the edit of
+/// a desktop Approve, so the base of the folders of the game stays the same (SPEC.md 9.12).
+pub fn with_first_roots(text: &str, roots: &[String], home: &Path) -> Result<String> {
+    let mut text = text.to_owned();
+    for root in roots {
+        text = config_edit::with_root(&text, root, home)?;
+    }
+    Ok(text)
+}
+
 fn first_config(parts: &ConfigParts) -> String {
     let Some(relay) = &parts.relay else {
         return config_text::timeways_config(parts.wow, parts.story.unwrap_or(&[]));

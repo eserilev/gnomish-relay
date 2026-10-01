@@ -435,6 +435,11 @@ fn setup_config(
         Some(new) => setup::write_config(&dirs.config, &new, &dirs.home)?,
         None => config::load(&dirs.config, &dirs.home)?,
     };
+    let config = if roots.is_none() && has_no_roots(&config) {
+        fill_empty_roots(dirs, config, roots_given)?
+    } else {
+        config
+    };
     let added = config.relay.as_ref().map(|relay| &relay.agents);
     for (name, _, _) in &new_agents {
         if added.is_some_and(|agents| agents.contains_key(*name)) {
@@ -442,6 +447,32 @@ fn setup_config(
         }
     }
     Ok(config)
+}
+
+fn has_no_roots(config: &Config) -> bool {
+    config
+        .relay
+        .as_ref()
+        .is_some_and(|relay| relay.policy.folders.roots.is_empty())
+}
+
+/// An older setup found no code folder, so setup looks again. A config that can't
+/// change keeps its empty roots: the game still adds folders one by one.
+fn fill_empty_roots(dirs: &Dirs, config: Config, roots_given: Option<&str>) -> Result<Config> {
+    let roots = choose_roots(&dirs.home, roots_given)?;
+    if roots.is_empty() {
+        return Ok(config);
+    }
+    let text = std::fs::read_to_string(dirs.config.join(config::FILE))?;
+    match setup::with_first_roots(&text, &roots, &dirs.home) {
+        Ok(new) => setup::write_config(&dirs.config, &new, &dirs.home),
+        Err(e) => {
+            println!(
+                "Found code folders, but config.toml can't change: {e:#}. Add them to allowed_roots by hand."
+            );
+            Ok(config)
+        }
+    }
 }
 
 /// A harness with no ACP mode runs its own commands, so setup adds it only on a yes.
