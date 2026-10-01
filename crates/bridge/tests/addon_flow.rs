@@ -877,7 +877,7 @@ fn a_larger_window_widens_the_folder_browser_and_shows_more_diag_lines() {
 
     let center = 1400 - 2 * 200 - 28;
     assert_eq!(width_of(&game, "GnomishRelayBrowser"), center);
-    assert_eq!(width_of(&game, "GnomishRelayBrowserFilter"), center - 60);
+    assert_eq!(width_of(&game, "GnomishRelayBrowserFilter"), center - 136);
     assert_eq!(width_of(&game, "GnomishRelayBrowseRow1"), center - 16);
     game.run("local ns = ... ns.Window.ShowTab('diag')");
     let page = 1400 - 200 - 20;
@@ -3161,23 +3161,19 @@ fn the_browser_shows_the_subfolders_with_a_git_mark_under_a_breadcrumb() {
     click_new_chat(&game);
     open_browser(&game);
 
-    assert_eq!(crumbs(&game), ["|cffffd100Code|r"]);
+    assert_eq!(crumbs(&game), ["|cffffffffCode|r"]);
     assert_eq!(
         browse_rows(&game, 4),
         ["", "Personal", "scratch", ""],
         "the breadcrumb row and the subfolders; a broken line is skipped"
     );
-    assert!(
-        shown(&game, "GnomishRelayBrowseGo2"),
-        "Personal has subfolders"
-    );
-    assert!(!shown(&game, "GnomishRelayBrowseGo3"), "scratch has none");
 
     game.run("GnomishRelayBrowseGo2:Click()");
 
     assert_eq!(
         crumbs(&game),
-        ["|cffffd100Code|r", "\u{203a} |cffffd100Personal|r"]
+        ["|cffc0c0c0Code|r", "\u{203a} |cffffffffPersonal|r"],
+        "the last part is white, the parts above it grey"
     );
     assert_eq!(browse_rows(&game, 3)[1], "gnomish-relay");
     assert_eq!(
@@ -3199,7 +3195,7 @@ fn the_breadcrumb_goes_up_but_never_above_the_root() {
     assert_eq!(browse_rows(&game, 3)[1..], ["gnomish-relay", "timeways"]);
 
     game.run("GnomishRelayCrumb1:Click()");
-    assert_eq!(crumbs(&game), ["|cffffd100Code|r"], "the root is the top");
+    assert_eq!(crumbs(&game), ["|cffffffffCode|r"], "the root is the top");
     assert_eq!(browse_rows(&game, 2)[1], "Personal");
 }
 
@@ -3210,7 +3206,10 @@ fn open_sets_the_folder_and_the_first_message_carries_it() {
     open_browser(&game);
     game.run("GnomishRelayBrowseGo2:Click()");
     game.run("GnomishRelayBrowseGo2:Click()");
-    assert_eq!(text_of(&game, "GnomishRelayBrowserOpen:GetText()"), "Open");
+    assert_eq!(
+        text_of(&game, "GnomishRelayBrowserOpen:GetText()"),
+        "Chat here"
+    );
 
     game.run("GnomishRelayBrowserOpen:Click()");
 
@@ -3399,13 +3398,32 @@ fn a_click_highlights_a_folder_and_open_starts_the_chat_there_with_the_folder_in
 }
 
 #[test]
-fn a_double_click_on_a_folder_starts_the_chat_there() {
+fn a_double_click_on_a_folder_goes_into_it_and_starts_no_chat() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+
+    double_click(&game, "GnomishRelayBrowseRow2");
+
+    assert!(shown(&game, "GnomishRelayBrowser"));
+    assert_eq!(chat_field(&game, 1, "cwd"), "");
+    assert_eq!(
+        crumbs(&game),
+        ["|cffc0c0c0Code|r", "\u{203a} |cffffffffPersonal|r"]
+    );
+    assert_eq!(browse_rows(&game, 3)[1..], ["gnomish-relay", "timeways"]);
+}
+
+#[test]
+fn a_double_click_on_an_empty_folder_goes_into_it_and_says_it_has_no_subfolders() {
     let game = Game::start();
     new_chat_with_tree(&game, TREE);
 
     double_click(&game, "GnomishRelayBrowseRow3");
 
-    assert!(!shown(&game, "GnomishRelayBrowser"));
+    assert_eq!(browser_note(&game).as_deref(), Some("No subfolders."));
+    assert!(shown(&game, "GnomishRelayBrowserOpen"));
+    assert!(shown(&game, "GnomishRelayBrowserNewFolder"));
+    game.run("GnomishRelayBrowserOpen:Click()");
     assert_eq!(chat_field(&game, 1, "cwd"), "scratch");
     assert_eq!(header_folder(&game), "~/Code/scratch");
 }
@@ -3455,7 +3473,7 @@ fn cancel_keeps_the_default_folder_and_gives_the_keys_back_to_the_game() {
 }
 
 #[test]
-fn a_double_click_on_a_recent_folder_sets_it_and_a_gone_folder_does_not_show() {
+fn a_double_click_on_a_recent_folder_goes_into_it_and_a_gone_folder_does_not_show() {
     let game = Game::start();
     game.run("local ns = ... ns.Store.SetFolder(ns.Store.NewChat(), 'gone', 'gone')");
     game.run(
@@ -3471,6 +3489,13 @@ fn a_double_click_on_a_recent_folder_sets_it_and_a_gone_folder_does_not_show() {
     );
     double_click(&game, "GnomishRelayBrowseRow1");
 
+    assert_eq!(
+        chat_field(&game, 3, "cwd"),
+        "",
+        "a double-click starts no chat"
+    );
+    assert_eq!(crumbs(&game).len(), 3, "the browser is in timeways");
+    game.run("GnomishRelayBrowserOpen:Click()");
     assert_eq!(chat_field(&game, 3, "cwd"), "Personal/timeways");
     assert_eq!(chat_field(&game, 3, "name"), "timeways 2");
 }
@@ -3566,7 +3591,7 @@ fn two_roots_give_a_top_level_that_lists_them() {
     );
     game.run("GnomishRelayCrumb1:Click()");
 
-    assert_eq!(crumbs(&game), ["|cffffd100All folders|r"]);
+    assert_eq!(crumbs(&game), ["|cffffffffAll folders|r"]);
     assert_eq!(
         browse_rows(&game, 3),
         ["", "|cff1eff00Code|r", "work"],
@@ -3620,6 +3645,293 @@ fn a_failed_folder_list_keeps_the_last_tree() {
     assert!(!shown(&game, "GnomishRelayBrowserSpinner"));
 }
 
+fn back_enabled(game: &Game) -> bool {
+    text_of(
+        game,
+        "GnomishRelayBrowserBack:IsEnabled() and 'yes' or 'no'",
+    ) == "yes"
+}
+
+#[test]
+fn every_folder_row_has_an_arrow_that_goes_into_the_folder() {
+    let game = Game::start();
+    game.run(
+        "local ns = ... ns.Store.SetFolder(ns.Store.NewChat(), 'Personal/timeways', 'timeways')",
+    );
+    click_new_chat(&game);
+    open_browser(&game);
+
+    assert_eq!(
+        browse_rows(&game, 4),
+        ["timeways", "", "Personal", "scratch"]
+    );
+    for (row, arrow) in [(1, true), (2, false), (3, true), (4, true)] {
+        assert_eq!(
+            shown(&game, &format!("GnomishRelayBrowseGo{row}")),
+            arrow,
+            "row {row}"
+        );
+    }
+
+    game.run("GnomishRelayBrowseGo4:Click()");
+
+    assert_eq!(
+        crumbs(&game),
+        ["|cffc0c0c0Code|r", "\u{203a} |cffffffffscratch|r"]
+    );
+    assert_eq!(browser_note(&game).as_deref(), Some("No subfolders."));
+}
+
+#[test]
+fn a_search_row_has_an_arrow_too() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+    game.run("GnomishRelayBrowserFilter:SetText('gre')");
+
+    assert!(shown(&game, "GnomishRelayBrowseGo1"));
+    assert!(shown(&game, "GnomishRelayBrowseGo2"));
+}
+
+#[test]
+fn back_goes_up_one_folder_and_is_off_at_the_top() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+    assert_eq!(
+        text_of(&game, "GnomishRelayBrowserBack:GetText()"),
+        "\u{2039} Back"
+    );
+    assert!(!back_enabled(&game), "the root is the top");
+    double_click(&game, "GnomishRelayBrowseRow2");
+    double_click(&game, "GnomishRelayBrowseRow2");
+    assert_eq!(crumbs(&game).len(), 3);
+    assert!(back_enabled(&game));
+
+    game.run("GnomishRelayBrowserBack:Click()");
+
+    assert_eq!(
+        crumbs(&game),
+        ["|cffc0c0c0Code|r", "\u{203a} |cffffffffPersonal|r"]
+    );
+    game.run("GnomishRelayBrowserBack:Click()");
+    assert_eq!(crumbs(&game), ["|cffffffffCode|r"]);
+    assert!(!back_enabled(&game));
+}
+
+#[test]
+fn back_from_a_root_goes_to_all_folders_when_there_are_more_roots() {
+    let game = Game::start();
+    click_new_chat(&game);
+    open_browser_with(
+        &game,
+        "~/Code\n0\t~/Code\t\n0\t~/work\t\n2\tsite\t",
+        Status::Done,
+    );
+    assert!(back_enabled(&game));
+
+    game.run("GnomishRelayBrowserBack:Click()");
+
+    assert_eq!(crumbs(&game), ["|cffffffffAll folders|r"]);
+    assert!(!back_enabled(&game));
+}
+
+#[test]
+fn back_with_a_search_clears_the_search() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+    game.run("GnomishRelayBrowserFilter:SetText('gre')");
+    assert!(back_enabled(&game));
+
+    game.run("GnomishRelayBrowserBack:Click()");
+
+    assert_eq!(text_of(&game, "GnomishRelayBrowserFilter:GetText()"), "");
+    assert_eq!(browse_rows(&game, 3), ["", "Personal", "scratch"]);
+}
+
+#[test]
+fn a_double_click_on_a_search_result_clears_the_search_and_goes_into_it() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+    game.run("GnomishRelayBrowserFilter:SetText('gre')");
+
+    double_click(&game, "GnomishRelayBrowseRow1");
+
+    assert_eq!(text_of(&game, "GnomishRelayBrowserFilter:GetText()"), "");
+    assert_eq!(
+        chat_field(&game, 1, "cwd"),
+        "",
+        "a double-click starts no chat"
+    );
+    assert_eq!(crumbs(&game).len(), 3);
+    assert_eq!(browse_rows(&game, 2), ["", "crates"]);
+    assert_eq!(
+        text_of(
+            &game,
+            "GnomishRelayBrowserFilter:HasFocus() and 'yes' or 'no'"
+        ),
+        "yes",
+        "the keys still work"
+    );
+}
+
+#[test]
+fn backspace_and_left_in_an_empty_search_go_up_and_right_goes_into_the_highlight() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+
+    filter_key(&game, "OnArrowPressed", "DOWN");
+    filter_key(&game, "OnArrowPressed", "RIGHT");
+    assert_eq!(crumbs(&game).len(), 2, "Right goes into Personal");
+    filter_key(&game, "OnArrowPressed", "DOWN");
+    filter_key(&game, "OnArrowPressed", "RIGHT");
+    assert_eq!(crumbs(&game).len(), 3, "Right goes into gnomish-relay");
+
+    filter_key(&game, "OnKeyDown", "BACKSPACE");
+    assert_eq!(crumbs(&game).len(), 2, "Backspace goes up");
+    filter_key(&game, "OnArrowPressed", "LEFT");
+    assert_eq!(crumbs(&game), ["|cffffffffCode|r"], "Left goes up");
+}
+
+#[test]
+fn with_text_in_the_search_backspace_and_the_side_arrows_only_edit_it() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+    double_click(&game, "GnomishRelayBrowseRow2");
+    game.run("GnomishRelayBrowserFilter:SetText('gre')");
+
+    filter_key(&game, "OnKeyDown", "BACKSPACE");
+    filter_key(&game, "OnArrowPressed", "LEFT");
+    filter_key(&game, "OnArrowPressed", "RIGHT");
+
+    assert_eq!(text_of(&game, "GnomishRelayBrowserFilter:GetText()"), "gre");
+    game.run("GnomishRelayBrowserFilter:SetText('')");
+    assert_eq!(crumbs(&game).len(), 2, "still in Personal");
+}
+
+#[test]
+fn chat_here_takes_the_highlighted_folder_else_the_folder_the_player_is_in() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+    double_click(&game, "GnomishRelayBrowseRow2");
+    game.run("GnomishRelayBrowseRow3:Click()");
+    assert_eq!(
+        text_of(&game, "GnomishRelayBrowserOpen:GetText()"),
+        "Chat here"
+    );
+
+    game.run("GnomishRelayBrowserOpen:Click()");
+    assert_eq!(chat_field(&game, 1, "cwd"), "Personal/timeways");
+
+    game.run("GnomishRelayFolderButton:Click()");
+    assert_eq!(crumbs(&game).len(), 3, "the browser opens in timeways");
+    game.run("GnomishRelayBrowserBack:Click()");
+    game.run("GnomishRelayBrowserOpen:Click()");
+    assert_eq!(chat_field(&game, 1, "cwd"), "Personal", "no highlight");
+}
+
+#[test]
+fn a_breadcrumb_part_turns_gold_under_the_mouse() {
+    let game = Game::start();
+    new_chat_with_tree(&game, TREE);
+    double_click(&game, "GnomishRelayBrowseRow2");
+
+    game.run("GnomishRelayCrumb1:GetScript('OnEnter')(GnomishRelayCrumb1)");
+    assert_eq!(crumbs(&game)[0], "|cffffd100Code|r");
+    game.run("GnomishRelayCrumb1:GetScript('OnLeave')(GnomishRelayCrumb1)");
+    assert_eq!(crumbs(&game)[0], "|cffc0c0c0Code|r");
+}
+
+/// `deep` has subfolders that the walk did not list: the `?` line names line 2.
+const DEEP_TREE: &str = "~/Code\n0\t~/Code\t\n1\tdeep\t\n1\tflat\t\n?2";
+const DEEP_LISTING: &str = "~/Code\n0\t~/Code/deep\t\n1\tinner\tg\n2\tmore\t\n?3";
+
+fn subfolder_requests(game: &Game) -> Vec<Record> {
+    (1..=game.shots())
+        .flat_map(|n| game.strip(n))
+        .filter(|r| flags(r).contains(&"list=subfolders".into()))
+        .collect()
+}
+
+#[test]
+fn a_folder_that_the_walk_did_not_finish_asks_the_desktop_app_for_its_subfolders() {
+    let game = Game::start();
+    new_chat_with_tree(&game, DEEP_TREE);
+
+    double_click(&game, "GnomishRelayBrowseRow2");
+    game.advance(2.0);
+
+    let requests = subfolder_requests(&game);
+    assert_eq!(requests.len(), 1);
+    assert_eq!(requests[0].chat, b"subfolders");
+    assert_eq!(requests[0].cwd, b"deep");
+    assert_eq!(browser_note(&game).as_deref(), Some("Loading folders..."));
+    assert!(shown(&game, "GnomishRelayBrowserSpinner"));
+
+    game.publish(&[reply(
+        "subfolders",
+        requests[0].id,
+        Status::Done,
+        DEEP_LISTING,
+    )]);
+    game.advance(5.0);
+
+    assert_eq!(browse_rows(&game, 2), ["", "inner"]);
+    assert_eq!(
+        text_of(&game, "GnomishRelayBrowseRow2.mark:GetText()"),
+        "|cff8fb6e8git|r"
+    );
+    assert_eq!(browser_note(&game), None);
+    assert!(!shown(&game, "GnomishRelayBrowserSpinner"));
+}
+
+#[test]
+fn the_browser_asks_once_for_a_folder_and_never_for_a_walked_one() {
+    let game = Game::start();
+    new_chat_with_tree(&game, DEEP_TREE);
+
+    double_click(&game, "GnomishRelayBrowseRow3");
+    game.run("GnomishRelayBrowserBack:Click()");
+    double_click(&game, "GnomishRelayBrowseRow2");
+    game.run("GnomishRelayBrowserBack:Click()");
+    double_click(&game, "GnomishRelayBrowseRow2");
+    game.advance(2.0);
+
+    assert_eq!(
+        subfolder_requests(&game).len(),
+        1,
+        "flat is walked, and deep asks once"
+    );
+}
+
+#[test]
+fn a_listing_adds_folders_only_below_folders_of_the_tree() {
+    let game = Game::start();
+    let rows: String = game
+        .lua
+        .load(
+            r#"
+local ns, tree, listing, stray = ...
+ns.Store.db.folders = { id = 1, text = tree }
+ns.Folders.AddListing(listing)
+ns.Folders.AddListing(stray)
+local t = ns.Folders.Tree()
+local out = {}
+for _, node in ipairs(t.list) do
+    table.insert(out, node.folder .. (node.unwalked and "?" or ""))
+end
+return table.concat(out, ",")
+"#,
+        )
+        .call((
+            game.ns.clone(),
+            DEEP_TREE,
+            DEEP_LISTING,
+            "~/Code\n0\t~/Elsewhere\t\n1\tsecret\t",
+        ))
+        .unwrap();
+
+    assert_eq!(rows, ",deep,flat,deep/inner,deep/inner/more?");
+}
+
 /// A tiny xorshift, so the test needs no crate and each run is the same.
 fn next_random(seed: &mut u64) -> u64 {
     *seed ^= *seed << 13;
@@ -3649,7 +3961,7 @@ fn the_folder_tree_parser_gives_a_clean_tree_for_any_bytes() {
     let game = Game::start();
     let check: Function = game.lua.load(TREE_RULES).into_function().unwrap();
     let mut seed = 0x9e37_79b9_7f4a_7c15;
-    let alphabet = b"\t\n\t\n0123g/.~+a\x1f\x00|\xff\xc2\x85";
+    let alphabet = b"\t\n\t\n0123g/.~+a\x1f\x00|\xff\xc2\x85?-,";
     for len in 0..600 {
         let bytes: Vec<u8> = (0..len)
             .map(|_| {

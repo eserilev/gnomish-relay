@@ -10,6 +10,9 @@ local MAX_NAME = 255
 local MAX_FOLDER = 255
 local MAX_PATH = 1024
 local CUT = "+"
+local NOT_WALKED = "?"
+-- The listings of single folders that the browser keeps until /reload.
+local MAX_LISTINGS = 64
 
 local function HasControl(text)
 	-- "\194[\128-\159]" is a control character of Unicode (C1) in UTF-8.
@@ -98,17 +101,11 @@ local function Shown(tree, parts)
 	return tree.lead .. table.concat(parts, "/")
 end
 
-local function AddNode(tree, number, parent, name, repo)
-	local parts
-	if parent == 0 then
-		parts = Split(name, "/")
-	else
-		parts = Copy(tree.nodes[parent].parts)
-		table.insert(parts, name)
-	end
+-- `parent` is nil for a root. Returns nil for a folder that the tree already has.
+local function NewNode(tree, parent, parts, name, repo)
 	local folder = Relative(tree.baseParts, parts)
 	if #folder > MAX_FOLDER or tree.byFolder[folder] then
-		return
+		return nil
 	end
 	local node = {
 		name = parts[#parts] or name,
@@ -116,16 +113,28 @@ local function AddNode(tree, number, parent, name, repo)
 		folder = folder,
 		repo = repo,
 		children = {},
+		parent = parent,
 	}
-	tree.nodes[number] = node
 	tree.byFolder[folder] = node
 	table.insert(tree.list, node)
+	table.insert(parent and parent.children or tree.roots, node)
+	return node
+end
+
+local function ChildParts(parent, name)
+	local parts = Copy(parent.parts)
+	table.insert(parts, name)
+	return parts
+end
+
+local function AddNode(tree, number, parent, name, repo)
+	local parts
 	if parent == 0 then
-		table.insert(tree.roots, node)
+		parts = Split(name, "/")
 	else
-		node.parent = tree.nodes[parent]
-		table.insert(node.parent.children, node)
+		parts = ChildParts(tree.nodes[parent], name)
 	end
+	tree.nodes[number] = NewNode(tree, tree.nodes[parent], parts, name, repo)
 end
 
 -- A line that breaks a rule is left out, and so are its subfolders.
@@ -145,6 +154,21 @@ local function AddLine(tree, number, line)
 	AddNode(tree, number, parent, name, mark == "g")
 end
 
+-- `?2-4,9`: the folder lines whose subfolders the reply does not hold in full.
+-- A range only marks lines that exist, so a wild range costs nothing.
+local function MarkNotWalked(tree, ranges, lines)
+	for range in (ranges .. ","):gmatch("([^,]*),") do
+		local first, last = range:match("^(%d+)%-(%d+)$")
+		first = tonumber(first or range)
+		last = math.min(tonumber(last or range) or 0, lines)
+		for number = first or 1, first and last or 0 do
+			if tree.nodes[number] then
+				tree.nodes[number].unwalked = true
+			end
+		end
+	end
+end
+
 -- The first line is the default folder. Then one line per folder, breadth first:
 -- `parent \t name \t mark`. A root has parent 0 and its whole path as its name.
 function Folders.Parse(text)
@@ -157,6 +181,8 @@ function Folders.Parse(text)
 			tree.baseParts = Split(tree.base, "/")
 		elseif line == CUT then
 			tree.cut = true
+		elseif line:sub(1, 1) == NOT_WALKED then
+			MarkNotWalked(tree, line:sub(2), number)
 		else
 			AddLine(tree, number, line)
 		end
@@ -165,17 +191,60 @@ function Folders.Parse(text)
 	return tree
 end
 
+local function ByName(a, b)
+	return a.name < b.name
+end
+
+-- A listing adds only below folders that the tree has, so it never widens the tree.
+local function Merge(tree, text)
+	local listing = Folders.Parse(text)
+	if listing.base ~= tree.base then
+		return
+	end
+	for _, node in ipairs(listing.list) do
+		local known = tree.byFolder[node.folder]
+		local parent = node.parent and tree.byFolder[node.parent.folder]
+		if known then
+			known.unwalked = node.unwalked
+		elseif parent then
+			local added = NewNode(tree, parent, ChildParts(parent, node.name), node.name, node.repo)
+			if added then
+				added.unwalked = node.unwalked
+				table.sort(parent.children, ByName)
+			end
+		end
+	end
+end
+
+local listings = {}
+-- Counts the listings so far, so the cache of the tree knows a new one.
+local listingCount = 0
+
+-- The reply of a request for one folder (SPEC.md 9.9, "One folder").
+function Folders.AddListing(text)
+	table.insert(listings, tostring(text))
+	listingCount = listingCount + 1
+	if #listings > MAX_LISTINGS then
+		table.remove(listings, 1)
+	end
+end
+
 local cache = {}
 
--- The last tree of the bridge, or nil before the first one.
+-- The last tree of the bridge with the listings of single folders, or nil before the
+-- first tree.
 function Folders.Tree()
 	local saved = ns.Store.db.folders
 	local text = saved and saved.text
 	if type(text) ~= "string" then
 		return nil
 	end
-	if cache.text ~= text then
-		cache.text, cache.tree = text, Folders.Parse(text)
+	if cache.text ~= text or cache.listingCount ~= listingCount then
+		cache.text, cache.listingCount = text, listingCount
+		cache.tree = Folders.Parse(text)
+		for _, listing in ipairs(listings) do
+			Merge(cache.tree, listing)
+		end
 	end
 	return cache.tree
 end

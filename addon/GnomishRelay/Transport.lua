@@ -9,6 +9,7 @@ ns.Transport = Transport
 
 local LIST_CHAT = "relay"
 local FOLDER_CHAT = "folders"
+local SUBFOLDER_CHAT = "subfolders"
 local SETTINGS_CHAT = "settings"
 
 -- The bridge writes one of these as the first line of each run, and no agent line
@@ -47,6 +48,8 @@ local state = {
 	working = {},
 	-- The id of the open request of each list, by its chat.
 	listing = {},
+	-- The folder of the open request of the chat "subfolders".
+	listingBelow = nil,
 	-- The permission requests of the last live file, and the ones this session answered.
 	requests = {},
 	answered = {},
@@ -101,7 +104,7 @@ end
 
 -- The list chats have no messages: their records are the replies to a list control.
 local function Find(chatId, id)
-	if chatId == LIST_CHAT or chatId == FOLDER_CHAT or chatId == SETTINGS_CHAT then
+	if chatId == LIST_CHAT or chatId == FOLDER_CHAT or chatId == SUBFOLDER_CHAT or chatId == SETTINGS_CHAT then
 		return nil
 	end
 	local chat = ns.Store.Chat(chatId)
@@ -140,6 +143,15 @@ function Transport.ListFolders()
 	List(FOLDER_CHAT, "list=folders")
 end
 
+-- The reply is a tree of the folder and its subfolders, for a folder that the tree of
+-- the bridge did not walk (SPEC.md 9.9). The player waits, so it does not wait for a fight.
+function Transport.ListSubfolders(folder)
+	state.listing[SUBFOLDER_CHAT] = Messages.NewId()
+	state.listingBelow = folder
+	Messages.Control(SUBFOLDER_CHAT, state.listing[SUBFOLDER_CHAT], "list=subfolders", folder)
+	Messages.StartPolls()
+end
+
 -- The list is the reply to a message of the chat "settings" (BridgeSettings.lua).
 function Transport.ListSettings()
 	List(SETTINGS_CHAT, "list=settings")
@@ -157,6 +169,11 @@ end
 
 function Transport.ListingFolders()
 	return state.listing[FOLDER_CHAT] ~= nil
+end
+
+-- True while the request for the subfolders of `folder` waits.
+function Transport.ListingSubfolders(folder)
+	return state.listing[SUBFOLDER_CHAT] ~= nil and state.listingBelow == folder
 end
 
 local function Listing()
@@ -246,9 +263,26 @@ local LISTS = {
 	[SETTINGS_CHAT] = { key = "settings", field = "text", Parse = tostring },
 }
 
+-- Each listing of one folder adds to the tree, so an older one still counts.
+local function ApplySubfolders(r)
+	if r.status == "working" then
+		return false
+	end
+	if r.id == state.listing[SUBFOLDER_CHAT] then
+		state.listing[SUBFOLDER_CHAT] = nil
+	end
+	if r.status == "done" then
+		ns.Folders.AddListing(r.text)
+	end
+	return true
+end
+
 -- An older list that comes after a newer one changes nothing. Returns whether the
 -- record is final, so the addon reports it as read.
 local function ApplyList(r)
+	if r.chat == SUBFOLDER_CHAT then
+		return ApplySubfolders(r)
+	end
 	local list = LISTS[r.chat]
 	if not list or r.status == "working" then
 		return false
