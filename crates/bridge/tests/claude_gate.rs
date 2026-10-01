@@ -801,6 +801,7 @@ fn live_the_hook_of_claude_fires_for_a_read() {
             Event::Question(q) => String::from_utf8_lossy(&q.text).into_owned(),
             Event::Desktop(notice) => notice.line(),
             Event::Raised { .. }
+            | Event::FullAuto { .. }
             | Event::Trusted { .. }
             | Event::Withdrawn
             | Event::CommandOutput(_) => String::new(),

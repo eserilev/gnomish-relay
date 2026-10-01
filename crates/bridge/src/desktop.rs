@@ -80,6 +80,8 @@ pub enum Kind {
     Merge,
     /// A new root in `config.toml` (SPEC.md 9.12).
     Folder,
+    /// Full-auto for one chat in its folder (SPEC.md 9.3).
+    FullAuto,
 }
 
 impl Kind {
@@ -89,6 +91,7 @@ impl Kind {
             Kind::Raise => "raise",
             Kind::Merge => "merge",
             Kind::Folder => "folder",
+            Kind::FullAuto => "full-auto",
         }
     }
 }
@@ -306,6 +309,17 @@ impl Approvals {
         self.open_kind(agent, folder, text, now, Kind::Folder, "")
     }
 
+    /// A request to run one chat in `folder` at full-auto.
+    pub fn open_full_auto(
+        &self,
+        agent: &str,
+        folder: &str,
+        text: &str,
+        now: u32,
+    ) -> Result<Opened> {
+        self.open_kind(agent, folder, text, now, Kind::FullAuto, "")
+    }
+
     /// A request to merge a chat branch in the repository `repo`.
     pub fn open_merge(&self, repo: &str, text: &str, now: u32) -> Result<Opened> {
         self.open_kind("git", repo, text, now, Kind::Merge, "")
@@ -468,7 +482,9 @@ pub fn dialog_text(pending: &Pending) -> String {
             "{}\n\nConfig: {}\nRequest: {}",
             pending.text, pending.folder, pending.id
         ),
-        Kind::Merge | Kind::Folder => format!("{}\n\nRequest: {}", pending.text, pending.id),
+        Kind::Merge | Kind::Folder | Kind::FullAuto => {
+            format!("{}\n\nRequest: {}", pending.text, pending.id)
+        }
     };
     match pending.wait_minutes {
         0 => text,

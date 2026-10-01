@@ -314,6 +314,7 @@ mod tests {
                 Event::Question(_) => "a game request".into(),
                 Event::Progress(_)
                 | Event::Raised { .. }
+                | Event::FullAuto { .. }
                 | Event::Trusted { .. }
                 | Event::Withdrawn
                 | Event::CommandOutput(_) => String::new(),
