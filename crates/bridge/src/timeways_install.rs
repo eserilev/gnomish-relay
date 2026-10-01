@@ -9,8 +9,10 @@ use anyhow::{Context, Result, bail};
 use crate::config::{self, Config};
 use crate::config_story::{config_path, with_story_paths};
 use crate::dirs::Dirs;
+use crate::download_failure::{self, DownloadFailed, Reason};
 use crate::fs_safe::make_private_dir;
 use crate::lore_pack::{self, DUMP_URL, DUMP_URL_VAR, PACK_FILE};
+use crate::service;
 use crate::setup::write_config;
 use crate::timeways_release::{self, PACK, RELEASES, STORY, URL_VAR};
 
@@ -95,9 +97,12 @@ pub fn install(
     progress: impl FnMut(u64),
 ) -> Result<Report> {
     fresh_work_folder(&places.work)?;
-    let result = install_in_work_folder(sources, places, progress);
+    let result = install_in_work_folder(dirs, sources, places, progress);
     // The dump is 133 MB, and nothing needs it after the build.
     let _ = fs::remove_dir_all(&places.work);
+    if let Err(error) = &result {
+        log_details(dirs, error);
+    }
     let (version, changed, lore) = result?;
     // A built pack is always there, so only a failed build with no old pack stops here.
     if let (Lore::Kept(error), false) = (&lore, places.pack.is_file()) {
@@ -112,6 +117,7 @@ pub fn install(
 }
 
 fn install_in_work_folder(
+    dirs: &Dirs,
     sources: &Sources,
     places: &Places,
     progress: impl FnMut(u64),
@@ -120,7 +126,10 @@ fn install_in_work_folder(
     let changed = timeways_release::install(&download, &places.bin)?;
     let lore = match build_lore(sources, places, progress) {
         Ok(summary) => Lore::Built(summary),
-        Err(error) => Lore::Kept(format!("{error:#}")),
+        Err(error) => {
+            log_details(dirs, &error);
+            Lore::Kept(lore_error(&error))
+        }
     };
     Ok((download.version, changed, lore))
 }
@@ -132,6 +141,41 @@ fn build_lore(
 ) -> Result<Vec<String>> {
     let dump = lore_pack::download_dump(&sources.dump, &places.work, progress)?;
     lore_pack::build(&places.program(PACK), &dump, &places.pack)
+}
+
+/// The details of a failed download go to the log, never to the terminal.
+fn log_details(dirs: &Dirs, error: &anyhow::Error) {
+    if let Some(details) = download_failure::details_of(error) {
+        let _ = service::append_to_log(dirs, &format!("timeways: {details}"));
+    }
+}
+
+fn lore_error(error: &anyhow::Error) -> String {
+    let reason = error.downcast_ref::<DownloadFailed>().map(|f| f.reason);
+    match reason {
+        Some(Reason::Missing) => {
+            "couldn't download the Wowpedia lore (Wowpedia doesn't have it right now)".into()
+        }
+        Some(Reason::Offline) => {
+            "couldn't download the Wowpedia lore (no internet connection)".into()
+        }
+        Some(Reason::Other) => "couldn't download the Wowpedia lore".into(),
+        None => format!("{error:#}"),
+    }
+}
+
+/// The line after a failed download of the story program, or `None` for another error.
+/// `again` is the command that tries again, for example "run gnomish-relay update".
+pub fn download_failed_line(error: &anyhow::Error, again: &str) -> Option<String> {
+    let reason = error.downcast_ref::<DownloadFailed>()?.reason;
+    let what = "Timeways: couldn't download the story program";
+    Some(match reason {
+        Reason::Missing => {
+            format!("{what} (the release isn't published yet). To try again later, {again}")
+        }
+        Reason::Offline => format!("{what}. Check your internet connection, then {again}"),
+        Reason::Other => format!("{what}. To try again, {again}"),
+    })
 }
 
 /// Sets `program` and `lore_pack` in `[story]`. The loader checks the text first.
@@ -166,6 +210,9 @@ pub fn update(dirs: &Dirs, sources: &Sources, story_program: &Path) -> Result<Ve
     let result = timeways_release::fetch(&sources.release, &work)
         .and_then(|download| timeways_release::install(&download, bin));
     let _ = fs::remove_dir_all(&work);
+    if let Err(error) = &result {
+        log_details(dirs, error);
+    }
     result
 }
 
@@ -186,6 +233,51 @@ pub fn sentence(text: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn failed(reason: Reason) -> anyhow::Error {
+        anyhow::Error::new(DownloadFailed {
+            reason,
+            details: String::new(),
+        })
+    }
+
+    #[test]
+    fn a_story_program_that_is_not_published_says_to_try_again_later() {
+        let again = "run gnomish-relay setup --timeways";
+
+        assert_eq!(
+            download_failed_line(&failed(Reason::Missing), again).unwrap(),
+            "Timeways: couldn't download the story program (the release isn't published yet). \
+             To try again later, run gnomish-relay setup --timeways"
+        );
+        assert_eq!(
+            download_failed_line(&failed(Reason::Offline), again).unwrap(),
+            "Timeways: couldn't download the story program. Check your internet connection, \
+             then run gnomish-relay setup --timeways"
+        );
+        assert_eq!(
+            download_failed_line(&failed(Reason::Other), again).unwrap(),
+            "Timeways: couldn't download the story program. To try again, run gnomish-relay \
+             setup --timeways"
+        );
+        assert_eq!(download_failed_line(&anyhow::anyhow!("x"), again), None);
+    }
+
+    #[test]
+    fn a_failed_download_of_the_lore_names_the_reason_and_no_command() {
+        assert_eq!(
+            lore_error(&failed(Reason::Offline)),
+            "couldn't download the Wowpedia lore (no internet connection)"
+        );
+        assert_eq!(
+            lore_error(&failed(Reason::Missing)),
+            "couldn't download the Wowpedia lore (Wowpedia doesn't have it right now)"
+        );
+        assert_eq!(
+            lore_error(&anyhow::anyhow!("the pack failed")),
+            "the pack failed"
+        );
+    }
 
     #[test]
     fn an_error_becomes_a_sentence_with_one_period() {

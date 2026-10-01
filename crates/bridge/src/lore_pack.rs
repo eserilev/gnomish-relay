@@ -2,11 +2,14 @@
 //! (SPEC.md 11.4). The pack is never shipped.
 
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+
+use crate::download_failure::DownloadFailed;
 
 pub const DUMP_URL: &str =
     "https://s3.amazonaws.com/wikia_xml_dumps/w/wo/wowpedia_pages_current.xml.7z";
@@ -26,9 +29,12 @@ fn size_of(path: &Path) -> u64 {
 pub fn download_dump(url: &str, dir: &Path, mut progress: impl FnMut(u64)) -> Result<PathBuf> {
     let dump = dir.join(DUMP_FILE);
     let part = dir.join(format!("{DUMP_FILE}.part"));
+    // The error of `curl` goes to the log, never to the player (SPEC.md 11.4).
     let mut curl = Command::new("curl")
         .args(["-fsSL", url, "-o"])
         .arg(&part)
+        .stdin(Stdio::null())
+        .stderr(Stdio::piped())
         .spawn()
         .context("cannot run curl")?;
     let status = loop {
@@ -40,7 +46,11 @@ pub fn download_dump(url: &str, dir: &Path, mut progress: impl FnMut(u64)) -> Re
     };
     if !status.success() {
         let _ = fs::remove_file(&part);
-        bail!("the download of the Wowpedia lore failed");
+        let mut stderr = Vec::new();
+        if let Some(mut pipe) = curl.stderr.take() {
+            let _ = pipe.read_to_end(&mut stderr);
+        }
+        return Err(DownloadFailed::of(url, status, &stderr).into());
     }
     progress(size_of(&part));
     fs::rename(&part, &dump)?;

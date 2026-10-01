@@ -11,7 +11,8 @@ use protocol::version::{VersionFit, version_fit};
 use serde::Deserialize;
 use sha2::{Digest, Sha256};
 
-use crate::update::{Replaced, download, install_program, parse_sum, target, tool};
+use crate::download_failure::download;
+use crate::update::{Replaced, install_program, parse_sum, target, tool};
 
 pub const RELEASES: &str = "https://github.com/eserilev/timeways/releases/latest/download";
 /// Changes the release folder, as `GNOMISH_URL` does for the desktop app.

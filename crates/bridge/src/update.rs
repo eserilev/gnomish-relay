@@ -187,6 +187,9 @@ fn update_timeways(dirs: &Dirs) -> Vec<String> {
 }
 
 fn update_failed_line(error: &anyhow::Error) -> String {
+    if let Some(line) = timeways_install::download_failed_line(error, "run gnomish-relay update") {
+        return line;
+    }
     format!(
         "Timeways: couldn't update the story program. {} To try again, run gnomish-relay update",
         timeways_install::sentence(&format!("{error:#}"))

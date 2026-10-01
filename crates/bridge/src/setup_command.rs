@@ -300,7 +300,13 @@ fn setup_timeways(dirs: &Dirs, autostart: Autostart) {
 
 const TRY_AGAIN: &str = "To try again, run gnomish-relay setup --timeways";
 
+/// A failed download names its reason, never the command line of `curl`.
 fn install_failed_line(error: &anyhow::Error) -> String {
+    if let Some(line) =
+        timeways_install::download_failed_line(error, "run gnomish-relay setup --timeways")
+    {
+        return line;
+    }
     format!(
         "Timeways: couldn't install the story program. {} {TRY_AGAIN}",
         timeways_install::sentence(&format!("{error:#}"))
@@ -919,6 +925,21 @@ mod tests {
         assert_eq!(
             install_failed_line(&error),
             "Timeways: couldn't install the story program. The download of timeways-x.tar.gz has a wrong SHA-256 sum. To try again, run gnomish-relay setup --timeways"
+        );
+    }
+
+    #[test]
+    fn a_failed_download_of_the_story_program_says_why_and_never_shows_curl() {
+        let error = anyhow::Error::new(crate::download_failure::DownloadFailed {
+            reason: crate::download_failure::Reason::Missing,
+            details: "curl -fsSL https://x failed".into(),
+        });
+
+        let line = install_failed_line(&error);
+
+        assert_eq!(
+            line,
+            "Timeways: couldn't download the story program (the release isn't published yet). To try again later, run gnomish-relay setup --timeways"
         );
     }
 

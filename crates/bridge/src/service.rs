@@ -18,6 +18,16 @@ const RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
 const MAX_LOG: u64 = 4 * 1024 * 1024;
 const LOG_FILE: &str = "bridge.log";
 
+/// Adds one line to the log of the desktop app, for the details that a command keeps
+/// out of the terminal.
+pub fn append_to_log(dirs: &Dirs, line: &str) -> Result<()> {
+    use std::io::Write;
+    make_private_dir(&dirs.data)?;
+    let mut log = open_private_log(&dirs.data.join(LOG_FILE), LogStart::Append)?;
+    writeln!(log, "{} {}", crate::run::now(), line.escape_debug())?;
+    Ok(())
+}
+
 fn command(program: &str, args: &[&str]) -> Result<()> {
     let status = std::process::Command::new(program)
         .args(args)
