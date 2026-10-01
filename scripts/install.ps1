@@ -1,6 +1,7 @@
 # Installs gnomish-relay from the latest GitHub Release, and runs setup (SPEC.md 11.3).
 #   irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex
-# With arguments for setup, after --autostart (SPEC.md 11.4):
+# With no argument, setup sets up only Gnomish Relay. With --timeways, it sets up only
+# Timeways (SPEC.md 9.7, decision 15). Arguments go to setup, after --autostart:
 #   & ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways
 # With -Wsl (or --wsl), the desktop app runs in WSL2, with the Linux sandbox (SPEC.md 11.5).
 # The WSL2 path is experimental until it passes the manual plan of SPEC 11.5 on a real PC,

@@ -1,7 +1,9 @@
 #!/bin/sh
 # Installs gnomish-relay from the latest GitHub Release, and runs setup (SPEC.md 11.3).
 #   curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh
-# Arguments go to setup, after --autostart (`| sh -s -- --timeways`, SPEC.md 11.4).
+# Arguments go to setup, after --autostart. With no argument, setup sets up only
+# Gnomish Relay. With --timeways, it sets up only Timeways (SPEC.md 9.7, decision 15):
+#   curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh -s -- --timeways
 # --no-autostart turns the autostart off. GNOMISH_URL changes the download folder, and
 # GNOMISH_BIN the install folder, also of the Timeways programs.
 set -eu
@@ -11,7 +13,7 @@ case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) target=aarch64-apple-darwin ;;
   Darwin-x86_64) target=x86_64-apple-darwin ;;
   *)
-    echo "error: Gnomish Relay has no build for $(uname -s) $(uname -m) yet" >&2
+    echo "error: the desktop app has no build for $(uname -s) $(uname -m) yet" >&2
     exit 1
     ;;
 esac
