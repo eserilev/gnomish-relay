@@ -46,8 +46,9 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
         lines.push(NO_WOW.into());
         return lines;
     };
+    // Timeways alone is another product, so its status has no relay line (SPEC.md 9.7,
+    // decision 15).
     let Some(relay) = &config.relay else {
-        lines.push("Coding agents: off. To turn them on, run gnomish-relay setup --relay".into());
         return lines;
     };
     let gate = Gate::new(relay, places, Prompt::Off);

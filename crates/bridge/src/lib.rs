@@ -102,6 +102,7 @@ pub mod service;
 pub mod settings_list;
 pub mod setup;
 pub mod setup_command;
+pub mod setup_timeways;
 pub mod slots;
 pub mod spool;
 pub mod start;

@@ -321,11 +321,11 @@ fn a_config_with_no_local_model_has_nothing_to_test() {
     assert_eq!(error.to_string(), "The config has no local model.");
 }
 
-/// With no terminal, setup asks nothing, downloads nothing, and names the command for
-/// later. No `curl` on the `PATH`, so no download can start.
+/// With no terminal, `setup --timeways` asks nothing, downloads no model, and names the
+/// command for later. No `curl` on the `PATH`, so no download can start.
 #[cfg(target_os = "linux")]
 #[test]
-fn setup_with_no_terminal_downloads_nothing_and_names_the_command_for_later() {
+fn timeways_setup_with_no_terminal_downloads_no_model_and_names_the_command_for_later() {
     let home = tempfile::tempdir().unwrap();
     let timeways = home.path().join("wow/Interface/AddOns/Timeways");
     std::fs::create_dir_all(&timeways).unwrap();
@@ -336,6 +336,7 @@ fn setup_with_no_terminal_downloads_nothing_and_names_the_command_for_later() {
     let out = std::process::Command::new(env!("CARGO_BIN_EXE_gnomish-relay"))
         .arg("setup")
         .arg(home.path().join("wow"))
+        .arg("--timeways")
         .env_clear()
         .env("HOME", home.path())
         .env("XDG_CONFIG_HOME", home.path().join("config"))

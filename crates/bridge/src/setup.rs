@@ -1,4 +1,4 @@
-//! `gnomish-relay setup` for two apps (SPEC.md 11.3 and 9.7, decision 15): the keys,
+//! `gnomish-relay setup` for two products (SPEC.md 11.3 and 9.7, decision 15): the keys,
 //! the key addons, the slots, and the config. The command line asks the questions and
 //! prints the result.
 
@@ -19,67 +19,29 @@ use crate::receive::{KeySet, RELAY_KEY_FILE, TIMEWAYS_KEY_FILE};
 use crate::run::now;
 use crate::slots::{self, Files};
 
-/// Whether this computer runs the relay: the coding agents in the game.
+/// The product that one setup sets up. A setup never touches the other product.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Relay {
-    On,
-    Off,
+pub enum Product {
+    /// `gnomish-relay setup`: the coding agents in the game.
+    Relay,
+    /// `gnomish-relay setup --timeways`.
+    Timeways,
 }
 
-/// Whether this computer runs Timeways.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Timeways {
-    On,
-    Off,
-}
-
-/// The Timeways addon folder, or `--timeways`. Players get the addon from `CurseForge`,
-/// so setup can come first, and then WoW finds the key addon at its next start.
-pub fn timeways_choice(folder: bool, asked: bool) -> Timeways {
-    if folder || asked {
-        Timeways::On
-    } else {
-        Timeways::Off
+impl Product {
+    pub fn app(self) -> App {
+        match self {
+            Product::Relay => App::Relay,
+            Product::Timeways => App::Timeways,
+        }
     }
-}
-
-/// Whether setup can decide the relay alone, or asks the player.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum RelayChoice {
-    Decided(Relay),
-    Ask,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyChoice {
     Keep,
-    /// `--new-key`: a new key for each app that this computer has.
+    /// `--new-key`: a new key for the product of this setup.
     New,
-}
-
-/// What setup knows before it asks: the flags, the config, and the addon folders.
-pub struct Found {
-    /// `--relay` or `--roots`.
-    pub relay_asked: bool,
-    /// `None` with no config yet.
-    pub config_has_relay: Option<bool>,
-    pub relay_folder: bool,
-    /// The Timeways folder, or `--timeways`: the player came for Timeways.
-    pub timeways: Timeways,
-}
-
-/// Only a player with Timeways, no relay folder, and no config gets a question.
-pub fn relay_choice(found: &Found) -> RelayChoice {
-    if found.relay_asked {
-        return RelayChoice::Decided(Relay::On);
-    }
-    if let Some(has_relay) = found.config_has_relay {
-        return RelayChoice::Decided(if has_relay { Relay::On } else { Relay::Off });
-    }
-    if found.relay_folder || found.timeways == Timeways::Off {
-        return RelayChoice::Decided(Relay::On);
-    }
-    RelayChoice::Ask
 }
 
 /// The config folder and the `Interface/AddOns` folder of the game.
@@ -88,13 +50,18 @@ pub struct Folders {
     pub addons: PathBuf,
 }
 
+fn read_key(dir: &Path, file: &str) -> Option<String> {
+    let hex = fs::read_to_string(dir.join(file)).ok()?;
+    Some(hex.trim().to_owned())
+}
+
 /// Reads the key in `file`, or makes one. A new key is never equal to `other`, because
 /// the bridge refuses equal keys (SPEC.md 9.7, decision 1).
 fn key(dir: &Path, file: &str, choice: KeyChoice, other: Option<&str>) -> Result<String> {
     if choice == KeyChoice::Keep
-        && let Ok(hex) = fs::read_to_string(dir.join(file))
+        && let Some(hex) = read_key(dir, file)
     {
-        return Ok(hex.trim().to_owned());
+        return Ok(hex);
     }
     let mut hex = install::new_key()?;
     while Some(hex.as_str()) == other {
@@ -107,62 +74,42 @@ fn key(dir: &Path, file: &str, choice: KeyChoice, other: Option<&str>) -> Result
 /// What the file steps changed.
 #[derive(Debug, PartialEq, Eq)]
 pub struct Changed {
-    /// `None` with the relay off.
-    pub relay_key: Option<Installed>,
-    /// `None` with Timeways off. `New` for a new key addon folder.
-    pub timeways_key: Option<Installed>,
+    /// The key addon of the product. `New` for a new key addon folder.
+    pub key_addon: Installed,
     /// WoW finds a new slot folder only at launch.
     pub new_slots: bool,
 }
 
-/// The keys in hex. `timeways` is `None` with Timeways off.
-pub struct Keys {
-    pub relay: String,
-    pub timeways: Option<String>,
-}
-
-/// The keys of each app that this computer has. They need no game, so setup makes them
-/// also before WoW is there.
-pub fn make_keys(dir: &Path, timeways: Timeways, keys: KeyChoice) -> Result<Keys> {
+/// The key of `product` in hex. Every setup also makes `strip.key` when it is missing,
+/// because `KeySet` needs it. With no relay addon, it does nothing.
+pub fn make_keys(dir: &Path, product: Product, keys: KeyChoice) -> Result<String> {
     make_private_dir(dir)?;
-    // `KeySet` needs the relay key, so every player gets it. With no addon, it does nothing.
-    let relay = key(dir, RELAY_KEY_FILE, keys, None)?;
-    let timeways = match timeways {
-        Timeways::On => Some(key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay))?),
-        Timeways::Off => None,
+    let relay_keys = match product {
+        Product::Relay => keys,
+        Product::Timeways => KeyChoice::Keep,
+    };
+    let old_timeways = read_key(dir, TIMEWAYS_KEY_FILE);
+    let relay = key(dir, RELAY_KEY_FILE, relay_keys, old_timeways.as_deref())?;
+    let hex = match product {
+        Product::Relay => relay,
+        Product::Timeways => key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay))?,
     };
     // Equal keys stop setup here, as they stop the bridge.
     KeySet::load(dir)?;
-    Ok(Keys { relay, timeways })
+    Ok(hex)
 }
 
-/// The keys, the key addons, and the slots of each app that this computer has. They
-/// need nothing else, so they come before the config (SPEC.md 11.3).
-pub fn install_files(
-    folders: &Folders,
-    relay: Relay,
-    timeways: Timeways,
-    keys: KeyChoice,
-) -> Result<Changed> {
-    let hex = make_keys(&folders.config, timeways, keys)?;
-    let mut new_slots = false;
-    let relay_key = match relay {
-        Relay::On => {
-            new_slots |= install_slots(&folders.addons, App::Relay)?;
-            Some(install::write_relay_keys(&folders.addons, &hex.relay)?)
-        }
-        Relay::Off => None,
-    };
-    let timeways_key = match &hex.timeways {
-        Some(timeways_hex) => {
-            new_slots |= install_slots(&folders.addons, App::Timeways)?;
-            Some(install::write_timeways_keys(&folders.addons, timeways_hex)?)
-        }
-        None => None,
+/// The key, the key addon, and the slots of `product`. They need nothing else, so they
+/// come before the config (SPEC.md 11.3).
+pub fn install_files(folders: &Folders, product: Product, keys: KeyChoice) -> Result<Changed> {
+    let hex = make_keys(&folders.config, product, keys)?;
+    let new_slots = install_slots(&folders.addons, product.app())?;
+    let key_addon = match product {
+        Product::Relay => install::write_relay_keys(&folders.addons, &hex)?,
+        Product::Timeways => install::write_timeways_keys(&folders.addons, &hex)?,
     };
     Ok(Changed {
-        relay_key,
-        timeways_key,
+        key_addon,
         new_slots,
     })
 }
@@ -174,20 +121,26 @@ fn install_slots(addons: &Path, app: App) -> Result<bool> {
     Ok(new)
 }
 
-/// `gnomish-relay install`: the slots of the relay when it is on, and of Timeways when
-/// its addon is there.
-pub fn install_all_slots(addons: &Path, relay: Relay) -> Result<Vec<App>> {
-    let mut apps = Vec::new();
-    if relay == Relay::On {
-        apps.push(App::Relay);
+/// The products that this computer has: the relay with the relay part of the config,
+/// and Timeways with its key. An addon folder alone counts for nothing.
+pub fn products_of(config: &Config, config_dir: &Path) -> Vec<Product> {
+    let mut products = Vec::new();
+    if config.relay.is_some() {
+        products.push(Product::Relay);
     }
-    if install::timeways_dir(addons).is_some() {
-        apps.push(App::Timeways);
+    if config_dir.join(TIMEWAYS_KEY_FILE).is_file() {
+        products.push(Product::Timeways);
     }
-    for app in &apps {
-        slots::install(addons, *app, &Files::empty(*app, now()))?;
+    products
+}
+
+/// `gnomish-relay install`: the slots of each product of `products`.
+pub fn install_all_slots(addons: &Path, products: &[Product]) -> Result<()> {
+    for product in products {
+        let app = product.app();
+        slots::install(addons, app, &Files::empty(app, now()))?;
     }
-    Ok(apps)
+    Ok(())
 }
 
 /// Writes the Timeways key addon again when it is missing or old, as the bridge does for
@@ -298,56 +251,6 @@ pub fn level_line(relay: &config::RelayConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn found(relay_asked: bool, config: Option<bool>, relay: bool, timeways: bool) -> Found {
-        Found {
-            relay_asked,
-            config_has_relay: config,
-            relay_folder: relay,
-            timeways: timeways_choice(timeways, false),
-        }
-    }
-
-    const ON: RelayChoice = RelayChoice::Decided(Relay::On);
-    const OFF: RelayChoice = RelayChoice::Decided(Relay::Off);
-
-    #[test]
-    fn relay_or_roots_turns_the_relay_on_even_for_a_timeways_config() {
-        assert_eq!(relay_choice(&found(true, Some(false), false, true)), ON);
-    }
-
-    #[test]
-    fn an_existing_config_decides_the_relay() {
-        assert_eq!(relay_choice(&found(false, Some(true), false, true)), ON);
-        assert_eq!(relay_choice(&found(false, Some(false), true, true)), OFF);
-    }
-
-    #[test]
-    fn a_relay_folder_turns_the_relay_on() {
-        assert_eq!(relay_choice(&found(false, None, true, true)), ON);
-    }
-
-    #[test]
-    fn with_no_timeways_folder_the_relay_is_on_as_before() {
-        assert_eq!(relay_choice(&found(false, None, false, false)), ON);
-    }
-
-    #[test]
-    fn only_a_new_player_with_timeways_alone_gets_the_question() {
-        assert_eq!(
-            relay_choice(&found(false, None, false, true)),
-            RelayChoice::Ask
-        );
-    }
-
-    #[test]
-    fn a_new_player_who_asks_for_timeways_before_its_addon_gets_the_question() {
-        let asked = Found {
-            timeways: timeways_choice(false, true),
-            ..found(false, None, false, false)
-        };
-        assert_eq!(relay_choice(&asked), RelayChoice::Ask);
-    }
 
     #[test]
     fn a_first_config_with_no_relay_is_the_timeways_config() {

@@ -1,5 +1,5 @@
-//! Setup for two apps on temp folders (SPEC.md 11.3 and 9.7, decision 15): the relay
-//! alone as before, the relay and Timeways, and Timeways alone.
+//! Setup for two products on temp folders (SPEC.md 11.3 and 9.7, decision 15): each
+//! setup makes only the files of its own product, and both can live on one computer.
 
 // Clippy sees helper functions outside `#[test]` as normal code, so its test exceptions miss them.
 #![allow(clippy::unwrap_used, clippy::expect_used)]
@@ -10,17 +10,23 @@ use std::path::{Path, PathBuf};
 use bridge::app_files::key_addon_name;
 use bridge::config::Kind;
 use bridge::config_text::RelayPart;
-use bridge::install::{self, ADDON, Installed, KEY_FILE, TIMEWAYS, key_addon_lua};
+use bridge::install::{ADDON, Installed, KEY_FILE, TIMEWAYS, key_addon_lua};
 use bridge::model::ModelChoice;
 use bridge::model_setup::FoundModel;
 use bridge::receive::{KeySet, RELAY_KEY_FILE, TIMEWAYS_KEY_FILE};
 use bridge::setup::{
-    self, Changed, ConfigParts, Folders, KeyChoice, Relay, Timeways, install_files,
-    repair_timeways_key,
+    self, Changed, ConfigParts, Folders, KeyChoice, Product, install_files, repair_timeways_key,
 };
 use bridge::slots::slot_name;
 use protocol::apps::App;
 use protocol::slot::SLOTS;
+
+/// Whether the config of a test has the relay part.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Relay {
+    On,
+    Off,
+}
 
 struct Computer {
     root: tempfile::TempDir,
@@ -97,22 +103,18 @@ impl Computer {
     }
 }
 
-/// Timeways is on when its folder is there, as in a setup with no `--timeways`.
-fn install(computer: &Computer, relay: Relay, keys: KeyChoice) -> Changed {
-    let folder = install::timeways_dir(&computer.folders.addons).is_some();
-    let timeways = setup::timeways_choice(folder, false);
-    install_files(&computer.folders, relay, timeways, keys).unwrap()
+fn install(computer: &Computer, product: Product, keys: KeyChoice) -> Changed {
+    install_files(&computer.folders, product, keys).unwrap()
 }
 
 #[test]
-fn with_no_timeways_folder_setup_installs_the_relay_as_before() {
-    let computer = Computer::new(&[]);
+fn relay_setup_with_a_timeways_folder_installs_only_the_relay() {
+    let computer = Computer::new(&[TIMEWAYS]);
 
-    let changed = install(&computer, Relay::On, KeyChoice::Keep);
+    let changed = install(&computer, Product::Relay, KeyChoice::Keep);
     let config = computer.config(Relay::On, None);
 
-    assert_eq!(changed.relay_key, Some(Installed::New));
-    assert_eq!(changed.timeways_key, None);
+    assert_eq!(changed.key_addon, Installed::New);
     assert!(changed.new_slots);
     let relay_key = computer.key(RELAY_KEY_FILE).unwrap();
     assert_eq!(
@@ -124,37 +126,36 @@ fn with_no_timeways_folder_setup_installs_the_relay_as_before() {
     assert!(!computer.any_slot(App::Timeways), "no Timeways slots");
     assert_eq!(computer.key_addon(App::Timeways), None);
     assert_eq!(computer.key(TIMEWAYS_KEY_FILE), None);
-    assert!(!computer.folders.addons.join(TIMEWAYS).exists());
+    assert_eq!(computer.addon_file(TIMEWAYS, KEY_FILE), None);
     assert!(config.relay.is_some());
     assert!(config.story.is_none());
 }
 
 #[test]
-fn a_second_setup_changes_nothing() {
+fn a_second_setup_of_each_product_changes_nothing() {
     let computer = Computer::new(&[TIMEWAYS]);
-    install(&computer, Relay::On, KeyChoice::Keep);
+    let unchanged = Changed {
+        key_addon: Installed::Unchanged,
+        new_slots: false,
+    };
+    for product in [Product::Relay, Product::Timeways] {
+        install(&computer, product, KeyChoice::Keep);
 
-    let again = install(&computer, Relay::On, KeyChoice::Keep);
+        let again = install(&computer, product, KeyChoice::Keep);
 
-    assert_eq!(
-        again,
-        Changed {
-            relay_key: Some(Installed::Unchanged),
-            timeways_key: Some(Installed::Unchanged),
-            new_slots: false,
-        }
-    );
+        assert_eq!(again, unchanged, "{product:?}");
+    }
 }
 
 #[test]
-fn with_both_folders_setup_installs_both_apps_with_two_keys() {
+fn both_setups_on_one_computer_give_two_keys_and_both_products() {
     let computer = Computer::new(&[TIMEWAYS]);
 
-    let changed = install(&computer, Relay::On, KeyChoice::Keep);
+    install(&computer, Product::Relay, KeyChoice::Keep);
+    let changed = install(&computer, Product::Timeways, KeyChoice::Keep);
     let config = computer.config(Relay::On, Some(&[FoundModel::Claude]));
 
-    assert_eq!(changed.relay_key, Some(Installed::New));
-    assert_eq!(changed.timeways_key, Some(Installed::New));
+    assert_eq!(changed.key_addon, Installed::New);
     let relay_key = computer.key(RELAY_KEY_FILE).unwrap();
     let timeways_key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
     assert_ne!(relay_key, timeways_key);
@@ -162,6 +163,10 @@ fn with_both_folders_setup_installs_both_apps_with_two_keys() {
     assert_eq!(
         computer.key_addon(App::Timeways),
         Some(key_addon_lua(App::Timeways, &timeways_key).unwrap())
+    );
+    assert_eq!(
+        computer.key_addon(App::Relay),
+        Some(key_addon_lua(App::Relay, &relay_key).unwrap())
     );
     assert!(computer.has_slots(App::Relay));
     assert!(computer.has_slots(App::Timeways));
@@ -178,14 +183,13 @@ fn with_both_folders_setup_installs_both_apps_with_two_keys() {
 }
 
 #[test]
-fn with_only_timeways_setup_installs_no_relay_and_no_agent() {
+fn timeways_setup_installs_no_relay_and_no_agent() {
     let computer = Computer::new(&[TIMEWAYS]);
 
-    let changed = install(&computer, Relay::Off, KeyChoice::Keep);
+    let changed = install(&computer, Product::Timeways, KeyChoice::Keep);
     let config = computer.config(Relay::Off, Some(&[]));
 
-    assert_eq!(changed.relay_key, None);
-    assert_eq!(changed.timeways_key, Some(Installed::New));
+    assert_eq!(changed.key_addon, Installed::New);
     assert!(changed.new_slots);
     assert!(!computer.folders.addons.join(ADDON).exists());
     assert_eq!(computer.key_addon(App::Relay), None);
@@ -200,32 +204,38 @@ fn with_only_timeways_setup_installs_no_relay_and_no_agent() {
 #[test]
 fn the_timeways_slots_depend_on_timeways() {
     let computer = Computer::new(&[TIMEWAYS]);
-    install(&computer, Relay::Off, KeyChoice::Keep);
+    install(&computer, Product::Timeways, KeyChoice::Keep);
     let name = slot_name(App::Timeways, 1);
     let toc = computer.addon_file(&name, &format!("{name}.toc")).unwrap();
     assert!(toc.contains("## Dependencies: Timeways\n"), "{toc}");
 }
 
 #[test]
-fn new_keys_replace_both_keys_and_both_key_addons() {
+fn a_new_key_replaces_only_the_key_and_the_key_addon_of_its_product() {
     let computer = Computer::new(&[TIMEWAYS]);
-    install(&computer, Relay::On, KeyChoice::Keep);
+    install(&computer, Product::Relay, KeyChoice::Keep);
+    install(&computer, Product::Timeways, KeyChoice::Keep);
     let old_relay = computer.key(RELAY_KEY_FILE).unwrap();
     let old_timeways = computer.key(TIMEWAYS_KEY_FILE).unwrap();
 
-    let changed = install(&computer, Relay::On, KeyChoice::New);
+    let relay = install(&computer, Product::Relay, KeyChoice::New);
 
     let relay_key = computer.key(RELAY_KEY_FILE).unwrap();
-    let timeways_key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
     assert_ne!(relay_key, old_relay);
-    assert_ne!(timeways_key, old_timeways);
-    assert_ne!(relay_key, timeways_key);
-    assert_eq!(changed.relay_key, Some(Installed::Updated));
-    assert_eq!(changed.timeways_key, Some(Installed::Updated));
+    assert_eq!(computer.key(TIMEWAYS_KEY_FILE).unwrap(), old_timeways);
+    assert_eq!(relay.key_addon, Installed::Updated);
     assert_eq!(
         computer.key_addon(App::Relay),
         Some(key_addon_lua(App::Relay, &relay_key).unwrap())
     );
+
+    let timeways = install(&computer, Product::Timeways, KeyChoice::New);
+
+    let timeways_key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
+    assert_ne!(timeways_key, old_timeways);
+    assert_ne!(timeways_key, relay_key);
+    assert_eq!(computer.key(RELAY_KEY_FILE).unwrap(), relay_key);
+    assert_eq!(timeways.key_addon, Installed::Updated);
     assert_eq!(
         computer.key_addon(App::Timeways),
         Some(key_addon_lua(App::Timeways, &timeways_key).unwrap())
@@ -237,7 +247,7 @@ fn new_keys_replace_both_keys_and_both_key_addons() {
 fn the_keys_are_private_to_the_user() {
     use std::os::unix::fs::PermissionsExt;
     let computer = Computer::new(&[TIMEWAYS]);
-    install(&computer, Relay::Off, KeyChoice::Keep);
+    install(&computer, Product::Timeways, KeyChoice::Keep);
     for file in [RELAY_KEY_FILE, TIMEWAYS_KEY_FILE] {
         let mode = fs::metadata(computer.folders.config.join(file))
             .unwrap()
@@ -255,16 +265,17 @@ fn equal_keys_stop_setup() {
     fs::write(computer.folders.config.join(RELAY_KEY_FILE), &key).unwrap();
     fs::write(computer.folders.config.join(TIMEWAYS_KEY_FILE), &key).unwrap();
 
-    let error =
-        install_files(&computer.folders, Relay::Off, Timeways::On, KeyChoice::Keep).unwrap_err();
+    for product in [Product::Relay, Product::Timeways] {
+        let error = install_files(&computer.folders, product, KeyChoice::Keep).unwrap_err();
 
-    assert!(format!("{error:#}").contains("the same"), "{error:#}");
+        assert!(format!("{error:#}").contains("the same"), "{error:#}");
+    }
 }
 
 #[test]
 fn the_bridge_writes_a_missing_timeways_key_again_and_no_file_of_timeways() {
     let computer = Computer::new(&[TIMEWAYS]);
-    install(&computer, Relay::Off, KeyChoice::Keep);
+    install(&computer, Product::Timeways, KeyChoice::Keep);
     let dir = computer.folders.addons.join(TIMEWAYS);
     fs::remove_file(computer.folders.addons.join("Timeways_Key").join(KEY_FILE)).unwrap();
     fs::remove_file(dir.join("Timeways.toc")).unwrap();
@@ -287,12 +298,10 @@ fn the_bridge_writes_a_missing_timeways_key_again_and_no_file_of_timeways() {
 #[test]
 fn setup_for_timeways_with_no_timeways_folder_writes_its_key_its_key_addon_and_its_slots() {
     let computer = Computer::new(&[]);
-    let timeways = setup::timeways_choice(false, true);
 
-    let changed = install_files(&computer.folders, Relay::Off, timeways, KeyChoice::Keep).unwrap();
+    let changed = install(&computer, Product::Timeways, KeyChoice::Keep);
 
-    assert_eq!(timeways, Timeways::On);
-    assert_eq!(changed.timeways_key, Some(Installed::New));
+    assert_eq!(changed.key_addon, Installed::New);
     assert!(changed.new_slots);
     let key = computer.key(TIMEWAYS_KEY_FILE).unwrap();
     assert_eq!(
@@ -307,15 +316,9 @@ fn setup_for_timeways_with_no_timeways_folder_writes_its_key_its_key_addon_and_i
 }
 
 #[test]
-fn with_no_timeways_folder_and_no_flag_setup_makes_nothing_for_timeways() {
-    assert_eq!(setup::timeways_choice(false, false), Timeways::Off);
-    assert_eq!(setup::timeways_choice(true, false), Timeways::On);
-}
-
-#[test]
 fn the_bridge_writes_a_missing_timeways_key_addon_also_with_no_timeways_folder() {
     let computer = Computer::new(&[]);
-    install_files(&computer.folders, Relay::Off, Timeways::On, KeyChoice::Keep).unwrap();
+    install(&computer, Product::Timeways, KeyChoice::Keep);
     fs::remove_file(computer.folders.addons.join("Timeways_Key").join(KEY_FILE)).unwrap();
 
     let repaired = repair_timeways_key(&computer.folders.config, &computer.folders.addons);
@@ -330,9 +333,9 @@ fn the_bridge_writes_a_missing_timeways_key_addon_also_with_no_timeways_folder()
 }
 
 #[test]
-fn with_no_timeways_folder_or_key_the_bridge_writes_nothing_for_timeways() {
+fn with_no_timeways_key_the_start_of_the_desktop_app_writes_nothing_for_timeways() {
     let computer = Computer::new(&[]);
-    install(&computer, Relay::On, KeyChoice::Keep);
+    install(&computer, Product::Relay, KeyChoice::Keep);
     let config = &computer.folders.config;
     assert_eq!(
         repair_timeways_key(config, &computer.folders.addons).unwrap(),
@@ -356,7 +359,7 @@ fn a_linked_timeways_folder_stays_a_link_and_its_key_goes_into_the_key_addon() {
     fs::create_dir(&repo).unwrap();
     std::os::unix::fs::symlink(&repo, computer.folders.addons.join(TIMEWAYS)).unwrap();
 
-    install(&computer, Relay::Off, KeyChoice::Keep);
+    install(&computer, Product::Timeways, KeyChoice::Keep);
 
     assert_eq!(fs::read_dir(&repo).unwrap().count(), 0);
     assert!(computer.key_addon(App::Timeways).is_some());
@@ -365,13 +368,26 @@ fn a_linked_timeways_folder_stays_a_link_and_its_key_goes_into_the_key_addon() {
 }
 
 #[test]
-fn install_makes_the_slots_of_each_app_that_is_there() {
+fn install_makes_the_slots_of_each_product_of_the_computer_and_not_of_a_folder() {
     let computer = Computer::new(&[TIMEWAYS]);
-    let apps = setup::install_all_slots(&computer.folders.addons, Relay::Off).unwrap();
-    assert_eq!(apps, [App::Timeways]);
+    let relay = computer.config(Relay::On, None);
+    assert_eq!(
+        setup::products_of(&relay, &computer.folders.config),
+        [Product::Relay],
+        "a Timeways folder alone is no Timeways"
+    );
+    install(&computer, Product::Timeways, KeyChoice::Keep);
+    let both = setup::products_of(&relay, &computer.folders.config);
+    assert_eq!(both, [Product::Relay, Product::Timeways]);
+    let timeways = computer.config(Relay::Off, Some(&[]));
+    let alone = setup::products_of(&timeways, &computer.folders.config);
+    assert_eq!(alone, [Product::Timeways]);
+    fs::remove_dir_all(computer.folders.addons.join(slot_name(App::Timeways, 1))).unwrap();
+
+    setup::install_all_slots(&computer.folders.addons, &alone).unwrap();
+
+    assert!(computer.has_slots(App::Timeways));
     assert!(!computer.any_slot(App::Relay));
-    let apps = setup::install_all_slots(&computer.folders.addons, Relay::On).unwrap();
-    assert_eq!(apps, [App::Relay, App::Timeways]);
 }
 
 #[test]
@@ -407,7 +423,7 @@ fn a_config_that_does_not_load_is_never_written() {
 fn setup_makes_no_relay_addon_folder() {
     let computer = Computer::new(&[]);
 
-    install(&computer, Relay::On, KeyChoice::Keep);
+    install(&computer, Product::Relay, KeyChoice::Keep);
 
     assert!(!computer.folders.addons.join(ADDON).exists());
     assert!(computer.key_addon(App::Relay).is_some());
@@ -418,8 +434,8 @@ fn setup_leaves_the_relay_addon_from_curseforge_as_it_is() {
     let computer = Computer::new(&[ADDON]);
     let dir = computer.folders.addons.join(ADDON);
 
-    install(&computer, Relay::On, KeyChoice::Keep);
-    install(&computer, Relay::On, KeyChoice::New);
+    install(&computer, Product::Relay, KeyChoice::Keep);
+    install(&computer, Product::Relay, KeyChoice::New);
 
     assert_eq!(
         computer.addon_file(ADDON, "GnomishRelay.toc").as_deref(),

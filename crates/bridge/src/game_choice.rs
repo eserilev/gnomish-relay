@@ -54,12 +54,13 @@ pub fn from_search(games: &[PathBuf]) -> Game {
     }
 }
 
-/// The line that names the folder. With several, it also says how to take another one.
-pub fn game_line(game: &Game) -> Option<String> {
+/// The line that names the folder. With several, it also says how to take another one,
+/// with `setup`, the setup command of the product.
+pub fn game_line(game: &Game, setup: &str) -> Option<String> {
     match game {
         Game::Known(game) | Game::Only(game) => Some(format!("WoW: {}", game.display())),
         Game::Newest(game) => Some(format!(
-            "Using WoW at {}. To use another one, run gnomish-relay setup --wow <folder>.",
+            "Using WoW at {}. To use another one, run {setup} --wow <folder>.",
             game.display()
         )),
         Game::Missing => None,
@@ -206,10 +207,21 @@ mod tests {
         let game = PathBuf::from("/games/wow");
 
         assert_eq!(
-            game_line(&Game::Newest(game.clone())).unwrap(),
+            game_line(&Game::Newest(game.clone()), "gnomish-relay setup").unwrap(),
             "Using WoW at /games/wow. To use another one, run gnomish-relay setup --wow <folder>."
         );
-        assert_eq!(game_line(&Game::Only(game)).unwrap(), "WoW: /games/wow");
-        assert_eq!(game_line(&Game::Missing), None);
+        assert_eq!(
+            game_line(
+                &Game::Newest(game.clone()),
+                "gnomish-relay setup --timeways"
+            )
+            .unwrap(),
+            "Using WoW at /games/wow. To use another one, run gnomish-relay setup --timeways --wow <folder>."
+        );
+        assert_eq!(
+            game_line(&Game::Only(game), "gnomish-relay setup").unwrap(),
+            "WoW: /games/wow"
+        );
+        assert_eq!(game_line(&Game::Missing, "gnomish-relay setup"), None);
     }
 }

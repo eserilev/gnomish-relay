@@ -32,8 +32,10 @@ const USAGE: &str = "\
 Usage: gnomish-relay <command>
 
 Set up
-  setup [--wow folder] [--roots a,b] [--relay] [--new-key] [--autostart]
-                          Set up the desktop app for your game
+  setup [--wow folder] [--roots a,b] [--new-key] [--autostart]
+                          Set up Gnomish Relay for your game
+  setup --timeways [--wow folder] [--new-key] [--autostart]
+                          Set up Timeways for your game
   install                 Recreate the addon files (close the game first)
   update                  Install the latest version and restart the desktop app
 
