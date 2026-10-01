@@ -624,6 +624,21 @@ fn real_folder(path: &str, home: &Path, key: &str) -> Result<Vec<u8>> {
 }
 
 pub fn parse(text: &str, home: &Path) -> Result<Config> {
+    let parts = parse_parts(text, home)?;
+    Ok(Config {
+        relay: parts.relay?,
+        ..parts.config
+    })
+}
+
+/// A config whose relay part loads on its own. `config` has no relay part.
+pub struct Parts {
+    pub config: Config,
+    pub relay: Result<Option<RelayConfig>>,
+}
+
+/// An error in the relay part stops no `setup --timeways` (SPEC.md 9.7, decision 15).
+pub fn parse_parts(text: &str, home: &Path) -> Result<Parts> {
     let file: File = toml::from_str(text)?;
     let network = file
         .sandbox
@@ -635,10 +650,13 @@ pub fn parse(text: &str, home: &Path) -> Result<Config> {
         Some(wow) => Some(expand(&wow.path, home)?),
         None => None,
     };
-    Ok(Config {
-        wow,
-        relay: relay(file, home)?,
-        story,
+    Ok(Parts {
+        config: Config {
+            wow,
+            relay: None,
+            story,
+        },
+        relay: relay(file, home),
     })
 }
 
@@ -664,6 +682,47 @@ fn no_relay_keys(file: &File) -> Result<()> {
     }
 }
 
+/// A `default_cwd` that `default_folder` refuses. Setup repairs it (SPEC.md 12).
+#[derive(Debug, PartialEq, Eq)]
+pub enum BadDefaultFolder {
+    Missing(String),
+    OutsideRoots(String),
+}
+
+impl std::fmt::Display for BadDefaultFolder {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            BadDefaultFolder::Missing(cwd) => write!(f, "default_cwd {cwd} doesn't exist"),
+            BadDefaultFolder::OutsideRoots(cwd) => {
+                write!(f, "default_cwd {cwd} isn't in allowed_roots")
+            }
+        }
+    }
+}
+
+impl std::error::Error for BadDefaultFolder {}
+
+/// The one rule for `default_cwd` (SPEC.md 12): inside a root, or the home folder. The
+/// home folder is the base of the folders of the game, never a root (SPEC.md 9.12).
+fn default_folder(cwd: Option<&str>, roots: &[Vec<u8>], home: &Path) -> Result<Vec<u8>> {
+    let real_home = home.canonicalize().ok().map(|h| path_bytes(&h));
+    let Some(cwd) = cwd else {
+        // With no roots, every folder needs a click on the desktop first (SPEC.md 9.12).
+        return roots
+            .first()
+            .cloned()
+            .or(real_home)
+            .context("the home folder does not exist");
+    };
+    let Ok(base) = real_folder(cwd, home, "default_cwd") else {
+        bail!(BadDefaultFolder::Missing(cwd.to_owned()));
+    };
+    if Some(&base) != real_home.as_ref() && resolve_folder(roots, &base, b"").is_none() {
+        bail!(BadDefaultFolder::OutsideRoots(cwd.to_owned()));
+    }
+    Ok(base)
+}
+
 /// `allowed_roots` alone turns the relay on. A relay key with no roots is an error, so
 /// a typo never leaves a relay half set up.
 fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
@@ -674,18 +733,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         .iter()
         .map(|root| real_folder(root, home, "allowed root"))
         .collect::<Result<Vec<_>>>()?;
-    // With no roots, every folder needs a click on the desktop first (SPEC.md 9.12).
-    let real_home = home.canonicalize().ok().map(|h| path_bytes(&h));
-    let base = match (&file.default_cwd, roots.first()) {
-        (Some(cwd), _) => real_folder(cwd, home, "default_cwd")?,
-        (None, Some(first)) => first.clone(),
-        (None, None) => real_home
-            .clone()
-            .context("the home folder does not exist")?,
-    };
-    if Some(&base) != real_home.as_ref() && resolve_folder(&roots, &base, b"").is_none() {
-        bail!("default_cwd is outside allowed_roots");
-    }
+    let base = default_folder(file.default_cwd.as_deref(), &roots, home)?;
     let file_agents = file.agents.unwrap_or_default();
     for (name, agent) in &file_agents {
         check_agent(name, agent)?;
@@ -1599,6 +1647,37 @@ mod tests {
     fn a_default_folder_outside_the_roots_is_an_error() {
         let home = Home::new();
         let text = GOOD.replace("default_agent", "default_cwd = \"/etc\"\ndefault_agent");
+
+        let error = home.parse(&text).err().unwrap();
+
+        assert_eq!(
+            error.downcast_ref::<BadDefaultFolder>(),
+            Some(&BadDefaultFolder::OutsideRoots("/etc".into()))
+        );
+    }
+
+    #[test]
+    fn a_default_folder_that_does_not_exist_is_an_error_that_setup_can_repair() {
+        let home = Home::new();
+        let text = GOOD.replace("default_agent", "default_cwd = \"~/gone\"\ndefault_agent");
+
+        let error = home.parse(&text).err().unwrap();
+
+        assert_eq!(
+            error.downcast_ref::<BadDefaultFolder>(),
+            Some(&BadDefaultFolder::Missing("~/gone".into()))
+        );
+    }
+
+    #[test]
+    fn an_error_in_the_relay_part_leaves_the_other_parts_loaded() {
+        let home = Home::new();
+        let text = GOOD.replace("default_agent", "max_parallel_runs = 0\ndefault_agent");
+
+        let parts = parse_parts(&text, home.path()).unwrap();
+
+        assert!(parts.relay.is_err());
+        assert!(parts.config.wow.is_some());
         assert!(home.parse(&text).is_err());
     }
 

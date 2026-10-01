@@ -164,10 +164,11 @@ pub(crate) struct Found<'a> {
 /// decision 15). Every step leaves alone what works, so a second run is safe.
 pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
     let args = SetupArgs::parse(args)?;
-    let existing = match std::fs::read_to_string(dirs.config.join(config::FILE)) {
-        Ok(text) => Some((text, config::load(&dirs.config, &dirs.home)?)),
-        Err(_) => None,
-    };
+    let existing = setup::read_existing(&dirs.config, &dirs.home, args.product)?;
+    for line in existing.iter().flat_map(|found| &found.lines) {
+        println!("{line}");
+    }
+    let existing = existing.map(|found| (found.text, found.config));
     let config_wow = existing
         .as_ref()
         .and_then(|(_, config)| config.wow.as_deref());
@@ -288,7 +289,7 @@ pub(crate) fn write_parts(
     let text = existing.map(|(text, _)| text.as_str());
     match setup::config_text(text, parts)? {
         Some(new) => setup::write_config(&dirs.config, &new, &dirs.home),
-        None => config::load(&dirs.config, &dirs.home),
+        None => setup::load_config(&dirs.config, &dirs.home),
     }
 }
 

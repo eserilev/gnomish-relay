@@ -301,3 +301,121 @@ fn install_with_no_timeways_key_makes_no_timeways_addon_files() {
     assert!(!home.has("Timeways_S0001"));
     assert!(home.has("GnomishRelay_S0001"));
 }
+
+/// The path of the player: no project folder at the first setup, one at a later setup.
+/// The later setup adds the root and `default_cwd = "~"`.
+#[test]
+fn timeways_setup_after_a_relay_setup_that_added_a_root_to_the_home_folder_base() {
+    let home = Home::new(&["Timeways"]);
+    home.setup(&[]);
+    fs::create_dir_all(home.path().join("Documents/Code/app/.git")).unwrap();
+    home.setup(&[]);
+    let config = home.config();
+    assert!(
+        config.contains("allowed_roots = [\"~/Documents/Code\"]"),
+        "{config}"
+    );
+    assert!(config.contains("default_cwd = \"~\""), "{config}");
+    let status = String::from_utf8(home.run(&["status"]).stdout).unwrap();
+    assert!(status.contains("Config: OK"), "{status}");
+
+    let stdout = home.setup(&["--timeways"]);
+
+    assert!(home.config().contains("[story]"), "{}", home.config());
+    assert!(home.has("Timeways_Key") && home.has("Timeways_S0001"));
+    assert!(!stdout.contains("allowed_roots"), "{stdout}");
+}
+
+/// A relay setup with `~/Documents/Code` as its root, and then `top_line` as the first line.
+fn relay_config_with(home: &Home, top_line: &str) {
+    fs::create_dir_all(home.path().join("Documents/Code")).unwrap();
+    home.setup(&["--roots", "~/Documents/Code"]);
+    let path = home.config_dir().join("config.toml");
+    fs::write(&path, format!("{top_line}\n{}", home.config())).unwrap();
+}
+
+const REPAIRED: &str =
+    "Fixed config.toml: default_cwd / isn't in allowed_roots, so it's now ~ (your home folder).";
+
+#[test]
+fn relay_setup_repairs_a_default_folder_outside_the_roots() {
+    let home = Home::new(&[]);
+    relay_config_with(&home, "default_cwd = \"/\"");
+
+    let stdout = home.setup(&[]);
+
+    assert!(stdout.contains(REPAIRED), "{stdout}");
+    let config = home.config();
+    assert!(config.starts_with("default_cwd = \"~\"\n"), "{config}");
+    assert!(!config.contains("\"/\""), "{config}");
+    let status = String::from_utf8(home.run(&["status"]).stdout).unwrap();
+    assert!(status.contains("Config: OK"), "{status}");
+}
+
+#[test]
+fn timeways_setup_repairs_a_default_folder_outside_the_roots() {
+    let home = Home::new(&["Timeways"]);
+    relay_config_with(&home, "default_cwd = \"/\"");
+
+    let stdout = home.setup(&["--timeways"]);
+
+    assert!(stdout.contains(REPAIRED), "{stdout}");
+    assert!(home.config().contains("default_cwd = \"~\"\n"));
+    assert!(home.config().contains("[story]"), "{}", home.config());
+}
+
+#[test]
+fn relay_setup_repairs_a_default_folder_that_does_not_exist() {
+    let home = Home::new(&[]);
+    relay_config_with(&home, "default_cwd = \"~/Documents/Code/gone\"");
+
+    let stdout = home.setup(&[]);
+
+    assert!(
+        stdout.contains(
+            "Fixed config.toml: default_cwd ~/Documents/Code/gone doesn't exist, so it's now ~ \
+             (your home folder)."
+        ),
+        "{stdout}"
+    );
+    assert!(home.config().starts_with("default_cwd = \"~\"\n"));
+}
+
+#[test]
+fn timeways_setup_goes_on_with_an_error_in_the_relay_part_and_says_so_in_one_line() {
+    let home = Home::new(&["Timeways"]);
+    relay_config_with(&home, "max_parallel_runs = 0");
+
+    let stdout = home.setup(&["--timeways"]);
+
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.contains("config.toml"))
+        .collect();
+    assert_eq!(
+        lines,
+        [
+            "Gnomish Relay: config.toml has an error, and the desktop app won't start until it's \
+          fixed: max_parallel_runs must be 1 to 16"
+        ],
+        "{stdout}"
+    );
+    assert!(home.config().starts_with("max_parallel_runs = 0\n"));
+    assert!(home.config().contains("[story]"), "{}", home.config());
+    assert!(home.has("Timeways_Key") && home.has("Timeways_S0001"));
+}
+
+#[test]
+fn relay_setup_still_stops_on_an_error_in_the_relay_part() {
+    let home = Home::new(&[]);
+    relay_config_with(&home, "max_parallel_runs = 0");
+
+    let out = home.run(&["setup"]);
+
+    assert!(!out.status.success());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(
+        stderr.contains("max_parallel_runs must be 1 to"),
+        "{stderr}"
+    );
+}
