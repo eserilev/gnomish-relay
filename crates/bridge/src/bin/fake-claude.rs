@@ -29,6 +29,17 @@ fn flag(args: &[String], flag: &str) -> String {
         .unwrap_or_else(|| "none".into())
 }
 
+/// The init message. `apiKeySource` is `--fake-key-source <value>` of the test, else
+/// "none" as for a claude.ai login. "omit" leaves the field out.
+fn init_message(session: &str, args: &[String]) -> Value {
+    let mut init = json!({ "type": "system", "subtype": "init", "session_id": session, "cwd": ".", "tools": [] });
+    let source = flag(args, "--fake-key-source");
+    if source != "omit" {
+        init["apiKeySource"] = Value::from(source);
+    }
+    init
+}
+
 fn said(content: &Value) {
     send(&json!({ "type": "assistant", "message": { "role": "assistant", "content": content } }));
 }
@@ -346,9 +357,7 @@ fn main() {
         .pointer("/message/content")
         .and_then(Value::as_str)
         .unwrap_or("");
-    send(
-        &json!({ "type": "system", "subtype": "init", "session_id": session, "cwd": ".", "tools": [] }),
-    );
+    send(&init_message(&session, &args));
     send(&json!({ "type": "rate_limit_event", "rate_limit_info": {} }));
     let Some(reply) = reply(&script, &args, text, &session, hook.as_ref()) else {
         return;

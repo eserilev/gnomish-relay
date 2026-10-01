@@ -102,7 +102,8 @@ To use it, run the Windows install command with `-Wsl`:
 
 Along the way you get approval popups, a list of the files that changed with **Commit**
 and **Revert** buttons, a branch of its own for each chat, one-click suggestions in a new
-chat, test and CI results under each reply, and what each run cost.
+chat, test and CI results under each reply, and the tokens each run used (with the cost
+when you pay with an API key).
 
 ## Add an agent
 
