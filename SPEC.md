@@ -98,8 +98,8 @@ So the bridge bounds what any message from the game can do (6.6).
 11. The bridge never starts a process through a shell. It passes the command as an argument list.
 12. The bridge gives each agent process only an allowlist of environment variables (`PATH`, `HOME`, `LANG`, `TERM`, and the variables in the agent config). All others, for example API keys of other tools, stay out.
 13. The bridge writes prompt files with mode 0600 in a private folder, and deletes them after the run.
-14. Setup writes `config.toml` with mode 0600. The bridge refuses a config that other users can write, because the config sets the ceiling of every game message. The strip key is in its own file, `strip.key`, with mode 0600. Each private file (`config.toml`, the keys, `state.json`, `rules.json`, and the walls files of the sandbox) has mode 0600 from the moment that the bridge makes its temp file, so no chmod comes after the rename. The bridge opens `bridge.log` with mode 0600 and never through a link. The config folder and the data folder have mode 0700, also when an older bridge made them with the umask.
-15. The bridge escapes control characters and newlines in `bridge.log`, so a prompt cannot fake a log line.
+14. Setup writes `config.toml` with mode 0600. The bridge refuses a config that other users can write, because the config sets the ceiling of every game message. The strip key is in its own file, `strip.key`, with mode 0600. Each private file (`config.toml`, the keys, `state.json`, `rules.json`, and the walls files of the sandbox) has mode 0600 from the moment that the bridge makes its temp file, so no chmod comes after the rename. The bridge opens `bridge.log` and the files of `logs/` (8.5) with mode 0600 and never through a link. The config folder and the data folder have mode 0700, also when an older bridge made them with the umask.
+15. The bridge escapes control characters and newlines in `bridge.log` and in the JSON log (8.5), so a prompt cannot fake a log line.
 16. The bridge sends a restore bundle only in answer to a hello with a valid MAC.
 18. A control record of the coding app (Stop, Delete, a permission answer, a rule removal, or a hello) applies once for each frame (fixed on 2026-09-29; the tests came first). Its id is 0, so the replay store of messages (S7) cannot tell two of them apart, and a replayed strip would stop or delete a later run. So the bridge keeps the tag of each frame for 360 seconds after it first sees it, as long as the frame passes S11 (`MAX_AGE` + `MAX_AHEAD`). A frame with a known tag applies no control record and no report again. Its messages still go through the replay store, so a refused message gets its next chance. The tags are in `state.json` with the time of their first sight, and the bridge writes the state in the same step as the frame. So a restart of the bridge keeps them, and a replayed frame after a restart applies no control either.
 
@@ -254,7 +254,7 @@ There are four answers, in this order from strict to open:
 - `game request: <agent> in <chat folder>: <summary>`
 - `desktop request <id> (<kind>): <agent> in <folder>: <summary>. To approve, run gnomish-relay approve <id>`. `<kind>` is `tool call`, `raise`, `merge`, or `folder`. A raise, a merge, and a folder request have no summary: the folder names them.
 - The summary comes from the classifier input, never from the popup text, the title, or the prompt. A command is `command` and the names of its first 4 simple commands, for example `command cargo, tail`. A name is the last part of the first word, and a name that is not a plain word (6.6.5, for example `TOKEN=x`) is `?`. A command that does not parse is `command ?`. A file call is `read` or `write` and at most 3 of its paths, each relative to the chat folder when it is inside it. Any other tool is its name, when the title starts with a plain word, else `a tool`.
-- So no argument of a command, no file content, and no text of the agent reaches the log. The log escapes each line as before (`run::log`).
+- So no argument of a command, no file content, and no text of the agent reaches the summary. The full command is a field of its own, with its secrets hidden (8.5). The log escapes each line as before (`run::log`).
 - Example: `game request: claude in /home/x/Code/app: command git`.
 
 **Input.** The bridge builds the input in `crates/bridge/src/action_input.rs`:
@@ -275,7 +275,7 @@ There are four answers, in this order from strict to open:
 - **`deny` paths in the game folder** (fixed on 2026-09-29; the tests came first): the key addons `GnomishRelay_Key` and `Timeways_Key` (7.3.2), which hold a plain copy of each strip key, and an old `Key.lua` in the `GnomishRelay` and `Timeways` folders; `WTF/Account`, which holds the saved variables of every account, with the chats; and `Screenshots`, which holds the prompt in the pixels of each strip. The sandbox (6.6.4) hides them too, as it hides every `deny` path. The bridge writes each `Key.lua` with mode 0600, and writes an older key file again when others can read it.
   - The whole key addon folder, but only an old `Key.lua` of an app addon, not its whole folder: a developer checkout links `AddOns/GnomishRelay` into the repository (16), and an agent edits the other files of that folder.
   - Not the slot folders: they hold the replies of the agent, which any addon can read anyway (6.5), and 1000 slots for each app would need 2000 mounts, about 0.5 s for each run with `bwrap`.
-- **`deny` paths in the data folder** (12, and 9.7 decision 12): `state.json`, `approvals/`, `timeways/`, `rules.json` (6.6.5), `bridge.lock`, `bridge.pid`, `bridge.log`, and everything else there. An approved access would let the agent clear the replay store, answer its own desktop request, or change the story state. The bridge writes these files itself, never through the classifier.
+- **`deny` paths in the data folder** (12, and 9.7 decision 12): `state.json`, `approvals/`, `timeways/`, `rules.json` (6.6.5), `bridge.lock`, `bridge.pid`, `bridge.log`, `logs/`, `reports/`, and everything else there. An approved access would let the agent clear the replay store, answer its own desktop request, or change the story state. The bridge writes these files itself, never through the classifier.
 - **`desktop` patterns** are whole parts that match anywhere in a path, for example `.git/hooks`. A last `*` in a part matches the rest of a part, so `.env.*` matches `.env.local`.
 - **`desktop` paths, for reads and writes:** `.ssh`, `.aws`, `.gnupg`, `.env` files, other credential files (`.netrc`, `.git-credentials`, `.config/gh`, `.docker/config.json`, `.kube`), the tokens of package tools (`.cargo/credentials.toml`, `.npmrc`, `.yarnrc.yml`, `.pypirc`, `.config/pip`, `.gem/credentials`), keychains, and browser profiles. `action_input.rs` has the full list. The proxy of the sandbox (6.6.4) reaches the hosts of the package tools, so a command must not read their tokens. A hidden `.npmrc` or `.config/pip` also hides the settings in it, for example a registry of a project.
 - **`desktop` paths, for writes:** files that code on the host runs later, outside the sandbox. They are `.claude/`, `.git/hooks/`, `.git/config`, `.envrc`, `.vscode/`, `.github/workflows/`, `.codex/`, `.mcp.json`, and the files of the hook tools: `.husky/`, `.githooks/`, `.pre-commit-config.yaml`, `lefthook.yml`, and `.lefthook.yml`. The sandbox hides them from commands (6.6.4).
@@ -1293,6 +1293,52 @@ Two bridges fight over the screen and the slot files.
 The bridge takes an OS advisory lock on `bridge.lock` in the data folder at start (`File::try_lock` of the standard library). The OS releases the lock when the process stops, also after a crash.
 If the lock is taken, the bridge stops with an error that names the process of the other bridge.
 The bridge writes its process id into `bridge.pid`. Windows does not let another process read a locked file, so the id has its own file.
+
+### 8.5 Logs
+
+Asked for by the user on 2026-09-30. One bug took more than 5 commands to find, because the log did not show the folder of a run, the full command of a desktop request, or the steps of one message.
+
+**One facade.** All code logs through `run::log(line)`. Its backend is the `tracing` crate. `run` (the bridge loop) installs the subscriber at start. With no subscriber, for example in `setup`, `log` writes the old line to stderr.
+
+**Spans.** A span holds fields, and each event inside the span carries them:
+
+- **A message span** for each job of the relay lane that runs an agent or a git action: `chat`, `message_id`, `agent`, `permission`, and `folder`. `folder` is the real folder of the run. It changes when the folder resolves, when a folder request gets its answer, and when the chat gets its own branch folder (9.11). The run thread, the dialog thread of a desktop request, and the main loop for the events of that message (the start, a game question, a desktop request, a notice, the end of the agent, the reply written) all enter this span.
+- **A command span** around each game question and each desktop request of a tool call: `command`, the full command of a shell call.
+- **A request span** for each desktop request: `request` (its id) and `kind`.
+
+**The command field.** It is the raw command of the classifier input (6.6.3), not the popup text. The bridge cuts it to 500 characters and removes control characters. It hides values that can be secrets, with `***`:
+
+- the value of an assignment word with no dash, such as `TOKEN=***`;
+- the value of a flag whose name holds `key`, `token`, `secret`, `password`, `passwd`, or `auth`, in the same word (`--password=***`) or in the next word (`--password ***`), and the word after `Bearer`;
+- a word that starts like a known token: `sk-`, `ghp_`, `gho_`, `ghs_`, `github_pat_`, `xoxb-`, `xoxp-`, `AKIA`, `glpat-`.
+
+**Outputs.**
+
+- **stderr**, which is journald under the systemd service (11.3), and `bridge.log` for a start with no service. The line keeps its old form, `<unix seconds> <line>`, with the escape of 6.2, rule 15. The fields of the spans follow, as ` key=value`, outer span first. A value with a space, a quote, or nothing in it is in double quotes. A plain `log` line with no span is the old line exactly.
+- **A JSON-lines file**, `logs/bridge.jsonl` in the data folder. One object for each event: `time` (ISO 8601 in UTC), `unix`, `level`, `line`, and each field of the spans as a string. Mode 0600, opened never through a link. Before a write makes the file larger than 5 MB, the bridge renames it to `bridge.jsonl.1`, `.1` to `.2`, up to `.4`, and starts a new file. So the folder holds at most 5 files, 25 MB in all.
+- **The level filter.** `RUST_LOG` sets it, in the syntax of `tracing_subscriber::filter::Targets`, for example `debug` or `info,bridge=debug`. The default is `info`. A value that does not parse gives `info` and one log line.
+- `bridge.log` stays for a start with no service and for the details of a command, such as a failed download (11.4). The JSON file does not replace it, because a command that is not `run` writes no JSON log.
+
+**Privacy.** The log never holds the text of a message, a reply of an agent, file contents, a key, a token, or the value of an environment variable. A command, a folder path, an agent name, and a request id are fine: they belong to the user, on the user's machine, and the log never leaves it. A summary of 6.6.3 still never holds an argument. Only the `command` field holds the arguments, with the secrets hidden as above.
+
+**`gnomish-relay report`.** It writes one file, `reports/report-<unix seconds>.txt` in the data folder, with mode 0600. It uploads nothing. The file holds:
+
+- the version of the desktop app, the OS, and the CPU architecture;
+- the output of `gnomish-relay status`;
+- `config.toml`, parsed and written again as TOML with no comments. A string value whose key holds `key`, `token`, `secret`, `password`, or `auth`, or that starts like a known token, is `(removed)`. A config that does not parse gives one line and no content;
+- the lines of the last hour from `logs/bridge.jsonl*`, oldest first;
+- the lines of the last hour from `bridge.log`.
+
+In the whole file, the home folder is `~`. The file never holds `strip.key`, `timeways.key`, or any other file of the config folder. The command prints where the file is, and one line: "To report a bug, attach this file to a new issue: https://github.com/eserilev/gnomish-relay/issues".
+
+**Tests** (`crates/bridge/src/logging.rs`, `crates/bridge/src/report.rs`, and `crates/bridge/tests/report.rs`):
+
+- `a_message_span_carries_chat_message_id_and_folder`
+- `a_desktop_request_event_carries_its_full_command`
+- `the_json_file_rotates_at_its_size_limit`
+- `the_report_holds_no_key_or_token`
+- `the_journald_line_keeps_its_old_form`
+- `a_command_hides_its_secret_values`
 
 ## 9. Agents
 

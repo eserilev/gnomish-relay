@@ -435,6 +435,7 @@ impl Gate {
             return Err(Refusal::by_rule(NOT_FROM_THE_GAME));
         }
         let call = asking.call;
+        let _command = crate::logging::command_span(&call.tool).entered();
         let summary = request_log::summary(&call.tool, &call.title, asking.chat);
         crate::run::log(&request_log::game_line(
             asking.job.agent,
@@ -467,6 +468,7 @@ impl Gate {
         turn: &mut Turn,
     ) -> Result<(), Refusal> {
         let text = String::from_utf8_lossy(&call.text).into_owned();
+        let _command = crate::logging::command_span(&call.tool).entered();
         let summary = request_log::summary(&call.tool, &call.title, chat);
         let opened = self
             .approvals

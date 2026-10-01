@@ -8,6 +8,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 use anyhow::Result;
+use tracing::Span;
 
 use crate::active_folders::ActiveFolders;
 use crate::agent::{
@@ -40,6 +41,7 @@ use crate::folder_walk::{Snapshot, Walk};
 use crate::home_walk;
 use crate::line_choice::{self, LineChoice, LineFile, with_line};
 use crate::line_test;
+use crate::logging;
 use crate::new_folder::{make_folder, real_chat_folder, real_new_folder};
 use crate::relay::{BAD_AGENT, ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
@@ -104,8 +106,12 @@ pub fn now() -> u32 {
 }
 
 /// Control characters in a log line come out escaped, so a prompt cannot fake a
-/// log line (SPEC.md 6.2, rule 15).
+/// log line (SPEC.md 6.2, rule 15). The fields of the spans around it follow (8.5).
 pub fn log(line: &str) {
+    if logging::is_on() {
+        tracing::info!("{line}");
+        return;
+    }
     eprintln!("{} {}", now(), line.escape_debug());
 }
 
@@ -191,6 +197,10 @@ struct RelayLane {
     git: Option<RunGit>,
     /// The test line of each run in progress, from the output of its commands.
     tests: BTreeMap<ChatId, TestCounts>,
+    /// The log span of each run in progress, by chat (SPEC.md 8.5).
+    spans: BTreeMap<ChatId, Span>,
+    /// The replies that the next publish writes, with their spans.
+    replies: Vec<(ChatId, MessageId, Span)>,
 }
 
 /// The Timeways app: its lane and its files. Its messages go to the story program, and
@@ -518,6 +528,8 @@ impl RelayLane {
         Ok(RelayLane {
             git,
             tests: BTreeMap::new(),
+            spans: BTreeMap::new(),
+            replies: Vec::new(),
             relay,
             files: LaneFiles::new(paths.state.clone(), &paths.accounts, App::Relay),
             agents,
@@ -675,6 +687,9 @@ impl RelayLane {
 
     /// The bridge runs a git action itself, in a thread: a merge waits for the desktop.
     fn start_git(&mut self, job: Job, action: GitAction) {
+        let span = logging::message_span(&job);
+        self.spans.insert(job.chat.clone(), span.clone());
+        let _in_message = span.clone().entered();
         log(&format!("git {action:?} {} #{}", job.chat, job.id.0));
         let finished = self.finished.clone();
         let Some(git) = self.git.clone() else {
@@ -702,6 +717,7 @@ impl RelayLane {
             wait: r.permission_timeout,
         });
         thread::spawn(move || {
+            let _in_message = span.entered();
             let context = Context {
                 git: &git.host,
                 worktree: worktree.as_ref(),
@@ -741,6 +757,9 @@ impl RelayLane {
             permission: job.permission.min(Permission::AutoEdit),
             ..job
         };
+        let span = logging::message_span(&job);
+        self.spans.insert(job.chat.clone(), span.clone());
+        let _in_message = span.clone().entered();
         log(&format!(
             "run {} #{} with {} at {:?}",
             job.chat, job.id.0, job.agent, job.permission
@@ -779,7 +798,10 @@ impl RelayLane {
             job
         } else {
             match self.ready_folder(&job) {
-                Ok(cwd) => Job { cwd, ..job },
+                Ok(cwd) => {
+                    logging::record_folder(&cwd);
+                    Job { cwd, ..job }
+                }
                 Err(refused) => {
                     self.end_at_once(job, refused);
                     return;
@@ -806,6 +828,7 @@ impl RelayLane {
         let walk = self.walk.clone();
         self.tests.remove(&job.chat);
         thread::spawn(move || {
+            let _in_message = span.entered();
             let mut job = job;
             if let Some((desk, folder)) = trust
                 && let Err(refused) = trust_folder(&desk, &walk, &mut job, &folder, &control)
@@ -815,6 +838,7 @@ impl RelayLane {
             }
             if let Some((raiser, level)) = raise {
                 job.permission = raise_level(&raiser, &job, level, &control);
+                logging::record_permission(job.permission.word());
             }
             if let FullAutoStep::Ask(asker, name) = full_auto {
                 job.permission = ask_full_auto(&asker, &job, &name, &control);
@@ -1008,6 +1032,7 @@ impl RelayLane {
 
     fn take_events(&mut self) {
         while let Ok((chat, id, event)) = self.run_events.try_recv() {
+            let _in_message = self.span_of(&chat).entered();
             match event {
                 Event::Progress(line) => self.relay.step(&chat, id, line),
                 Event::Desktop(notice) => {
@@ -1082,7 +1107,11 @@ impl RelayLane {
             let (job, run, end) = match done {
                 Finished::Run(job, run, end) => (job, run, end),
                 Finished::Git(job, done) => {
-                    log(&format!("git done {} #{}", job.chat, job.id.0));
+                    let span = self.end_span(&job);
+                    let result = result_word(done.reply.is_ok());
+                    span.in_scope(|| {
+                        log_end(&format!("git done {} #{}", job.chat, job.id.0), result);
+                    });
                     self.stops.remove(&job.chat);
                     self.relay.finish_git(&job, done.reply, &done.effect);
                     self.files.changed = true;
@@ -1099,7 +1128,9 @@ impl RelayLane {
                     continue;
                 }
             };
-            log(&format!("done {} #{}", job.chat, job.id.0));
+            let span = self.end_span(&job);
+            let result = result_word(run.reply.is_ok());
+            span.in_scope(|| log_end(&format!("done {} #{}", job.chat, job.id.0), result));
             self.stops.remove(&job.chat);
             // The thread of the run sent its events before its end, so they are all here.
             self.take_events();
@@ -1140,10 +1171,41 @@ impl RelayLane {
         if let Err(e) = slots::publish_windows(addons, App::Relay, &files, &self.relay.next_slots())
         {
             log(&format!("publish failed: {e:#}"));
+            self.files.changed = false;
+            self.notices_changed = false;
+            return;
+        }
+        for (chat, id, span) in self.replies.drain(..) {
+            span.in_scope(|| log(&format!("reply {chat} #{} written", id.0)));
         }
         self.files.changed = false;
         self.notices_changed = false;
     }
+
+    /// The span of a run in progress, or no span.
+    fn span_of(&self, chat: &ChatId) -> Span {
+        self.spans.get(chat).cloned().unwrap_or_else(Span::none)
+    }
+
+    /// The span of a run that ended. It lives on until the publish of its reply.
+    fn end_span(&mut self, job: &Job) -> Span {
+        let span = self.spans.remove(&job.chat).unwrap_or_else(Span::none);
+        self.replies.push((job.chat.clone(), job.id, span.clone()));
+        span
+    }
+}
+
+/// The last line of a run, with a `result` field (SPEC.md 8.5).
+fn log_end(line: &str, result: &str) {
+    if logging::is_on() {
+        tracing::info!(result, "{line}");
+        return;
+    }
+    log(line);
+}
+
+fn result_word(replied: bool) -> &'static str {
+    if replied { "reply" } else { "error" }
 }
 
 /// Runs in the thread of the run: the own branch of the chat first, then the agent in
@@ -1169,6 +1231,7 @@ fn run_with_git(
     };
     if let Some(started) = &started {
         job.cwd.clone_from(&started.folder);
+        logging::record_folder(&job.cwd);
     }
     let run = if control.stop.requested() {
         Run {
@@ -1216,6 +1279,7 @@ fn trust_folder(
         return Err(trusted.text().into());
     }
     job.cwd = real_chat_folder(walk, folder)?;
+    logging::record_folder(&job.cwd);
     Ok(())
 }
 

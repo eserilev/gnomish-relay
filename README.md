@@ -298,8 +298,12 @@ First, run `gnomish-relay status`. It checks every part, and says what to fix.
 | macOS | `~/Library/Logs/gnomish-relay.log` |
 | Any OS, started by hand | `bridge.log` in the desktop app's data folder |
 
-Still stuck? [Open an issue](https://github.com/eserilev/gnomish-relay/issues), and include
-the output of `gnomish-relay status`.
+The desktop app also keeps a detailed log in `logs/` in its data folder. It never holds your
+messages, the agent's replies, or your keys.
+
+Still stuck? Run `gnomish-relay report`. It saves one file with your recent log, status, and
+settings, with keys and tokens removed. [Open an issue](https://github.com/eserilev/gnomish-relay/issues)
+and attach that file. Nothing is uploaded unless you attach it.
 
 ## Contributing
 
