@@ -44,6 +44,9 @@ pub struct Folder {
     /// The index of the parent folder in the walk. A root has none.
     pub parent: Option<usize>,
     pub repo: bool,
+    /// False when the walk did not list all of its subfolders, so the browser asks for
+    /// them when the player goes into it.
+    pub walked: bool,
 }
 
 /// What the walk found. `complete` is false when a limit of visits or time stopped it.
@@ -101,29 +104,35 @@ pub fn subfolders(dir: &Path) -> Vec<PathBuf> {
     found
 }
 
+/// A folder that waits in the queue of a walk: its path, its depth, and its parent.
+pub type Queued = (PathBuf, usize, Option<usize>);
+
 /// Shallow folders first, so a cap cuts off the deepest ones. A folder that does not
 /// show hides its subfolders too.
 pub fn walk_folders(walk: &Walk, limits: &Limits) -> Snapshot {
+    walk_from(walk, walk.roots.list(), limits)
+}
+
+/// The walk of `walk_folders` from `starts`. The classifier still gets the roots of `walk`.
+pub fn walk_from(walk: &Walk, starts: Vec<PathBuf>, limits: &Limits) -> Snapshot {
     let deadline = Instant::now() + limits.time;
-    let mut queue: VecDeque<(PathBuf, usize, Option<usize>)> = walk
-        .roots
-        .list()
-        .into_iter()
-        .map(|r| (r, 0, None))
-        .collect();
+    let mut queue: VecDeque<Queued> = starts.into_iter().map(|r| (r, 0, None)).collect();
     let mut seen = BTreeSet::new();
     let mut folders = Vec::new();
     let mut complete = true;
     while let Some((dir, depth, parent)) = queue.pop_front() {
         if seen.len() >= limits.visits || Instant::now() >= deadline {
             complete = false;
+            queue.push_front((dir, depth, parent));
+            mark_not_walked(&mut folders, &queue);
             break;
         }
         if !seen.insert(dir.clone()) || !is_shown(walk, &dir) {
             continue;
         }
         let index = folders.len();
-        if depth < limits.depth {
+        let walked = depth < limits.depth;
+        if walked {
             let below = subfolders(&dir).into_iter();
             queue.extend(below.map(|d| (d, depth + 1, Some(index))));
         }
@@ -132,12 +141,22 @@ pub fn walk_folders(walk: &Walk, limits: &Limits) -> Snapshot {
             path: dir,
             parent,
             repo,
+            walked,
         });
     }
     Snapshot {
         folders,
         complete,
         home: walk.home.clone(),
+    }
+}
+
+/// A limit stopped the walk, so the parent of each folder that still waits misses it.
+pub fn mark_not_walked(folders: &mut [Folder], waiting: &VecDeque<Queued>) {
+    for (_, _, parent) in waiting {
+        if let Some(folder) = parent.and_then(|p| folders.get_mut(p)) {
+            folder.walked = false;
+        }
     }
 }
 
@@ -209,6 +228,75 @@ mod tests {
             ]
         );
         assert!(found.complete, "the depth limit is not a cut");
+    }
+
+    #[test]
+    fn a_folder_at_the_depth_limit_is_not_walked() {
+        let t = tree();
+        folder(&t.home.join("Code/b/c/d/e/deeper"));
+        folder(&t.home.join("Code/a"));
+
+        let found = find_in(&t.home.join("Code"), &LIMITS);
+
+        let walked: Vec<bool> = found.folders.iter().map(|f| f.walked).collect();
+        assert_eq!(walked, [true, true, true, true, true, false]);
+    }
+
+    #[test]
+    fn the_parent_of_a_folder_that_a_limit_left_out_is_not_walked() {
+        let t = tree();
+        for name in ["a", "b", "c"] {
+            folder(&t.home.join(name));
+        }
+        let few_visits = Limits {
+            visits: 3,
+            ..LIMITS
+        };
+
+        let found = find_in(&t.home, &few_visits);
+
+        let walked: Vec<bool> = found.folders.iter().map(|f| f.walked).collect();
+        assert_eq!(walked, [false, true, true], "the home folder misses c");
+    }
+
+    #[test]
+    fn a_walk_from_a_deep_folder_lists_its_subfolders_with_the_rules_of_the_roots() {
+        let t = tree();
+        folder(&t.home.join("Code/b/c/d/e/deeper/still"));
+        folder(&t.home.join("Code/b/c/d/e/.hidden"));
+        let walk = Walk {
+            roots: Roots::new(vec![t.home.join("Code")]),
+            deny: Vec::new(),
+            home: None,
+        };
+
+        let found = walk_from(&walk, vec![t.home.join("Code/b/c/d/e")], &LIMITS);
+
+        assert_eq!(
+            names(&found, &t.home),
+            [
+                "Code/b/c/d/e",
+                "Code/b/c/d/e/deeper",
+                "Code/b/c/d/e/deeper/still"
+            ]
+        );
+        assert_eq!(found.folders[0].parent, None);
+    }
+
+    #[test]
+    fn a_walk_from_a_folder_hides_a_deny_folder_below_it() {
+        let t = tree();
+        folder(&t.home.join("Code/app/secret/inner"));
+        folder(&t.home.join("Code/app/src"));
+        let walk = Walk {
+            roots: Roots::new(vec![t.home.join("Code")]),
+            deny: vec![t.home.join("Code/app/secret")],
+            home: None,
+        };
+
+        let found = walk_from(&walk, vec![t.home.join("Code/app")], &LIMITS);
+
+        assert_eq!(names(&found, &t.home), ["Code/app", "Code/app/src"]);
     }
 
     #[test]

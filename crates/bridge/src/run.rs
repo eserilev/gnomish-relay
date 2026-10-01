@@ -49,6 +49,7 @@ use crate::spool::{open_spool, spool_dir, take_files};
 use crate::state;
 use crate::status;
 use crate::story::{Story, StorySpec};
+use crate::subfolder_walk;
 use crate::terminal_sessions::TerminalSessions;
 use crate::timeways::{NO_STORY, Timeways};
 use crate::usage::Usage;
@@ -636,6 +637,7 @@ impl RelayLane {
             match job.work {
                 Work::ListSessions => self.start_list(job),
                 Work::ListFolders => self.start_folder_list(job),
+                Work::ListSubfolders => self.start_subfolder_list(job),
                 Work::ListSettings => {
                     self.settings.usage_today = self.usage.today(now());
                     self.settings.strip = Some(line_choice::bar_text_of(&self.files.state));
@@ -899,6 +901,18 @@ impl RelayLane {
         let finished = self.finished.clone();
         thread::spawn(move || {
             let found = home_walk::browse_folders(&walk, home.as_deref());
+            let _ = finished.send(Finished::Folders(job, found));
+        });
+    }
+
+    fn start_subfolder_list(&self, job: Job) {
+        log(&format!("list subfolders #{}", job.id.0));
+        let walk = self.walk.clone();
+        let home = self.truster.as_ref().map(|t| t.home.clone());
+        let finished = self.finished.clone();
+        thread::spawn(move || {
+            let folder = PathBuf::from(&job.cwd);
+            let found = subfolder_walk::list_below(&walk, home.as_deref(), &folder);
             let _ = finished.send(Finished::Folders(job, found));
         });
     }

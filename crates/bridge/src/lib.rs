@@ -111,6 +111,7 @@ pub mod status;
 pub mod story;
 pub mod story_sandbox;
 pub mod strip;
+pub mod subfolder_walk;
 pub mod terminal_sessions;
 pub mod test_summary;
 pub mod timeways;

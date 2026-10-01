@@ -97,6 +97,7 @@ impl Agent for CodexAgent {
             Work::Prompt
             | Work::ListSessions
             | Work::ListFolders
+            | Work::ListSubfolders
             | Work::ListSettings
             | Work::Git(_) => self.prompt(job, control, &mut session, &mut usage),
         };

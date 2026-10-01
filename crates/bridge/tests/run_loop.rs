@@ -953,6 +953,35 @@ fn a_folder_list_comes_back_with_the_folder_tree_but_never_the_config_folder() {
 }
 
 #[test]
+fn a_folder_past_the_walk_depth_is_marked_and_lists_its_real_subfolders_on_request() {
+    let f = folders();
+    let (mut bridge, root) = bridge_in_temp(&f);
+    fs::create_dir_all(root.join("Code/a/b/deep/inside")).unwrap();
+    let list = b"tok\x1ffolders\x1f8\x1f\x1flist=folders\x1f\x1f";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), list, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_3.png"), png).unwrap();
+    let addons = f.addons.clone();
+    assert!(step_until(&mut bridge, || slot_body(&addons)
+        .contains(r#"chat = "folders", id = 8, status = "done""#)));
+    let body = slot_body(&f.addons);
+    assert!(body.contains("\\009deep\\009"), "{body}");
+    assert!(!body.contains("inside"), "{body}");
+    assert!(
+        body.contains("\\010?"),
+        "the tree marks deep as not walked: {body}"
+    );
+
+    let below = b"tok\x1fsubfolders\x1f9\x1fCode/a/b/deep\x1flist=subfolders\x1f\x1f";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), below, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_4.png"), png).unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&addons)
+        .contains(r#"chat = "subfolders", id = 9, status = "done""#)));
+    let body = slot_body(&f.addons);
+    assert!(body.contains("\\0101\\009inside\\009"), "{body}");
+}
+
+#[test]
 fn the_first_message_in_a_new_folder_makes_it_and_runs_in_it() {
     let f = folders();
     let (mut bridge, root) = bridge_in_temp(&f);

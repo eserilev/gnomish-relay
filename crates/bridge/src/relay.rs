@@ -45,6 +45,7 @@ const BAD_FOLDER: &str =
     "That folder isn't allowed. Pick another one, or add it to allowed_roots in config.toml.";
 pub const BAD_AGENT: &str =
     "That agent isn't in config.toml. Pick another one in Settings, or add it on your desktop.";
+const NOT_LISTED: &str = "That folder isn't in your folder list.";
 const STOPPED: &str = "Stopped.";
 const RESTARTED: &str = "Stopped: the desktop app restarted.";
 /// The agent sessions of the chats with the latest runs.
@@ -85,6 +86,8 @@ pub enum Work {
     ListSessions,
     /// The folder tree of the roots, for the folder browser.
     ListFolders,
+    /// The subfolders of the folder of the job, for the folder browser.
+    ListSubfolders,
     /// What the bridge allows, for the Settings and Diag tabs.
     ListSettings,
     /// A new chat continues this session.
@@ -620,8 +623,30 @@ impl Relay {
         resolve_folder(&folders.roots, &folders.base, &request)
     }
 
+    /// A folder that the browser can list: inside a root, or inside the home folder
+    /// with no skipped part. The walk checks the real folder (SPEC.md 9.9).
+    fn browse_folder(&self, raw: &[u8]) -> Option<Vec<u8>> {
+        if let Some(cwd) = self.game_folder(raw) {
+            return Some(cwd);
+        }
+        let home = self.home.as_ref()?;
+        let request = folder_request(raw, cfg!(windows))?;
+        let base = &self.policy.folders.base;
+        let cwd = resolve_folder(std::slice::from_ref(home), base, &request)?;
+        match check_text(home, &cwd) {
+            Ok(()) | Err(Untrusted::Home) => Some(cwd),
+            Err(_) => None,
+        }
+    }
+
     fn enqueue_list(&mut self, r: &Record, chat: ChatId, kind: ListKind) -> Outcome {
-        let base = self.policy.folders.base.clone();
+        let base = match kind {
+            ListKind::Subfolders => match self.browse_folder(&r.cwd) {
+                Some(folder) => folder,
+                None => return self.refuse(r, &chat, NOT_LISTED.into(), Outcome::BadFolder),
+            },
+            _ => self.policy.folders.base.clone(),
+        };
         self.enqueue_job(Job {
             token: text(&r.token),
             chat,
@@ -636,6 +661,7 @@ impl Relay {
             work: match kind {
                 ListKind::Sessions => Work::ListSessions,
                 ListKind::Folders => Work::ListFolders,
+                ListKind::Subfolders => Work::ListSubfolders,
                 ListKind::Settings => Work::ListSettings,
             },
             new_folder: false,
@@ -2442,6 +2468,7 @@ mod tests {
                 path: (*path).into(),
                 parent: *parent,
                 repo: false,
+                walked: true,
             })
             .collect();
         Snapshot {
@@ -2523,6 +2550,83 @@ mod tests {
         let mut relay = relay();
         relay.take_new_folders(std::path::Path::new("/home/x"));
         relay
+    }
+
+    #[test]
+    fn a_subfolder_list_walks_the_folder_of_the_record() {
+        let mut relay = relay();
+
+        relay.on_frame(
+            &[record_in("app/src", "subfolders", 1, "list=subfolders", "")],
+            NOW,
+        );
+
+        let job = relay.next_job().unwrap();
+        assert_eq!(job.work, Work::ListSubfolders);
+        assert_eq!(job.cwd, "/home/x/Code/app/src");
+    }
+
+    #[test]
+    fn a_subfolder_list_answers_with_the_folder_as_the_only_root() {
+        let mut relay = relay();
+        relay.on_frame(
+            &[record_in("app", "subfolders", 1, "list=subfolders", "")],
+            NOW,
+        );
+        let job = relay.next_job().unwrap();
+        let found = snapshot(&[
+            ("/home/x/Code/app", None),
+            ("/home/x/Code/app/src", Some(0)),
+        ]);
+
+        relay.finish_folders(&job, &found);
+
+        let state = relay.to_state();
+        let reply = state.lane.records.iter().find(|r| r.id == MessageId(1));
+        assert_eq!(
+            reply.unwrap().text,
+            "/home/x/Code\n0\t/home/x/Code/app\t\n1\tsrc\t"
+        );
+    }
+
+    #[test]
+    fn a_subfolder_list_of_a_home_folder_under_no_root_needs_no_desktop_check() {
+        let mut relay = with_home();
+
+        relay.on_frame(
+            &[record_in("..", "subfolders", 1, "list=subfolders", "")],
+            NOW,
+        );
+        relay.on_frame(
+            &[record_in(
+                "../music",
+                "subfolders2",
+                2,
+                "list=subfolders",
+                "",
+            )],
+            NOW,
+        );
+
+        assert_eq!(relay.next_job().unwrap().cwd, "/home/x");
+        assert_eq!(relay.next_job().unwrap().cwd, "/home/x/music");
+    }
+
+    #[test]
+    fn a_subfolder_list_of_a_hidden_or_outside_folder_is_refused() {
+        let mut relay = with_home();
+
+        let outcomes = relay.on_frame(
+            &[
+                record_in("../.ssh", "subfolders", 1, "list=subfolders", ""),
+                record_in("../../other", "subfolders2", 2, "list=subfolders", ""),
+            ],
+            NOW,
+        );
+
+        assert_eq!(outcomes, [Outcome::BadFolder, Outcome::BadFolder]);
+        assert!(relay.next_job().is_none());
+        assert!(body(&relay).contains(NOT_LISTED));
     }
 
     #[test]
