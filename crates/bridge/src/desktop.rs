@@ -332,7 +332,8 @@ impl Approvals {
             wait_minutes: self.wait.as_secs().div_ceil(60),
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
-        log(&request_line(&pending, summary));
+        let span = crate::logging::request_span(&id, kind.word());
+        span.in_scope(|| log(&request_line(&pending, summary)));
         let tool = match self.prompt {
             Prompt::Dialog => dialog::find_tool(),
             Prompt::Off => None,
@@ -344,7 +345,7 @@ impl Approvals {
         };
         if self.prompt == Prompt::Dialog {
             let approvals = self.clone();
-            std::thread::spawn(move || approvals.ask_the_desktop(&pending, tool));
+            std::thread::spawn(move || span.in_scope(|| approvals.ask_the_desktop(&pending, tool)));
         }
         Ok(Opened { id, prompted })
     }

@@ -15,6 +15,7 @@ use crate::gate::{Gate, Places};
 use crate::hooks_install::files_for_bridge;
 use crate::install;
 use crate::lock;
+use crate::logging;
 use crate::raise::Raiser;
 use crate::receive::{KeySet, RELAY_KEY_FILE};
 use crate::run::{Paths, RelayParts, run};
@@ -34,6 +35,7 @@ pub fn start(dirs: &Dirs) -> Result<()> {
     let state = dirs.data.clone();
     make_private_dir(&state)?;
     let _lock = lock::take(&state)?;
+    logging::start(&state);
     let paths = Paths {
         state,
         config: dirs.config.clone(),

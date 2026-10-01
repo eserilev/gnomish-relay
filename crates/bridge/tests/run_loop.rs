@@ -1416,3 +1416,60 @@ fn a_denied_session_folder_attaches_nothing() {
     assert_eq!(attaches.load(Ordering::SeqCst), 0);
     assert_eq!(fs::read_to_string(&t.config).unwrap(), NO_ROOTS_CONFIG);
 }
+
+/// stderr of the log, shared with the layer.
+#[derive(Clone, Default)]
+struct LogBuffer(Arc<std::sync::Mutex<Vec<u8>>>);
+
+impl std::io::Write for LogBuffer {
+    fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
+        self.0.lock().unwrap().extend_from_slice(bytes);
+        Ok(bytes.len())
+    }
+
+    fn flush(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+}
+
+impl LogBuffer {
+    fn text(&self) -> String {
+        String::from_utf8_lossy(&self.0.lock().unwrap()).into_owned()
+    }
+}
+
+#[test]
+fn the_log_lines_of_a_message_carry_its_chat_id_agent_and_folder() {
+    use tracing_subscriber::Layer;
+    use tracing_subscriber::layer::SubscriberExt;
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let stderr = LogBuffer::default();
+    let layer = bridge::logging::LogLayer::new(Box::new(stderr.clone()), None);
+    let filter = bridge::logging::level_filter(None).0;
+    let subscriber = tracing_subscriber::Registry::default().with(layer.with_filter(filter));
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        strip_png(KEY, "a private prompt"),
+    )
+    .unwrap();
+
+    let written = tracing::subscriber::with_default(subscriber, || {
+        step_until(&mut bridge, || {
+            stderr.text().contains("reply c1 #7 written")
+        })
+    });
+
+    let text = stderr.text();
+    assert!(written, "{text}");
+    let folder =
+        String::from_utf8(path_bytes(&std::env::temp_dir().canonicalize().unwrap())).unwrap();
+    let fields = format!(" chat=c1 message_id=7 agent=claude permission=auto-edit folder={folder}");
+    for start in ["run c1 #7 ", "done c1 #7", "reply c1 #7 written"] {
+        let line = text.lines().find(|l| l.contains(start)).unwrap();
+        assert!(line.contains(&fields), "{line}");
+    }
+    let done = text.lines().find(|l| l.contains("done c1 #7")).unwrap();
+    assert!(done.ends_with(" result=reply"), "{done}");
+    assert!(!text.contains("a private prompt"), "{text}");
+}
