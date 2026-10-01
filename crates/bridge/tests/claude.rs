@@ -610,5 +610,19 @@ fn a_game_run_asks_for_a_summary_before_a_long_reply() {
         .iter()
         .position(|f| f == "--append-system-prompt")
         .expect("the flag is there");
-    assert_eq!(flags[at + 1], bridge::agent::SUMMARY_FIRST);
+    assert_eq!(flags[at + 1], bridge::agent::GAME_NOTE);
+}
+
+/// On 2026-09-30 an agent told the user that something wiped `.git/config`.
+#[test]
+fn a_game_run_says_that_the_sandbox_hides_files_and_deletes_none() {
+    let flags = bridge::claude::game_run_flags(None);
+
+    let at = flags
+        .iter()
+        .position(|f| f == "--append-system-prompt")
+        .expect("the flag is there");
+    let note = &flags[at + 1];
+    assert!(note.contains("hidden from you by the sandbox"), "{note}");
+    assert!(note.contains("Don't report them as lost."), "{note}");
 }

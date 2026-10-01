@@ -185,7 +185,7 @@ local function ChildLines(tree, current, chat, lines)
 	local children = current and current.children or (tree and tree.roots or {})
 	for _, node in ipairs(children) do
 		local text = ns.Relay.Plain(node.name)
-		if chat and node.folder == chat.cwd then
+		if chat and ns.Folders.Find(tree, chat.cwd) == node then
 			text = "|cff" .. GREEN .. text .. "|r"
 		end
 		table.insert(lines, {

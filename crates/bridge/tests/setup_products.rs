@@ -326,6 +326,26 @@ fn timeways_setup_after_a_relay_setup_that_added_a_root_to_the_home_folder_base(
     assert!(!stdout.contains("allowed_roots"), "{stdout}");
 }
 
+#[test]
+fn relay_setup_after_a_timeways_setup_keeps_the_home_folder_base_and_says_nothing_of_it() {
+    let home = Home::new(&["Timeways"]);
+    home.setup(&[]);
+    fs::create_dir_all(home.path().join("Documents/Code/app/.git")).unwrap();
+    home.setup(&[]);
+    home.setup(&["--timeways"]);
+
+    let stdout = home.setup(&[]);
+
+    let config = home.config();
+    assert!(config.contains("default_cwd = \"~\""), "{config}");
+    assert!(config.contains("[story]"), "{config}");
+    let lines: Vec<&str> = stdout
+        .lines()
+        .filter(|line| line.contains("config.toml"))
+        .collect();
+    assert!(lines.is_empty(), "{stdout}");
+}
+
 /// A relay setup with `~/Documents/Code` as its root, and then `top_line` as the first line.
 fn relay_config_with(home: &Home, top_line: &str) {
     fs::create_dir_all(home.path().join("Documents/Code")).unwrap();

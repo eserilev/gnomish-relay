@@ -12,8 +12,8 @@ use serde_json::{Value, json};
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Control, Events, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SUMMARY_FIRST,
-    SessionId, SessionInfo, StopSignal,
+    Agent, Control, Events, GAME_NOTE, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SessionId,
+    SessionInfo, StopSignal,
 };
 use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
 use crate::claude_sessions;
@@ -319,7 +319,7 @@ pub fn game_run_flags(wrapper: Option<&Path>) -> Vec<String> {
         "--settings".into(),
         settings.to_string(),
         "--append-system-prompt".into(),
-        SUMMARY_FIRST.into(),
+        GAME_NOTE.into(),
     ]
 }
 

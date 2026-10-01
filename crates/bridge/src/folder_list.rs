@@ -3,14 +3,14 @@
 //! The first line is the default folder as the player reads it. Each other line is a
 //! folder, breadth first: `parent \t name \t mark`. A root has parent 0 and its whole
 //! path as its name. A line `?` lists the folders whose subfolders are not all in the
-//! reply. A last line `+` says that the tree is cut.
+//! reply. A line `~` names the home folder, so the addon sends the home form. A last
+//! line `+` says that the tree is cut.
 
 use protocol::lua::lua_string;
 use protocol::slot::MAX_TEXT;
 
-use crate::folder_path::{
-    folder_request, is_inside_folder, native_folder, path_bytes, path_parts, relative_folder,
-};
+use crate::folder_path::{folder_request, is_inside_folder, native_folder, path_bytes, path_parts};
+use crate::folder_text::game_text;
 use crate::folder_walk::{Folder, Snapshot};
 use crate::new_folder::is_folder_name;
 use crate::relay::{Folders, in_roots};
@@ -19,6 +19,7 @@ use crate::relay::{Folders, in_roots};
 pub const MAX_FOLDER: usize = 255;
 pub const CUT: &str = "+";
 pub const NOT_WALKED: &str = "?";
+pub const HOME: &str = "~";
 /// The two quotes of the Lua literal, and the cut line after a newline.
 const RESERVED: usize = 2 + 4 + CUT.len();
 /// The room for the `?` line. A longer one becomes one range.
@@ -59,8 +60,8 @@ fn native(resolved: &[u8]) -> Vec<u8> {
 }
 
 /// A folder that the game can send back as it came, and that keeps a line whole.
-fn fits_the_game(base: &[u8], resolved: &[u8]) -> bool {
-    let Ok(folder) = String::from_utf8(relative_folder(base, resolved)) else {
+fn fits_the_game(base: &[u8], home: Option<&[u8]>, resolved: &[u8]) -> bool {
+    let Ok(folder) = String::from_utf8(game_text(base, home, resolved)) else {
         return false;
     };
     let whole = folder.len() <= MAX_FOLDER && !folder.chars().any(char::is_control);
@@ -71,11 +72,12 @@ fn fits_the_game(base: &[u8], resolved: &[u8]) -> bool {
 fn line(
     folders: &Folders,
     names: &Names,
+    home: Option<&[u8]>,
     folder: &Folder,
     parent: Option<usize>,
 ) -> Option<String> {
     let resolved = in_roots(folders, &folder.path)?;
-    if !fits_the_game(&folders.base, &resolved) {
+    if !fits_the_game(&folders.base, home, &resolved) {
         return None;
     }
     let mark = if folder.repo { "g" } else { "" };
@@ -143,19 +145,29 @@ fn parent_line(numbers: &[Option<usize>], folder: &Folder) -> Option<usize> {
         .and_then(|p| numbers.get(p).copied().flatten())
 }
 
+/// The `~` line, or `None` with no home folder. `home` is in the form of the resolver.
+fn home_line(names: &Names, home: Option<&[u8]>) -> Option<String> {
+    let shown = names.show(home?)?;
+    (!shown.chars().any(char::is_control)).then(|| format!("{HOME}\t{shown}"))
+}
+
 /// Keeps a breadth-first start of the tree that fits in one reply record (S12), so
 /// shallow folders always come. A folder that is left out leaves out its subfolders.
-pub fn folder_reply(folders: &Folders, snapshot: &Snapshot) -> String {
+/// With `home`, the addon sends each folder in the home form (SPEC.md 9.9).
+pub fn folder_reply(folders: &Folders, home: Option<&[u8]>, snapshot: &Snapshot) -> String {
     let names = Names::new(folders, snapshot);
     let first = names.show(&folders.base).unwrap_or_default();
+    let home_line = home_line(&names, home);
+    let home = home_line.as_ref().and(home);
     let mut lines = vec![first.clone()];
-    let mut size = RESERVED + NOT_WALKED_ROOM + cost(&first) - 4;
+    let home_cost = home_line.as_deref().map_or(0, cost);
+    let mut size = RESERVED + NOT_WALKED_ROOM + home_cost + cost(&first) - 4;
     let mut numbers: Vec<Option<usize>> = Vec::new();
     let mut not_walked = Vec::new();
     let mut cut_at = None;
     for (at, folder) in snapshot.folders.iter().enumerate() {
         let parent = parent_line(&numbers, folder);
-        let Some(line) = line(folders, &names, folder, parent) else {
+        let Some(line) = line(folders, &names, home, folder, parent) else {
             numbers.push(None);
             continue;
         };
@@ -176,6 +188,7 @@ pub fn folder_reply(folders: &Folders, snapshot: &Snapshot) -> String {
     not_walked.sort_unstable();
     not_walked.dedup();
     lines.extend(not_walked_line(&not_walked, lines.len() - 1));
+    lines.extend(home_line);
     if cut_at.is_some() || !snapshot.complete {
         lines.push(CUT.into());
     }
@@ -226,7 +239,7 @@ mod tests {
             None,
         );
         assert_eq!(
-            folder_reply(&code(), &found),
+            folder_reply(&code(), None, &found),
             "/home/x/Code\n0\t/home/x/Code\t\n1\tapp\t\n2\tsrc\t"
         );
     }
@@ -236,13 +249,51 @@ mod tests {
         let mut app = folder("/home/x/Code/app", Some(0));
         app.repo = true;
         let found = snapshot(vec![folder("/home/x/Code", None), app], None);
-        assert!(folder_reply(&code(), &found).ends_with("\n1\tapp\tg"));
+        assert!(folder_reply(&code(), None, &found).ends_with("\n1\tapp\tg"));
     }
 
     #[test]
     fn paths_in_the_home_folder_start_with_a_tilde() {
         let found = snapshot(vec![folder("/home/x/Code", None)], Some("/home/x"));
-        assert_eq!(folder_reply(&code(), &found), "~/Code\n0\t~/Code\t");
+        assert_eq!(folder_reply(&code(), None, &found), "~/Code\n0\t~/Code\t");
+    }
+
+    #[test]
+    fn the_home_line_comes_after_the_not_walked_line_and_before_the_cut() {
+        let mut root = folder("/home/x/Code", None);
+        root.walked = false;
+        let mut found = snapshot(vec![root], Some("/home/x"));
+        found.complete = false;
+
+        let text = folder_reply(&code(), Some(b"/home/x"), &found);
+
+        assert_eq!(text, "~/Code\n0\t~/Code\t\n?1\n~\t~\n+");
+    }
+
+    #[test]
+    fn the_home_line_has_the_whole_home_folder_when_a_root_is_outside_it() {
+        let policy = folders(&["/home/x/Code", "/srv/work"], "/home/x/Code");
+        let found = snapshot(vec![folder("/srv/work", None)], Some("/home/x"));
+
+        let text = folder_reply(&policy, Some(b"/home/x"), &found);
+
+        assert_eq!(text, "/home/x/Code\n0\t/srv/work\t\n~\t/home/x");
+    }
+
+    #[test]
+    fn with_the_home_line_a_folder_whose_home_form_is_too_long_is_left_out() {
+        let deep = format!("/home/x/{}", "a".repeat(MAX_FOLDER - 4));
+        let policy = folders(&[&deep], &deep);
+        let found = snapshot(
+            vec![folder(&deep, None), folder(&format!("{deep}/app"), Some(0))],
+            None,
+        );
+
+        let old = folder_reply(&policy, None, &found);
+        let new = folder_reply(&policy, Some(b"/home/x"), &found);
+
+        assert!(old.contains("\n1\tapp\t"), "{old}");
+        assert!(!new.contains("app"), "{new}");
     }
 
     #[test]
@@ -253,7 +304,7 @@ mod tests {
             Some("/home/x"),
         );
         assert_eq!(
-            folder_reply(&policy, &found),
+            folder_reply(&policy, None, &found),
             "/home/x/Code\n0\t/home/x/Code\t\n0\t/srv/work\t"
         );
     }
@@ -269,7 +320,7 @@ mod tests {
             None,
         );
         assert_eq!(
-            folder_reply(&code(), &found),
+            folder_reply(&code(), None, &found),
             "/home/x/Code\n0\t/home/x/Code\t"
         );
     }
@@ -288,7 +339,7 @@ mod tests {
             None,
         );
         assert_eq!(
-            folder_reply(&code(), &found),
+            folder_reply(&code(), None, &found),
             "/home/x/Code\n0\t/home/x/Code\t\n1\tfine\t"
         );
     }
@@ -297,7 +348,7 @@ mod tests {
     fn an_incomplete_walk_is_marked_as_cut() {
         let mut found = snapshot(vec![folder("/home/x/Code", None)], None);
         found.complete = false;
-        assert!(folder_reply(&code(), &found).ends_with("\n+"));
+        assert!(folder_reply(&code(), None, &found).ends_with("\n+"));
     }
 
     fn big_tree(name: &str, count: usize) -> Snapshot {
@@ -312,7 +363,7 @@ mod tests {
     fn a_tree_too_big_for_one_record_is_cut_breadth_first_and_marked() {
         let found = big_tree("folder-with-a-long-name-", 3000);
 
-        let text = folder_reply(&code(), &found);
+        let text = folder_reply(&code(), None, &found);
 
         assert!(lua_string(text.as_bytes()).len() <= MAX_TEXT);
         assert!(text.ends_with("\n+"));
@@ -327,14 +378,14 @@ mod tests {
     #[test]
     fn a_name_whose_bytes_escape_counts_four_times_toward_the_limit() {
         let found = big_tree("\u{e9}\u{e9}\u{e9}\u{e9}", 3000);
-        let text = folder_reply(&code(), &found);
+        let text = folder_reply(&code(), None, &found);
         assert!(lua_string(text.as_bytes()).len() <= MAX_TEXT);
         assert!(text.ends_with("\n+"));
     }
 
     #[test]
     fn a_tree_that_fits_has_no_cut_mark() {
-        let text = folder_reply(&code(), &big_tree("f", 10));
+        let text = folder_reply(&code(), None, &big_tree("f", 10));
         assert!(!text.ends_with('+'));
         assert_eq!(text.lines().count(), 12);
     }
@@ -359,7 +410,7 @@ mod tests {
             None,
         );
 
-        let text = folder_reply(&code(), &found);
+        let text = folder_reply(&code(), None, &found);
 
         assert!(text.ends_with("\n1\te\t\n?2-4,6"), "{text}");
     }
@@ -374,7 +425,7 @@ mod tests {
             None,
         );
         assert_eq!(
-            folder_reply(&code(), &found),
+            folder_reply(&code(), None, &found),
             "/home/x/Code\n0\t/home/x/Code\t"
         );
     }
@@ -391,7 +442,7 @@ mod tests {
             });
         }
 
-        let text = folder_reply(&code(), &snapshot(found, None));
+        let text = folder_reply(&code(), None, &snapshot(found, None));
 
         assert!(text.ends_with("\n?2-601"), "{}", &text[text.len() - 40..]);
         assert!(lua_string(text.as_bytes()).len() <= MAX_TEXT);

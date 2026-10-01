@@ -12,7 +12,7 @@ use serde_json::{Value, json};
 use protocol::popup::popup_text;
 
 use crate::agent::{
-    Agent, Control, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run, SUMMARY_FIRST,
+    Agent, Control, GAME_NOTE, MAX_PROMPT, MAX_REPLY, MAX_STEP, NEW_SESSION, Report, Run,
     SessionId, SessionInfo, exchange_text,
 };
 use crate::agent_wall::{AgentWall, RunWall, Walled, agent_env, made_notice, with_notes};
@@ -61,7 +61,7 @@ pub fn thread_settings(cwd: &str, level: Permission) -> Value {
         "sandbox": sandbox(level),
         "approvalPolicy": APPROVAL_POLICY,
         "approvalsReviewer": "user",
-        "developerInstructions": SUMMARY_FIRST,
+        "developerInstructions": GAME_NOTE,
         "config": {
             "web_search": "disabled",
             "sandbox_workspace_write": { "exclude_slash_tmp": true },
@@ -761,10 +761,14 @@ mod tests {
     #[test]
     fn a_thread_asks_for_a_summary_before_a_long_reply() {
         let settings = thread_settings("/w", Permission::AutoEdit);
-        assert_eq!(
-            settings["developerInstructions"],
-            crate::agent::SUMMARY_FIRST
-        );
+        assert_eq!(settings["developerInstructions"], crate::agent::GAME_NOTE);
+    }
+
+    #[test]
+    fn a_thread_says_that_the_sandbox_hides_files_and_deletes_none() {
+        let settings = thread_settings("/w", Permission::AutoEdit);
+        let note = settings["developerInstructions"].as_str().unwrap();
+        assert!(note.contains("hidden from you by the sandbox"), "{note}");
     }
 
     #[test]
