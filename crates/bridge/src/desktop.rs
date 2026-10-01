@@ -93,21 +93,51 @@ impl Kind {
     }
 }
 
-/// One log line for each request. The popup text stays out: it holds the raw command and
-/// the words of the agent (SPEC.md 6.6.3, "The log of requests").
+/// The command of a request in the log, so the user can see what was asked.
+const LOG_COMMAND: usize = 300;
+const CUT_MARK: &str = "...";
+
+/// The first line of `text` with no control characters, cut to `max` bytes at a
+/// character boundary. A cut text ends with "...".
+pub fn first_line_cut(text: &str, max: usize) -> String {
+    let line: String = text
+        .lines()
+        .next()
+        .unwrap_or_default()
+        .chars()
+        .filter(|c| !c.is_control())
+        .collect();
+    if line.len() <= max {
+        return line;
+    }
+    let mut end = max.saturating_sub(CUT_MARK.len());
+    while !line.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}{CUT_MARK}", &line[..end])
+}
+
+/// One log line for each request. For a tool call it ends with the first line of the
+/// popup text: the command, but not the words of the agent (SPEC.md 6.6.3, "The log of
+/// requests").
 fn request_line(pending: &Pending, summary: &str) -> String {
     let asks = if summary.is_empty() {
         String::new()
     } else {
         format!(": {summary}")
     };
-    format!(
+    let line = format!(
         "desktop request {id} ({kind}): {agent} in {folder}{asks}. To approve, run gnomish-relay approve {id}",
         id = pending.id,
         kind = pending.kind.word(),
         agent = pending.agent,
         folder = pending.folder,
-    )
+    );
+    let command = first_line_cut(&pending.text, LOG_COMMAND);
+    if pending.kind != Kind::ToolCall || command.is_empty() {
+        return line;
+    }
+    format!("{line}. Wants to: {command}")
 }
 
 /// How one dialog of a request ended.
@@ -555,7 +585,7 @@ mod tests {
     }
 
     #[test]
-    fn the_log_line_of_a_request_has_its_kind_and_summary_and_no_popup_text() {
+    fn the_log_line_of_a_request_has_its_kind_its_summary_and_its_command() {
         let (_data, approvals) = approvals();
         let text = "cat ~/.ssh/id_rsa\nthe agent says: Bash: read the secret";
         approvals
@@ -569,10 +599,35 @@ mod tests {
             line,
             format!(
                 "desktop request {id} (tool call): claude in /w/app: command cat. \
-                 To approve, run gnomish-relay approve {id}",
+                 To approve, run gnomish-relay approve {id}. Wants to: cat ~/.ssh/id_rsa",
                 id = pending.id
             )
         );
+    }
+
+    #[test]
+    fn the_log_line_cuts_a_long_command_and_drops_control_characters() {
+        let (_data, approvals) = approvals();
+        let text = format!("echo \u{1b}[2J{}\nthe agent says: x", "é".repeat(400));
+        approvals
+            .open("claude", "/w", &text, "command echo", 7)
+            .unwrap();
+        let pending = approvals.list().remove(0);
+
+        let line = request_line(&pending, "command echo");
+
+        let (_, command) = line.split_once(". Wants to: ").unwrap();
+        assert!(command.starts_with("echo [2Jé"), "{command}");
+        assert!(command.ends_with("é..."), "{command}");
+        assert!(command.len() <= 300, "{}", command.len());
+        assert!(!line.contains("the agent says"), "{line}");
+    }
+
+    #[test]
+    fn a_short_first_line_stays_whole() {
+        assert_eq!(first_line_cut("ls -la\nthe agent says: x", 300), "ls -la");
+        assert_eq!(first_line_cut("", 300), "");
+        assert_eq!(first_line_cut("abcdef", 5), "ab...");
     }
 
     #[test]
