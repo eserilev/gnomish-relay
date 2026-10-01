@@ -2936,6 +2936,55 @@ fn a_click_on_a_session_opens_a_chat_that_asks_to_attach_it() {
     assert_eq!(text_of(&game, "GnomishRelayDB.chats[1].name"), "Fix bugs");
 }
 
+/// An older desktop app sent the marker and the branch block with no prompt line.
+#[test]
+fn an_attach_reply_that_starts_with_blocks_shows_no_prompt_line() {
+    let game = Game::start();
+    open_sessions(&game, LIST, Status::Done);
+    game.run("GnomishRelayPick2:Click()");
+    game.advance(1.0);
+    let chat = game.chat_id();
+    game.publish(&[reply(
+        &chat,
+        first_message_id(&game),
+        Status::Done,
+        "\x1bM1\nB\x1fmaster\x1f0\x1f\n",
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    assert!(
+        lines
+            .iter()
+            .all(|l| !l.contains("[You]") && !l.contains("M1")),
+        "{lines:?}"
+    );
+}
+
+#[test]
+fn an_attach_reply_shows_the_prompt_above_the_answer_and_its_blocks() {
+    let game = Game::start();
+    open_sessions(&game, LIST, Status::Done);
+    game.run("GnomishRelayPick2:Click()");
+    game.advance(1.0);
+    let chat = game.chat_id();
+    game.publish(&[reply(
+        &chat,
+        first_message_id(&game),
+        Status::Done,
+        "fix the bugs\n\x1bM1\nB\x1fmaster\x1f0\x1f\np\x1fAll fixed.\n",
+    )]);
+    game.advance(5.0);
+
+    let lines = texts(&transcript(&game));
+    assert!(
+        lines[1].contains("[You]") && lines[1].contains("fix the bugs"),
+        "{lines:?}"
+    );
+    assert!(lines.iter().any(|l| l.contains("All fixed.")), "{lines:?}");
+    assert!(lines.iter().all(|l| !l.contains('\x1f')), "{lines:?}");
+}
+
 #[test]
 fn the_attach_reply_shows_the_last_exchange_and_later_messages_resume() {
     let game = Game::start();
