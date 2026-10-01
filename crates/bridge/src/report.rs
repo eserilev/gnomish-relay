@@ -179,13 +179,19 @@ fn without_keys(text: &str, config_dir: &Path) -> String {
     text
 }
 
+/// On Windows, the home folder shows in three forms: native, with `/`, and escaped in a
+/// JSON line. The escaped form goes first, because it holds the native form.
 fn with_home_as_tilde(text: &str, home: &Path) -> String {
     let home = home.to_string_lossy();
     let home = home.trim_end_matches(['/', '\\']);
     if home.is_empty() {
         return text.to_owned();
     }
-    text.replace(home, "~")
+    let json = home.replace('\\', "\\\\");
+    let slashed = home.replace('\\', "/");
+    text.replace(&json, "~")
+        .replace(home, "~")
+        .replace(&slashed, "~")
 }
 
 #[cfg(test)]
@@ -212,16 +218,19 @@ mod tests {
         let dirs = dirs(root.path());
         std::fs::write(dirs.config.join(RELAY_KEY_FILE), format!("{STRIP_KEY}\n")).unwrap();
         std::fs::write(dirs.config.join(TIMEWAYS_KEY_FILE), TIMEWAYS_KEY).unwrap();
+        let home = dirs.home.display().to_string();
         let config = format!(
-            "# my token: ghp_comment\nallowed_roots = [\"{home}/Code\"]\napi_key = \"plain-secret\"\n\n[agents.claude]\ncommand = [\"claude\", \"sk-ant-abc\"]\nenv = [\"ANTHROPIC_API_KEY\"]\n",
-            home = dirs.home.display()
+            "# my token: ghp_comment\nallowed_roots = [\"{slashed}/Code\"]\napi_key = \"plain-secret\"\n\n[agents.claude]\ncommand = [\"claude\", \"sk-ant-abc\"]\nenv = [\"ANTHROPIC_API_KEY\"]\n",
+            slashed = home.replace('\\', "/")
         );
         std::fs::write(dirs.config.join(config::FILE), config).unwrap();
-        let log = format!(
-            "{{\"unix\":1000,\"line\":\"leaked {STRIP_KEY} in {home}/Code\"}}\n",
-            home = dirs.home.display()
-        );
-        std::fs::write(dirs.data.join(LOG_DIR).join("bridge.jsonl"), log).unwrap();
+        let line =
+            serde_json::json!({"unix": 1000, "line": format!("leaked {STRIP_KEY} in {home}/Code")});
+        std::fs::write(
+            dirs.data.join(LOG_DIR).join("bridge.jsonl"),
+            format!("{line}\n"),
+        )
+        .unwrap();
 
         let text = report_text(&dirs, 1000, &["Desktop app: running".into()]);
 
@@ -238,7 +247,17 @@ mod tests {
         assert!(text.contains("api_key = \"(removed)\""), "{text}");
         assert!(text.contains("leaked (removed) in ~/Code"), "{text}");
         assert!(text.contains("env = [\"ANTHROPIC_API_KEY\"]"), "{text}");
-        assert!(!text.contains(&dirs.home.display().to_string()), "{text}");
+        assert!(!text.contains(&home), "{text}");
+    }
+
+    #[test]
+    fn a_windows_home_folder_goes_in_each_of_its_forms() {
+        let home = Path::new(r"C:\Users\ada");
+        let text = r#"C:\Users\ada\Code C:/Users/ada/Code {"line":"C:\\Users\\ada\\Code"}"#;
+
+        let shown = with_home_as_tilde(text, home);
+
+        assert_eq!(shown, r#"~\Code ~/Code {"line":"~\\Code"}"#);
     }
 
     #[test]
