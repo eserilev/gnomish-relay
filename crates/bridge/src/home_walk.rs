@@ -6,7 +6,8 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use crate::folder_walk::{
-    Folder, LIMITS, Limits, Snapshot, Walk, is_repo, is_shown, subfolders, walk_folders,
+    Folder, LIMITS, Limits, Queued, Snapshot, Walk, is_repo, is_shown, mark_not_walked, subfolders,
+    walk_folders,
 };
 use crate::roots::Roots;
 
@@ -42,14 +43,15 @@ pub fn walk_home(walk: &Walk, home: &Path, limits: &Limits) -> Snapshot {
     };
     let roots = walk.roots.list();
     let deadline = Instant::now() + limits.time;
-    let mut queue: VecDeque<(PathBuf, usize, Option<usize>)> =
-        VecDeque::from([(home.to_owned(), 0, None)]);
+    let mut queue: VecDeque<Queued> = VecDeque::from([(home.to_owned(), 0, None)]);
     let mut visits = 0;
     let mut folders = Vec::new();
     let mut complete = true;
     while let Some((dir, depth, parent)) = queue.pop_front() {
         if visits >= limits.visits || Instant::now() >= deadline {
             complete = false;
+            queue.push_front((dir, depth, parent));
+            mark_not_walked(&mut folders, &queue);
             break;
         }
         visits += 1;
@@ -57,9 +59,11 @@ pub fn walk_home(walk: &Walk, home: &Path, limits: &Limits) -> Snapshot {
             continue;
         }
         let index = folders.len();
+        // At the depth limit, the walk goes on only toward a root.
+        let walked = depth < limits.depth;
         for below in subfolders(&dir) {
             let in_a_root = roots.iter().any(|r| below.starts_with(r));
-            let wanted = depth < limits.depth || leads_to_root(&below, &roots);
+            let wanted = walked || leads_to_root(&below, &roots);
             if wanted && !in_a_root {
                 queue.push_back((below, depth + 1, Some(index)));
             }
@@ -69,6 +73,7 @@ pub fn walk_home(walk: &Walk, home: &Path, limits: &Limits) -> Snapshot {
             path: dir,
             parent,
             repo,
+            walked,
         });
     }
     Snapshot {
@@ -129,6 +134,7 @@ fn join(roots: Snapshot, home: &Snapshot) -> Snapshot {
                     path: f.path.clone(),
                     parent: f.parent.and_then(|p| home_at[p]),
                     repo: f.repo,
+                    walked: f.walked,
                 }
             }
             From::Roots(i) => {
@@ -141,6 +147,7 @@ fn join(roots: Snapshot, home: &Snapshot) -> Snapshot {
                     path: f.path.clone(),
                     parent,
                     repo: f.repo,
+                    walked: f.walked,
                 }
             }
         })
@@ -254,6 +261,29 @@ mod tests {
         assert!(
             !paths.contains(&"a/b/c/other/deeper".to_owned()),
             "{paths:?}"
+        );
+    }
+
+    #[test]
+    fn a_home_folder_at_the_depth_limit_is_not_walked_but_a_shallow_one_is() {
+        let t = tree();
+        fs::create_dir_all(t.home.join("a/b/c/d")).unwrap();
+
+        let found = browse_folders(&walk(&t, &[], &[]), Some(&t.home));
+
+        let walked: Vec<(String, bool)> = lines(&found, &t.home)
+            .into_iter()
+            .zip(found.folders.iter().map(|f| f.walked))
+            .map(|((path, _), walked)| (path, walked))
+            .collect();
+        assert_eq!(
+            walked,
+            [
+                (String::new(), true),
+                ("a".into(), true),
+                ("a/b".into(), true),
+                ("a/b/c".into(), false),
+            ]
         );
     }
 

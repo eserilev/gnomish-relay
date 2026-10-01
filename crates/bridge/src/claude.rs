@@ -88,6 +88,7 @@ impl Agent for ClaudeAgent {
             Work::Prompt
             | Work::ListSessions
             | Work::ListFolders
+            | Work::ListSubfolders
             | Work::ListSettings
             | Work::Git(_) => self.prompt(job, control),
         }

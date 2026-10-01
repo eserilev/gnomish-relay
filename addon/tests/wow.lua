@@ -287,6 +287,14 @@ function methods:GetChecked()
 	return self.checked == true
 end
 
+function methods:SetEnabled(enabled)
+	self.disabled = not enabled
+end
+
+function methods:IsEnabled()
+	return not self.disabled
+end
+
 function methods:SetText(text)
 	if self.kind == "SimpleHTML" and wow.brokenHtml then
 		error("SimpleHTML failed")

@@ -322,7 +322,7 @@ local function Records(due)
 		return true
 	end
 	for _, control in ipairs(state.controls) do
-		Add({ token = token, chat = control.chat, id = control.id, flags = control.flags })
+		Add({ token = token, chat = control.chat, id = control.id, cwd = control.cwd, flags = control.flags })
 	end
 	for _, rider in ipairs(Messages.Riders()) do
 		if Add({ token = token, chat = rider.chat, id = rider.id, flags = rider.flags }) then
@@ -471,8 +471,9 @@ function Messages.Send(chat, text)
 end
 
 -- A control record goes out once, on the next strip. It is no message: it has no retry.
-function Messages.Control(chat, id, flags)
-	table.insert(state.controls, { chat = chat, id = id, flags = flags })
+-- `cwd` is optional: a folder that the control names.
+function Messages.Control(chat, id, flags, cwd)
+	table.insert(state.controls, { chat = chat, id = id, flags = flags, cwd = cwd })
 	Messages.ShowNextStrip()
 end
 

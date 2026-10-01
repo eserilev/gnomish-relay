@@ -50,6 +50,7 @@ impl Agent for AcpAgent {
             Work::Prompt
             | Work::ListSessions
             | Work::ListFolders
+            | Work::ListSubfolders
             | Work::ListSettings
             | Work::Git(_) => self.run_in_session(job, control, &mut session),
         };

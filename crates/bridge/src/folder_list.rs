@@ -2,7 +2,8 @@
 //!
 //! The first line is the default folder as the player reads it. Each other line is a
 //! folder, breadth first: `parent \t name \t mark`. A root has parent 0 and its whole
-//! path as its name. A last line `+` says that the tree is cut.
+//! path as its name. A line `?` lists the folders whose subfolders are not all in the
+//! reply. A last line `+` says that the tree is cut.
 
 use protocol::lua::lua_string;
 use protocol::slot::MAX_TEXT;
@@ -17,8 +18,11 @@ use crate::relay::{Folders, in_roots};
 /// The game sends a listed folder back in each message of its chat.
 pub const MAX_FOLDER: usize = 255;
 pub const CUT: &str = "+";
+pub const NOT_WALKED: &str = "?";
 /// The two quotes of the Lua literal, and the cut line after a newline.
 const RESERVED: usize = 2 + 4 + CUT.len();
+/// The room for the `?` line. A longer one becomes one range.
+const NOT_WALKED_ROOM: usize = 1024;
 
 /// How the reply writes paths. `~/` only when the default folder and every root are in
 /// the home folder, so the addon can compare the parts of any two paths.
@@ -97,32 +101,82 @@ fn cost(line: &str) -> usize {
     lua_string(format!("\n{line}").as_bytes()).len() - 2
 }
 
+fn range(first: usize, last: usize) -> String {
+    if first == last {
+        first.to_string()
+    } else {
+        format!("{first}-{last}")
+    }
+}
+
+/// `numbers` is sorted, with no number twice: `1,4-6,9`.
+fn ranges(numbers: &[usize]) -> String {
+    let mut parts = Vec::new();
+    let mut first = numbers[0];
+    let mut last = first;
+    for &n in &numbers[1..] {
+        if n != last + 1 {
+            parts.push(range(first, last));
+            first = n;
+        }
+        last = n;
+    }
+    parts.push(range(first, last));
+    parts.join(",")
+}
+
+/// The `?` line, or `None` when the reply holds every folder in full. `last` is the
+/// number of the last folder line.
+fn not_walked_line(numbers: &[usize], last: usize) -> Option<String> {
+    let first = *numbers.first()?;
+    let line = format!("{NOT_WALKED}{}", ranges(numbers));
+    if cost(&line) <= NOT_WALKED_ROOM {
+        return Some(line);
+    }
+    Some(format!("{NOT_WALKED}{}", range(first, last)))
+}
+
+/// The line number of the parent of `folder`, when the parent has a line.
+fn parent_line(numbers: &[Option<usize>], folder: &Folder) -> Option<usize> {
+    folder
+        .parent
+        .and_then(|p| numbers.get(p).copied().flatten())
+}
+
 /// Keeps a breadth-first start of the tree that fits in one reply record (S12), so
 /// shallow folders always come. A folder that is left out leaves out its subfolders.
 pub fn folder_reply(folders: &Folders, snapshot: &Snapshot) -> String {
     let names = Names::new(folders, snapshot);
     let first = names.show(&folders.base).unwrap_or_default();
     let mut lines = vec![first.clone()];
-    let mut size = RESERVED + cost(&first) - 4;
+    let mut size = RESERVED + NOT_WALKED_ROOM + cost(&first) - 4;
     let mut numbers: Vec<Option<usize>> = Vec::new();
-    let mut cut = !snapshot.complete;
-    for folder in &snapshot.folders {
-        let parent = folder
-            .parent
-            .and_then(|p| numbers.get(p).copied().flatten());
+    let mut not_walked = Vec::new();
+    let mut cut_at = None;
+    for (at, folder) in snapshot.folders.iter().enumerate() {
+        let parent = parent_line(&numbers, folder);
         let Some(line) = line(folders, &names, folder, parent) else {
             numbers.push(None);
             continue;
         };
         if size + cost(&line) > MAX_TEXT {
-            cut = true;
+            cut_at = Some(at);
             break;
         }
         size += cost(&line);
         lines.push(line);
         numbers.push(Some(lines.len() - 1));
+        if !folder.walked {
+            not_walked.push(lines.len() - 1);
+        }
     }
-    if cut {
+    // The size cut leaves out subfolders, so their parents are not walked in full.
+    let left_out = cut_at.map_or(&[][..], |at| &snapshot.folders[at..]);
+    not_walked.extend(left_out.iter().filter_map(|f| parent_line(&numbers, f)));
+    not_walked.sort_unstable();
+    not_walked.dedup();
+    lines.extend(not_walked_line(&not_walked, lines.len() - 1));
+    if cut_at.is_some() || !snapshot.complete {
         lines.push(CUT.into());
     }
     lines.join("\n")
@@ -149,6 +203,7 @@ mod tests {
             path: path.into(),
             parent,
             repo: false,
+            walked: true,
         }
     }
 
@@ -263,7 +318,8 @@ mod tests {
         assert!(text.ends_with("\n+"));
         let kept: Vec<&str> = text.lines().skip(2).collect();
         assert!(kept.len() > 100);
-        for (i, line) in kept.iter().take(kept.len() - 1).enumerate() {
+        assert_eq!(kept[kept.len() - 2], "?1", "the root misses subfolders");
+        for (i, line) in kept.iter().take(kept.len() - 2).enumerate() {
             assert_eq!(*line, format!("1\tfolder-with-a-long-name-{i}\t"));
         }
     }
@@ -281,5 +337,63 @@ mod tests {
         let text = folder_reply(&code(), &big_tree("f", 10));
         assert!(!text.ends_with('+'));
         assert_eq!(text.lines().count(), 12);
+    }
+
+    fn deep(path: &str, parent: usize) -> Folder {
+        let mut f = folder(path, Some(parent));
+        f.walked = false;
+        f
+    }
+
+    #[test]
+    fn the_folders_that_are_not_walked_come_as_ranges_of_line_numbers() {
+        let found = snapshot(
+            vec![
+                folder("/home/x/Code", None),
+                deep("/home/x/Code/a", 0),
+                deep("/home/x/Code/b", 0),
+                deep("/home/x/Code/c", 0),
+                folder("/home/x/Code/d", Some(0)),
+                deep("/home/x/Code/e", 0),
+            ],
+            None,
+        );
+
+        let text = folder_reply(&code(), &found);
+
+        assert!(text.ends_with("\n1\te\t\n?2-4,6"), "{text}");
+    }
+
+    #[test]
+    fn a_folder_that_is_left_out_does_not_count_as_not_walked() {
+        let found = snapshot(
+            vec![
+                folder("/home/x/Code", None),
+                deep("/home/x/Code/tab\there", 0),
+            ],
+            None,
+        );
+        assert_eq!(
+            folder_reply(&code(), &found),
+            "/home/x/Code\n0\t/home/x/Code\t"
+        );
+    }
+
+    #[test]
+    fn a_long_not_walked_line_becomes_one_range_to_the_last_folder() {
+        let mut found = vec![folder("/home/x/Code", None)];
+        for i in 0..600 {
+            let f = format!("/home/x/Code/f{i}");
+            found.push(if i % 2 == 0 {
+                deep(&f, 0)
+            } else {
+                folder(&f, Some(0))
+            });
+        }
+
+        let text = folder_reply(&code(), &snapshot(found, None));
+
+        assert!(text.ends_with("\n?2-601"), "{}", &text[text.len() - 40..]);
+        assert!(lua_string(text.as_bytes()).len() <= MAX_TEXT);
     }
 }
