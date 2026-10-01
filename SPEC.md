@@ -1571,7 +1571,7 @@ The bridge cannot join a session that runs in a terminal: the terminal owns its 
 agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder name \t title
 ```
 
-- Only a session whose folder is inside a root shows (6.2, rule 1). The others stay hidden, with no count.
+- A session shows when its folder exists, and is inside a root (6.2, rule 1) or is a new folder (9.12). The others stay hidden, with no count. So the home folder, a folder outside it, a hidden folder, and a `deny` or `desktop` path never show. The relay checks the text of the folder, and the list checks the real path with the four rules of 9.12, so a link cannot lead out. Changed on 2026-09-30: with only the roots, an install with no root had an empty list, although the user had many sessions.
 - The list holds the 30 newest sessions. A title is at most 100 bytes, and control characters become spaces.
 - `folder` is relative to the base folder. The game sends it back as the folder of the chat, and it resolves to the same folder. On Windows, the game cannot send an absolute path (7.1.1).
 - `chat` names the game chat that already has the session. A click on that row opens the chat, not a second one.
@@ -1582,6 +1582,7 @@ agent \t session \t age in seconds \t 1 if active \t chat \t folder \t folder na
 **The attach.** A click on a session makes a new chat with the title, the agent, and the folder of the session. Its first message has the `attach` flag and no text.
 
 - The bridge accepts only a session of its last list. So the folder check of the list guards the attach too.
+- The attach of a session in a new folder waits for the desktop request of 9.12, as a message in a new folder does: "Let agents from WoW work in <folder>? …". After Approve, the folder is a root, and the attach runs. Deny and no answer end the attach with the reply of 9.12, and nothing attaches.
 - An active session gets `session/fork`: the chat continues a copy, and the terminal keeps the original. With no fork, the chat continues the session itself.
 - The bridge replays the session with `session/load`, and answers with the last exchange: the last prompt on the first line, and the last answer below it. The addon shows them as history, with no whisper.
 - The chat then works as any other chat. Its next message resumes the session (9.5). The level ceiling of the config applies (S6).
@@ -2043,7 +2044,7 @@ The relay checks rules 1 and 2 on the text when the message comes (6.2, rule 1).
 
 **What the game can do.** Only a click on the desktop, or `gnomish-relay approve`, adds a root. No message from the game writes `config.toml`, and S6 does not change. The home folder, a folder above it, a hidden folder, and a `deny` or `desktop` path never become a root, also with a click: the bridge refuses them before the dialog.
 
-**Checked against the threat model** (6.1). A hostile addon can already send any message. Now it can also ask the user, in a dialog of the OS, to allow one folder. It cannot click the dialog. The dialog names the real folder and what Approve gives, and it comes at most once in 10 minutes. A root widens only two things: the reads of the gate (6.6.2), and the folders that a chat can use. The classifier, the sandbox, and the ceiling still bound each run in the new root. The browser now lists folders of the home folder outside the roots. It shows only names, never files, and the classifier filter keeps the credential folders out of it. The proved parts (S5, S16, S17) do not change: the relay calls the same resolver with the home folder as the root for rule 1.
+**Checked against the threat model** (6.1). A hostile addon can already send any message. Now it can also ask the user, in a dialog of the OS, to allow one folder. It cannot click the dialog. The dialog names the real folder and what Approve gives, and it comes at most once in 10 minutes. A root widens only two things: the reads of the gate (6.6.2), and the folders that a chat can use. The classifier, the sandbox, and the ceiling still bound each run in the new root. The browser now lists folders of the home folder outside the roots. It shows only names, never files, and the classifier filter keeps the credential folders out of it. Resume (9.6) also lists the sessions of the new folders, with the same filter: the folder and the title of each session, never its history. The attach of such a session waits for the same desktop request. The proved parts (S5, S16, S17) do not change: the relay calls the same resolver with the home folder as the root for rule 1.
 
 **Decisions** (the coordinator and the implementer, 2026-09-30):
 

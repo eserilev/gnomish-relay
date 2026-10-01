@@ -1072,8 +1072,8 @@ impl Relay {
         std::mem::take(&mut self.cleanups)
     }
 
-    /// Keeps the sessions whose folder is in a root, and answers the list request with
-    /// one line per session (SPEC.md 9.6).
+    /// Keeps the sessions whose folder is in a root or can become one, and answers the
+    /// list request with one line per session (SPEC.md 9.6).
     pub fn finish_list(
         &mut self,
         job: &Job,
@@ -1105,7 +1105,7 @@ impl Relay {
             return None;
         }
         let folders = &self.policy.folders;
-        let resolved = in_roots(folders, std::path::Path::new(&info.cwd))?;
+        let resolved = self.listed_folder(std::path::Path::new(&info.cwd))?;
         Some(Listed {
             agent,
             id: SessionId::from(info.id),
@@ -1114,6 +1114,22 @@ impl Relay {
             title: info.title,
             updated: info.updated,
         })
+    }
+
+    /// A folder in a root, or a new folder that passes the rules of its text. The attach
+    /// of a new folder asks on the desktop first, as a message does (SPEC.md 9.12).
+    fn listed_folder(&self, cwd: &std::path::Path) -> Option<Vec<u8>> {
+        if let Some(resolved) = in_roots(&self.policy.folders, cwd) {
+            return Some(resolved);
+        }
+        let home = self.home.as_ref()?;
+        let in_home = Folders {
+            roots: vec![home.clone()],
+            base: self.policy.folders.base.clone(),
+        };
+        let resolved = in_roots(&in_home, cwd)?;
+        check_text(home, &resolved).ok()?;
+        Some(resolved)
     }
 
     /// Tab-separated: agent, session, age in seconds, 1 if active, the chat that has
@@ -2545,6 +2561,104 @@ mod tests {
             assert!(relay.next_job().is_none(), "{cwd}");
             assert!(body(&relay).contains(reason), "{cwd}: {}", body(&relay));
         }
+    }
+
+    #[test]
+    fn resume_with_empty_roots_lists_the_sessions_of_folders_in_the_home_folder() {
+        let mut relay = Relay::new(Policy {
+            folders: Folders {
+                roots: Vec::new(),
+                base: b"/home/x".to_vec(),
+            },
+            ..policy()
+        });
+        relay.take_new_folders(std::path::Path::new("/home/x"));
+
+        list(
+            &mut relay,
+            1,
+            vec![(
+                "claude".into(),
+                info("s1", "/home/x/Documents/Code/app", "Fix it", NOW - 600),
+            )],
+        );
+
+        assert_eq!(
+            relay.list_text(NOW),
+            "claude\ts1\t600\t0\t\tDocuments/Code/app\tapp\tFix it"
+        );
+    }
+
+    #[test]
+    fn resume_lists_a_home_folder_outside_the_roots_relative_to_the_base() {
+        let mut relay = with_home();
+
+        list(
+            &mut relay,
+            1,
+            vec![(
+                "claude".into(),
+                info("s1", "/home/x/lighthouse", "Sync", NOW - 600),
+            )],
+        );
+
+        assert!(
+            relay
+                .list_text(NOW)
+                .contains("\t../lighthouse\tlighthouse\tSync")
+        );
+    }
+
+    #[test]
+    fn resume_never_lists_the_home_folder_a_hidden_folder_or_a_folder_outside_home() {
+        let mut relay = with_home();
+        let folders = [
+            "/home/x",
+            "/home/x/.config/app",
+            "/home/x/web/node_modules/lib",
+            "/home/xy/app",
+            "/etc",
+        ];
+        let found = (1..)
+            .zip(folders)
+            .map(|(n, cwd)| ("claude".to_owned(), info(&format!("s{n}"), cwd, "t", NOW)))
+            .collect();
+
+        list(&mut relay, 1, found);
+
+        assert_eq!(relay.list_text(NOW), "");
+    }
+
+    #[test]
+    fn with_no_home_folder_resume_lists_only_the_roots() {
+        let mut relay = relay();
+
+        list(
+            &mut relay,
+            1,
+            vec![("claude".into(), info("s1", "/home/x/lighthouse", "t", NOW))],
+        );
+
+        assert_eq!(relay.list_text(NOW), "");
+    }
+
+    #[test]
+    fn an_attach_to_a_session_outside_the_roots_runs_in_its_folder() {
+        let mut relay = with_home();
+        list(
+            &mut relay,
+            1,
+            vec![(
+                "claude".into(),
+                info("s1", "/home/x/lighthouse", "Sync", NOW - 600),
+            )],
+        );
+
+        relay.on_frame(&[record("c9", 2, "attach=s1", "")], NOW);
+
+        let attach = relay.next_job().unwrap();
+        assert_eq!(attach.cwd, "/home/x/lighthouse");
+        assert!(matches!(attach.work, Work::Attach { .. }));
     }
 
     #[test]

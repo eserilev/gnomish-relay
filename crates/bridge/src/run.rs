@@ -882,9 +882,12 @@ impl RelayLane {
     fn start_list(&self, job: Job) {
         log(&format!("list sessions #{}", job.id.0));
         let agents = self.agents.clone();
+        let walk = self.walk.clone();
+        let home = self.truster.as_ref().map(|t| t.home.clone());
         let finished = self.finished.clone();
         thread::spawn(move || {
-            let found = list_sessions(&agents, &job.cwd);
+            let found = list_sessions(&agents, &job.cwd)
+                .map(|found| listable(found, &walk, home.as_deref()));
             let _ = finished.send(Finished::List(job, found));
         });
     }
@@ -1360,6 +1363,19 @@ fn list_sessions(agents: &Agents, cwd: &str) -> Found {
         return Err(errors.join("\n"));
     }
     Ok(found)
+}
+
+/// The relay checks the text of each folder. This checks the disk: a gone folder, a link
+/// out, and a private folder never show (SPEC.md 9.6).
+fn listable(
+    found: Vec<(String, SessionInfo)>,
+    walk: &Walk,
+    home: Option<&Path>,
+) -> Vec<(String, SessionInfo)> {
+    found
+        .into_iter()
+        .filter(|(_, info)| folder_trust::may_list(walk, home, Path::new(&info.cwd)))
+        .collect()
 }
 
 /// What the relay lane takes from the config.

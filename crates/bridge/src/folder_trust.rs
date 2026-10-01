@@ -3,7 +3,7 @@
 
 use std::path::Path;
 
-use crate::folder_path::{is_inside_folder, path_bytes, path_parts};
+use crate::folder_path::{is_inside_folder, path_bytes, path_parts, real_path};
 use crate::folder_walk::{Walk, is_shown, is_skipped};
 use crate::roots::Roots;
 
@@ -73,6 +73,21 @@ pub fn check_real(walk: &Walk, home: &Path, real: &Path) -> Result<(), Untrusted
         return Err(Untrusted::Private);
     }
     Ok(())
+}
+
+/// True when Resume shows a session of `folder`: the folder exists, and it is in a root
+/// or can become one. With no `home`, only a root counts (SPEC.md 9.6).
+pub fn may_list(walk: &Walk, home: Option<&Path>, folder: &Path) -> bool {
+    let Ok(real) = real_path(folder) else {
+        return false;
+    };
+    if !real.is_dir() {
+        return false;
+    }
+    if walk.roots.hold(&real) {
+        return true;
+    }
+    home.is_some_and(|home| check_real(walk, home, &real).is_ok())
 }
 
 #[cfg(test)]
@@ -182,5 +197,48 @@ mod tests {
             check_real(&h.walk, &h.home, &h.home.join("snap/firefox")),
             Err(Untrusted::Private)
         );
+    }
+
+    #[test]
+    fn resume_lists_a_folder_of_a_root_or_a_new_folder_that_exists() {
+        let h = place();
+        fs::create_dir_all(h.home.join("Code/app")).unwrap();
+        fs::create_dir_all(h.home.join("lighthouse")).unwrap();
+
+        assert!(may_list(&h.walk, Some(&h.home), &h.home.join("Code/app")));
+        assert!(may_list(&h.walk, Some(&h.home), &h.home.join("lighthouse")));
+    }
+
+    #[test]
+    fn resume_never_lists_a_gone_folder_or_with_no_home_a_new_folder() {
+        let h = place();
+        fs::create_dir_all(h.home.join("lighthouse")).unwrap();
+
+        assert!(!may_list(&h.walk, Some(&h.home), &h.home.join("Code/gone")));
+        assert!(!may_list(&h.walk, None, &h.home.join("lighthouse")));
+    }
+
+    #[test]
+    fn resume_never_lists_a_private_folder() {
+        let h = place();
+        fs::create_dir_all(h.home.join("snap/firefox")).unwrap();
+        fs::create_dir_all(h.home.join("app-data/gnomish-relay")).unwrap();
+
+        for folder in ["snap/firefox", "app-data/gnomish-relay", ""] {
+            assert!(
+                !may_list(&h.walk, Some(&h.home), &h.home.join(folder)),
+                "{folder}"
+            );
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn resume_never_lists_a_link_that_leads_out_of_the_home_folder() {
+        let h = place();
+        let outside = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(outside.path(), h.home.join("out")).unwrap();
+
+        assert!(!may_list(&h.walk, Some(&h.home), &h.home.join("out")));
     }
 }
