@@ -222,12 +222,98 @@ fn first_config(parts: &ConfigParts) -> String {
 }
 
 /// Checks a new text before it replaces the config, so setup never leaves a config that
-/// the bridge refuses.
+/// the bridge refuses. A relay part with an error before keeps it, and the result then
+/// has no relay part: `setup --timeways` goes on (SPEC.md 9.7, decision 15).
 pub fn write_config(dir: &Path, text: &str, home: &Path) -> Result<Config> {
-    let config = config::parse(text, home).context("setup made a config that does not load")?;
+    const NO_LOAD: &str = "setup made a config that does not load";
+    let parts = config::parse_parts(text, home).context(NO_LOAD)?;
+    let relay = match parts.relay {
+        Ok(relay) => relay,
+        Err(_) if relay_part_has_an_error(dir, home) => None,
+        Err(e) => return Err(e.context(NO_LOAD)),
+    };
     make_private_dir(dir)?;
     write_private(dir, config::FILE, text)?;
-    Ok(config)
+    Ok(Config {
+        relay,
+        ..parts.config
+    })
+}
+
+/// The config as `write_config` judges it: a relay part with an error loads as none.
+/// `read_existing` already stopped a plain setup on such an error.
+pub fn load_config(dir: &Path, home: &Path) -> Result<Config> {
+    let parts = config::parse_parts(&config::read_text(dir)?, home)?;
+    Ok(Config {
+        relay: parts.relay.ok().flatten(),
+        ..parts.config
+    })
+}
+
+fn relay_part_has_an_error(dir: &Path, home: &Path) -> bool {
+    let Ok(text) = fs::read_to_string(dir.join(config::FILE)) else {
+        return false;
+    };
+    config::parse_parts(&text, home).is_ok_and(|parts| parts.relay.is_err())
+}
+
+/// The config that a setup finds, and the line that it prints about it.
+pub struct Existing {
+    pub text: String,
+    pub config: Config,
+    /// A repair of `default_cwd`, or an error in the relay part for `setup --timeways`.
+    pub lines: Vec<String>,
+}
+
+/// `None` with no config yet. Both setups repair `default_cwd` (SPEC.md 12). Only a plain
+/// setup stops on an error in the relay part, because the relay part is its own.
+pub fn read_existing(dir: &Path, home: &Path, product: Product) -> Result<Option<Existing>> {
+    let text = match config::read_text(dir) {
+        Ok(text) => text,
+        Err(e) if e.is::<config::SetupUnfinished>() => return Ok(None),
+        Err(e) => return Err(e),
+    };
+    let (text, mut lines) = repair_default_folder(dir, text, home)?;
+    let not_valid = || format!("{} is not valid", dir.join(config::FILE).display());
+    let parts = config::parse_parts(&text, home).with_context(not_valid)?;
+    let relay = match (parts.relay, product) {
+        (Ok(relay), _) => relay,
+        (Err(e), Product::Relay) => return Err(e.context(not_valid())),
+        (Err(e), Product::Timeways) => {
+            lines.push(relay_error_line(&e));
+            None
+        }
+    };
+    let config = Config {
+        relay,
+        ..parts.config
+    };
+    Ok(Some(Existing {
+        text,
+        config,
+        lines,
+    }))
+}
+
+fn relay_error_line(error: &anyhow::Error) -> String {
+    format!(
+        "Gnomish Relay: config.toml has an error, and the desktop app won't start until it's \
+         fixed: {error:#}"
+    )
+}
+
+/// A `default_cwd` that breaks its rule becomes `~`, which the rule always allows.
+fn repair_default_folder(dir: &Path, text: String, home: &Path) -> Result<(String, Vec<String>)> {
+    let Ok(Err(error)) = config::parse_parts(&text, home).map(|parts| parts.relay) else {
+        return Ok((text, Vec::new()));
+    };
+    let Some(bad) = error.downcast_ref::<config::BadDefaultFolder>() else {
+        return Ok((text, Vec::new()));
+    };
+    let repaired = config_edit::with_home_default_cwd(&text)?;
+    write_private(dir, config::FILE, &repaired)?;
+    let line = format!("Fixed config.toml: {bad}, so it's now ~ (your home folder).");
+    Ok((repaired, vec![line]))
 }
 
 /// Puts `model` into `[story]` of the config (SPEC.md 11.6).

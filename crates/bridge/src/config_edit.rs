@@ -1,6 +1,7 @@
 //! The changes that the bridge makes to `config.toml` by itself, each after a click on
-//! the desktop: the `permission` of one agent (SPEC.md 9.3), and a new root (9.12).
-//! Each changes one line, so the comments and the other keys stay.
+//! the desktop: the `permission` of one agent (SPEC.md 9.3), and a new root (9.12). Setup
+//! also repairs `default_cwd` here (12). Each changes one line, so the comments and the
+//! other keys stay.
 
 use std::path::Path;
 
@@ -157,23 +158,46 @@ pub fn can_add_root(text: &str, home: &Path) -> Result<()> {
     Ok(())
 }
 
-fn is_roots_key(line: &str) -> bool {
+fn is_top_key(line: &str, key: &str) -> bool {
     line.trim_start()
-        .strip_prefix(ROOTS)
+        .strip_prefix(key)
         .is_some_and(|rest| rest.trim_start().starts_with('='))
 }
 
 /// The top keys come before the first table.
-fn roots_line(lines: &[&str]) -> Result<usize> {
+fn top_key_line(lines: &[&str], key: &str) -> Option<usize> {
     let top = lines
         .iter()
         .position(|line| line.trim_start().starts_with('['))
         .unwrap_or(lines.len());
-    let found: Vec<usize> = (0..top).filter(|&i| is_roots_key(lines[i])).collect();
+    let found: Vec<usize> = (0..top).filter(|&i| is_top_key(lines[i], key)).collect();
     match found.as_slice() {
-        [one] => Ok(*one),
-        _ => bail!("config.toml has no single {ROOTS} = [...] line before its first table"),
+        [one] => Some(*one),
+        _ => None,
     }
+}
+
+fn roots_line(lines: &[&str]) -> Result<usize> {
+    top_key_line(lines, ROOTS).with_context(|| {
+        format!("config.toml has no single {ROOTS} = [...] line before its first table")
+    })
+}
+
+/// The text with `default_cwd = "~"`, which the rule of `default_cwd` always allows
+/// (SPEC.md 12). Setup uses it to repair a config of an earlier version.
+pub fn with_home_default_cwd(text: &str) -> Result<String> {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let at = top_key_line(&lines, "default_cwd")
+        .context("config.toml has no single default_cwd line before its first table")?;
+    let mut changed = String::with_capacity(text.len());
+    for (i, line) in lines.iter().enumerate() {
+        changed.push_str(if i == at {
+            "default_cwd = \"~\"\n"
+        } else {
+            line
+        });
+    }
+    Ok(changed)
 }
 
 #[derive(serde::Deserialize)]
@@ -395,5 +419,35 @@ mod tests {
         let two = CONFIG.replace("[wow]\n", "[wow]\npath = \"~/a\"\n");
 
         assert!(with_wow_path(&two, Path::new("/games/wow")).is_err());
+    }
+
+    #[test]
+    fn the_home_default_folder_replaces_only_the_default_cwd_line() {
+        let text = CONFIG.replace(
+            "default_agent",
+            "default_cwd = \"/srv\"  # old\ndefault_agent",
+        );
+
+        let changed = with_home_default_cwd(&text).unwrap();
+
+        assert_eq!(
+            changed,
+            CONFIG.replace("default_agent", "default_cwd = \"~\"\ndefault_agent")
+        );
+    }
+
+    #[test]
+    fn a_config_with_no_default_cwd_line_gets_no_home_default_folder() {
+        assert!(with_home_default_cwd(CONFIG).is_err());
+    }
+
+    #[test]
+    fn a_default_cwd_key_inside_a_table_is_not_the_default_folder() {
+        let text = CONFIG.replace(
+            "[agents.codex]\n",
+            "[agents.codex]\ndefault_cwd = \"/srv\"\n",
+        );
+
+        assert!(with_home_default_cwd(&text).is_err());
     }
 }
