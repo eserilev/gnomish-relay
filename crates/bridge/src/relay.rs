@@ -35,7 +35,7 @@ use crate::history::{ChatLog, History, Speaker};
 pub use crate::lane::{ChatId, MessageId};
 use crate::lane::{Lane, NotAdmitted, keep_last};
 use crate::new_folder::{NewFolderError, is_folder_name};
-use crate::reply::{render_reply, with_usage};
+use crate::reply::{join_prompt, render_reply, split_prompt, with_usage};
 use crate::run_changes::{Outcome as ChangeOutcome, RunChanges};
 use crate::settings_list::{BridgeSettings, HookLine, settings_reply};
 use crate::state::State;
@@ -972,13 +972,14 @@ impl Relay {
         let (status, text, history) = match result {
             Ok(text) => {
                 let rendered = render_reply(&job.work, &with_level_note(job, text));
-                let text = with_blocks(&rendered, &added);
-                let text = match usage {
-                    Some(usage) => with_usage(&text, usage),
-                    None => text,
+                let (prompt, answer) = split_prompt(&job.work, &rendered);
+                let answer = with_blocks(answer, &added);
+                let answer = match usage {
+                    Some(usage) => with_usage(&answer, usage),
+                    None => answer,
                 };
-                let history = without_blocks(&text);
-                (Status::Done, text, history)
+                let history = join_prompt(prompt, &without_blocks(&answer));
+                (Status::Done, join_prompt(prompt, &answer), history)
             }
             // A restored error shows as plain text, so its history gets no marker.
             Err(text) if !added.is_empty() => (
@@ -2944,6 +2945,63 @@ mod tests {
             "{body}"
         );
         assert!(relay.changes_of(&job.chat, job.id).is_some());
+    }
+
+    /// The addon reads the first line of an attach reply as the prompt (SPEC.md 9.6).
+    #[test]
+    fn an_attach_reply_keeps_its_prompt_line_above_the_blocks() {
+        let mut relay = relay();
+        list(
+            &mut relay,
+            1,
+            vec![("codex".into(), info("s1", "/home/x/Code/app", "Work", NOW))],
+        );
+        relay.on_frame(&[record("c9", 2, "attach=s1", "")], NOW);
+        let attach = relay.next_job().unwrap();
+        let run = RunBlocks {
+            branch: Some(crate::chat_branch::BranchInfo {
+                branch: "master".into(),
+                own: crate::chat_branch::Own::No,
+                start: String::new(),
+            }),
+            ..RunBlocks::default()
+        };
+
+        relay.finish_run(&attach, Ok("fix it\nDone.".into()), run, None);
+
+        let body = body(&relay);
+        assert!(
+            body.contains(r#"text = "fix it\010\027M1\010B\031master\0310\031\010p\031Done.\010""#),
+            "{body}"
+        );
+    }
+
+    #[test]
+    fn an_attach_reply_with_no_text_keeps_an_empty_prompt_line() {
+        let mut relay = relay();
+        list(
+            &mut relay,
+            1,
+            vec![("codex".into(), info("s1", "/home/x/Code/app", "Work", NOW))],
+        );
+        relay.on_frame(&[record("c9", 2, "attach=s1", "")], NOW);
+        let attach = relay.next_job().unwrap();
+        let run = RunBlocks {
+            branch: Some(crate::chat_branch::BranchInfo {
+                branch: "master".into(),
+                own: crate::chat_branch::Own::No,
+                start: String::new(),
+            }),
+            ..RunBlocks::default()
+        };
+
+        relay.finish_run(&attach, Ok(String::new()), run, None);
+
+        let body = body(&relay);
+        assert!(
+            body.contains(r#"text = "\010\027M1\010B\031master\0310\031\010""#),
+            "{body}"
+        );
     }
 
     #[test]

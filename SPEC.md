@@ -1004,6 +1004,7 @@ The rendered text goes into the normal `text` field, so S9, S18, and S20 do not 
 
 - The bridge renders only the text of a `done` reply. Errors, lists, and user messages stay plain, except an error with blocks of the bridge (below).
 - An attach reply (9.6) is `prompt\nanswer`. The bridge renders only the answer.
+- The blocks of the bridge and the usage line of an attach reply go into the answer, after its marker. So the first line stays the prompt. Fixed on 2026-09-30: the blocks took the place of the whole reply, and the game showed the marker as the prompt and a branch block as the answer.
 - The history of the bridge keeps the rendered text, so a restore shows the same blocks as the live reply.
 
 **Format.** The text starts with the marker `ESC M 1` (`1B 4D 31`). Each block is one line: `\n`, a kind byte, then fields that each start with `US` (`1F`). A last `\n` ends the text.
