@@ -608,13 +608,19 @@ fn check_claude_modes(name: &str, modes: &BTreeMap<Permission, String>) -> Resul
     Ok(())
 }
 
-/// `~/code` reads better in the config than the full path.
+/// `~/code` reads better in the config than the full path. The parts take `/` on
+/// Windows too, because a `\` in a TOML string starts an escape.
 pub fn with_tilde(path: &Path, home: &Path) -> String {
     match path.strip_prefix(home) {
         Ok(rest) if rest.as_os_str().is_empty() => "~".into(),
-        Ok(rest) => format!("~/{}", rest.display()),
+        Ok(rest) => format!("~/{}", slashed_parts(rest)),
         Err(_) => path.display().to_string(),
     }
+}
+
+fn slashed_parts(path: &Path) -> String {
+    let parts: Vec<_> = path.iter().map(|part| part.to_string_lossy()).collect();
+    parts.join("/")
 }
 
 pub fn expand(path: &str, home: &Path) -> Result<PathBuf> {
@@ -1697,13 +1703,17 @@ mod tests {
     #[test]
     fn a_default_folder_outside_the_roots_is_an_error() {
         let home = Home::new();
-        let text = GOOD.replace("default_agent", "default_cwd = \"/etc\"\ndefault_agent");
+        fs::create_dir_all(home.path().join("outside")).unwrap();
+        let text = GOOD.replace(
+            "default_agent",
+            "default_cwd = \"~/outside\"\ndefault_agent",
+        );
 
         let error = home.parse(&text).err().unwrap();
 
         assert_eq!(
             error.downcast_ref::<BadDefaultFolder>(),
-            Some(&BadDefaultFolder::OutsideRoots("/etc".into()))
+            Some(&BadDefaultFolder::OutsideRoots("~/outside".into()))
         );
     }
 
