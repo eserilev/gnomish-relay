@@ -2,9 +2,11 @@
 //! tools that the user already has. The text goes in an argument or an environment
 //! variable, never into a script, so it cannot run as code.
 
-use std::io::Read;
+use std::io::{BufRead, BufReader, Read};
 use std::path::Path;
 use std::process::{Child, Command, Stdio};
+use std::sync::mpsc::{Receiver, channel};
+use std::time::{Duration, Instant};
 
 use crate::program::find_program;
 use crate::wsl;
@@ -13,6 +15,10 @@ use crate::wsl;
 const BACKSTOP_SECONDS: u64 = 60 * 60;
 const TITLE: &str = "Gnomish Relay";
 const SUMMARY: &str = "Gnomish Relay needs your approval";
+/// zenity exits with this code when its window closes with no button press.
+const ZENITY_CLOSED: &str = "3";
+/// After a notice closes, its `NotificationClosed` signal comes within this time.
+const REASON_WAIT: Duration = Duration::from_secs(1);
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tool {
@@ -33,6 +39,88 @@ pub struct Dialog {
     pub program: String,
     pub args: Vec<String>,
     pub env: Vec<(String, String)>,
+    /// A program that prints the `NotificationClosed` signals of the notice server.
+    pub close_watch: Option<CloseWatch>,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct CloseWatch {
+    pub program: String,
+    pub args: Vec<String>,
+}
+
+/// A button of a dialog.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Button {
+    Approve,
+    Deny,
+}
+
+/// How a dialog ended.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Ended {
+    Pressed(Button),
+    /// Closed, expired, or replaced. The user gave no answer.
+    NoButton,
+}
+
+/// The reason of a `NotificationClosed` signal (Desktop Notifications spec).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum CloseReason {
+    Expired,
+    Dismissed,
+    ClosedByCall,
+    Undefined,
+}
+
+impl CloseReason {
+    fn from_code(code: u32) -> CloseReason {
+        match code {
+            1 => CloseReason::Expired,
+            2 => CloseReason::Dismissed,
+            3 => CloseReason::ClosedByCall,
+            _ => CloseReason::Undefined,
+        }
+    }
+
+    pub fn words(self) -> &'static str {
+        match self {
+            CloseReason::Expired => "it expired",
+            CloseReason::Dismissed => "dismissed by the user",
+            CloseReason::ClosedByCall => "closed by a call",
+            CloseReason::Undefined => "undefined reason",
+        }
+    }
+}
+
+/// The id that `notify-send --print-id` prints on its first line.
+pub fn notice_id(stdout: &str) -> Option<u32> {
+    stdout.lines().next()?.trim().parse().ok()
+}
+
+/// The reason in a line of `gdbus monitor`, when the line closes the notice `id`. For
+/// example `...NotificationClosed (uint32 17, uint32 2)`.
+pub fn closed_reason(line: &str, id: u32) -> Option<CloseReason> {
+    let (_, args) = line.split_once(".NotificationClosed (")?;
+    let (closed, reason) = args.trim_end().strip_suffix(')')?.split_once(", ")?;
+    let closed: u32 = closed.strip_prefix("uint32 ")?.parse().ok()?;
+    let reason: u32 = reason.strip_prefix("uint32 ")?.parse().ok()?;
+    (closed == id).then(|| CloseReason::from_code(reason))
+}
+
+/// After a dialog closes with no answer, one more dialog asks. zenity comes first,
+/// because its window cannot expire and no notice replaces it.
+pub fn next_tool(first: Tool, zenity: bool, display: bool) -> Option<Tool> {
+    match first {
+        Tool::NotifySend if zenity && display => Some(Tool::Zenity),
+        Tool::NotifySend => Some(Tool::NotifySend),
+        _ => None,
+    }
+}
+
+/// The second dialog of `next_tool` on this computer.
+pub fn find_next_tool(first: Tool) -> Option<Tool> {
+    next_tool(first, has_program("zenity"), has_display())
 }
 
 /// A notice server shows the body of a notice as markup, so `<b>` or an S15 escape
@@ -55,6 +143,7 @@ pub fn dialog(tool: Tool, text: &str) -> Dialog {
                 TITLE,
                 "-u",
                 "critical",
+                "--print-id",
                 "-A",
                 "approve=Approve",
                 "-A",
@@ -81,7 +170,7 @@ pub fn dialog(tool: Tool, text: &str) -> Dialog {
                 &backstop,
                 "--text",
             ]),
-            Vec::new(),
+            vec![("ZENITY_ESC".to_owned(), ZENITY_CLOSED.to_owned())],
         ),
         Tool::Osascript => (
             "osascript",
@@ -118,11 +207,26 @@ pub fn dialog(tool: Tool, text: &str) -> Dialog {
         Tool::MessageBoxFromWsl => wsl_powershell().unwrap_or_else(|| program.to_owned()),
         _ => program.to_owned(),
     };
+    let close_watch = (tool == Tool::NotifySend).then(gdbus_monitor);
     Dialog {
         tool,
         program,
         args,
         env,
+        close_watch,
+    }
+}
+
+fn gdbus_monitor() -> CloseWatch {
+    let args = [
+        "monitor",
+        "--session",
+        "--dest",
+        "org.freedesktop.Notifications",
+    ];
+    CloseWatch {
+        program: "gdbus".to_owned(),
+        args: args.map(str::to_owned).into(),
     }
 }
 
@@ -164,22 +268,35 @@ giving up after (item 2 of argv as integer)";
 const WINDOWS_BOX: &str = "Add-Type -AssemblyName System.Windows.Forms; \
 [System.Windows.Forms.MessageBox]::Show($env:GNOMISH_NOTICE, 'Gnomish Relay', 'YesNo', 'Warning', 'Button2', 'DefaultDesktopOnly')";
 
-/// Only a click on Approve approves. A closed, dismissed, or timed-out dialog denies.
-pub fn approved(tool: Tool, success: bool, stdout: &str) -> bool {
+/// The button that ended the dialog. A closed, dismissed, or timed-out dialog has none.
+/// `code` is the exit code. Deny is the cancel button of osascript, so its error is Deny.
+pub fn pressed(tool: Tool, code: Option<i32>, stdout: &str) -> Option<Button> {
     match tool {
-        Tool::NotifySend => stdout.trim() == "approve",
-        Tool::Zenity => success,
-        Tool::Osascript => {
-            success
-                && stdout.contains("button returned:Approve")
-                && !stdout.contains("gave up:true")
+        Tool::NotifySend => match stdout.lines().last().map(str::trim) {
+            Some("approve") => Some(Button::Approve),
+            Some("deny") => Some(Button::Deny),
+            _ => None,
+        },
+        Tool::Zenity => match code {
+            Some(0) => Some(Button::Approve),
+            Some(1) => Some(Button::Deny),
+            _ => None,
+        },
+        Tool::Osascript if stdout.contains("gave up:true") => None,
+        Tool::Osascript if code == Some(0) && stdout.contains("button returned:Approve") => {
+            Some(Button::Approve)
         }
-        Tool::MessageBox | Tool::MessageBoxFromWsl => stdout.trim() == "Yes",
+        Tool::Osascript => Some(Button::Deny),
+        Tool::MessageBox | Tool::MessageBoxFromWsl => match stdout.trim() {
+            "Yes" => Some(Button::Approve),
+            "No" => Some(Button::Deny),
+            _ => None,
+        },
     }
 }
 
-/// A notice with no buttons on a server with no `actions` shows no Approve, and then
-/// closes as a Deny. So notify-send comes first only with `actions`.
+/// A notice with no buttons on a server with no `actions` shows no Approve, and can
+/// never answer. So notify-send comes first only with `actions`.
 pub fn linux_tool(notify_actions: bool, zenity: bool, display: bool) -> Option<Tool> {
     if notify_actions {
         return Some(Tool::NotifySend);
@@ -256,14 +373,61 @@ fn command(program: &str, args: &[String], env: &[(String, String)]) -> Command 
     command
 }
 
+/// The lines of a running `CloseWatch`. The program stops when this drops.
+struct Watching {
+    child: Child,
+    lines: Receiver<String>,
+}
+
+impl Watching {
+    fn start(watch: &CloseWatch) -> Option<Watching> {
+        let mut child = command(&watch.program, &watch.args, &[])
+            .stdout(Stdio::piped())
+            .spawn()
+            .ok()?;
+        let stdout = child.stdout.take()?;
+        let (sender, lines) = channel();
+        std::thread::spawn(move || {
+            for line in BufReader::new(stdout).lines().map_while(Result::ok) {
+                if sender.send(line).is_err() {
+                    return;
+                }
+            }
+        });
+        Some(Watching { child, lines })
+    }
+
+    fn reason(&self, id: u32) -> Option<CloseReason> {
+        let deadline = Instant::now() + REASON_WAIT;
+        loop {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let line = self.lines.recv_timeout(left).ok()?;
+            if let Some(reason) = closed_reason(&line, id) {
+                return Some(reason);
+            }
+        }
+    }
+}
+
+impl Drop for Watching {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
+    }
+}
+
 /// A dialog that runs, and that stops when its request no longer waits.
 pub struct Shown {
     tool: Tool,
     child: Child,
+    stdout: String,
+    watching: Option<Watching>,
 }
 
 impl Shown {
+    /// The close watch starts first, so it sees the close of the notice.
     pub fn start(dialog: &Dialog) -> Option<Shown> {
+        let watching = dialog.close_watch.as_ref().and_then(Watching::start);
         let child = command(&dialog.program, &dialog.args, &dialog.env)
             .stdout(Stdio::piped())
             .spawn()
@@ -271,21 +435,29 @@ impl Shown {
         Some(Shown {
             tool: dialog.tool,
             child,
+            stdout: String::new(),
+            watching,
         })
     }
 
-    /// `Some` once the user answered or closed the dialog: true for Approve.
-    pub fn answer(&mut self) -> Option<bool> {
-        let status = match self.child.try_wait() {
+    /// `Some` once the dialog ended.
+    pub fn ended(&mut self) -> Option<Ended> {
+        let code = match self.child.try_wait() {
             Ok(None) => return None,
-            Ok(Some(status)) => status,
-            Err(_) => return Some(false),
+            Ok(Some(status)) => status.code(),
+            Err(_) => return Some(Ended::NoButton),
         };
-        let mut stdout = String::new();
         if let Some(out) = self.child.stdout.as_mut() {
-            let _ = out.read_to_string(&mut stdout);
+            let _ = out.read_to_string(&mut self.stdout);
         }
-        Some(approved(self.tool, status.success(), &stdout))
+        let button = pressed(self.tool, code, &self.stdout);
+        Some(button.map_or(Ended::NoButton, Ended::Pressed))
+    }
+
+    /// Why the notice server closed the notice, after `ended` gave `NoButton`.
+    pub fn close_reason(&self) -> Option<CloseReason> {
+        let id = notice_id(&self.stdout)?;
+        self.watching.as_ref()?.reason(id)
     }
 
     /// notify-send closes its notice on SIGTERM, but not on SIGKILL. So first TERM
@@ -427,39 +599,110 @@ mod tests {
     }
 
     #[test]
-    fn only_a_click_on_approve_approves() {
+    fn only_a_press_on_a_button_answers_and_a_closed_dialog_has_no_button() {
+        use Button::{Approve, Deny};
         use Tool::{MessageBox, NotifySend, Osascript, Zenity};
         let cases = [
-            (NotifySend, true, "approve\n", true),
-            (NotifySend, true, "deny\n", false),
-            (NotifySend, true, "", false),
-            (Zenity, true, "", true),
-            (Zenity, false, "", false),
+            (NotifySend, Some(0), "42\napprove\n", Some(Approve)),
+            (NotifySend, Some(0), "42\ndeny\n", Some(Deny)),
+            (NotifySend, Some(0), "42\n", None),
+            (NotifySend, Some(0), "", None),
+            (Zenity, Some(0), "", Some(Approve)),
+            (Zenity, Some(1), "", Some(Deny)),
+            (Zenity, Some(3), "", None),
+            (Zenity, Some(5), "", None),
+            (Zenity, None, "", None),
             (
                 Osascript,
-                true,
+                Some(0),
                 "button returned:Approve, gave up:false\n",
-                true,
+                Some(Approve),
             ),
-            (Osascript, true, "button returned:, gave up:true\n", false),
-            (
-                Osascript,
-                true,
-                "button returned:Deny, gave up:false\n",
-                false,
-            ),
-            (Osascript, false, "", false),
-            (MessageBox, true, "Yes\r\n", true),
-            (MessageBox, true, "No\r\n", false),
-            (MessageBox, true, "garbage", false),
+            (Osascript, Some(0), "button returned:, gave up:true\n", None),
+            (Osascript, Some(1), "", Some(Deny)),
+            (MessageBox, Some(0), "Yes\r\n", Some(Approve)),
+            (MessageBox, Some(0), "No\r\n", Some(Deny)),
+            (MessageBox, Some(0), "garbage", None),
         ];
-        for (tool, success, stdout, approve) in cases {
+        for (tool, code, stdout, button) in cases {
             assert_eq!(
-                approved(tool, success, stdout),
-                approve,
-                "{tool:?} {stdout:?}"
+                pressed(tool, code, stdout),
+                button,
+                "{tool:?} {code:?} {stdout:?}"
             );
         }
+    }
+
+    #[test]
+    fn a_closed_zenity_window_exits_with_its_own_code() {
+        let zenity = dialog(Tool::Zenity, "x");
+
+        assert_eq!(zenity.env, [("ZENITY_ESC".to_owned(), "3".to_owned())]);
+        assert_eq!(pressed(Tool::Zenity, Some(3), ""), None);
+    }
+
+    #[test]
+    fn a_notice_prints_its_id_and_its_close_watch_listens_to_the_notice_server() {
+        let shown = dialog(Tool::NotifySend, "x");
+
+        assert!(shown.args.contains(&"--print-id".to_owned()));
+        let watch = shown.close_watch.unwrap();
+        assert_eq!(watch.program, "gdbus");
+        assert_eq!(
+            watch.args,
+            [
+                "monitor",
+                "--session",
+                "--dest",
+                "org.freedesktop.Notifications"
+            ]
+        );
+        assert_eq!(dialog(Tool::Zenity, "x").close_watch, None);
+    }
+
+    #[test]
+    fn the_close_signal_of_a_notice_gives_its_reason() {
+        let line = |id: u32, reason: u32| {
+            format!(
+                "/org/freedesktop/Notifications: org.freedesktop.Notifications.NotificationClosed \
+                 (uint32 {id}, uint32 {reason})"
+            )
+        };
+
+        assert_eq!(closed_reason(&line(7, 1), 7), Some(CloseReason::Expired));
+        assert_eq!(closed_reason(&line(7, 2), 7), Some(CloseReason::Dismissed));
+        assert_eq!(
+            closed_reason(&line(7, 3), 7),
+            Some(CloseReason::ClosedByCall)
+        );
+        assert_eq!(closed_reason(&line(7, 4), 7), Some(CloseReason::Undefined));
+        assert_eq!(closed_reason(&line(8, 2), 7), None, "another notice");
+        assert_eq!(
+            closed_reason(
+                "/org/freedesktop/Notifications: org.freedesktop.Notifications.ActionInvoked \
+                 (uint32 7, 'approve')",
+                7
+            ),
+            None
+        );
+        assert_eq!(notice_id("42\napprove\n"), Some(42));
+        assert_eq!(notice_id("approve\n"), None);
+    }
+
+    #[test]
+    fn after_a_closed_notice_zenity_asks_next_else_the_notice_once_more() {
+        assert_eq!(next_tool(Tool::NotifySend, true, true), Some(Tool::Zenity));
+        assert_eq!(
+            next_tool(Tool::NotifySend, false, true),
+            Some(Tool::NotifySend)
+        );
+        assert_eq!(
+            next_tool(Tool::NotifySend, true, false),
+            Some(Tool::NotifySend)
+        );
+        assert_eq!(next_tool(Tool::Zenity, true, true), None);
+        assert_eq!(next_tool(Tool::Osascript, true, true), None);
+        assert_eq!(next_tool(Tool::MessageBox, true, true), None);
     }
 
     #[test]
@@ -484,8 +727,14 @@ mod tests {
         assert!(shown.env[0].1.ends_with(HOSTILE));
         assert_eq!(shown.env[1].0, "WSLENV");
         assert!(shown.env[1].1.starts_with("GNOMISH_NOTICE"));
-        assert!(approved(Tool::MessageBoxFromWsl, true, "Yes\r\n"));
-        assert!(!approved(Tool::MessageBoxFromWsl, true, "No\r\n"));
+        assert_eq!(
+            pressed(Tool::MessageBoxFromWsl, Some(0), "Yes\r\n"),
+            Some(Button::Approve)
+        );
+        assert_eq!(
+            pressed(Tool::MessageBoxFromWsl, Some(0), "No\r\n"),
+            Some(Button::Deny)
+        );
     }
 
     #[test]
