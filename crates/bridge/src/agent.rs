@@ -31,11 +31,15 @@ pub const MAX_STEP: usize = 200;
 /// The prompt of a replayed exchange, on one line.
 pub const MAX_PROMPT: usize = 300;
 pub const NEW_SESSION: &str = "(Started a new session: the old one couldn't be resumed.)";
-/// The game shows the first paragraph of a long reply first (SPEC.md 13.1), so the
-/// `claude` and `codex` backends ask for a summary there.
-pub const SUMMARY_FIRST: &str = "The user reads your replies in a small window inside a game. \
+/// The system prompt note of the `claude` and `codex` backends (SPEC.md 13.1). The game
+/// shows the first paragraph of a long reply first, so it asks for a summary there. An
+/// agent took the empty files of the sandbox for a wipe, so it names them.
+pub const GAME_NOTE: &str = "The user reads your replies in a small window inside a game. \
 When a reply is longer than about 8 lines, start it with a summary of one or two short \
-sentences as its own paragraph. Put no heading or label before the summary.";
+sentences as its own paragraph. Put no heading or label before the summary. \
+Some files are hidden from you by the sandbox: secrets, .git/config, and the settings of \
+tools such as ~/.claude and ~/.config/gh. They look empty or missing, but nothing deleted \
+them. Don't report them as lost.";
 
 /// The last exchange of a saved session for an attach (SPEC.md 9.6): the prompt on the
 /// first line, the answer below. An empty session gives an empty text. A saved session
