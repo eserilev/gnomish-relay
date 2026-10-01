@@ -328,11 +328,47 @@ pub fn logged_in(status: &str) -> bool {
     status.get("loggedIn").and_then(Value::as_bool) == Some(true)
 }
 
+/// How a run pays for the model, from `apiKeySource` of the init message (SPEC.md 9.10).
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum Billing {
+    /// Each token costs money, so the cost of the result is real.
+    ApiKey,
+    /// A claude.ai login, a bearer token, or a cloud provider: the cost is only an estimate.
+    NoApiKey,
+    /// An old, new, or missing value. A wrong cost is worse than none, so it shows none.
+    Unknown,
+}
+
+impl Billing {
+    fn of_key_source(source: Option<&str>) -> Billing {
+        match source {
+            Some("ANTHROPIC_API_KEY" | "apiKeyHelper" | "/login managed key") => Billing::ApiKey,
+            Some("none") => Billing::NoApiKey,
+            _ => Billing::Unknown,
+        }
+    }
+
+    /// The usage as the bridge records it: the cost only for an API key.
+    #[must_use]
+    pub fn charged(self, usage: Usage) -> Usage {
+        match self {
+            Billing::ApiKey => usage,
+            Billing::NoApiKey | Billing::Unknown => Usage {
+                cost_usd: None,
+                ..usage
+            },
+        }
+    }
+}
+
 /// One line of `--output-format stream-json`, as the bridge uses it.
 #[derive(Debug, PartialEq)]
 pub enum Message {
-    /// The session id of the run.
-    Started(String),
+    /// The session id of the run, and how it pays for the model.
+    Started {
+        session: String,
+        billing: Billing,
+    },
     /// A message of the model: its text, and a progress line for each tool call.
     Said {
         text: String,
@@ -390,7 +426,10 @@ pub fn read_message(message: &Value) -> Message {
     match text_at(message, "/type") {
         Some("system") if text_at(message, "/subtype") == Some("init") => {
             match text_at(message, "/session_id") {
-                Some(id) => Message::Started(id.to_owned()),
+                Some(id) => Message::Started {
+                    session: id.to_owned(),
+                    billing: Billing::of_key_source(text_at(message, "/apiKeySource")),
+                },
                 None => Message::Other,
             }
         }
@@ -766,6 +805,7 @@ struct Stream {
     said: String,
     /// The tokens and the cost of the result.
     usage: Option<Usage>,
+    billing: Billing,
 }
 
 impl Stream {
@@ -788,6 +828,7 @@ impl Stream {
             refused: Vec::new(),
             said: String::new(),
             usage: None,
+            billing: Billing::Unknown,
         }
     }
 
@@ -841,7 +882,10 @@ impl Stream {
     /// The final reply at the end of the turn, else `None`.
     fn handle(&mut self, message: Message) -> Result<Option<String>, String> {
         match message {
-            Message::Started(id) => self.session = Some(id),
+            Message::Started { session, billing } => {
+                self.session = Some(session);
+                self.billing = billing;
+            }
             Message::Said { text, steps } => {
                 let room = MAX_REPLY.saturating_sub(self.said.len());
                 self.said.push_str(cut(&text, room));
@@ -884,7 +928,7 @@ impl Stream {
                 reply,
                 usage,
             } => {
-                self.usage = usage;
+                self.usage = usage.map(|u| self.billing.charged(u));
                 return self.end(session, reply).map(Some);
             }
             Message::Answered { .. } | Message::Other => {}
@@ -1019,5 +1063,57 @@ mod tests {
                 ],
             }
         );
+    }
+
+    fn init(key_source: Option<&str>) -> Message {
+        let mut message = json!({ "type": "system", "subtype": "init", "session_id": "s1" });
+        if let Some(source) = key_source {
+            message["apiKeySource"] = json!(source);
+        }
+        read_message(&message)
+    }
+
+    fn billing(key_source: Option<&str>) -> Billing {
+        let Message::Started { billing, .. } = init(key_source) else {
+            panic!("not a start");
+        };
+        billing
+    }
+
+    #[test]
+    fn the_key_sources_of_an_api_key_bill_per_token() {
+        assert_eq!(billing(Some("ANTHROPIC_API_KEY")), Billing::ApiKey);
+        assert_eq!(billing(Some("apiKeyHelper")), Billing::ApiKey);
+        assert_eq!(billing(Some("/login managed key")), Billing::ApiKey);
+    }
+
+    #[test]
+    fn the_key_source_none_is_a_login_with_no_api_key() {
+        assert_eq!(billing(Some("none")), Billing::NoApiKey);
+    }
+
+    #[test]
+    fn an_old_or_missing_key_source_is_unknown() {
+        assert_eq!(billing(Some("oauth")), Billing::Unknown);
+        assert_eq!(billing(Some("user")), Billing::Unknown);
+        assert_eq!(billing(None), Billing::Unknown);
+    }
+
+    #[test]
+    fn only_an_api_key_keeps_the_cost() {
+        let usage = Usage {
+            input: 10,
+            cached: 0,
+            output: 2,
+            cost_usd: Some(0.5),
+        };
+        let no_cost = Usage {
+            cost_usd: None,
+            ..usage
+        };
+
+        assert_eq!(Billing::ApiKey.charged(usage), usage);
+        assert_eq!(Billing::NoApiKey.charged(usage), no_cost);
+        assert_eq!(Billing::Unknown.charged(usage), no_cost);
     }
 }

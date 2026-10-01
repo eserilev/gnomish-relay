@@ -31,6 +31,15 @@ fn agent(script: &str, projects: &Path) -> ClaudeAgent {
     }
 }
 
+/// A fake whose init message names `source` as its `apiKeySource` (SPEC.md 9.10).
+fn agent_with_key_source(script: &str, projects: &Path, source: &str) -> ClaudeAgent {
+    let mut claude = agent(script, projects);
+    claude
+        .command
+        .extend(["--fake-key-source".into(), source.into()]);
+    claude
+}
+
 /// Every tempdir of the tests is inside the temp folder, so it is the one root.
 fn gate() -> Gate {
     let tmp = std::env::temp_dir().canonicalize().unwrap();
@@ -127,11 +136,11 @@ fn the_modes_table_of_the_config_replaces_the_default_mode() {
 }
 
 #[test]
-fn a_run_gives_the_tokens_and_the_cost_of_its_result() {
+fn an_api_key_run_keeps_its_cost() {
     let dir = tempfile::tempdir().unwrap();
+    let claude = agent_with_key_source("reply", dir.path(), "ANTHROPIC_API_KEY");
 
-    let run =
-        agent("reply", dir.path()).run(&job(&dir, Permission::Ask, "hi"), &Control::default());
+    let run = claude.run(&job(&dir, Permission::Ask, "hi"), &Control::default());
 
     assert_eq!(
         run.usage,
@@ -142,6 +151,37 @@ fn a_run_gives_the_tokens_and_the_cost_of_its_result() {
             cost_usd: Some(0.0412),
         })
     );
+    assert_eq!(run.usage.unwrap().line(), "4.7k in · 350 out · $0.04");
+}
+
+#[test]
+fn a_subscription_run_has_tokens_and_no_cost() {
+    let dir = tempfile::tempdir().unwrap();
+    let claude = agent_with_key_source("reply", dir.path(), "none");
+
+    let run = claude.run(&job(&dir, Permission::Ask, "hi"), &Control::default());
+
+    assert_eq!(
+        run.usage,
+        Some(Usage {
+            input: 1200 + 3000 + 500,
+            cached: 3000,
+            output: 350,
+            cost_usd: None,
+        })
+    );
+    assert_eq!(run.usage.unwrap().line(), "4.7k in · 350 out");
+}
+
+#[test]
+fn a_run_with_no_key_source_has_no_cost() {
+    let dir = tempfile::tempdir().unwrap();
+    let claude = agent_with_key_source("reply", dir.path(), "omit");
+
+    let run = claude.run(&job(&dir, Permission::Ask, "hi"), &Control::default());
+
+    assert_eq!(run.usage.and_then(|u| u.cost_usd), None);
+    assert_eq!(run.usage.map(|u| u.output), Some(350));
 }
 
 #[test]
@@ -229,7 +269,7 @@ fn a_hung_agent_times_out_and_the_run_ends() {
 #[test]
 fn a_timed_out_run_interrupts_the_agent_and_keeps_its_cost() {
     let dir = tempfile::tempdir().unwrap();
-    let mut claude = agent("slow", dir.path());
+    let mut claude = agent_with_key_source("slow", dir.path(), "ANTHROPIC_API_KEY");
     claude.timeout = Duration::from_millis(300);
     let start = Instant::now();
 
