@@ -45,6 +45,7 @@ const FILES: &[&str] = &[
     "RulesGroup.lua",
     "SettingsTab.lua",
     "DiagTab.lua",
+    "LevelMenu.lua",
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",

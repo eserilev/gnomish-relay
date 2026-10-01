@@ -48,6 +48,8 @@ globals:
     args: []
   GetCursorPosition:
     args: []
+  IsShiftKeyDown:
+    args: []
   Minimap:
     any: true
   ReloadUI:

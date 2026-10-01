@@ -11,13 +11,14 @@ local ROW = 30
 local GREY = "8d8778"
 local ORANGE = "ff9f40"
 local GREEN = "1eff00"
-local LEVELS = { "ask", "auto-edit" }
+local LEVELS = { "ask", "auto-edit", "full-auto" }
 -- What a chat can do, by the permissions that apply (SPEC.md 9.3 and 13.1).
 local LEVEL_HINTS = {
 	ask = "Asks before each edit and each command.",
 	sandbox = "Edits the chat folder and runs commands in the sandbox on its own. Asks for risky commands.",
 	command = "Edits the chat folder and runs its own commands in the sandbox.",
 	edit = "Edits the chat folder on its own. Asks before each command.",
+	full = "Runs anything on its own, in the sandbox. Approve each chat once on your desktop.",
 }
 local SANDBOXES = { bwrap = true, ["sandbox-exec"] = true }
 local COLORS = { "f0a860", "ff80ff", "69ccf0", "9fe39f", "ffd100" }
@@ -164,7 +165,7 @@ local function LevelHint(agent)
 	end
 	local last = ns.BridgeSettings.Last()
 	if kind == "claude" and last and SANDBOXES[last.values.sandbox] then
-		return LEVEL_HINTS.sandbox
+		return LevelInUse(agent) == "full-auto" and LEVEL_HINTS.full or LEVEL_HINTS.sandbox
 	end
 	return LEVEL_HINTS.edit
 end
@@ -258,7 +259,7 @@ function SettingsTab.Refresh()
 	local agent = NewAgent()
 	SetChoices(ui.agent, AgentOptions())
 	ui.agent:SetText(ns.Relay.AgentName(agent))
-	ui.level:SetText(ns.Store.NewLevel())
+	ui.level:SetText(ns.LevelMenu.Text(ns.Store.NewLevel()))
 	ui.ceiling:SetText(string.format("|cff%sUp to %s (set on your desktop)|r", GREY, Ceiling(agent)))
 	ui.levelHint:SetText(string.format("|cff%s%s|r", GREY, LevelHint(agent)))
 	ui.font:SetValue(db.fontSize)
@@ -286,7 +287,7 @@ local function BuildNewChats()
 	end)
 	local levels = {}
 	for _, level in ipairs(LEVELS) do
-		table.insert(levels, { value = level, text = level })
+		table.insert(levels, { value = level, text = ns.LevelMenu.Text(level) })
 	end
 	SetChoices(ui.level, levels)
 	ui.ceiling = Label(ui.page, "GameFontHighlightSmall", 20 + LABEL_WIDTH + 150, -44 - ROW)

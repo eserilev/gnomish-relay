@@ -63,6 +63,7 @@ const FILES: &[&str] = &[
     "RulesGroup.lua",
     "SettingsTab.lua",
     "DiagTab.lua",
+    "LevelMenu.lua",
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",
@@ -1490,6 +1491,102 @@ fn a_level_line_that_is_not_first_does_not_change_the_header() {
         texts.contains(&"Claude · auto-edit".to_owned()),
         "{texts:?}"
     );
+}
+
+const FULL_AUTO_HEADER: &str = "Claude · |cffff5a1ffull-auto|r";
+
+fn press_shift_tab(game: &Game) {
+    game.wow.set("shift", true).unwrap();
+    game.run("GnomishRelayInput:GetScript('OnTabPressed')(GnomishRelayInput)");
+    game.wow.set("shift", false).unwrap();
+}
+
+#[test]
+fn a_click_on_the_mode_opens_the_list_and_full_auto_goes_with_the_next_message() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+
+    click(&game, "GnomishRelayLevelButton");
+    let shown = game.run("return GnomishRelayLevelList:IsShown()");
+    click(&game, "GnomishRelayLevelChoice3");
+    game.send("go");
+    game.advance(3.0);
+
+    assert_eq!(shown.as_boolean(), Some(true));
+    assert!(texts_of(&game, "FontString").contains(&FULL_AUTO_HEADER.to_owned()));
+    let f = flags(&sent_by_chat(&game, b"go"));
+    assert!(f.contains(&"level=full-auto".into()), "{f:?}");
+}
+
+#[test]
+fn the_mode_list_closes_at_a_click_outside_it() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    click(&game, "GnomishRelayLevelButton");
+
+    game.fire("GLOBAL_MOUSE_DOWN", "LeftButton");
+
+    let shown = game.run("return GnomishRelayLevelList:IsShown()");
+    assert_eq!(shown.as_boolean(), Some(false));
+}
+
+#[test]
+fn shift_tab_in_the_message_box_moves_to_the_next_mode_and_tab_alone_does_not() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+    let mode = || text_of(&game, "(...).Store.Chats()[1].mode");
+
+    game.run("GnomishRelayInput:GetScript('OnTabPressed')(GnomishRelayInput)");
+    let after_tab = mode();
+    press_shift_tab(&game);
+    let first = mode();
+    press_shift_tab(&game);
+    let second = mode();
+    press_shift_tab(&game);
+
+    assert_eq!(after_tab, "auto-edit");
+    assert_eq!(first, "full-auto");
+    assert_eq!(second, "ask");
+    assert_eq!(mode(), "auto-edit");
+}
+
+#[test]
+fn the_header_shows_full_auto_in_the_warning_color_and_the_level_of_the_run_when_it_is_lower() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("build it");
+    game.advance(1.0);
+    press_shift_tab(&game);
+    assert!(texts_of(&game, "FontString").contains(&FULL_AUTO_HEADER.to_owned()));
+
+    show_progress(&game, &[b"Level: auto-edit", b"edit src/main.rs"]);
+
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"Claude · auto-edit".to_owned()),
+        "{texts:?}"
+    );
+    assert!(!texts.contains(&FULL_AUTO_HEADER.to_owned()), "{texts:?}");
+}
+
+#[test]
+fn a_new_chat_can_start_at_full_auto_from_settings() {
+    let game = Game::start();
+    open_settings_with_list(&game, false);
+
+    click(&game, "GnomishRelaySettingsLevel");
+    click(&game, "GnomishRelaySettingsLevelChoice3");
+    click_new_chat(&game);
+    game.send("hi");
+    game.advance(3.0);
+
+    let f = flags(&sent_by_chat(&game, b"hi"));
+    assert!(f.contains(&"level=full-auto".into()), "{f:?}");
+    let hint = "|cff8d8778Runs anything on its own, in the sandbox. Approve each chat once on your desktop.|r";
+    open_tab(&game, SETTINGS);
+    assert!(texts_of(&game, "FontString").contains(&hint.to_owned()));
 }
 
 /// Puts a working record and a desktop line of the bridge into every slot.

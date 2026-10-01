@@ -63,6 +63,8 @@ local wow = {
 	mac = false,
 	-- The mouse, in the pixels of the screen, for GetCursorPosition().
 	cursor = { 0, 0 },
+	-- IsShiftKeyDown().
+	shift = false,
 }
 
 local Object = {}
@@ -653,6 +655,10 @@ end
 
 function GetCursorPosition()
 	return wow.cursor[1], wow.cursor[2]
+end
+
+function IsShiftKeyDown()
+	return wow.shift
 end
 
 -- The game opens a chat link through it. The relay hooks it.
