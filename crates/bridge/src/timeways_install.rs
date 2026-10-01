@@ -5,7 +5,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use semver::Version;
 
+use crate::auto_update::{pinned_releases, save_installed_timeways};
 use crate::config::{self, Config};
 use crate::config_story::{config_path, with_story_paths};
 use crate::dirs::Dirs;
@@ -25,10 +27,19 @@ pub struct Sources {
 impl Sources {
     /// `TIMEWAYS_URL` and `TIMEWAYS_DUMP_URL` change them, for a mirror or a test.
     pub fn from_env() -> Sources {
+        Sources::with_release(RELEASES)
+    }
+
+    /// The release of `version` in place of the latest one (SPEC.md 11.3, auto-update).
+    pub fn pinned(version: &Version) -> Sources {
+        Sources::with_release(&pinned_releases("timeways", version))
+    }
+
+    fn with_release(release: &str) -> Sources {
         let var =
             |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.into());
         Sources {
-            release: var(URL_VAR, RELEASES),
+            release: var(URL_VAR, release),
             dump: var(DUMP_URL_VAR, DUMP_URL),
         }
     }
@@ -104,6 +115,7 @@ pub fn install(
         log_details(dirs, error);
     }
     let (version, changed, lore) = result?;
+    save_installed_timeways(&dirs.data, &version)?;
     // A built pack is always there, so only a failed build with no old pack stops here.
     if let (Lore::Kept(error), false) = (&lore, places.pack.is_file()) {
         bail!("{error}");
@@ -207,8 +219,11 @@ pub fn update(dirs: &Dirs, sources: &Sources, story_program: &Path) -> Result<Ve
         .context("the story program has no folder")?;
     let work = dirs.data.join("timeways-download");
     fresh_work_folder(&work)?;
-    let result = timeways_release::fetch(&sources.release, &work)
-        .and_then(|download| timeways_release::install(&download, bin));
+    let result = timeways_release::fetch(&sources.release, &work).and_then(|download| {
+        let changed = timeways_release::install(&download, bin)?;
+        save_installed_timeways(&dirs.data, &download.version)?;
+        Ok(changed)
+    });
     let _ = fs::remove_dir_all(&work);
     if let Err(error) = &result {
         log_details(dirs, error);

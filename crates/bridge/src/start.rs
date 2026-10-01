@@ -5,6 +5,7 @@ use anyhow::Result;
 
 use crate::agent;
 use crate::app_files::private_game_paths;
+use crate::auto_update::{AutoUpdater, Parts};
 use crate::config::{self, FullAuto, RelayConfig, StoryConfig};
 use crate::desktop::Prompt;
 use crate::dirs::Dirs;
@@ -50,6 +51,7 @@ pub fn start(dirs: &Dirs) -> Result<()> {
     if let Some(changed) = setup::repair_timeways_key(&dirs.config, &paths.addons)? {
         print_changed("Timeways", changed);
     }
+    let auto_update = auto_updater(dirs, &config)?;
     let relay = match config.relay {
         Some(relay) => Some(start_relay(dirs, relay, config.story.as_ref(), &paths)?),
         None => None,
@@ -58,7 +60,14 @@ pub fn start(dirs: &Dirs) -> Result<()> {
         Some(story) => story_spec(dirs, story, &paths)?,
         None => None,
     };
-    run(paths, relay, keys, story)
+    run(paths, relay, keys, story, auto_update)
+}
+
+fn auto_updater(dirs: &Dirs, config: &config::Config) -> Result<Option<AutoUpdater>> {
+    let Some(parts) = Parts::of(dirs, config) else {
+        return Ok(None);
+    };
+    Ok(Some(AutoUpdater::new(parts, std::env::current_exe()?)))
 }
 
 /// The key addon comes back when it is missing. `CurseForge` owns the relay addon (SPEC.md 11.3).

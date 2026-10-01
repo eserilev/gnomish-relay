@@ -7,13 +7,16 @@ use std::process::Command;
 
 use anyhow::{Context, Result, bail};
 use protocol::apps::App;
+use semver::Version;
 use sha2::{Digest, Sha256};
 
 use crate::app_files::key_addon_name;
+use crate::auto_update::{Parts, Wanted, pinned_releases};
 use crate::config;
 use crate::dirs::Dirs;
 use crate::install;
 use crate::timeways_install;
+use crate::timeways_release::NeedsNewerApp;
 
 pub const RELEASES: &str = "https://github.com/eserilev/gnomish-relay/releases/latest/download";
 
@@ -167,16 +170,40 @@ fn relay_addons(dirs: &Dirs) -> Option<PathBuf> {
     Some(install::addons_dir(config.wow.as_deref()?))
 }
 
-/// The Timeways programs that setup installed, from the latest Timeways release
+/// Which release each part takes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Pick {
+    /// `gnomish-relay update` by hand.
+    Latest,
+    /// `update --auto`: the version of each addon on disk (SPEC.md 11.3).
+    AddonVersions,
+}
+
+impl Pick {
+    fn timeways_only_args(self) -> &'static [&'static str] {
+        match self {
+            Pick::Latest => &["update", "--timeways-only"],
+            Pick::AddonVersions => &["update", "--timeways-only", "--auto"],
+        }
+    }
+}
+
+/// The Timeways programs that setup installed, from the release that `pick` names
 /// (SPEC.md 11.4). A failure prints one line: the desktop app still updates.
-fn update_timeways(dirs: &Dirs) -> Vec<String> {
+fn update_timeways(dirs: &Dirs, pick: Pick) -> Vec<String> {
     let Ok(config) = config::load(&dirs.config, &dirs.home) else {
         return Vec::new();
     };
     let Some(program) = timeways_install::installed_story_program(&config) else {
         return Vec::new();
     };
-    let sources = timeways_install::Sources::from_env();
+    let sources = match pick {
+        Pick::Latest => timeways_install::Sources::from_env(),
+        Pick::AddonVersions => match wanted(dirs).ok().and_then(|w| w.timeways) {
+            Some(version) => timeways_install::Sources::pinned(&version),
+            None => return Vec::new(),
+        },
+    };
     match timeways_install::update(dirs, &sources, &program) {
         Ok(changed) => changed,
         Err(e) => {
@@ -197,8 +224,8 @@ fn update_failed_line(error: &anyhow::Error) -> String {
 }
 
 /// Returns whether a Timeways program changed.
-fn print_timeways_update(dirs: &Dirs) -> bool {
-    let changed = update_timeways(dirs);
+fn print_timeways_update(dirs: &Dirs, pick: Pick) -> bool {
+    let changed = update_timeways(dirs, pick);
     if changed.is_empty() {
         return false;
     }
@@ -207,17 +234,15 @@ fn print_timeways_update(dirs: &Dirs) -> bool {
 }
 
 /// `update --timeways-only`, which `update` runs in the program that it just installed.
-pub fn timeways_only(dirs: &Dirs) -> Result<()> {
-    print_timeways_update(dirs);
+pub fn timeways_only(dirs: &Dirs, pick: Pick) -> Result<()> {
+    print_timeways_update(dirs, pick);
     Ok(())
 }
 
 /// The old program checks a release against the old version range, so it refuses a
 /// Timeways that needs the new desktop app.
-fn timeways_in_new_program(exe: &Path) {
-    let status = Command::new(exe)
-        .args(["update", "--timeways-only"])
-        .status();
+fn timeways_in_new_program(exe: &Path, pick: Pick) {
+    let status = Command::new(exe).args(pick.timeways_only_args()).status();
     if !status.is_ok_and(|s| s.success()) {
         println!(
             "Timeways: couldn't update the story program. To try again, run gnomish-relay update"
@@ -225,32 +250,94 @@ fn timeways_in_new_program(exe: &Path) {
     }
 }
 
+/// `GNOMISH_URL` wins, as in `install.sh`. With no version, the latest release.
+fn relay_releases(version: Option<&Version>) -> String {
+    if let Ok(url) = std::env::var("GNOMISH_URL") {
+        return url;
+    }
+    match version {
+        Some(version) => pinned_releases("gnomish-relay", version),
+        None => RELEASES.to_owned(),
+    }
+}
+
 /// Installs the latest release in place of `current_exe`, and restarts the bridge.
 pub fn self_update(dirs: &Dirs) -> Result<()> {
+    update_desktop_app(dirs, &relay_releases(None), Pick::Latest)
+}
+
+/// Installs the release in `base` in place of `current_exe`, and restarts the bridge.
+fn update_desktop_app(dirs: &Dirs, base: &str, pick: Pick) -> Result<()> {
     let name = archive_name().context("there is no release build for this OS and CPU")?;
-    let base = std::env::var("GNOMISH_URL").unwrap_or_else(|_| RELEASES.to_owned());
     let exe = std::env::current_exe()?;
     let work = dirs.data.join("update");
     let _ = std::fs::remove_dir_all(&work);
     std::fs::create_dir_all(&work)?;
-    let replaced = fetch(&base, &name, &work).and_then(|new| replace(&exe, &new));
+    let replaced = fetch(base, &name, &work).and_then(|new| replace(&exe, &new));
     let _ = std::fs::remove_dir_all(&work);
-    match replaced? {
-        Replaced::New => {
+    match (replaced?, pick) {
+        (Replaced::New, _) => {
             println!("Updated {}", exe.display());
-            timeways_in_new_program(&exe);
+            timeways_in_new_program(&exe, pick);
         }
-        Replaced::Same => {
-            if !print_timeways_update(dirs) {
+        // A wrong release must not try again every minute.
+        (Replaced::Same, Pick::AddonVersions) => bail!("the release installed nothing new"),
+        (Replaced::Same, Pick::Latest) => {
+            if !print_timeways_update(dirs, pick) {
                 println!("You already have the latest version.");
                 return Ok(());
             }
         }
     }
+    restart_bridge(dirs, &exe)
+}
+
+fn restart_bridge(dirs: &Dirs, exe: &Path) -> Result<()> {
     // Before the restart: the new bridge writes the key addon at its start.
     let finish = finish_line(relay_addons(dirs).as_deref());
-    crate::service::restart(dirs, &exe)?;
+    crate::service::restart(dirs, exe)?;
     println!("{finish}");
+    Ok(())
+}
+
+fn wanted(dirs: &Dirs) -> Result<Wanted> {
+    let config = config::load(&dirs.config, &dirs.home)?;
+    let parts = Parts::of(dirs, &config).context("auto_update is off in config.toml")?;
+    Ok(parts.wanted())
+}
+
+/// `update --auto`, which the bridge starts when an addon on disk is newer (SPEC.md 11.3).
+pub fn auto_update(dirs: &Dirs) -> Result<()> {
+    let wanted = wanted(dirs)?;
+    println!("{} auto-update: {wanted:?}", crate::run::now());
+    if let Some(version) = &wanted.relay {
+        return update_desktop_app(dirs, &relay_releases(Some(version)), Pick::AddonVersions);
+    }
+    let Some(version) = &wanted.timeways else {
+        println!("Nothing to update.");
+        return Ok(());
+    };
+    let exe = std::env::current_exe()?;
+    match auto_update_timeways(dirs, version) {
+        Ok(()) => restart_bridge(dirs, &exe),
+        // The latest desktop app knows the new range, and installs Timeways itself.
+        Err(e) if e.is::<NeedsNewerApp>() => {
+            update_desktop_app(dirs, &relay_releases(None), Pick::AddonVersions)
+        }
+        Err(e) => Err(e),
+    }
+}
+
+fn auto_update_timeways(dirs: &Dirs, version: &Version) -> Result<()> {
+    let config = config::load(&dirs.config, &dirs.home)?;
+    let program = timeways_install::installed_story_program(&config)
+        .context("setup didn't install the story program")?;
+    let changed =
+        timeways_install::update(dirs, &timeways_install::Sources::pinned(version), &program)?;
+    if changed.is_empty() {
+        bail!("Timeways {version} installed nothing new");
+    }
+    println!("Updated Timeways: {}", changed.join(", "));
     Ok(())
 }
 

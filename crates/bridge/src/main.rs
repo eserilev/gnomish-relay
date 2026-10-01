@@ -25,7 +25,7 @@ use bridge::setup_command;
 use bridge::slots;
 use bridge::start;
 use bridge::status;
-use bridge::update;
+use bridge::update::{self, Pick};
 use bridge::wsl_launcher;
 use protocol::slot::{Reply, Status};
 
@@ -208,7 +208,11 @@ fn main() -> Result<()> {
         ["status"] => print_status(&Dirs::from_env()?),
         ["report"] => write_report(&Dirs::from_env()?),
         ["update"] => update::self_update(&Dirs::from_env()?),
-        ["update", "--timeways-only"] => update::timeways_only(&Dirs::from_env()?),
+        ["update", "--timeways-only"] => update::timeways_only(&Dirs::from_env()?, Pick::Latest),
+        ["update", "--timeways-only", "--auto"] => {
+            update::timeways_only(&Dirs::from_env()?, Pick::AddonVersions)
+        }
+        ["update", "--auto"] => update::auto_update(&Dirs::from_env()?),
         ["check-agent", name] => {
             check_agent::check_agent(&Dirs::from_env()?, name, &mut std::io::stdout())
         }

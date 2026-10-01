@@ -59,13 +59,23 @@ pub fn target_of<'a>(manifest: &'a Manifest, target: &str) -> Result<&'a Target>
     Ok(entry)
 }
 
+/// Auto-update then installs the latest desktop app first (SPEC.md 11.3).
+#[derive(Debug)]
+pub struct NeedsNewerApp;
+
+impl std::fmt::Display for NeedsNewerApp {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("This Timeways needs a newer desktop app. Run gnomish-relay update first.")
+    }
+}
+
+impl std::error::Error for NeedsNewerApp {}
+
 /// The addon of the release must speak the version range of this desktop app.
 pub fn check_app_version(manifest: &Manifest) -> Result<()> {
     match version_fit(App::Timeways, manifest.app_version) {
         VersionFit::Supported => Ok(()),
-        VersionFit::TooNew => {
-            bail!("This Timeways needs a newer desktop app. Run gnomish-relay update first.")
-        }
+        VersionFit::TooNew => bail!(NeedsNewerApp),
         VersionFit::TooOld => bail!("This Timeways is older than this desktop app supports."),
     }
 }
@@ -214,6 +224,7 @@ mod tests {
             error.to_string().contains("gnomish-relay update"),
             "{error}"
         );
+        assert!(error.is::<NeedsNewerApp>());
         assert!(check_app_version(&manifest(&older)).is_err());
     }
 

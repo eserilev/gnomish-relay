@@ -122,6 +122,14 @@ pub struct Config {
     pub relay: Option<RelayConfig>,
     /// With no `[story]`, Timeways answers each message with a fixed error.
     pub story: Option<StoryConfig>,
+    pub auto_update: AutoUpdate,
+}
+
+/// `auto_update`: the desktop app follows a newer addon on disk (SPEC.md 11.3).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AutoUpdate {
+    On,
+    Off,
 }
 
 impl Config {
@@ -236,6 +244,7 @@ struct File {
     max_parallel_runs: Option<usize>,
     daily_cost_cap_usd: Option<f64>,
     allow_full_auto: Option<bool>,
+    auto_update: Option<bool>,
     wow: Option<Wow>,
     agents: Option<BTreeMap<String, Agent>>,
     allow: Option<AllowFile>,
@@ -677,6 +686,11 @@ pub fn parse_parts(text: &str, home: &Path) -> Result<Parts> {
             wow,
             relay: None,
             story,
+            auto_update: if file.auto_update.unwrap_or(true) {
+                AutoUpdate::On
+            } else {
+                AutoUpdate::Off
+            },
         },
         relay: relay(file, home),
     })
@@ -1379,6 +1393,26 @@ mod tests {
         assert_eq!(full_auto(&with("true")), FullAuto::PerChat);
         assert_eq!(full_auto(&with("false")), FullAuto::Off);
         assert!(home.parse(&with("\"no\"")).is_err());
+    }
+
+    #[test]
+    fn auto_update_is_on_by_default_and_false_turns_it_off() {
+        let home = Home::new();
+        let off = GOOD.replace("default_agent", "auto_update = false\ndefault_agent");
+
+        assert_eq!(home.parse(GOOD).unwrap().auto_update, AutoUpdate::On);
+        assert_eq!(home.parse(&off).unwrap().auto_update, AutoUpdate::Off);
+    }
+
+    #[test]
+    fn auto_update_works_with_no_relay_part() {
+        let home = Home::new();
+
+        let config = home
+            .parse("auto_update = false\n[wow]\npath = \"~/wow\"\n")
+            .unwrap();
+
+        assert_eq!(config.auto_update, AutoUpdate::Off);
     }
 
     #[test]

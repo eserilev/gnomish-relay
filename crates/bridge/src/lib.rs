@@ -15,6 +15,7 @@ pub mod allow_hosts;
 pub mod always_offer;
 pub mod always_rules;
 pub mod app_files;
+pub mod auto_update;
 pub mod calibration;
 pub mod chat_branch;
 pub mod chat_merge;

@@ -14,6 +14,7 @@ use crate::active_folders::ActiveFolders;
 use crate::agent::{
     Agent, Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal,
 };
+use crate::auto_update::{Activity, AutoUpdater};
 use crate::chat_branch;
 use crate::ci_checks::CiChecks;
 use crate::config::{Permission, Policy};
@@ -129,6 +130,8 @@ pub struct Bridge {
     relay: Option<RelayLane>,
     /// Only with a Timeways key. It holds no agents.
     timeways: Option<TimewaysLane>,
+    /// `None` with `auto_update = false` (SPEC.md 11.3).
+    auto_update: Option<AutoUpdater>,
 }
 
 /// What one app keeps on disk, and when it writes it (SPEC.md 9.7, decision 4).
@@ -238,6 +241,7 @@ impl Bridge {
             line: LineFile::new(&paths.state),
             data: paths.state,
             keys,
+            auto_update: None,
         })
     }
 
@@ -337,6 +341,9 @@ impl Bridge {
         }
         if let Some(timeways) = &mut self.timeways {
             timeways.step(&self.keys, &self.addons, &mut self.line);
+        }
+        if let Some(updater) = &mut self.auto_update {
+            updater.tick(activity(self.relay.as_ref()), Instant::now());
         }
     }
 
@@ -1500,6 +1507,14 @@ impl TimewaysLane {
     }
 }
 
+/// A desktop request always waits inside a run, so no run means no open request.
+fn activity(relay: Option<&RelayLane>) -> Activity {
+    match relay {
+        Some(lane) if !lane.stops.is_empty() => Activity::Busy,
+        _ => Activity::Idle,
+    }
+}
+
 /// The folders of the bridge resolve as the classifier sees them (SPEC.md 6.6.3).
 fn repo_walk(policy: &Policy, paths: &Paths) -> Walk {
     let roots = policy.folders.roots.iter();
@@ -1571,6 +1586,7 @@ pub fn run(
     relay: Option<RelayParts>,
     keys: KeySet,
     story: Option<StorySpec>,
+    auto_update: Option<AutoUpdater>,
 ) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
     let mut bridge = match relay {
@@ -1591,6 +1607,7 @@ pub fn run(
     if let Some(spec) = story {
         bridge = bridge.with_story(spec);
     }
+    bridge.auto_update = auto_update;
     loop {
         bridge.step();
         thread::sleep(TICK);

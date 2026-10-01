@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
+use bridge::auto_update::{TIMEWAYS_VERSION_FILE, installed_timeways};
 use bridge::config;
 use bridge::config_text::timeways_config;
 use bridge::dirs::Dirs;
@@ -367,6 +368,29 @@ fn update_installs_new_programs_into_the_folder_of_the_story_program() {
     assert_eq!(changed, ["timeways-story"]);
     assert!(again.is_empty());
     assert_eq!(fs::read_to_string(&program).unwrap(), "#!/bin/sh\necho 2\n");
+}
+
+/// Auto-update compares the Timeways addon with this version (SPEC.md 11.3).
+#[test]
+fn setup_and_update_save_the_installed_timeways_version() {
+    let computer = Computer::new();
+    let release = Release::new("#!/bin/sh\necho 1\n", 1);
+    computer
+        .install(&release, &computer.dump("wowpedia"))
+        .unwrap();
+    let installed = || installed_timeways(&computer.dirs.data).map(|v| v.to_string());
+    assert_eq!(installed().as_deref(), Some("0.1.0"));
+
+    fs::remove_file(computer.dirs.data.join(TIMEWAYS_VERSION_FILE)).unwrap();
+    let config = config::load(&computer.dirs.config, &computer.dirs.home).unwrap();
+    let program = timeways_install::installed_story_program(&config).unwrap();
+    let sources = Sources {
+        release: release.url(),
+        dump: String::new(),
+    };
+    timeways_install::update(&computer.dirs, &sources, &program).unwrap();
+
+    assert_eq!(installed().as_deref(), Some("0.1.0"));
 }
 
 #[test]
