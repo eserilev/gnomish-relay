@@ -86,6 +86,14 @@ fn strip_png(text: &str) -> Vec<u8> {
     screenshot_png(&strip_rows(&frame))
 }
 
+/// On Windows, the first line has the folder of the request, `C:/x`. The later lines
+/// have the real folder, `C:\x`, which the log writes as `C:\\x`.
+fn slashed_folder(line: &str) -> String {
+    let value = line.split(" folder=").nth(1).unwrap();
+    let value = value.split(' ').next().unwrap();
+    value.replace(r"\\", "/")
+}
+
 #[test]
 fn the_log_lines_of_a_message_carry_its_chat_id_agent_and_folder() {
     let root = tempfile::tempdir().unwrap();
@@ -109,11 +117,12 @@ fn the_log_lines_of_a_message_carry_its_chat_id_agent_and_folder() {
     let text = stderr.text();
     assert!(written, "{text}");
     let real = real_path(&std::env::temp_dir()).unwrap();
-    let folder = real.display().to_string().escape_debug().to_string();
-    let fields = format!(" chat=c1 message_id=7 agent=claude permission=auto-edit folder={folder}");
+    let folder = real.display().to_string().replace('\\', "/");
+    let fields = " chat=c1 message_id=7 agent=claude permission=auto-edit folder=";
     for start in ["run c1 #7 ", "done c1 #7", "reply c1 #7 written"] {
         let line = text.lines().find(|l| l.contains(start)).unwrap();
-        assert!(line.contains(&fields), "{line}");
+        assert!(line.contains(fields), "{line}");
+        assert_eq!(slashed_folder(line), folder, "{line}");
     }
     let done = text.lines().find(|l| l.contains("done c1 #7")).unwrap();
     assert!(done.ends_with(" result=reply"), "{done}");

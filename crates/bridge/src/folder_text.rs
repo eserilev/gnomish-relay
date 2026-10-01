@@ -84,7 +84,7 @@ pub fn game_text(base: &[u8], home: Option<&[u8]>, resolved: &[u8]) -> Vec<u8> {
 
 #[cfg(test)]
 mod tests {
-    use crate::folder_path::path_bytes;
+    use crate::action_input::resolved_bytes;
 
     use super::*;
 
@@ -121,7 +121,7 @@ mod tests {
 
     /// The form of the resolver: `/C:/Users/x` on Windows.
     fn resolver_form(path: &Path) -> String {
-        String::from_utf8(path_bytes(path)).unwrap()
+        String::from_utf8(resolved_bytes(path)).unwrap()
     }
 
     #[test]
