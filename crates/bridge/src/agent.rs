@@ -126,6 +126,12 @@ pub enum Event {
         level: Permission,
         raised: Raised,
     },
+    /// The end of a full-auto request of the chat (SPEC.md 9.3). `folder` is the real
+    /// folder of the run.
+    FullAuto {
+        folder: String,
+        raised: Raised,
+    },
     /// The end of a folder request (SPEC.md 9.12). `folder` is the real path.
     Trusted {
         folder: PathBuf,

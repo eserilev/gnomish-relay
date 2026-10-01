@@ -152,7 +152,9 @@ The agent now shows in the agent list of a new chat.
 |---|---|---|
 | `ask` | Asks you first | Asks you first |
 | `auto-edit` (default) | On its own | On its own inside the sandbox. Asks you first for risky commands. |
-| `full-auto` | On its own | On its own, inside the sandbox |
+
+`permission = "full-auto"` works like `auto-edit`. Full-auto is for one chat at a time: see
+[Full-auto for one chat](#full-auto-for-one-chat).
 
 At `auto-edit`, risky commands still ask you first: commands that run other commands
 (`xargs`, `sh`, `python`), network tools (`curl`, `ssh`), `git push`, publishing (`npm publish`),
@@ -160,9 +162,30 @@ At `auto-edit`, risky commands still ask you first: commands that run other comm
 Every command asks when there's no sandbox: on Windows, on Linux without a working `bwrap`, and
 with Codex or other ACP agents (see [How your computer is protected](#how-your-computer-is-protected)).
 
-Some actions always ask on your desktop, whatever the level: for example reading `~/.ssh`,
+Some actions ask on your desktop at `ask` and `auto-edit`: for example reading `~/.ssh`,
 writing outside the chat's folder, or a chat in a new folder. A dialog with **Approve** and
 **Deny** opens. Agents never work in your whole home folder or in a hidden folder.
+
+### Full-auto for one chat
+
+Click the permissions next to the agent name in the chat header, or press **Shift+Tab** in
+the message box, and pick **full-auto**. The header then shows it in orange-red.
+
+The first message at full-auto asks you once on your desktop: "Let claude run anything with
+no question in the chat ...? It stays in the sandbox". After you approve, that chat never
+asks again, even after a restart or `/reload`, until you switch it back or pick another
+folder.
+
+At full-auto the agent runs every command and every edit in the chat's folder without
+asking, also `git push`, `rm -rf`, and `npx`. It still can't write outside the chat's folder,
+read your secrets (`~/.ssh`, `.env` files, tokens), or reach sites that the sandbox doesn't
+allow. Those just fail. A prompt hidden in a file can make the agent push, publish, or change
+files such as `.git/config` that git runs later on your computer. Use full-auto only in
+chats you trust.
+
+Full-auto works with Claude Code on a computer with the sandbox (Linux with `bwrap`, or
+macOS). Other agents run at `auto-edit`. To turn full-auto off for every chat, add
+`allow_full_auto = false` to `config.toml`.
 
 ### Answer a desktop request in a terminal
 
@@ -176,7 +199,7 @@ gnomish-relay deny <id>        # deny one
 
 ### Let trusted commands run without asking
 
-At `auto-edit` and `full-auto`, commands that match a rule run without asking. With Claude
+At `auto-edit`, commands that match a rule run without asking. With Claude
 Code in the sandbox, most commands already run on their own at `auto-edit`, so a rule matters
 mostly for Codex and for scripts such as `./build.sh`.
 

@@ -408,6 +408,7 @@ fn each_tool_call_becomes_a_progress_line_and_the_text_is_the_reply() {
             Event::Question(_)
             | Event::Desktop(_)
             | Event::Raised { .. }
+            | Event::FullAuto { .. }
             | Event::Trusted { .. }
             | Event::Withdrawn
             | Event::CommandOutput(_) => None,

@@ -264,7 +264,7 @@ end
 
 local function RefreshStatus(chat)
 	if chat then
-		ui.agent:SetText(ns.Relay.AgentName(chat.agent) .. " · " .. (chat.level or chat.mode))
+		ui.agent:SetText(ns.Relay.AgentName(chat.agent) .. " · " .. ns.LevelMenu.Text(chat.level or chat.mode))
 		local folder = ns.Relay.Plain(ns.Folders.Display(ns.Folders.Tree(), chat.cwd))
 		if chat.newFolder then
 			folder = folder .. " |cff" .. NEW .. "new|r"
@@ -675,6 +675,9 @@ local function BuildCenter()
 	ui.agent = Label(frame, "GameFontNormal", "TOPLEFT", left, -64)
 	ui.agent:SetWidth(160)
 	ui.agent:SetWordWrap(false)
+	ui.levelButton = ns.LevelMenu.Build(frame, ui.agent, Selected, function()
+		Window.Refresh()
+	end)
 	BuildFolderButton(left + 170)
 	ui.pinned = ns.Pins.Build(frame, left, -61)
 	ui.searchButton = ns.Search.Build(frame, left + 6, 46, ui.pinned)
@@ -742,6 +745,7 @@ local function BuildCenter()
 	-- In Alt arrow mode, OnArrowPressed gets the arrows only with Alt held.
 	ui.input:SetAltArrowKeyMode(false)
 	ui.input:SetScript("OnArrowPressed", RecallMessage)
+	ns.LevelMenu.Bind(ui.input)
 	BuildInputHelp()
 end
 
@@ -1008,7 +1012,8 @@ local function Build()
 	BuildActivity()
 	BuildTabs()
 	BuildPages()
-	ui.chatParts = { ui.agent, ui.folderButton, ui.pinned, ui.searchButton, ui.activity[1], ui.activity[2] }
+	ui.chatParts =
+		{ ui.agent, ui.levelButton, ui.folderButton, ui.pinned, ui.searchButton, ui.activity[1], ui.activity[2] }
 	frame:Hide()
 end
 

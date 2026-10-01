@@ -66,6 +66,7 @@ const RELAY_FILES: &[&str] = &[
     "SettingsTab.lua",
     "DiagTab.lua",
     "InputHistory.lua",
+    "LevelMenu.lua",
     "Window.lua",
     "Popup.lua",
     "NoticeFrames.lua",

@@ -102,6 +102,11 @@ return {
 				{ Name = "isMac", Type = "bool", Nilable = false },
 			},
 		},
+		IsShiftKeyDown = {
+			Returns = {
+				{ Name = "down", Type = "bool", Nilable = false },
+			},
+		},
 		Screenshot = {},
 	},
 	methods = {

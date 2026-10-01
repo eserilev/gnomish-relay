@@ -17,6 +17,7 @@ use bridge::config::{Permission, Policy};
 use bridge::daily_usage;
 use bridge::desktop::{Approvals, Prompt, Verdict};
 use bridge::folder_path::{path_bytes, real_path};
+use bridge::full_auto::FullAutoAsker;
 use bridge::gate::Gate;
 use bridge::ids::hex;
 use bridge::line_choice::{self, LineChoice};
@@ -889,6 +890,31 @@ fn a_denied_raise_keeps_the_config_and_the_run_goes_on_at_its_level() {
 }
 
 #[test]
+fn a_chat_at_full_auto_raises_the_config_to_auto_edit_only() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let (mut bridge, config) = raising_bridge(&f, &approvals);
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_raises(&approvals, Verdict::Approve, stop.clone());
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        chat_strip("c1", 7, "level=full-auto", "edit it"),
+    )
+    .unwrap();
+
+    let done = step_until(&mut bridge, || slot_body(&f.addons).contains("ran at"));
+    stop.store(true, Ordering::SeqCst);
+    assert!(done);
+    assert_eq!(answering.join().unwrap(), 1);
+    assert!(slot_body(&f.addons).contains("ran at auto-edit"));
+    assert!(
+        fs::read_to_string(config)
+            .unwrap()
+            .contains("permission = \"auto-edit\"")
+    );
+}
+
+#[test]
 fn two_chats_that_ask_for_more_at_once_get_one_dialog() {
     let f = folders();
     let approvals = Approvals::new(&f.state, Prompt::Off);
@@ -912,6 +938,215 @@ fn two_chats_that_ask_for_more_at_once_get_one_dialog() {
     stop.store(true, Ordering::SeqCst);
     assert!(done, "{}", slot_body(&f.addons));
     assert_eq!(answering.join().unwrap(), 1);
+}
+
+/// An agent that answers with the message and the level of its run.
+struct SaysLevel;
+
+impl Agent for SaysLevel {
+    fn run(&self, job: &Job, _control: &Control) -> Run {
+        Run {
+            reply: Ok(format!("{} ran at {}", job.text, job.permission.word())),
+            session: None,
+            usage: None,
+        }
+    }
+}
+
+/// A bridge with claude at `auto-edit` in the config. `walls` lists the agents whose
+/// walls hold. With `None`, `allow_full_auto = false`.
+fn full_auto_bridge(f: &Dirs, approvals: &Approvals, walls: Option<&[&str]>) -> Bridge {
+    let bridge = bridge_in(f, policy(), Arc::new(SaysLevel));
+    let Some(walls) = walls else {
+        return bridge;
+    };
+    bridge.with_full_auto(FullAutoAsker {
+        approvals: approvals.clone(),
+        permission_timeout: Duration::from_secs(20),
+        agents: walls.iter().map(|a| (*a).to_owned()).collect(),
+    })
+}
+
+fn chat_strip_in(cwd: &str, id: u32, flags: &str, text: &str) -> Vec<u8> {
+    let payload = format!("tok\x1fc1\x1f{id}\x1f{cwd}\x1f{flags}\x1fFix tests\x1f{text}");
+    screenshot_png(&strip_rows(&signed_frame(now(), payload.as_bytes(), KEY)))
+}
+
+/// Sends one message of the chat `c1` and steps until its reply comes.
+fn send_and_wait(bridge: &mut Bridge, f: &Dirs, cwd: &str, id: u32, flags: &str) -> String {
+    let text = format!("message {id}");
+    fs::write(
+        f.screenshots.join(format!("WoWScrnShot_{id}.png")),
+        chat_strip_in(cwd, id, flags, &text),
+    )
+    .unwrap();
+    let answered = step_until(bridge, || slot_body(&f.addons).contains(&text));
+    assert!(answered, "{}", slot_body(&f.addons));
+    let body = slot_body(&f.addons);
+    let at = body.find(&format!("{text} ran at ")).unwrap();
+    body[at..].split(['"', '\\']).next().unwrap().to_owned()
+}
+
+/// Answers every desktop request with `verdict` and keeps the text of each one.
+fn answer_requests(
+    approvals: &Approvals,
+    verdict: Verdict,
+    stop: Arc<AtomicBool>,
+) -> std::thread::JoinHandle<Vec<String>> {
+    let approvals = approvals.clone();
+    std::thread::spawn(move || {
+        let mut seen = std::collections::BTreeMap::new();
+        while !stop.load(Ordering::SeqCst) {
+            for open in approvals.list() {
+                if !seen.contains_key(&open.id) {
+                    let _ = approvals.answer(&open.id, verdict);
+                    seen.insert(open.id.clone(), open.text.clone());
+                }
+            }
+            std::thread::sleep(Duration::from_millis(10));
+        }
+        seen.into_values().collect()
+    })
+}
+
+#[test]
+fn the_first_switch_to_full_auto_asks_once_on_the_desktop_and_the_next_message_does_not() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut bridge = full_auto_bridge(&f, &approvals, Some(&["claude"]));
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_requests(&approvals, Verdict::Approve, stop.clone());
+
+    let first = send_and_wait(&mut bridge, &f, "", 7, "level=full-auto");
+    let second = send_and_wait(&mut bridge, &f, "", 8, "level=full-auto");
+
+    stop.store(true, Ordering::SeqCst);
+    let asked = answering.join().unwrap();
+    assert_eq!(first, "message 7 ran at full-auto");
+    assert_eq!(second, "message 8 ran at full-auto");
+    assert_eq!(asked.len(), 1, "{asked:?}");
+    assert!(
+        asked[0].starts_with("Let claude run anything with no question in the chat \"Fix tests\""),
+        "{}",
+        asked[0]
+    );
+    assert!(asked[0].contains("It stays in the sandbox"), "{}", asked[0]);
+}
+
+#[test]
+fn a_denied_full_auto_runs_the_chat_at_auto_edit() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut bridge = full_auto_bridge(&f, &approvals, Some(&["claude"]));
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_requests(&approvals, Verdict::Deny, stop.clone());
+
+    let first = send_and_wait(&mut bridge, &f, "", 7, "level=full-auto");
+    let second = send_and_wait(&mut bridge, &f, "", 8, "level=full-auto");
+
+    stop.store(true, Ordering::SeqCst);
+    assert_eq!(first, "message 7 ran at auto-edit");
+    assert_eq!(second, "message 8 ran at auto-edit");
+    assert_eq!(
+        answering.join().unwrap().len(),
+        1,
+        "a deny ends the dialogs of the chat"
+    );
+}
+
+#[test]
+fn a_full_auto_approval_survives_a_restart_of_the_bridge() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_requests(&approvals, Verdict::Approve, stop.clone());
+    let mut first = full_auto_bridge(&f, &approvals, Some(&["claude"]));
+    send_and_wait(&mut first, &f, "", 7, "level=full-auto");
+    // The approval reaches `state.json` with the next publish.
+    step_until(&mut first, || {
+        fs::read_to_string(f.state.join("state.json")).is_ok_and(|s| s.contains("full_auto"))
+    });
+    drop(first);
+
+    let mut restarted = full_auto_bridge(&f, &approvals, Some(&["claude"]));
+    let again = send_and_wait(&mut restarted, &f, "", 8, "level=full-auto");
+
+    stop.store(true, Ordering::SeqCst);
+    assert_eq!(again, "message 8 ran at full-auto");
+    assert_eq!(answering.join().unwrap().len(), 1);
+}
+
+#[test]
+fn a_new_folder_asks_for_full_auto_again() {
+    let f = folders();
+    let other = f.state.parent().unwrap().join("other");
+    fs::create_dir_all(&other).unwrap();
+    let other = other.canonicalize().unwrap().to_string_lossy().into_owned();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut bridge = full_auto_bridge(&f, &approvals, Some(&["claude"]));
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_requests(&approvals, Verdict::Approve, stop.clone());
+
+    send_and_wait(&mut bridge, &f, "", 7, "level=full-auto");
+    let moved = send_and_wait(&mut bridge, &f, &other, 8, "level=full-auto");
+
+    stop.store(true, Ordering::SeqCst);
+    let asked = answering.join().unwrap();
+    assert_eq!(moved, "message 8 ran at full-auto");
+    assert_eq!(asked.len(), 2, "{asked:?}");
+    assert!(asked.iter().any(|text| text.contains(&other)), "{asked:?}");
+}
+
+#[test]
+fn a_lower_level_forgets_the_full_auto_approval() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut bridge = full_auto_bridge(&f, &approvals, Some(&["claude"]));
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_requests(&approvals, Verdict::Approve, stop.clone());
+
+    send_and_wait(&mut bridge, &f, "", 7, "level=full-auto");
+    let down = send_and_wait(&mut bridge, &f, "", 8, "level=auto-edit");
+    let up = send_and_wait(&mut bridge, &f, "", 9, "level=full-auto");
+
+    stop.store(true, Ordering::SeqCst);
+    assert_eq!(down, "message 8 ran at auto-edit");
+    assert_eq!(up, "message 9 ran at full-auto");
+    assert_eq!(
+        answering.join().unwrap().len(),
+        2,
+        "the switch up asks again"
+    );
+}
+
+#[test]
+fn with_allow_full_auto_off_a_chat_at_full_auto_runs_at_auto_edit_with_no_dialog() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut bridge = full_auto_bridge(&f, &approvals, None);
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_requests(&approvals, Verdict::Approve, stop.clone());
+
+    let reply = send_and_wait(&mut bridge, &f, "", 7, "level=full-auto");
+
+    stop.store(true, Ordering::SeqCst);
+    assert_eq!(reply, "message 7 ran at auto-edit");
+    assert!(answering.join().unwrap().is_empty());
+}
+
+#[test]
+fn an_agent_whose_wall_leaks_gets_no_full_auto_dialog() {
+    let f = folders();
+    let approvals = Approvals::new(&f.state, Prompt::Off);
+    let mut bridge = full_auto_bridge(&f, &approvals, Some(&[]));
+    let stop = Arc::new(AtomicBool::new(false));
+    let answering = answer_requests(&approvals, Verdict::Approve, stop.clone());
+
+    let reply = send_and_wait(&mut bridge, &f, "", 7, "level=full-auto");
+
+    stop.store(true, Ordering::SeqCst);
+    assert_eq!(reply, "message 7 ran at auto-edit");
+    assert!(answering.join().unwrap().is_empty());
 }
 
 /// A bridge whose root and default folder is the temp folder of `f`.

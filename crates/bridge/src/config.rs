@@ -62,7 +62,10 @@ impl Permission {
                 "Agents edit files and run commands in the sandbox on their own, and ask you \
                  before anything risky."
             }
-            Permission::FullAuto => "Agents edit files and run commands on their own.",
+            Permission::FullAuto => {
+                "Same as auto-edit. To let a chat run anything without asking, pick \
+                 full-auto for that chat in the game."
+            }
         }
     }
 
@@ -82,16 +85,26 @@ impl Permission {
         }
     }
 
-    /// The game can lower the level of the config, never raise it (S6).
+    /// The game can lower the level of the config, never raise it (S6). The config gives
+    /// at most `auto-edit`: only a desktop Approve for one chat gives full-auto (SPEC.md 9.3).
     #[must_use]
     pub fn ceiling(self, requested: Option<Permission>) -> Permission {
+        let config = self.min(Permission::AutoEdit);
         match requested {
             Some(requested) => {
-                Permission::from_level(effective_level(self.level(), requested.level()))
+                Permission::from_level(effective_level(config.level(), requested.level()))
             }
-            None => self,
+            None => config,
         }
     }
+}
+
+/// Whether a chat can run at full-auto after one desktop Approve (SPEC.md 9.3).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum FullAuto {
+    #[default]
+    PerChat,
+    Off,
 }
 
 /// What a message from the game can reach.
@@ -133,6 +146,8 @@ pub struct RelayConfig {
     pub max_parallel_runs: usize,
     /// At this cost in a UTC day, no new run starts (SPEC.md 9.10).
     pub daily_cost_cap_usd: Option<f64>,
+    /// `allow_full_auto`: whether a chat can switch to full-auto (SPEC.md 9.3).
+    pub full_auto: FullAuto,
     /// Commands that run from the game with no question (SPEC.md 12).
     pub allow: AllowTable,
     /// The hosts that commands reach through the proxy of the sandbox (SPEC.md 6.6.4).
@@ -220,6 +235,7 @@ struct File {
     permission_timeout_minutes: Option<u64>,
     max_parallel_runs: Option<usize>,
     daily_cost_cap_usd: Option<f64>,
+    allow_full_auto: Option<bool>,
     wow: Option<Wow>,
     agents: Option<BTreeMap<String, Agent>>,
     allow: Option<AllowFile>,
@@ -671,6 +687,7 @@ fn no_relay_keys(file: &File) -> Result<()> {
         ),
         ("max_parallel_runs", file.max_parallel_runs.is_some()),
         ("daily_cost_cap_usd", file.daily_cost_cap_usd.is_some()),
+        ("allow_full_auto", file.allow_full_auto.is_some()),
         ("[agents]", file.agents.is_some()),
         ("[allow]", file.allow.is_some()),
         ("[sandbox]", file.sandbox.is_some()),
@@ -788,6 +805,11 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         permission_timeout,
         max_parallel_runs,
         daily_cost_cap_usd,
+        full_auto: if file.allow_full_auto.unwrap_or(true) {
+            FullAuto::PerChat
+        } else {
+            FullAuto::Off
+        },
         allow,
         hosts,
         local_ports,
@@ -1337,6 +1359,35 @@ mod tests {
     }
 
     #[test]
+    fn full_auto_is_allowed_per_chat_by_default_and_allow_full_auto_false_turns_it_off() {
+        let home = Home::new();
+        let with = |value: &str| {
+            GOOD.replace(
+                "default_agent",
+                &format!("allow_full_auto = {value}\ndefault_agent"),
+            )
+        };
+        let full_auto = |text: &str| home.parse(text).unwrap().relay.unwrap().full_auto;
+
+        assert_eq!(full_auto(GOOD), FullAuto::PerChat);
+        assert_eq!(full_auto(&with("true")), FullAuto::PerChat);
+        assert_eq!(full_auto(&with("false")), FullAuto::Off);
+        assert!(home.parse(&with("\"no\"")).is_err());
+    }
+
+    #[test]
+    fn allow_full_auto_needs_allowed_roots() {
+        let home = Home::new();
+
+        let error = home
+            .parse("allow_full_auto = false\n[wow]\npath = \"~/wow\"\n")
+            .err()
+            .unwrap();
+
+        assert_eq!(error.to_string(), "allow_full_auto needs allowed_roots");
+    }
+
+    #[test]
     fn daily_cost_cap_usd_needs_allowed_roots() {
         let home = Home::new();
 
@@ -1715,6 +1766,15 @@ mod tests {
         assert_eq!(edit.ceiling(Some(ask)), ask);
         assert_eq!(edit.ceiling(None), edit);
         assert_eq!(Permission::from_game("root"), ask);
+    }
+
+    #[test]
+    fn full_auto_in_the_config_counts_as_auto_edit() {
+        let full = Permission::FullAuto;
+
+        assert_eq!(full.ceiling(Some(full)), Permission::AutoEdit);
+        assert_eq!(full.ceiling(None), Permission::AutoEdit);
+        assert_eq!(full.ceiling(Some(Permission::Ask)), Permission::Ask);
     }
 
     #[cfg(unix)]

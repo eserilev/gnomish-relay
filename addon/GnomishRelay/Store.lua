@@ -10,8 +10,10 @@ local HISTORY_LIMIT = 200
 local DEFAULT_AGENT = "claude"
 local DEFAULT_MODE = "auto-edit"
 local DEFAULT_FONT_SIZE = 14
--- The Level dropdown offers only these. The config of the bridge caps each (S6).
-local NEW_LEVELS = { ask = true, ["auto-edit"] = true }
+-- The Permissions dropdown offers these. The bridge decides what each chat gets (SPEC.md 9.3).
+local NEW_LEVELS = { ask = true, ["auto-edit"] = true, ["full-auto"] = true }
+-- The order of Shift+Tab, as in Claude Code.
+local MODES = { "ask", "auto-edit", "full-auto" }
 
 function Store.Load()
 	local db = ns.Messages.Db()
@@ -56,6 +58,29 @@ end
 -- The level that a new chat asks for.
 function Store.NewLevel()
 	return NEW_LEVELS[Store.db.newLevel] and Store.db.newLevel or DEFAULT_MODE
+end
+
+-- The next message goes at this mode. The header shows it at once, until a run of the
+-- bridge says which level applied.
+function Store.SetMode(chat, mode)
+	if not NEW_LEVELS[mode] then
+		return
+	end
+	chat.mode = mode
+	chat.level = nil
+end
+
+function Store.NextMode(mode)
+	for i, known in ipairs(MODES) do
+		if known == mode then
+			return MODES[i % #MODES + 1]
+		end
+	end
+	return MODES[1]
+end
+
+function Store.Modes()
+	return MODES
 end
 
 function Store.NewChat(agent)

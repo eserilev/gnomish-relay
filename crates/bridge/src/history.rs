@@ -70,6 +70,12 @@ impl History {
         self.take(chat);
     }
 
+    /// The name that the game gave the chat in its last message.
+    pub fn name_of(&self, chat: &ChatId) -> Option<&str> {
+        let log = self.chats.iter().find(|c| &c.chat == chat)?;
+        Some(&log.name)
+    }
+
     fn take(&mut self, chat: &ChatId) -> Option<ChatLog> {
         let at = self.chats.iter().position(|c| &c.chat == chat)?;
         Some(self.chats.remove(at))

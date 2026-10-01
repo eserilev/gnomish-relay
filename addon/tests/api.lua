@@ -25,6 +25,7 @@ return {
 		"GetTime",
 		"InCombatLockdown",
 		"IsMacClient",
+		"IsShiftKeyDown",
 		"Minimap",
 		"PlaySound",
 		"ReloadUI",

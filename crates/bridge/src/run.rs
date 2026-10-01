@@ -17,6 +17,7 @@ use crate::chat_branch;
 use crate::ci_checks::CiChecks;
 use crate::config::{Permission, Policy};
 use crate::folder_path::real_path;
+use crate::full_auto::{self, FullAutoAsker};
 use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
@@ -167,6 +168,9 @@ struct RelayLane {
     results: Receiver<Finished>,
     /// With no raiser, a chat never raises the level of the config (SPEC.md 9.3).
     raiser: Option<Raiser>,
+    /// With none, no chat runs at full-auto (SPEC.md 9.3, `allow_full_auto`).
+    full_auto: Option<FullAutoAsker>,
+    /// The raises and the full-auto requests: one dialog at a time.
     raises: RaiseGuard,
     /// With no truster, a folder under no root never runs (SPEC.md 9.12).
     truster: Option<Truster>,
@@ -232,6 +236,15 @@ impl Bridge {
     pub fn with_raises(mut self, raiser: Raiser) -> Bridge {
         if let Some(relay) = &mut self.relay {
             relay.raiser = Some(raiser);
+        }
+        self
+    }
+
+    /// A chat at full-auto then runs with no question after one desktop Approve.
+    #[must_use]
+    pub fn with_full_auto(mut self, asker: FullAutoAsker) -> Bridge {
+        if let Some(relay) = &mut self.relay {
+            relay.full_auto = Some(asker);
         }
         self
     }
@@ -516,6 +529,7 @@ impl RelayLane {
             finished,
             results,
             raiser: None,
+            full_auto: None,
             raises: RaiseGuard::default(),
             truster: None,
             trusts: TrustGuard::default(),
@@ -722,6 +736,11 @@ impl RelayLane {
     }
 
     fn start_run(&mut self, job: Job) {
+        // A message saved by an older bridge can hold full-auto from the config.
+        let job = Job {
+            permission: job.permission.min(Permission::AutoEdit),
+            ..job
+        };
         log(&format!(
             "run {} #{} with {} at {:?}",
             job.chat, job.id.0, job.agent, job.permission
@@ -768,10 +787,18 @@ impl RelayLane {
             }
         };
         // One message never shows two dialogs (SPEC.md 9.12).
-        let raise = if trust.is_some() {
-            None
+        let full_auto = if trust.is_some() {
+            FullAutoStep::Off
         } else {
-            self.raise_for(&job)
+            self.full_auto_for(&job)
+        };
+        let job = match full_auto {
+            FullAutoStep::Approved => self.at_full_auto(job),
+            FullAutoStep::Off | FullAutoStep::Ask(..) => job,
+        };
+        let raise = match full_auto {
+            FullAutoStep::Off if trust.is_none() => self.raise_for(&job),
+            _ => None,
         };
         let finished = self.finished.clone();
         let plan = self.relay.branch_plan(&job.chat);
@@ -788,6 +815,9 @@ impl RelayLane {
             }
             if let Some((raiser, level)) = raise {
                 job.permission = raise_level(&raiser, &job, level, &control);
+            }
+            if let FullAutoStep::Ask(asker, name) = full_auto {
+                job.permission = ask_full_auto(&asker, &job, &name, &control);
             }
             let (run, end) = run_with_git(agent.as_ref(), &mut job, &control, git.as_ref(), plan);
             let _ = finished.send(Finished::Run(job, run, Box::new(end)));
@@ -857,18 +887,52 @@ impl RelayLane {
         make_folder(&self.walk, Path::new(&job.cwd)).map_err(|e| e.text())
     }
 
+    /// Whether a chat at full-auto runs so at once, waits for the desktop, or does not
+    /// get it (SPEC.md 9.3, "Full-auto for one chat").
+    fn full_auto_for(&mut self, job: &Job) -> FullAutoStep {
+        let Some(asker) = &self.full_auto else {
+            return FullAutoStep::Off;
+        };
+        let wants = job.work == Work::Prompt && job.asked == Permission::FullAuto;
+        // `ask` in the config keeps every chat at `ask`.
+        let config_allows = job.permission == Permission::AutoEdit;
+        if !wants || !config_allows || !asker.walls_hold(&job.agent) {
+            return FullAutoStep::Off;
+        }
+        if self.relay.full_auto_holds(&job.chat, &job.cwd) {
+            return FullAutoStep::Approved;
+        }
+        let key = full_auto::guard_key(&job.chat);
+        if !self.raises.may_ask(&key, Instant::now()) {
+            log(&format!("full-auto {}: no dialog now", job.chat));
+            return FullAutoStep::Off;
+        }
+        self.raises.asked();
+        FullAutoStep::Ask(asker.clone(), self.relay.chat_name(&job.chat))
+    }
+
+    fn at_full_auto(&mut self, job: Job) -> Job {
+        log(&format!("{} #{}: full-auto", job.chat, job.id.0));
+        let full = Permission::FullAuto;
+        self.relay.show_level(&job.chat, job.id, full, full);
+        Job {
+            permission: full,
+            ..job
+        }
+    }
+
     /// The raise that a job carries, if any. The config is checked first, so the
     /// user never approves a change that the bridge cannot write.
     fn raise_for(&mut self, job: &Job) -> Option<(Raiser, Permission)> {
         let raiser = self.raiser.as_ref()?;
-        if job.work != Work::Prompt || job.permission >= job.asked {
+        if job.work != Work::Prompt || !job.lowered_by_config() {
             return None;
         }
         if !self.raises.may_ask(&job.agent, Instant::now()) {
             log(&format!("raise {}: no dialog now", job.agent));
             return None;
         }
-        if let Err(e) = raiser.can_raise(&job.agent, job.asked) {
+        if let Err(e) = raiser.can_raise(&job.agent, job.asked_of_config()) {
             log(&format!(
                 "raise {}: config.toml cannot change: {e:#}",
                 job.agent
@@ -878,7 +942,7 @@ impl RelayLane {
             return None;
         }
         self.raises.asked();
-        Some((raiser.clone(), job.asked))
+        Some((raiser.clone(), job.asked_of_config()))
     }
 
     fn start_list(&self, job: Job) {
@@ -975,6 +1039,15 @@ impl RelayLane {
                         log(&format!("new root: {}", folder.display()));
                         self.relay.add_root(&folder);
                         self.settings.add_root(&folder);
+                    }
+                }
+                Event::FullAuto { folder, raised } => {
+                    let key = full_auto::guard_key(&chat);
+                    self.raises.answered(&key, raised, Instant::now());
+                    if raised == Raised::Approved {
+                        self.relay.approve_full_auto(&chat, &folder);
+                        let full = Permission::FullAuto;
+                        self.relay.show_level(&chat, id, full, full);
                     }
                 }
                 Event::Raised {
@@ -1144,6 +1217,29 @@ fn trust_folder(
     }
     job.cwd = real_chat_folder(walk, folder)?;
     Ok(())
+}
+
+/// A full-auto request of a run, in the thread of the run.
+enum FullAutoStep {
+    Off,
+    /// The user approved this chat in this folder before.
+    Approved,
+    /// The first switch: a desktop request with the name of the chat.
+    Ask(FullAutoAsker, String),
+}
+
+/// Runs in the thread of the run. Returns the level of the run after the answer.
+fn ask_full_auto(asker: &FullAutoAsker, job: &Job, name: &str, control: &Control) -> Permission {
+    let raised = asker.ask(job, name, control);
+    control.events.send(Event::FullAuto {
+        folder: job.cwd.clone(),
+        raised,
+    });
+    if raised == Raised::Approved {
+        Permission::FullAuto
+    } else {
+        job.permission
+    }
 }
 
 /// Runs in the thread of the run. Returns the level of the run after the raise.
@@ -1397,6 +1493,8 @@ pub struct RelayParts {
     pub policy: Policy,
     pub agents: Agents,
     pub raiser: Raiser,
+    /// `None` with `allow_full_auto = false`.
+    pub full_auto: Option<FullAutoAsker>,
     pub truster: Truster,
     pub settings: BridgeSettings,
     pub max_parallel_runs: usize,
@@ -1412,12 +1510,18 @@ pub fn run(
 ) -> Result<()> {
     log(&format!("watching {}", paths.screenshots.display()));
     let mut bridge = match relay {
-        Some(parts) => Bridge::new(paths, parts.policy, keys, parts.agents)?
-            .with_raises(parts.raiser)
-            .with_trust(parts.truster)
-            .with_settings(parts.settings)
-            .with_max_runs(parts.max_parallel_runs)
-            .with_cost_cap(parts.daily_cost_cap_usd),
+        Some(parts) => {
+            let bridge = Bridge::new(paths, parts.policy, keys, parts.agents)?
+                .with_raises(parts.raiser)
+                .with_trust(parts.truster)
+                .with_settings(parts.settings)
+                .with_max_runs(parts.max_parallel_runs)
+                .with_cost_cap(parts.daily_cost_cap_usd);
+            match parts.full_auto {
+                Some(asker) => bridge.with_full_auto(asker),
+                None => bridge,
+            }
+        }
         None => Bridge::without_relay(paths, keys)?,
     };
     if let Some(spec) = story {

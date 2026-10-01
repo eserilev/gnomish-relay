@@ -5,11 +5,12 @@ use anyhow::Result;
 
 use crate::agent;
 use crate::app_files::private_game_paths;
-use crate::config::{self, RelayConfig, StoryConfig};
+use crate::config::{self, FullAuto, RelayConfig, StoryConfig};
 use crate::desktop::Prompt;
 use crate::dirs::Dirs;
 use crate::folder_path::real_path;
 use crate::fs_safe::make_private_dir;
+use crate::full_auto::FullAutoAsker;
 use crate::game_choice::NO_WOW;
 use crate::gate::{Gate, Places};
 use crate::hooks_install::files_for_bridge;
@@ -95,6 +96,7 @@ pub fn start_relay(
             .map(|(name, _)| name.clone())
             .collect(),
     };
+    let full_auto = full_auto_asker(&relay, &gate);
     let truster = Truster {
         approvals: gate.approvals.clone(),
         config_dir: dirs.config.clone(),
@@ -110,10 +112,34 @@ pub fn start_relay(
         policy: relay.policy,
         agents,
         raiser,
+        full_auto,
         truster,
         settings,
         max_parallel_runs: relay.max_parallel_runs,
         daily_cost_cap_usd: relay.daily_cost_cap_usd,
+    })
+}
+
+/// Full-auto keeps "It stays in the sandbox" only for Claude with a command sandbox
+/// (SPEC.md 9.3). `allow_full_auto = false` gives no asker at all.
+fn full_auto_asker(relay: &RelayConfig, gate: &Gate) -> Option<FullAutoAsker> {
+    if relay.full_auto == FullAuto::Off {
+        return None;
+    }
+    let agents = if gate.sandbox.is_on() {
+        relay
+            .agents
+            .iter()
+            .filter(|(_, spec)| spec.kind == config::Kind::Claude)
+            .map(|(name, _)| name.clone())
+            .collect()
+    } else {
+        Vec::new()
+    };
+    Some(FullAutoAsker {
+        approvals: gate.approvals.clone(),
+        permission_timeout: relay.permission_timeout,
+        agents,
     })
 }
 
@@ -170,5 +196,19 @@ mod tests {
         assert_eq!(parts.policy.default_agent, "echo");
         assert!(parts.raiser.free_commands.is_empty());
         assert_eq!(parts.max_parallel_runs, 3);
+        let full_auto = parts.full_auto.unwrap();
+        assert!(full_auto.agents.is_empty(), "echo has no command sandbox");
+    }
+
+    #[test]
+    fn allow_full_auto_false_gives_no_full_auto_at_all() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("Code")).unwrap();
+        let text = CONFIG.replace("default_agent", "allow_full_auto = false\ndefault_agent");
+        let config = setup::write_config(&home.path().join("config"), &text, home.path()).unwrap();
+        let relay = config.relay.unwrap();
+        let gate = Gate::bare(Vec::new(), home.path().join("c"), home.path().join("d"));
+
+        assert!(full_auto_asker(&relay, &gate).is_none());
     }
 }

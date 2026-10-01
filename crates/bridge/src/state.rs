@@ -11,6 +11,7 @@ use serde::{Deserialize, Serialize};
 use crate::accounts::Accounts;
 use crate::chat_branch::ChatWorktree;
 use crate::fs_safe::write_private;
+use crate::full_auto::FullAutoChats;
 use crate::history::History;
 use crate::lane::{ChatId, LaneState};
 pub use crate::lane::{SavedRecord, SavedStatus};
@@ -48,6 +49,9 @@ pub struct State {
     /// The last runs with a change summary, for Commit and Revert.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub changes: Vec<RunChanges>,
+    /// The chats that the user approved for full-auto on the desktop (SPEC.md 9.3).
+    #[serde(skip_serializing_if = "FullAutoChats::is_empty")]
+    pub full_auto: FullAutoChats,
 }
 
 /// `None` when there is no state yet. A damaged file is an error, not a fresh start:

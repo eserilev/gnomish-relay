@@ -33,6 +33,7 @@ RulesGroup.lua
 SettingsTab.lua
 DiagTab.lua
 InputHistory.lua
+LevelMenu.lua
 Window.lua
 Popup.lua
 NoticeFrames.lua

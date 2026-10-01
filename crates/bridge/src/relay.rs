@@ -27,6 +27,7 @@ use crate::folder_list::folder_reply;
 use crate::folder_path::{folder_request, native_folder, path_bytes, relative_folder};
 use crate::folder_trust::{Untrusted, check_text};
 use crate::folder_walk::Snapshot;
+use crate::full_auto::FullAutoChats;
 use crate::git_actions::{Effect, GitAction};
 use crate::git_blocks::{
     RunBlocks, blocks, error_with_blocks, plain_error, with_blocks, without_blocks,
@@ -185,6 +186,16 @@ impl Job {
     pub fn resume_id(&self) -> Option<&str> {
         self.resume.as_ref().map(SessionId::as_str)
     }
+
+    /// The most that the config can give the chat. Only a desktop Approve for the chat
+    /// gives full-auto (SPEC.md 9.3).
+    pub fn asked_of_config(&self) -> Permission {
+        self.asked.min(Permission::AutoEdit)
+    }
+
+    pub fn lowered_by_config(&self) -> bool {
+        self.permission < self.asked_of_config()
+    }
 }
 
 #[derive(Debug, PartialEq, Eq)]
@@ -244,6 +255,8 @@ pub struct Relay {
     cleanups: Vec<ChatWorktree>,
     /// The last runs with a change summary.
     changes: Vec<RunChanges>,
+    /// The chats that the user approved for full-auto on the desktop (SPEC.md 9.3).
+    full_auto: FullAutoChats,
     /// In the form of the resolver. With it, a folder in the home folder under no root
     /// runs after a click on the desktop (SPEC.md 9.12).
     home: Option<Vec<u8>>,
@@ -345,6 +358,7 @@ impl Relay {
             worktrees: Vec::new(),
             cleanups: Vec::new(),
             changes: Vec::new(),
+            full_auto: FullAutoChats::default(),
             home: None,
         }
     }
@@ -550,6 +564,13 @@ impl Relay {
         chat: &ChatId,
         flags: flags::CodingFlags,
     ) -> Result<Job, Outcome> {
+        // Switching down never asks, and the next switch up asks again (SPEC.md 9.3).
+        if flags
+            .level
+            .is_some_and(|level| level != Permission::FullAuto)
+        {
+            self.full_auto.forget(chat);
+        }
         let agent = flags
             .agent
             .unwrap_or_else(|| self.policy.default_agent.clone());
@@ -792,6 +813,7 @@ impl Relay {
         self.sessions.retain(|s| s.chat != chat);
         self.history.remove(&chat);
         self.own_branch.remove(&chat);
+        self.full_auto.forget(&chat);
         self.changes.retain(|c| c.chat != chat);
         // A run in progress still works in the worktree, so its end hands it over.
         if !self.running.contains(&chat) {
@@ -920,7 +942,7 @@ impl Relay {
     /// The first progress line of a run says its level, so the game shows the level
     /// that applies, not the one that the chat asked for (SPEC.md 9.3).
     pub fn begin(&mut self, job: &Job) {
-        self.show_level(&job.chat, job.id, job.permission, job.asked);
+        self.show_level(&job.chat, job.id, job.permission, job.asked_of_config());
     }
 
     pub fn show_level(
@@ -932,6 +954,22 @@ impl Relay {
     ) {
         let line = activity::level_line(level, asked);
         self.activity.begin(chat, id, line);
+    }
+
+    /// The chat ran in `folder` at full-auto after an Approve on the desktop.
+    pub fn full_auto_holds(&self, chat: &ChatId, folder: &str) -> bool {
+        self.full_auto.holds(chat, folder)
+    }
+
+    pub fn approve_full_auto(&mut self, chat: &ChatId, folder: &str) {
+        self.full_auto.approve(chat, folder);
+    }
+
+    /// The name of the chat for a desktop dialog, or its id when the history lost it.
+    pub fn chat_name(&self, chat: &ChatId) -> String {
+        self.history
+            .name_of(chat)
+            .map_or_else(|| chat.to_string(), str::to_owned)
     }
 
     /// The level of the config for `agent`, after a raise on the desktop wrote it.
@@ -1254,6 +1292,7 @@ impl Relay {
             own_branch: self.own_branch.clone().into_iter().collect(),
             worktrees: self.worktrees.clone(),
             changes: self.changes.clone(),
+            full_auto: self.full_auto.clone(),
         }
     }
 
@@ -1280,6 +1319,7 @@ impl Relay {
         relay.own_branch = state.own_branch.into_iter().collect();
         relay.worktrees = state.worktrees;
         relay.changes = state.changes;
+        relay.full_auto = state.full_auto;
         for job in state.waiting {
             let queue = relay
                 .queues
@@ -1323,7 +1363,7 @@ impl Relay {
 
 /// The addon cannot tell this note from agent text, so it is for the player only.
 fn with_level_note(job: &Job, text: String) -> String {
-    if job.work != Work::Prompt || job.permission >= job.asked {
+    if job.work != Work::Prompt || !job.lowered_by_config() {
         return text;
     }
     let level = job.permission.word();
@@ -1883,6 +1923,19 @@ mod tests {
         let job = relay.next_job().unwrap();
         relay.begin(&job);
         let live = String::from_utf8(relay.live_file(&no_notices())).unwrap();
+        assert!(live.contains(r#"lines = {"Level: auto-edit", }"#), "{live}");
+        relay.finish(&job, Ok("done".into()));
+        assert!(!body(&relay).contains("Ran at"));
+    }
+
+    #[test]
+    fn a_full_auto_chat_with_no_approval_runs_at_auto_edit_with_no_config_note() {
+        let mut relay = relay();
+        relay.on_frame(&[record("c1", 1, "level=full-auto", "hi")], NOW);
+        let job = relay.next_job().unwrap();
+        relay.begin(&job);
+        let live = String::from_utf8(relay.live_file(&no_notices())).unwrap();
+        assert_eq!(job.permission, Permission::AutoEdit);
         assert!(live.contains(r#"lines = {"Level: auto-edit", }"#), "{live}");
         relay.finish(&job, Ok("done".into()));
         assert!(!body(&relay).contains("Ran at"));
