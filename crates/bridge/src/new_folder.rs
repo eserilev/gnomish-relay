@@ -5,12 +5,12 @@ use std::fs;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
+use crate::config::with_tilde;
 use crate::folder_path::real_path;
 use crate::folder_walk::{Walk, is_shown};
 
 /// The longest file name on the file systems that the bridge runs on.
 const MAX_NAME: usize = 255;
-const MISSING: &str = "This chat's folder is gone. Pick another folder.";
 const OUTSIDE_ROOTS: &str =
     "That folder isn't allowed: it links to a place outside allowed_roots in config.toml.";
 
@@ -50,13 +50,26 @@ pub fn is_folder_name(name: &str) -> bool {
 /// The real path of the folder of a chat, inside a root. The relay checks only the text
 /// of the folder, and a link in it can leave every root.
 pub fn real_chat_folder(walk: &Walk, folder: &Path) -> Result<String, String> {
-    let real = real_path(folder).map_err(|_| MISSING.to_owned())?;
+    let real = real_path(folder).map_err(|_| missing(walk, folder))?;
     if !walk.roots.hold(&real) {
         return Err(OUTSIDE_ROOTS.into());
     }
     real.into_os_string()
         .into_string()
-        .map_err(|_| MISSING.to_owned())
+        .map_err(|_| missing(walk, folder))
+}
+
+/// Names the folder that the bridge looked for, so a wrong path shows (SPEC.md 9.9).
+fn missing(walk: &Walk, folder: &Path) -> String {
+    let shown = match &walk.home {
+        Some(home) => with_tilde(folder, home),
+        None => folder.display().to_string(),
+    };
+    let shown: String = shown
+        .chars()
+        .map(|c| if c.is_control() { ' ' } else { c })
+        .collect();
+    format!("Can't find {shown}. Pick another folder.")
 }
 
 /// A new folder does not exist yet, so its real path is its real parent and its name.
@@ -167,9 +180,29 @@ mod tests {
     fn a_missing_chat_folder_is_refused() {
         let h = home();
 
-        let real = real_chat_folder(&walk(&h), &h.root.join("gone"));
+        let gone = h.root.join("gone");
 
-        assert_eq!(real, Err(MISSING.into()));
+        let real = real_chat_folder(&walk(&h), &gone);
+
+        let shown = gone.display();
+        assert_eq!(
+            real,
+            Err(format!("Can't find {shown}. Pick another folder."))
+        );
+    }
+
+    #[test]
+    fn a_missing_chat_folder_in_the_home_folder_shows_with_a_tilde() {
+        let h = home();
+        let mut walk = walk(&h);
+        walk.home = h.root.parent().map(Path::to_owned);
+
+        let real = real_chat_folder(&walk, &h.root.join("Documents/x\nend"));
+
+        assert_eq!(
+            real,
+            Err("Can't find ~/Code/Documents/x end. Pick another folder.".into())
+        );
     }
 
     #[test]

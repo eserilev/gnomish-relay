@@ -24,7 +24,8 @@ use crate::config::{DEFAULT_MAX_PARALLEL_RUNS, Permission, Policy};
 use crate::desktop::Notice;
 use crate::flags::{self, GitFlag, ListKind, TransportFlags};
 use crate::folder_list::folder_reply;
-use crate::folder_path::{folder_request, native_folder, path_bytes, relative_folder};
+use crate::folder_path::{native_folder, path_bytes, relative_folder};
+use crate::folder_text::{Wanted, to_resolve};
 use crate::folder_trust::{Untrusted, check_text};
 use crate::folder_walk::Snapshot;
 use crate::git_actions::{Effect, GitAction};
@@ -554,12 +555,17 @@ impl Relay {
             .agent
             .unwrap_or_else(|| self.policy.default_agent.clone());
         self.add_to_history(r, chat, &agent);
-        let cwd = match self.prompt_folder(&r.cwd) {
+        // Only the first message of a chat makes its folder (SPEC.md 9.9).
+        let new_folder = flags.new_folder && flags.new_session;
+        let wanted = if new_folder {
+            Wanted::New
+        } else {
+            Wanted::Existing
+        };
+        let cwd = match self.prompt_folder(&r.cwd, wanted) {
             Ok(cwd) => cwd,
             Err(refused) => return Err(self.refuse(r, chat, refused, Outcome::BadFolder)),
         };
-        // Only the first message of a chat makes its folder (SPEC.md 9.9).
-        let new_folder = flags.new_folder && flags.new_session;
         if new_folder && !is_new_folder_request(&r.cwd) {
             let bad = NewFolderError::BadName.text();
             return Err(self.refuse(r, chat, bad, Outcome::BadFolder));
@@ -601,38 +607,43 @@ impl Relay {
 
     /// A folder inside a root, or a new folder that passes the rules of its text. The
     /// start of the run checks the real folder (SPEC.md 9.12).
-    fn prompt_folder(&self, raw: &[u8]) -> Result<Vec<u8>, String> {
-        if let Some(cwd) = self.game_folder(raw) {
+    fn prompt_folder(&self, raw: &[u8], wanted: Wanted) -> Result<Vec<u8>, String> {
+        if let Some(cwd) = self.game_folder(raw, wanted) {
             return Ok(cwd);
         }
-        let (Some(home), Some(request)) = (&self.home, folder_request(raw, cfg!(windows))) else {
+        let (Some(home), Some((base, request))) = (&self.home, self.game_request(raw, wanted))
+        else {
             return Err(BAD_FOLDER.into());
         };
-        let base = &self.policy.folders.base;
-        let Some(cwd) = resolve_folder(std::slice::from_ref(home), base, &request) else {
+        let Some(cwd) = resolve_folder(std::slice::from_ref(home), &base, &request) else {
             return Err(Untrusted::OutsideHome.text().into());
         };
         check_text(home, &cwd).map_err(|why| why.text().to_owned())?;
         Ok(cwd)
     }
 
+    /// The base and the request for the resolver: the home form, or the old form
+    /// (SPEC.md 9.9).
+    fn game_request(&self, raw: &[u8], wanted: Wanted) -> Option<(Vec<u8>, Vec<u8>)> {
+        let base = &self.policy.folders.base;
+        to_resolve(raw, base, self.home.as_deref(), wanted)
+    }
+
     /// The folder in the form of the resolver, or `None` outside every root.
-    fn game_folder(&self, raw: &[u8]) -> Option<Vec<u8>> {
-        let folders = &self.policy.folders;
-        let request = folder_request(raw, cfg!(windows))?;
-        resolve_folder(&folders.roots, &folders.base, &request)
+    fn game_folder(&self, raw: &[u8], wanted: Wanted) -> Option<Vec<u8>> {
+        let (base, request) = self.game_request(raw, wanted)?;
+        resolve_folder(&self.policy.folders.roots, &base, &request)
     }
 
     /// A folder that the browser can list: inside a root, or inside the home folder
     /// with no skipped part. The walk checks the real folder (SPEC.md 9.9).
     fn browse_folder(&self, raw: &[u8]) -> Option<Vec<u8>> {
-        if let Some(cwd) = self.game_folder(raw) {
+        if let Some(cwd) = self.game_folder(raw, Wanted::Existing) {
             return Some(cwd);
         }
         let home = self.home.as_ref()?;
-        let request = folder_request(raw, cfg!(windows))?;
-        let base = &self.policy.folders.base;
-        let cwd = resolve_folder(std::slice::from_ref(home), base, &request)?;
+        let (base, request) = self.game_request(raw, Wanted::Existing)?;
+        let cwd = resolve_folder(std::slice::from_ref(home), &base, &request)?;
         match check_text(home, &cwd) {
             Ok(()) | Err(Untrusted::Home) => Some(cwd),
             Err(_) => None,
@@ -674,7 +685,7 @@ impl Relay {
         let GitFlag::Action(action) = git else {
             return self.refuse(r, &chat, UNKNOWN_ACTION.into(), Outcome::BadAction);
         };
-        let Some(cwd) = self.game_folder(&r.cwd) else {
+        let Some(cwd) = self.game_folder(&r.cwd, Wanted::Existing) else {
             return self.refuse(r, &chat, BAD_FOLDER.into(), Outcome::BadFolder);
         };
         self.enqueue_job(Job {
@@ -1190,7 +1201,7 @@ impl Relay {
     pub fn finish_folders(&mut self, job: &Job, snapshot: &Snapshot) {
         self.activity.end(&job.chat, job.id);
         self.end_run(&job.chat);
-        let text = folder_reply(&self.browse_area(), snapshot);
+        let text = folder_reply(&self.browse_area(), self.home.as_deref(), snapshot);
         self.set_record(&job.token, &job.chat, job.id, Status::Done, text);
     }
 
@@ -2657,6 +2668,9 @@ mod tests {
             ("/etc", "outside your home folder"),
             ("../.ssh", "hidden or system folders"),
             ("../app/node_modules", "hidden or system folders"),
+            ("~", "your whole home folder"),
+            ("~/..", "outside your home folder"),
+            ("~/.ssh", "hidden or system folders"),
         ];
         for (id, (cwd, reason)) in (1..).zip(cases) {
             let mut relay = with_home();
@@ -2772,7 +2786,11 @@ mod tests {
 
         relay.add_root(std::path::Path::new("/home/x/lighthouse"));
 
-        assert!(relay.game_folder(b"../lighthouse/src").is_some());
+        assert!(
+            relay
+                .game_folder(b"../lighthouse/src", Wanted::Existing)
+                .is_some()
+        );
     }
 
     #[test]

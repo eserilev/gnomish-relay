@@ -1445,3 +1445,131 @@ fn a_denied_session_folder_attaches_nothing() {
     assert_eq!(attaches.load(Ordering::SeqCst), 0);
     assert_eq!(fs::read_to_string(&t.config).unwrap(), NO_ROOTS_CONFIG);
 }
+
+/// An agent that says where it ran.
+struct WhereAmI;
+
+impl Agent for WhereAmI {
+    fn run(&self, job: &Job, _control: &Control) -> Run {
+        Run {
+            reply: Ok(format!("ran in {}", job.cwd)),
+            session: None,
+            usage: None,
+        }
+    }
+}
+
+/// A bridge in the home folder of `f`, with the root `~/Documents/Code` and `base` as
+/// `default_cwd`. A new bridge on the same `f` is a restart.
+fn home_bridge(f: &Dirs, base: &Path) -> Bridge {
+    let home = real_path(f.state.parent().unwrap()).unwrap();
+    let code = home.join("Documents/Code");
+    let config_dir = home.join("config");
+    fs::create_dir_all(&config_dir).unwrap();
+    bridge::fs_safe::write_private(&config_dir, "config.toml", TRUST_CONFIG).unwrap();
+    let policy = Policy {
+        folders: Folders {
+            roots: vec![path_bytes(&code)],
+            base: path_bytes(base),
+        },
+        ..policy()
+    };
+    let truster = Truster {
+        approvals: Approvals::new(&f.state, Prompt::Off),
+        config_dir,
+        home,
+        permission_timeout: Duration::from_secs(20),
+        roots: Roots::new(vec![code]),
+    };
+    bridge_in(f, policy, Arc::new(WhereAmI)).with_trust(truster)
+}
+
+/// Steps until the message `id` is done or ended with an error.
+fn step_until_ended(bridge: &mut Bridge, addons: &Path, id: u32) -> bool {
+    let done = format!("id = {id}, status = \"done\"");
+    let error = format!("id = {id}, status = \"error\"");
+    step_until(bridge, || {
+        let body = slot_body(addons);
+        body.contains(&done) || body.contains(&error)
+    })
+}
+
+/// The bug of 2026-09-30 (SPEC.md 9.9): the game saved `Documents/Code/Personal/sandcastle`
+/// while `default_cwd` was `~`. Then `default_cwd` became `~/Documents/Code`.
+#[test]
+fn a_chat_saved_with_the_home_base_keeps_its_folder_after_default_cwd_changes() {
+    let f = folders();
+    let home = real_path(f.state.parent().unwrap()).unwrap();
+    let sandcastle = home.join("Documents/Code/Personal/sandcastle");
+    fs::create_dir_all(&sandcastle).unwrap();
+    let saved = "Documents/Code/Personal/sandcastle";
+    let mut before = home_bridge(&f, &home);
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        folder_strip("c1", 7, saved, "one"),
+    )
+    .unwrap();
+    assert!(step_until_ended(&mut before, &f.addons, 7));
+    drop(before);
+
+    let mut after = home_bridge(&f, &home.join("Documents/Code"));
+    fs::write(
+        f.screenshots.join("WoWScrnShot_2.png"),
+        folder_strip("c1", 8, saved, "two"),
+    )
+    .unwrap();
+
+    assert!(step_until_ended(&mut after, &f.addons, 8));
+    let body = slot_body(&f.addons);
+    let expected = format!("ran in {}", sandcastle.display());
+    assert_eq!(body.matches(&expected).count(), 2, "{body}");
+}
+
+/// The home form never depends on `default_cwd` (SPEC.md 9.9).
+#[test]
+fn a_chat_folder_in_the_home_form_runs_there_with_any_default_folder() {
+    let f = folders();
+    let home = real_path(f.state.parent().unwrap()).unwrap();
+    let sandcastle = home.join("Documents/Code/Personal/sandcastle");
+    fs::create_dir_all(&sandcastle).unwrap();
+    let mut bridge = home_bridge(&f, &home.join("Documents/Code"));
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        folder_strip("c1", 7, "~/Documents/Code/Personal/sandcastle", "hi"),
+    )
+    .unwrap();
+
+    assert!(step_until_ended(&mut bridge, &f.addons, 7));
+    let body = slot_body(&f.addons);
+    assert!(
+        body.contains(&format!("ran in {}", sandcastle.display())),
+        "{body}"
+    );
+}
+
+/// The error names the folder that the bridge looked for (SPEC.md 9.9).
+#[test]
+fn a_chat_folder_that_is_gone_says_which_folder_it_looked_for() {
+    let f = folders();
+    let home = real_path(f.state.parent().unwrap()).unwrap();
+    fs::create_dir_all(home.join("Documents/Code")).unwrap();
+    let mut bridge = home_bridge(&f, &home.join("Documents/Code"));
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_1.png"),
+        folder_strip("c1", 7, "~/Documents/Code/gone", "hi"),
+    )
+    .unwrap();
+
+    assert!(step_until_ended(&mut bridge, &f.addons, 7));
+    let body = slot_body(&f.addons);
+    let gone = home.join("Documents/Code/gone");
+    assert!(
+        body.contains(&format!(
+            "Can't find {}. Pick another folder.",
+            gone.display()
+        )),
+        "{body}"
+    );
+}
