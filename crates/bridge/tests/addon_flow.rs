@@ -59,6 +59,7 @@ const FILES: &[&str] = &[
     "Folders.lua",
     "Browser.lua",
     "GitBar.lua",
+    "DesktopRequest.lua",
     "BridgeSettings.lua",
     "RulesGroup.lua",
     "SettingsTab.lua",
@@ -1659,6 +1660,215 @@ fn a_desktop_line_in_the_wrong_place_or_shape_is_only_a_step() {
         "{texts:?}"
     );
     assert_eq!(whispers_with(&game, "desktop"), 0);
+}
+
+const ASKS: &str = "Desktop: asks cat ~/.ssh/id_rsa";
+
+fn visible(game: &Game, name: &str) -> bool {
+    let shown = game.run(&format!("return {name}:IsVisible() and true or false"));
+    shown == Value::Boolean(true)
+}
+
+fn named_text(game: &Game, name: &str) -> String {
+    let text = game.run(&format!("return {name}:GetText() or ''"));
+    text.as_string().unwrap().to_str().unwrap().to_owned()
+}
+
+#[test]
+fn a_waiting_desktop_request_shows_its_command_and_the_approve_command_in_the_chat() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    show_progress(
+        &game,
+        &[
+            b"Level: auto-edit",
+            WAIT.as_bytes(),
+            ASKS.as_bytes(),
+            b"Read",
+        ],
+    );
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert!(visible(&game, "GnomishRelayDesktop"));
+    assert!(
+        named_text(&game, "GnomishRelayDesktopTitle")
+            .contains("Waiting for your approval on your desktop")
+    );
+    assert_eq!(
+        named_text(&game, "GnomishRelayDesktopAsksText"),
+        "cat ~/.ssh/id_rsa"
+    );
+    assert_eq!(
+        named_text(&game, "GnomishRelayDesktopCommand"),
+        "gnomish-relay approve a1b2c3d4e5f6"
+    );
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        !texts.iter().any(|t| t.starts_with("Desktop:")),
+        "the Activity rows show no asks line: {texts:?}"
+    );
+    assert!(texts.contains(&"Read".to_owned()), "{texts:?}");
+}
+
+#[test]
+fn copy_selects_the_approve_command_for_ctrl_c() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    show_progress(
+        &game,
+        &[b"Level: auto-edit", WAIT.as_bytes(), ASKS.as_bytes()],
+    );
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(!visible(&game, "GnomishRelayDesktopHint"));
+
+    game.run("GnomishRelayDesktopCopy:Click()");
+
+    let focus = game.run("return GnomishRelayDesktopCommand:HasFocus()");
+    assert_eq!(focus, Value::Boolean(true));
+    assert!(visible(&game, "GnomishRelayDesktopHint"));
+    assert_eq!(
+        named_text(&game, "GnomishRelayDesktopHint"),
+        "Press Ctrl+C to copy (Cmd+C on a Mac)."
+    );
+}
+
+#[test]
+fn typing_in_the_approve_command_box_keeps_the_command() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    show_progress(
+        &game,
+        &[b"Level: auto-edit", WAIT.as_bytes(), ASKS.as_bytes()],
+    );
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    game.run(
+        "local box = GnomishRelayDesktopCommand \
+         box.text = 'x' box.scripts.OnTextChanged(box, true)",
+    );
+
+    assert_eq!(
+        named_text(&game, "GnomishRelayDesktopCommand"),
+        "gnomish-relay approve a1b2c3d4e5f6"
+    );
+}
+
+#[test]
+fn the_desktop_request_in_the_chat_shows_how_it_ended() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    for (state, title) in [
+        ("approved", "Approved on your desktop"),
+        ("denied", "Denied on your desktop"),
+        ("none", "No answer on your desktop"),
+    ] {
+        let line = format!("Desktop: {state} a1b2c3d4e5f6 dialog");
+        show_progress(
+            &game,
+            &[b"Level: auto-edit", line.as_bytes(), ASKS.as_bytes()],
+        );
+        game.run("local ns = ... ns.Transport.Poll()");
+
+        assert!(visible(&game, "GnomishRelayDesktop"), "{state}");
+        assert_eq!(named_text(&game, "GnomishRelayDesktopTitle"), title);
+        assert!(!visible(&game, "GnomishRelayDesktopCommand"), "{state}");
+        assert!(!visible(&game, "GnomishRelayDesktopAsks"), "{state}");
+    }
+}
+
+#[test]
+fn the_desktop_request_leaves_the_chat_when_the_run_ends() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    show_progress(
+        &game,
+        &[b"Level: auto-edit", WAIT.as_bytes(), ASKS.as_bytes()],
+    );
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert!(visible(&game, "GnomishRelayDesktop"));
+
+    let id = first_message_id(&game);
+    game.publish(&[reply(&game.chat_id(), id, Status::Done, "done")]);
+    game.wow
+        .set("live", game.lua.create_string(live(&[], &[])).unwrap())
+        .unwrap();
+    game.advance(20.0);
+
+    assert!(!visible(&game, "GnomishRelayDesktop"));
+}
+
+#[test]
+fn a_raise_in_the_chat_names_the_permission_and_a_folder_its_folder() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    show_progress(
+        &game,
+        &[
+            b"Level: auto-edit",
+            b"Desktop: wait a1b2c3d4e5f6 dialog raise full-auto",
+        ],
+    );
+    game.run("local ns = ... ns.Transport.Poll()");
+    assert_eq!(
+        named_text(&game, "GnomishRelayDesktopAsksText"),
+        "Let Claude work at full-auto."
+    );
+
+    show_progress(
+        &game,
+        &[
+            b"Level: auto-edit",
+            b"Desktop: wait 0123456789ab command folder",
+            b"Desktop: asks /home/x/lighthouse",
+        ],
+    );
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(
+        named_text(&game, "GnomishRelayDesktopAsksText"),
+        "/home/x/lighthouse"
+    );
+    assert_eq!(
+        named_text(&game, "GnomishRelayDesktopCommand"),
+        "gnomish-relay approve 0123456789ab"
+    );
+}
+
+#[test]
+fn an_asks_line_away_from_its_place_is_only_a_step() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("read my key");
+    game.advance(1.0);
+    show_progress(
+        &game,
+        &[
+            b"Level: auto-edit",
+            WAIT.as_bytes(),
+            b"edit a.rs",
+            b"Desktop: asks rm -rf ~",
+        ],
+    );
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(named_text(&game, "GnomishRelayDesktopAsksText"), "");
+    let texts = texts_of(&game, "FontString");
+    assert!(
+        texts.contains(&"Desktop: asks rm -rf ~".to_owned()),
+        "{texts:?}"
+    );
 }
 
 /// The seconds between the polls of the game, from a clock that ticks each second.

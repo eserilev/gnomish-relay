@@ -165,7 +165,8 @@ writing outside the chat's folder, or a chat in a new folder. A dialog with **Ap
 
 ### Answer a desktop request in a terminal
 
-If your computer shows no dialog, answer in a terminal:
+If your computer shows no dialog, or you closed it, answer in a terminal. The chat in WoW
+shows what the agent wants to do and the command to run, with a **Copy** button:
 
 ```sh
 gnomish-relay approve          # list the requests waiting for you

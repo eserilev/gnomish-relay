@@ -61,6 +61,7 @@ const RELAY_FILES: &[&str] = &[
     "Folders.lua",
     "Browser.lua",
     "GitBar.lua",
+    "DesktopRequest.lua",
     "BridgeSettings.lua",
     "RulesGroup.lua",
     "SettingsTab.lua",
