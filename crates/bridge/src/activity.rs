@@ -28,7 +28,8 @@ struct Steps {
 
 impl Steps {
     fn room(&self) -> usize {
-        MAX_LINES - usize::from(self.level.is_some()) - usize::from(self.desktop.is_some())
+        let desktop = self.desktop.as_ref().map_or(0, |d| d.lines().len());
+        MAX_LINES - usize::from(self.level.is_some()) - desktop
     }
 
     fn trim(&mut self) {
@@ -226,7 +227,7 @@ impl Activity {
                     .level
                     .iter()
                     .cloned()
-                    .chain(s.desktop.as_ref().map(Notice::line))
+                    .chain(s.desktop.iter().flat_map(Notice::lines))
                     .chain(s.lines.iter().cloned())
                     .map(String::into_bytes)
                     .collect(),
@@ -448,7 +449,31 @@ mod tests {
             prompted: crate::desktop::Prompted::Dialog,
             waiting,
             topic: crate::desktop::Topic::Action,
+            asks: String::new(),
         }
+    }
+
+    #[test]
+    fn the_asks_line_comes_right_after_the_desktop_line() {
+        let mut activity = Activity::default();
+        activity.begin(&chat(), MessageId(7), "Level: ask".into());
+        for n in 0..8 {
+            activity.step(&chat(), MessageId(7), format!("step {n}"));
+        }
+        let asking = Notice {
+            asks: "cat ~/.ssh/id_rsa".into(),
+            ..notice(Waiting::Open)
+        };
+
+        activity.desktop(&chat(), MessageId(7), asking);
+
+        let file = String::from_utf8(activity.file(&no_notices())).unwrap();
+        assert!(
+            file.contains(
+                r#"lines = {"Level: ask", "Desktop: wait a1b2c3d4e5f6 dialog", "Desktop: asks cat ~/.ssh/id_rsa", "step 6", "step 7", }"#
+            ),
+            "{file}"
+        );
     }
 
     #[test]

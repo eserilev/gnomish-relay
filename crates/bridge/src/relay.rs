@@ -2026,6 +2026,7 @@ mod tests {
             prompted: crate::desktop::Prompted::Dialog,
             waiting: crate::desktop::Waiting::Open,
             topic: crate::desktop::Topic::Action,
+            asks: String::new(),
         }
     }
 

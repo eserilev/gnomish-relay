@@ -451,6 +451,7 @@ pub fn wait_on_the_desktop(
         prompted: opened.prompted,
         waiting: Waiting::Open,
         topic,
+        asks: opened.asks.clone(),
     };
     turn.desktop(notice.clone());
     let answer_of = || {

@@ -1750,6 +1750,7 @@ fn a_new_message_in_the_game_ends_the_wait_on_the_desktop() {
             prompted: Prompted::Dialog,
             waiting: Waiting::Open,
             topic: Topic::Action,
+            asks: String::new(),
         },
     );
     game.wow

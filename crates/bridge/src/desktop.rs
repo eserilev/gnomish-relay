@@ -9,6 +9,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use anyhow::{Context, Result, bail};
+use protocol::live::MAX_LINE;
 use serde::{Deserialize, Serialize};
 
 use crate::config::Permission;
@@ -194,6 +195,8 @@ pub enum Prompted {
 pub struct Opened {
     pub id: String,
     pub prompted: Prompted,
+    /// What the game shows of the request: see `game_text`.
+    pub asks: String,
 }
 
 /// Where a desktop request of a run stands.
@@ -213,6 +216,8 @@ pub struct Notice {
     pub prompted: Prompted,
     pub waiting: Waiting,
     pub topic: Topic,
+    /// The text of the `Desktop: asks` line. Empty for no line.
+    pub asks: String,
 }
 
 /// What a desktop request of a run asks for, as the game shows it.
@@ -228,6 +233,19 @@ pub enum Topic {
 
 /// Only the bridge writes a progress line with this start.
 pub const NOTICE: &str = "Desktop: ";
+/// The second line of a desktop request. It starts with `NOTICE`, so no agent line can.
+const ASKS: &str = "Desktop: asks ";
+
+/// What the game shows of a request, so that `Desktop: asks <text>` fits one progress
+/// line. A raise has none: the whisper line names its level.
+fn game_text(pending: &Pending) -> String {
+    let text = match pending.kind {
+        Kind::ToolCall | Kind::Merge => &pending.text,
+        Kind::Folder => &pending.folder,
+        Kind::Raise => return String::new(),
+    };
+    first_line_cut(text, MAX_LINE - ASKS.len())
+}
 
 impl Notice {
     /// For example `Desktop: wait a1b2c3d4e5f6 dialog raise auto-edit`. The id comes
@@ -249,6 +267,15 @@ impl Notice {
             Topic::Raise(level) => format!("{line} raise {}", level.word()),
             Topic::Folder => format!("{line} folder"),
         }
+    }
+
+    /// The notice line, and the `Desktop: asks` line when the request has a text.
+    pub fn lines(&self) -> Vec<String> {
+        let mut lines = vec![self.line()];
+        if !self.asks.is_empty() {
+            lines.push(format!("{ASKS}{}", self.asks));
+        }
+        lines
     }
 
     #[must_use]
@@ -387,6 +414,7 @@ impl Approvals {
             wait_minutes: self.wait.as_secs().div_ceil(60),
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
+        let asks = game_text(&pending);
         log(&request_line(&pending, summary));
         let tool = match self.prompt {
             Prompt::Dialog => dialog::find_tool(),
@@ -401,7 +429,7 @@ impl Approvals {
             let approvals = self.clone();
             std::thread::spawn(move || approvals.ask_the_desktop(&pending, tool));
         }
-        Ok(Opened { id, prompted })
+        Ok(Opened { id, prompted, asks })
     }
 
     /// With no dialog tool, a plain notice names the command that answers.
@@ -885,12 +913,79 @@ mod tests {
     }
 
     #[test]
+    fn a_tool_call_tells_the_game_its_command_and_a_folder_request_its_folder() {
+        let (_data, approvals) = approvals();
+        let tool = approvals
+            .open("claude", "/w", "rm -rf build\nthe agent says: x", "", 1)
+            .unwrap();
+        let folder = approvals
+            .open_folder("claude", "/home/x/lighthouse", "Let agents work?", 1)
+            .unwrap();
+        let raise = approvals
+            .open_raise("claude", "/c/config.toml", "A chat asks", 1)
+            .unwrap();
+        let merge = approvals
+            .open_merge("/w", "A chat from WoW asks to merge x into main in /w.", 1)
+            .unwrap();
+
+        assert_eq!(tool.asks, "rm -rf build");
+        assert_eq!(folder.asks, "/home/x/lighthouse");
+        assert_eq!(raise.asks, "");
+        assert_eq!(
+            merge.asks,
+            "A chat from WoW asks to merge x into main in /w."
+        );
+    }
+
+    #[test]
+    fn the_asks_line_of_a_long_command_fits_one_progress_line() {
+        let (_data, approvals) = approvals();
+        let command = format!("echo {}\u{7}", "a".repeat(400));
+
+        let opened = approvals.open("claude", "/w", &command, "", 1).unwrap();
+        let notice = Notice {
+            id: opened.id,
+            prompted: opened.prompted,
+            waiting: Waiting::Open,
+            topic: Topic::Action,
+            asks: opened.asks,
+        };
+
+        let lines = notice.lines();
+        assert_eq!(lines.len(), 2);
+        assert!(
+            lines[1].starts_with("Desktop: asks echo aaa"),
+            "{}",
+            lines[1]
+        );
+        assert!(lines[1].ends_with("..."), "{}", lines[1]);
+        assert_eq!(lines[1].len(), MAX_LINE);
+    }
+
+    #[test]
+    fn a_notice_with_no_text_has_one_line() {
+        let notice = Notice {
+            id: "a1b2c3d4e5f6".into(),
+            prompted: Prompted::Dialog,
+            waiting: Waiting::Open,
+            topic: Topic::Raise(Permission::AutoEdit),
+            asks: String::new(),
+        };
+
+        assert_eq!(
+            notice.lines(),
+            ["Desktop: wait a1b2c3d4e5f6 dialog raise auto-edit"]
+        );
+    }
+
+    #[test]
     fn a_notice_line_holds_the_state_the_id_and_how_the_desktop_asks() {
         let notice = Notice {
             id: "a1b2c3d4e5f6".into(),
             prompted: Prompted::Dialog,
             waiting: Waiting::Open,
             topic: Topic::Action,
+            asks: String::new(),
         };
         assert_eq!(notice.line(), "Desktop: wait a1b2c3d4e5f6 dialog");
         let folder = Notice {
