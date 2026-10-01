@@ -2549,10 +2549,21 @@ The manifest:
 
 **The config.** After the programs and a pack, setup sets `program` and `lore_pack` in `[story]`, with `~/` for a path in the home folder. It replaces the lines of both keys, also the commented ones of 12, and keeps every other line. A config with no `[story]` gets one at its end. As in 11.3, setup checks the new text with the config loader before it writes. With no pack, setup sets neither key: they go together (12).
 
-**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. With no argument, they set up only Gnomish Relay. The Timeways README points its players at the lines below, which set up only Timeways. `--no-autostart` turns it off. `install.ps1` sets up the desktop app in WSL2 only with `-Wsl` or `--wsl` (11.5).
+**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. With no argument, they set up only Gnomish Relay. `--no-autostart` turns it off. `install.ps1` sets up the desktop app in WSL2 only with `-Wsl` or `--wsl` (11.5).
+
+Timeways players see short lines, in the Timeways README and in its setup window in the game. Each line fetches a small script from the GitHub Pages of the Timeways repo (its `docs` folder). That script runs the installer of this repo with `--timeways`, so this repo keeps the only copy of the install steps.
+
+- Linux and macOS: `curl -fsSL https://eserilev.github.io/timeways/install.sh | sh`
+- Windows, from Windows+R: `powershell -c "irm https://eserilev.github.io/timeways/install.txt | iex"`
+
+The short scripts run these lines. They also work by hand, and set up only Timeways:
 
 - Linux and macOS: `curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh -s -- --timeways`
 - Windows: `& ([scriptblock]::Create((irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1))) --timeways`
+
+**Why short lines:** most Timeways players are not engineers. A short line on a readable address looks safe, and a player can paste it without a typo. Windows+R needs no terminal. The Windows script waits for Enter at its end, so the window stays open for the last line or an error. The name ends in `.txt` because GitHub Pages serves only that as text. It serves `.ps1` as bytes.
+
+**Contract:** the short scripts pass no argument other than `--timeways`. A change to the arguments or the file names of `install.sh` and `install.ps1` breaks them, so change `docs/` in Timeways in the same step.
 
 ### 11.5 Windows with WSL2
 
