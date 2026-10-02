@@ -30,15 +30,15 @@ local function Acquire(pool)
 	return widget
 end
 
-local function Place(widget, x, y)
-	widget:SetPoint("TOPLEFT", ui.child, "TOPLEFT", x, -y)
+local function Place(canvas, widget, x, y)
+	widget:SetPoint("TOPLEFT", canvas.child, "TOPLEFT", x, -y)
 end
 
-local function Line(text, x, y, width)
-	local line = Acquire(ui.pools.text)
+local function Line(canvas, text, x, y, width)
+	local line = Acquire(canvas.pools.text)
 	line:SetWidth(width)
 	line:SetText(text)
-	Place(line, x, y)
+	Place(canvas, line, x, y)
 	return y + math.max(line:GetStringHeight(), ROW - 2)
 end
 
@@ -110,24 +110,24 @@ end
 
 local DONE = { committed = "Committed", reverted = "Reverted", sending = "Sending..." }
 
-local function Buttons(chat, entry, width, y)
+local function Buttons(canvas, chat, entry, width, y)
 	local done = DONE[entry.gitState or ""]
 	if done then
-		local label = Acquire(ui.pools.text)
+		local label = Acquire(canvas.pools.text)
 		label:SetWidth(2 * BUTTON_WIDTH)
 		label:SetText(string.format("|cff%s%s|r", GREY, done))
-		Place(label, width - 2 * BUTTON_WIDTH, y)
+		Place(canvas, label, width - 2 * BUTTON_WIDTH, y)
 		return
 	end
 	for i, action in ipairs({ "commit", "revert" }) do
-		local button = Acquire(ui.pools.buttons)
+		local button = Acquire(canvas.pools.buttons)
 		button:SetText(LABELS[action])
 		button.chat, button.entry, button.action = chat, entry, action
-		Place(button, width - (3 - i) * (BUTTON_WIDTH + 4), y - 2)
+		Place(canvas, button, width - (3 - i) * (BUTTON_WIDTH + 4), y - 2)
 	end
 end
 
-local function DrawSummary(chat, entry, git, y, width)
+local function DrawSummary(canvas, chat, entry, git, y, width)
 	local summary = git.summary
 	local head = string.format(
 		"|cff%s%s|r  %s",
@@ -135,31 +135,31 @@ local function DrawSummary(chat, entry, git, y, width)
 		Plural(summary.files, "1 file changed", "%d files changed"),
 		Counts(summary.added, summary.removed)
 	)
-	Buttons(chat, entry, width, y)
-	y = Line(head, 0, y, width - 2 * (BUTTON_WIDTH + 4)) + 2
+	Buttons(canvas, chat, entry, width, y)
+	y = Line(canvas, head, 0, y, width - 2 * (BUTTON_WIDTH + 4)) + 2
 	for _, file in ipairs(git.files) do
-		y = Line(FileLine(file), 12, y, width - 12)
+		y = Line(canvas, FileLine(file), 12, y, width - 12)
 	end
 	if (git.more or 0) > 0 then
-		y = Line(string.format("|cff%sand %d more|r", GREY, git.more), 12, y, width - 12)
+		y = Line(canvas, string.format("|cff%sand %d more|r", GREY, git.more), 12, y, width - 12)
 	end
 	return y
 end
 
 -- The blocks under an entry, or nothing for an entry with none. Returns the new bottom.
-function Changes.Draw(chat, entry, y, width)
+function Changes.Draw(canvas, chat, entry, y, width)
 	local git = ns.Blocks.Git(entry.text)
 	if not git then
 		return y
 	end
 	if git.summary then
-		y = DrawSummary(chat, entry, git, y + 2, width)
+		y = DrawSummary(canvas, chat, entry, git, y + 2, width)
 	end
 	if git.tests then
-		y = Line(Changes.TestsText(git.tests), 0, y, width)
+		y = Line(canvas, Changes.TestsText(git.tests), 0, y, width)
 	end
 	if git.ci then
-		y = Line(Changes.CiText(git.ci), 0, y, width)
+		y = Line(canvas, Changes.CiText(git.ci), 0, y, width)
 	end
 	return y
 end
@@ -271,9 +271,9 @@ end
 
 local buttons = 0
 
-local function NewButton()
+local function NewButton(child)
 	buttons = buttons + 1
-	local button = CreateFrame("Button", "GnomishRelayChangeButton" .. buttons, ui.child, "UIPanelButtonTemplate")
+	local button = CreateFrame("Button", "GnomishRelayChangeButton" .. buttons, child, "UIPanelButtonTemplate")
 	button:SetSize(BUTTON_WIDTH, 20)
 	button:SetScript("OnClick", function(self)
 		if self.action == "commit" then
@@ -285,8 +285,8 @@ local function NewButton()
 	return button
 end
 
-local function NewText()
-	local text = ui.child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
+local function NewText(child)
+	local text = child:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	text:SetJustifyH("LEFT")
 	return text
 end
@@ -325,11 +325,17 @@ local function BuildDialog()
 	ui.dialog = dialog
 end
 
--- `child` is the scroll child of the transcript. The transcript gives back the widgets
--- of the pools that this returns, with its own.
-function Changes.Build(child)
-	ui.child = child
-	ui.pools = { text = Pool(NewText), buttons = Pool(NewButton) }
+-- `child` is the scroll child of a transcript. The transcript gives back the widgets of
+-- the pools of the canvas, with its own.
+function Changes.Canvas(child)
+	local function Of(create)
+		return Pool(function()
+			return create(child)
+		end)
+	end
+	return { child = child, pools = { text = Of(NewText), buttons = Of(NewButton) } }
+end
+
+function Changes.Build()
 	BuildDialog()
-	return ui.pools
 end

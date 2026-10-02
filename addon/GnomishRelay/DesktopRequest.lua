@@ -1,6 +1,6 @@
--- The desktop request of the selected chat, between the transcript and the input
--- (SPEC.md 6.6.3, "The request in the chat"). No addon can answer it, so the box only
--- says where to answer.
+-- The desktop request of a chat, between the transcript and the input (SPEC.md 6.6.3,
+-- "The request in the chat"). No addon can answer it, so the box only says where to
+-- answer. The window has one box, and each mini chat has its own.
 
 local _, ns = ...
 
@@ -8,6 +8,8 @@ local DesktopRequest = {}
 ns.DesktopRequest = DesktopRequest
 
 local WAITING_HEIGHT = 74
+-- A narrow box puts the copy hint on its own line.
+local NARROW_HEIGHT = 90
 local ENDED_HEIGHT = 24
 local GAP = 4
 local PAD = 8
@@ -20,7 +22,9 @@ local ENDED = {
 	none = "No answer on your desktop",
 }
 
-local ui = { height = 0 }
+local Box = {}
+Box.__index = Box
+local main
 
 -- The line cuts a long command, so the tooltip shows all of it.
 local function ShowAsksTooltip(owner)
@@ -32,7 +36,7 @@ local function ShowAsksTooltip(owner)
 	GameTooltip:Show()
 end
 
-local function Copy()
+local function Copy(ui)
 	ui.command:SetFocus()
 	ui.command:HighlightText()
 	ui.hint:Show()
@@ -48,7 +52,7 @@ local function AsksText(chat, notice)
 	return ""
 end
 
-local function ShowWaiting(chat, notice)
+local function ShowWaiting(ui, chat, notice)
 	ui.title:SetText("|cff" .. ORANGE .. WAITING .. "|r")
 	ui.asks.text = AsksText(chat, notice)
 	ui.asks.label:SetText(ui.asks.text)
@@ -61,10 +65,10 @@ local function ShowWaiting(chat, notice)
 	for _, part in ipairs(ui.waiting) do
 		part:Show()
 	end
-	ui.height = WAITING_HEIGHT
+	ui.height = ui.narrow and NARROW_HEIGHT or WAITING_HEIGHT
 end
 
-local function ShowEnded(notice)
+local function ShowEnded(ui, notice)
 	ui.title:SetText(ENDED[notice.state])
 	for _, part in ipairs(ui.waiting) do
 		part:Hide()
@@ -74,22 +78,22 @@ local function ShowEnded(notice)
 end
 
 -- `chat` is nil when the chat does not show.
-function DesktopRequest.Refresh(chat)
+function Box.Refresh(ui, chat)
 	local working = chat and ns.Transport.Working(chat.id)
 	local notice = working and working.desktop
 	ui.frame:SetShown(notice ~= nil)
 	if not notice then
 		ui.height = 0
 	elseif notice.state == "wait" then
-		ShowWaiting(chat, notice)
+		ShowWaiting(ui, chat, notice)
 	else
-		ShowEnded(notice)
+		ShowEnded(ui, notice)
 	end
 	ui.frame:SetHeight(math.max(ui.height, 1))
 end
 
 -- Puts the box right above `bottom`, and returns the room that it takes there.
-function DesktopRequest.Place(left, bottom)
+function Box.Place(ui, left, bottom)
 	ui.frame:ClearAllPoints()
 	ui.frame:SetPoint("BOTTOMLEFT", ui.parent, "BOTTOMLEFT", left, bottom)
 	ui.frame:SetPoint("BOTTOMRIGHT", ui.parent, "BOTTOMRIGHT", -left, bottom)
@@ -100,10 +104,13 @@ function DesktopRequest.Place(left, bottom)
 end
 
 -- The box keeps its line: typing puts the text back, and a click selects all of it.
-local function BuildCommand()
-	local box = CreateFrame("EditBox", "GnomishRelayDesktopCommand", ui.frame, "InputBoxTemplate")
+local function BuildCommand(ui)
+	local box = CreateFrame("EditBox", ui.prefix .. "DesktopCommand", ui.frame, "InputBoxTemplate")
 	box:SetPoint("BOTTOMLEFT", ui.frame, "BOTTOMLEFT", PAD + 6, 6)
-	box:SetSize(COMMAND_WIDTH, 22)
+	box:SetHeight(22)
+	if not ui.narrow then
+		box:SetWidth(COMMAND_WIDTH)
+	end
 	box:SetFontObject(ChatFontNormal)
 	box:SetAutoFocus(false)
 	box:SetScript("OnTextChanged", function(self, typed)
@@ -121,13 +128,13 @@ local function BuildCommand()
 	ui.command = box
 end
 
-local function BuildAsks()
-	ui.asks = CreateFrame("Button", "GnomishRelayDesktopAsks", ui.frame)
+local function BuildAsks(ui)
+	ui.asks = CreateFrame("Button", ui.prefix .. "DesktopAsks", ui.frame)
 	ui.asks:SetPoint("TOPLEFT", ui.frame, "TOPLEFT", PAD, -24)
 	ui.asks:SetPoint("TOPRIGHT", ui.frame, "TOPRIGHT", -PAD, -24)
 	ui.asks:SetHeight(16)
 	ui.asks.text = ""
-	ui.asks.label = ui.asks:CreateFontString("GnomishRelayDesktopAsksText", "OVERLAY", "GameFontHighlight")
+	ui.asks.label = ui.asks:CreateFontString(ui.prefix .. "DesktopAsksText", "OVERLAY", "GameFontHighlight")
 	ui.asks.label:SetPoint("LEFT", ui.asks, "LEFT", 0, 0)
 	ui.asks.label:SetPoint("RIGHT", ui.asks, "RIGHT", 0, 0)
 	ui.asks.label:SetJustifyH("LEFT")
@@ -138,32 +145,62 @@ local function BuildAsks()
 	end)
 end
 
-local function BuildCopy()
-	local copy = CreateFrame("Button", "GnomishRelayDesktopCopy", ui.frame, "UIPanelButtonTemplate")
+-- A narrow box has the Copy button at its right edge, and the hint above it.
+local function PlaceCopy(ui, copy)
+	if ui.narrow then
+		copy:SetPoint("BOTTOMRIGHT", ui.frame, "BOTTOMRIGHT", -PAD, 6)
+		ui.command:SetPoint("RIGHT", copy, "LEFT", -8, 0)
+		ui.hint:SetPoint("BOTTOMLEFT", ui.command, "TOPLEFT", -6, 4)
+	else
+		copy:SetPoint("LEFT", ui.command, "RIGHT", 8, 0)
+		ui.hint:SetPoint("LEFT", copy, "RIGHT", 8, 0)
+	end
+end
+
+local function BuildCopy(ui)
+	local copy = CreateFrame("Button", ui.prefix .. "DesktopCopy", ui.frame, "UIPanelButtonTemplate")
 	copy:SetSize(70, 22)
-	copy:SetPoint("LEFT", ui.command, "RIGHT", 8, 0)
 	copy:SetText("Copy")
-	copy:SetScript("OnClick", Copy)
-	ui.hint = ui.frame:CreateFontString("GnomishRelayDesktopHint", "OVERLAY", "GameFontDisableSmall")
-	ui.hint:SetPoint("LEFT", copy, "RIGHT", 8, 0)
+	copy:SetScript("OnClick", function()
+		Copy(ui)
+	end)
+	ui.hint = ui.frame:CreateFontString(ui.prefix .. "DesktopHint", "OVERLAY", "GameFontDisableSmall")
 	ui.hint:SetText("Press Ctrl+C to copy (Cmd+C on a Mac).")
 	ui.hint:Hide()
+	PlaceCopy(ui, copy)
 	ui.copy = copy
 end
 
--- `parent` is the window. Window.lua places the box with Place.
-function DesktopRequest.Build(parent)
-	ui.parent = parent
-	ui.frame = CreateFrame("Frame", "GnomishRelayDesktop", parent)
+-- A box in `parent`, with frame names that start with `prefix`. The owner places it
+-- with Place. A narrow box fits a mini chat.
+function DesktopRequest.New(parent, prefix, narrow)
+	local ui = setmetatable({ height = 0, parent = parent, prefix = prefix, narrow = narrow }, Box)
+	ui.frame = CreateFrame("Frame", prefix .. "Desktop", parent)
 	local background = ui.frame:CreateTexture(nil, "BACKGROUND")
 	background:SetAllPoints()
 	background:SetColorTexture(0.1, 0.15, 0.2, 0.9)
-	ui.title = ui.frame:CreateFontString("GnomishRelayDesktopTitle", "OVERLAY", "GameFontNormal")
+	ui.title = ui.frame:CreateFontString(prefix .. "DesktopTitle", "OVERLAY", "GameFontNormal")
 	ui.title:SetPoint("TOPLEFT", ui.frame, "TOPLEFT", PAD, -6)
+	ui.title:SetPoint("TOPRIGHT", ui.frame, "TOPRIGHT", -PAD, -6)
 	ui.title:SetJustifyH("LEFT")
-	BuildAsks()
-	BuildCommand()
-	BuildCopy()
+	ui.title:SetWordWrap(false)
+	BuildAsks(ui)
+	BuildCommand(ui)
+	BuildCopy(ui)
 	ui.waiting = { ui.asks, ui.command, ui.copy }
 	ui.frame:Hide()
+	return ui
+end
+
+-- The box of the window.
+function DesktopRequest.Build(parent)
+	main = DesktopRequest.New(parent, "GnomishRelay", false)
+end
+
+function DesktopRequest.Refresh(chat)
+	main:Refresh(chat)
+end
+
+function DesktopRequest.Place(left, bottom)
+	return main:Place(left, bottom)
 end

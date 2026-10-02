@@ -545,11 +545,7 @@ function Window.Resume(row)
 end
 
 -- Returns false, and shows an error, for a message that does not fit in one strip.
-function Window.Send(text)
-	ui.picking = false
-	ns.Browser.Close()
-	local chat = Selected() or ns.Store.NewChat()
-	ns.Store.db.selected = chat.id
+function Window.SendTo(chat, text)
 	if not ns.Transport.Send(chat, text) then
 		UIErrorsFrame:AddMessage("Too long to send. Try a shorter message.", 1, 0.1, 0.1)
 		return false
@@ -559,12 +555,20 @@ function Window.Send(text)
 	return true
 end
 
+function Window.Send(text)
+	ui.picking = false
+	ns.Browser.Close()
+	local chat = Selected() or ns.Store.NewChat()
+	ns.Store.db.selected = chat.id
+	return Window.SendTo(chat, text)
+end
+
 -- After a /reload only the saved variables hold the text, and those are never signed
 -- again (SPEC.md 6.6.1). So the text goes into the input, and Enter sends it.
-function Window.Resend(message)
+function Window.Resend(chat, message)
 	local text = ns.Messages.PrivateText(message.id)
 	if text then
-		Window.Send(text)
+		Window.SendTo(chat, text)
 		return
 	end
 	if ui.input then
@@ -680,7 +684,7 @@ local function BuildCenter()
 	ui.agent:SetWordWrap(false)
 	ui.levelButton = ns.LevelMenu.Build(frame, ui.agent, Selected, function()
 		Window.Refresh()
-	end)
+	end, "GnomishRelay")
 	BuildFolderButton(left + 170)
 	ui.pinned = ns.Pins.Build(frame, left, -61)
 	ui.searchButton = ns.Search.Build(frame, left + 6, 46, ui.pinned)
@@ -749,7 +753,9 @@ local function BuildCenter()
 	-- In Alt arrow mode, OnArrowPressed gets the arrows only with Alt held.
 	ui.input:SetAltArrowKeyMode(false)
 	ui.input:SetScript("OnArrowPressed", RecallMessage)
-	ns.LevelMenu.Bind(ui.input)
+	ns.LevelMenu.Bind(ui.input, Selected, function()
+		Window.Refresh()
+	end)
 	BuildInputHelp()
 end
 

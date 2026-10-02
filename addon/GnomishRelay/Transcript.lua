@@ -30,17 +30,12 @@ local GOLD = "ffd100"
 -- Four no-break spaces: SimpleHTML drops normal spaces at the start of a line.
 local INDENT = ("\194\160"):rep(4)
 
-local ui = {}
-local width, viewHeight
-local contentHeight = 0
--- What the scroll child shows now: the chat, the font size, and the entries drawn. For
--- entry i, `tops[i]` is its y and `marks[i]` the pool counts before it, so a draw can
--- start again from it.
-local drawn = { count = 0, tops = {}, marks = {} }
--- The entry that the last jump marked with a band, or nil.
-local marked
--- The drawn messages with no final reply, each with the line of its delivery state.
-local open = {}
+-- Each transcript is a view with its own scroll frame and widgets. `views` holds every
+-- view, so a change of an entry draws again in each view that shows it.
+local views = {}
+local main
+local View = {}
+View.__index = View
 
 local function NewPool(create)
 	return { free = {}, used = {}, create = create }
@@ -63,16 +58,16 @@ local function ReleaseAll(pool)
 end
 
 -- The widgets that each pool has out, so a failed draw can give back its own.
-local function Mark()
+local function Mark(v)
 	local mark = {}
-	for name, pool in pairs(ui.pools) do
+	for name, pool in pairs(v.pools) do
 		mark[name] = #pool.used
 	end
 	return mark
 end
 
-local function ReleaseSince(mark)
-	for name, pool in pairs(ui.pools) do
+local function ReleaseSince(v, mark)
+	for name, pool in pairs(v.pools) do
 		for i = #pool.used, mark[name] + 1, -1 do
 			local widget = table.remove(pool.used, i)
 			widget:Hide()
@@ -81,20 +76,20 @@ local function ReleaseSince(mark)
 	end
 end
 
-local function Place(widget, x, y)
-	widget:SetPoint("TOPLEFT", ui.child, "TOPLEFT", x, -y)
+local function Place(v, widget, x, y)
+	widget:SetPoint("TOPLEFT", v.child, "TOPLEFT", x, -y)
 end
 
 local function FontSize()
 	return ns.Store.db.fontSize
 end
 
-local function TextLine(text, x, y, w)
-	local line = Acquire(ui.pools.text)
+local function TextLine(v, text, x, y, w)
+	local line = Acquire(v.pools.text)
 	line:SetFont(BODY_FONT, FontSize(), "")
 	line:SetWidth(w)
 	line:SetText(text)
-	Place(line, x, y)
+	Place(v, line, x, y)
 	return y + line:GetStringHeight()
 end
 
@@ -153,8 +148,8 @@ local function Html(run)
 	return table.concat(parts)
 end
 
-local function NewHtml()
-	local html = CreateFrame("SimpleHTML", nil, ui.child)
+local function NewHtml(v)
+	local html = CreateFrame("SimpleHTML", nil, v.child)
 	for _, heading in ipairs(HEADINGS) do
 		html:SetTextColor(heading[1], 1, 0.82, 0)
 	end
@@ -179,22 +174,22 @@ local function GuessHeight(run, w)
 	return height
 end
 
-local function DrawHtml(run, x, y)
-	local html = Acquire(ui.pools.html)
+local function DrawHtml(v, run, x, y)
+	local html = Acquire(v.pools.html)
 	SetHtmlFonts(html)
-	html:SetWidth(width - x)
+	html:SetWidth(v.width - x)
 	html:SetText(Html(run))
 	local height = html:GetContentHeight()
 	if height <= 0 then
-		height = GuessHeight(run, width - x)
+		height = GuessHeight(run, v.width - x)
 	end
 	html:SetHeight(height)
-	Place(html, x, y)
+	Place(v, html, x, y)
 	return y + height
 end
 
-local function NewCodeBox()
-	local box = CreateFrame("Frame", nil, ui.child)
+local function NewCodeBox(v)
+	local box = CreateFrame("Frame", nil, v.child)
 	local background = box:CreateTexture(nil, "BACKGROUND")
 	background:SetAllPoints()
 	background:SetColorTexture(0.03, 0.03, 0.03, 0.95)
@@ -213,32 +208,32 @@ local function SetCodeFont(text)
 	end
 end
 
-local function DrawCode(run, x, y)
+local function DrawCode(v, run, x, y)
 	local lines = {}
 	for i, block in ipairs(run) do
 		lines[i] = block.text
 	end
-	local box = Acquire(ui.pools.code)
+	local box = Acquire(v.pools.code)
 	SetCodeFont(box.text)
-	box.text:SetWidth(width - x - 2 * PAD)
+	box.text:SetWidth(v.width - x - 2 * PAD)
 	box.text:SetText(table.concat(lines, "\n"))
 	local height = box.text:GetStringHeight() + 2 * PAD
-	box:SetSize(width - x, height)
-	Place(box, x, y)
+	box:SetSize(v.width - x, height)
+	Place(v, box, x, y)
 	return y + height
 end
 
-local function DrawRule(x, y)
-	local rule = Acquire(ui.pools.rule)
-	rule:SetSize(width - x, 1)
-	Place(rule, x, y + 4)
+local function DrawRule(v, x, y)
+	local rule = Acquire(v.pools.rule)
+	rule:SetSize(v.width - x, 1)
+	Place(v, rule, x, y + 4)
 	return y + 9
 end
 
 -- Tables
 
-local function Cell(text, gold, w)
-	local cell = Acquire(ui.pools.cell)
+local function Cell(v, text, gold, w)
+	local cell = Acquire(v.pools.cell)
 	if gold then
 		cell:SetTextColor(1, 0.82, 0)
 	else
@@ -251,14 +246,14 @@ local function Cell(text, gold, w)
 end
 
 -- The width of each column, or nil when the table does not fit as a grid.
-local function ColumnWidths(rows, room)
+local function ColumnWidths(v, rows, room)
 	local widths, total = {}, 0
 	for _, row in ipairs(rows) do
 		if #row.cells > MAX_COLUMNS then
 			return nil
 		end
 		for i, text in ipairs(row.cells) do
-			local cell = Cell(text, false)
+			local cell = Cell(v, text, false)
 			widths[i] = math.max(widths[i] or 0, cell:GetUnboundedStringWidth() + 2 * CELL_PAD)
 		end
 	end
@@ -268,32 +263,32 @@ local function ColumnWidths(rows, room)
 	return total <= room and widths or nil
 end
 
-local function RowBackground(row, x, y, w, height)
-	local background = Acquire(ui.pools.band)
+local function RowBackground(v, row, x, y, w, height)
+	local background = Acquire(v.pools.band)
 	if row.header then
 		background:SetColorTexture(0.25, 0.19, 0.02, 0.9)
 	else
 		background:SetColorTexture(1, 1, 1, 0.05)
 	end
 	background:SetSize(w, height)
-	Place(background, x, y)
+	Place(v, background, x, y)
 end
 
-local function DrawGridRow(row, widths, x, y)
+local function DrawGridRow(v, row, widths, x, y)
 	local left, height = x, 0
 	for i, w in ipairs(widths) do
-		local cell = Cell(row.cells[i] or "", row.header, w - 2 * CELL_PAD)
-		Place(cell, left + CELL_PAD, y + 3)
+		local cell = Cell(v, row.cells[i] or "", row.header, w - 2 * CELL_PAD)
+		Place(v, cell, left + CELL_PAD, y + 3)
 		height = math.max(height, cell:GetStringHeight() + 6)
 		left = left + w
 	end
-	RowBackground(row, x, y, left - x, height)
+	RowBackground(v, row, x, y, left - x, height)
 	return y + height + 1
 end
 
-local function DrawGrid(rows, widths, x, y)
+local function DrawGrid(v, rows, widths, x, y)
 	for _, row in ipairs(rows) do
-		y = DrawGridRow(row, widths, x, y)
+		y = DrawGridRow(v, row, widths, x, y)
 	end
 	return y
 end
@@ -309,30 +304,30 @@ local function CardBody(row, header)
 end
 
 -- Too wide for a grid: each row is a card, its first cell in gold and the rest below.
-local function DrawCards(rows, x, y)
+local function DrawCards(v, rows, x, y)
 	local header = rows[1].header and rows[1] or nil
 	for _, row in ipairs(rows) do
 		if not row.header then
-			local title = Cell(row.cells[1] or "", true, width - x - CELL_PAD)
-			Place(title, x + CELL_PAD, y + 3)
-			local body = Cell(CardBody(row, header), false, width - x - 3 * CELL_PAD)
-			Place(body, x + 3 * CELL_PAD, y + 3 + title:GetStringHeight())
+			local title = Cell(v, row.cells[1] or "", true, v.width - x - CELL_PAD)
+			Place(v, title, x + CELL_PAD, y + 3)
+			local body = Cell(v, CardBody(row, header), false, v.width - x - 3 * CELL_PAD)
+			Place(v, body, x + 3 * CELL_PAD, y + 3 + title:GetStringHeight())
 			local height = title:GetStringHeight() + body:GetStringHeight() + 6
-			RowBackground(row, x, y, width - x, height)
+			RowBackground(v, row, x, y, v.width - x, height)
 			y = y + height + 2
 		end
 	end
 	return y
 end
 
-local function DrawTable(rows, x, y)
-	local mark = Mark()
-	local widths = ColumnWidths(rows, width - x)
-	ReleaseSince(mark)
+local function DrawTable(v, rows, x, y)
+	local mark = Mark(v)
+	local widths = ColumnWidths(v, rows, v.width - x)
+	ReleaseSince(v, mark)
 	if widths then
-		return DrawGrid(rows, widths, x, y)
+		return DrawGrid(v, rows, widths, x, y)
 	end
-	return DrawCards(rows, x, y)
+	return DrawCards(v, rows, x, y)
 end
 
 -- Neighbor blocks of one family draw as one widget.
@@ -346,18 +341,18 @@ local FAMILY = {
 	rule = "rule",
 }
 
-local function DrawRun(family, run, x, y)
+local function DrawRun(v, family, run, x, y)
 	if family == "html" then
-		return DrawHtml(run, x, y)
+		return DrawHtml(v, run, x, y)
 	elseif family == "code" then
-		return DrawCode(run, x, y)
+		return DrawCode(v, run, x, y)
 	elseif family == "table" then
-		return DrawTable(run, x, y)
+		return DrawTable(v, run, x, y)
 	end
-	return DrawRule(x, y)
+	return DrawRule(v, x, y)
 end
 
-local function DrawBlocks(blocks, x, y)
+local function DrawBlocks(v, blocks, x, y)
 	local i = 1
 	while i <= #blocks do
 		local family = FAMILY[blocks[i].kind]
@@ -366,31 +361,31 @@ local function DrawBlocks(blocks, x, y)
 			table.insert(run, blocks[i])
 			i = i + 1
 		end
-		y = DrawRun(family, run, x, y) + PAD
+		y = DrawRun(v, family, run, x, y) + PAD
 	end
 	return y
 end
 
-local function DrawLink(text, action, x, y)
-	local button = Acquire(ui.pools.link)
+local function DrawLink(v, text, action, x, y)
+	local button = Acquire(v.pools.link)
 	button.action = action
 	button.label:SetText(string.format("|cff%s%s|r", LINK, text))
 	button:SetSize(button.label:GetUnboundedStringWidth() + 4, 16)
-	Place(button, x, y)
+	Place(v, button, x, y)
 	return button
 end
 
-local function DrawUsage(text, y)
+local function DrawUsage(v, text, y)
 	local usage = ns.Blocks.Usage(text)
 	if not usage then
 		return y
 	end
-	return TextLine(string.format("|cff%s%s|r", GREY, ns.Relay.Plain(usage)), PAD, y, width - PAD)
+	return TextLine(v, string.format("|cff%s%s|r", GREY, ns.Relay.Plain(usage)), PAD, y, v.width - PAD)
 end
 
-local function DrawRendered(entry, prefix, y)
-	y = TextLine(prefix, 0, y, width - PIN_WIDTH)
-	return DrawBlocks(ns.Blocks.Parse(entry.text), PAD, y + 2)
+local function DrawRendered(v, entry, prefix, y)
+	y = TextLine(v, prefix, 0, y, v.width - PIN_WIDTH)
+	return DrawBlocks(v, ns.Blocks.Parse(entry.text), PAD, y + 2)
 end
 
 local function SetPinText(button, entry)
@@ -399,8 +394,8 @@ local function SetPinText(button, entry)
 	button:SetSize(button.label:GetUnboundedStringWidth() + 4, 16)
 end
 
-local function DrawPin(entry, y)
-	local button = DrawLink("Pin", nil, width - PIN_WIDTH + 8, y)
+local function DrawPin(v, entry, y)
+	local button = DrawLink(v, "Pin", nil, v.width - PIN_WIDTH + 8, y)
 	button.action = function()
 		ns.Pins.Toggle(entry)
 		SetPinText(button, entry)
@@ -409,19 +404,19 @@ local function DrawPin(entry, y)
 end
 
 -- If anything fails while it draws, the reply shows as plain text.
-local function DrawReply(entry, prefix, y)
-	DrawPin(entry, y)
+local function DrawReply(v, entry, prefix, y)
+	DrawPin(v, entry, y)
 	local text = entry.text
 	if ns.Blocks.IsRendered(text) then
-		local mark = Mark()
-		local ok, bottom = pcall(DrawRendered, entry, prefix, y)
+		local mark = Mark(v)
+		local ok, bottom = pcall(DrawRendered, v, entry, prefix, y)
 		if ok then
 			return bottom
 		end
-		ReleaseSince(mark)
+		ReleaseSince(v, mark)
 		text = ns.Blocks.Plain(text)
 	end
-	return TextLine(prefix .. PlainText(text), 0, y, width - PIN_WIDTH)
+	return TextLine(v, prefix .. PlainText(text), 0, y, v.width - PIN_WIDTH)
 end
 
 local function DeliveryText(entry)
@@ -438,35 +433,35 @@ local function DeliveryText(entry)
 end
 
 -- A state that ends hides its line. The line keeps its room, so nothing moves.
-local function UpdateDelivery()
-	for i = #open, 1, -1 do
-		local text = DeliveryText(open[i].entry)
-		open[i].line:SetShown(text ~= nil)
-		open[i].line:SetText(text and string.format("|cff%s%s|r", GREY, text) or "")
+local function UpdateDelivery(v)
+	for i = #v.open, 1, -1 do
+		local text = DeliveryText(v.open[i].entry)
+		v.open[i].line:SetShown(text ~= nil)
+		v.open[i].line:SetText(text and string.format("|cff%s%s|r", GREY, text) or "")
 		if not text then
-			table.remove(open, i)
+			table.remove(v.open, i)
 		end
 	end
 end
 
-local function DrawMessage(entry, y)
+local function DrawMessage(v, entry, y)
 	local text = Prefix("You", YOU) .. PlainText(ns.Changes.Label(entry))
 	if entry.answered then
-		return TextLine(text, 0, y, width)
+		return TextLine(v, text, 0, y, v.width)
 	end
-	local line = Acquire(ui.pools.status)
+	local line = Acquire(v.pools.status)
 	line:SetWidth(STATUS_WIDTH)
-	Place(line, width - STATUS_WIDTH, y)
-	table.insert(open, { entry = entry, line = line, index = drawn.count })
-	return TextLine(text, 0, y, width - STATUS_WIDTH)
+	Place(v, line, v.width - STATUS_WIDTH, y)
+	table.insert(v.open, { entry = entry, line = line, index = v.drawn.count })
+	return TextLine(v, text, 0, y, v.width - STATUS_WIDTH)
 end
 
-local function DrawResend(message, y)
-	local button = Acquire(ui.pools.resend)
+local function DrawResend(v, message, y)
+	local button = Acquire(v.pools.resend)
 	button.message = message
 	button.label:SetText(string.format("|cff%sResend|r", LINK))
 	button:SetSize(button.label:GetUnboundedStringWidth() + 4, 16)
-	Place(button, 0, y + 2)
+	Place(v, button, 0, y + 2)
 	return y + 20
 end
 
@@ -481,168 +476,168 @@ local function RelayWords(text)
 end
 
 -- The answer to Checks is only blocks, and its blocks say it all.
-local function RelayLine(text, y)
+local function RelayLine(v, text, y)
 	local words = RelayWords(text)
 	if words == "" and ns.Blocks.Git(text) then
 		return y
 	end
-	return TextLine(string.format("|cff%s[Relay]: %s|r", GREY, words), 0, y, width)
+	return TextLine(v, string.format("|cff%s[Relay]: %s|r", GREY, words), 0, y, v.width)
 end
 
 -- An error comes from the relay, not from the agent, so it has its own grey line. An
 -- error of a run can still have changes, and needs Revert most (SPEC.md 9.11).
-local function DrawError(chat, entry, y)
-	y = ns.Changes.Draw(chat, entry, RelayLine(entry.text, y), width)
+local function DrawError(v, chat, entry, y)
+	y = ns.Changes.Draw(v.canvas, chat, entry, RelayLine(v, entry.text, y), v.width)
 	local message = entry.id and ns.Store.Message(chat, entry.id)
 	if message and not message.attach and not message.git and message.text ~= "" then
-		y = DrawResend(message, y)
+		y = DrawResend(v, message, y)
 	end
 	return y
 end
 
 -- An error that looks rendered with no blocks of the bridge is text.
-local function DrawEntry(chat, entry, y)
+local function DrawEntry(v, chat, entry, y)
 	if entry.attach then
-		return TextLine(string.format('|cff%sResumed "%s"|r', GREY, ns.Relay.Plain(chat.name)), 0, y, width)
+		return TextLine(v, string.format('|cff%sResumed "%s"|r', GREY, ns.Relay.Plain(chat.name)), 0, y, v.width)
 	elseif entry.role == "user" then
-		return DrawMessage(entry, y)
+		return DrawMessage(v, entry, y)
 	elseif entry.role == "error" then
-		return DrawError(chat, entry, y)
+		return DrawError(v, chat, entry, y)
 	elseif entry.role == "note" then
-		return ns.Changes.Draw(chat, entry, RelayLine(entry.text, y), width)
+		return ns.Changes.Draw(v.canvas, chat, entry, RelayLine(v, entry.text, y), v.width)
 	end
 	local agent = entry.agent or chat.agent
-	y = DrawReply(entry, Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), y)
-	y = ns.Changes.Draw(chat, entry, y, width)
-	return DrawUsage(entry.text, y)
+	y = DrawReply(v, entry, Prefix(ns.Relay.AgentName(agent), ns.Relay.AgentColor(agent)), y)
+	y = ns.Changes.Draw(v.canvas, chat, entry, y, v.width)
+	return DrawUsage(v, entry.text, y)
 end
 
-local function ScrollTo(offset)
-	local most = math.max(0, contentHeight - viewHeight)
-	ui.scroll:SetVerticalScroll(math.max(0, math.min(most, offset)))
+local function ScrollTo(v, offset)
+	local most = math.max(0, v.contentHeight - v.viewHeight)
+	v.scroll:SetVerticalScroll(math.max(0, math.min(most, offset)))
 end
 
 -- The drawn entries are still the start of the history. A history over its limit drops
 -- its first entry, and then the whole chat draws again.
-local function OnlyNewEntries(chat, history)
-	if drawn.chatId ~= (chat and chat.id) or drawn.fontSize ~= FontSize() or drawn.width ~= width then
+local function OnlyNewEntries(v, chat, history)
+	if v.drawn.chatId ~= (chat and chat.id) or v.drawn.fontSize ~= FontSize() or v.drawn.width ~= v.width then
 		return false
 	end
-	return drawn.count == 0 or (history[1] == drawn.first and history[drawn.count] == drawn.last)
+	return v.drawn.count == 0 or (history[1] == v.drawn.first and history[v.drawn.count] == v.drawn.last)
 end
 
-local function Clear(chat)
-	for _, pool in pairs(ui.pools) do
+local function Clear(v, chat)
+	for _, pool in pairs(v.pools) do
 		ReleaseAll(pool)
 	end
-	contentHeight = 0
-	drawn = {
+	v.contentHeight = 0
+	v.drawn = {
 		count = 0,
 		tops = {},
 		marks = {},
 		chat = chat,
 		chatId = chat and chat.id,
 		fontSize = FontSize(),
-		width = width,
+		width = v.width,
 	}
-	open = {}
+	v.open = {}
 end
 
 -- Gives back the widgets of entry `from` and of every entry below it.
-local function ForgetFrom(from)
-	ReleaseSince(drawn.marks[from])
-	for i = #open, 1, -1 do
-		if open[i].index >= from then
-			table.remove(open, i)
+local function ForgetFrom(v, from)
+	ReleaseSince(v, v.drawn.marks[from])
+	for i = #v.open, 1, -1 do
+		if v.open[i].index >= from then
+			table.remove(v.open, i)
 		end
 	end
-	drawn.count = from - 1
-	contentHeight = drawn.tops[from]
+	v.drawn.count = from - 1
+	v.contentHeight = v.drawn.tops[from]
 end
 
-local function IndexOf(history, entry)
-	for i = 1, drawn.count do
+local function IndexOf(v, history, entry)
+	for i = 1, v.drawn.count do
 		if history[i] == entry then
 			return i
 		end
 	end
 end
 
-local function PlaceMark()
-	local history = drawn.chat and drawn.chat.history or {}
-	local i = marked and IndexOf(history, marked)
-	ui.mark:SetShown(i ~= nil)
+local function PlaceMark(v)
+	local history = v.drawn.chat and v.drawn.chat.history or {}
+	local i = v.marked and IndexOf(v, history, v.marked)
+	v.mark:SetShown(i ~= nil)
 	if not i then
 		return
 	end
-	local bottom = i < drawn.count and drawn.tops[i + 1] or contentHeight
-	ui.mark:SetSize(width, bottom - GAP - drawn.tops[i] + 4)
-	Place(ui.mark, 0, drawn.tops[i] - 2)
+	local bottom = i < v.drawn.count and v.drawn.tops[i + 1] or v.contentHeight
+	v.mark:SetSize(v.width, bottom - GAP - v.drawn.tops[i] + 4)
+	Place(v, v.mark, 0, v.drawn.tops[i] - 2)
 end
 
 -- Draws the entries after the drawn ones, and returns the new bottom.
-local function DrawNew(chat, history)
-	local y = contentHeight
-	for i = drawn.count + 1, #history do
-		drawn.tops[i], drawn.marks[i] = y, Mark()
-		drawn.count = i
-		y = DrawEntry(chat, history[i], y) + GAP
+local function DrawNew(v, chat, history)
+	local y = v.contentHeight
+	for i = v.drawn.count + 1, #history do
+		v.drawn.tops[i], v.drawn.marks[i] = y, Mark(v)
+		v.drawn.count = i
+		y = DrawEntry(v, chat, history[i], y) + GAP
 	end
-	drawn.count, drawn.first, drawn.last = #history, history[1], history[#history]
-	UpdateDelivery()
-	contentHeight = y
-	ui.child:SetHeight(math.max(y, 1))
-	PlaceMark()
+	v.drawn.count, v.drawn.first, v.drawn.last = #history, history[1], history[#history]
+	UpdateDelivery(v)
+	v.contentHeight = y
+	v.child:SetHeight(math.max(y, 1))
+	PlaceMark(v)
 	return y
 end
 
 -- Drawing costs time, so only new entries draw. The whole chat draws again only when
 -- the chat, the font size, or the width changes.
-function Transcript.Show(chat)
+function View:Show(chat)
 	local history = chat and chat.history or {}
-	if not OnlyNewEntries(chat, history) then
-		Clear(chat)
+	if not OnlyNewEntries(self, chat, history) then
+		Clear(self, chat)
 	end
-	if #history == drawn.count and drawn.count > 0 then
-		UpdateDelivery()
+	if #history == self.drawn.count and self.drawn.count > 0 then
+		UpdateDelivery(self)
 		return
 	end
-	ScrollTo(DrawNew(chat, history))
+	ScrollTo(self, DrawNew(self, chat, history))
 end
 
 -- Draws again from `entry` down, and keeps the scroll where it is.
-local function RedrawFrom(entry)
-	local chat = drawn.chat
+local function RedrawFrom(v, entry)
+	local chat = v.drawn.chat
 	local history = chat and chat.history or {}
-	local i = OnlyNewEntries(chat, history) and IndexOf(history, entry)
+	local i = OnlyNewEntries(v, chat, history) and IndexOf(v, history, entry)
 	if i then
-		ForgetFrom(i)
+		ForgetFrom(v, i)
 	else
-		Clear(chat)
+		Clear(v, chat)
 	end
-	local offset = ui.scroll:GetVerticalScroll()
-	DrawNew(chat, history)
-	ScrollTo(offset)
+	local offset = v.scroll:GetVerticalScroll()
+	DrawNew(v, chat, history)
+	ScrollTo(v, offset)
 end
 
 -- Scrolls `entry` to the top and marks it with a band.
-function Transcript.JumpTo(entry)
-	marked = entry
-	PlaceMark()
-	local i = drawn.chat and IndexOf(drawn.chat.history, entry)
+function View:JumpTo(entry)
+	self.marked = entry
+	PlaceMark(self)
+	local i = self.drawn.chat and IndexOf(self, self.drawn.chat.history, entry)
 	if i then
-		ScrollTo(drawn.tops[i] - 2)
+		ScrollTo(self, self.drawn.tops[i] - 2)
 	end
 end
 
-function Transcript.Unmark()
-	marked = nil
-	ui.mark:Hide()
+function View:Unmark()
+	self.marked = nil
+	self.mark:Hide()
 end
 
-local function NewTexture(layer, r, g, b, a)
+local function NewTexture(v, layer, r, g, b, a)
 	return function()
-		local texture = ui.child:CreateTexture(nil, layer)
+		local texture = v.child:CreateTexture(nil, layer)
 		if r then
 			texture:SetColorTexture(r, g, b, a)
 		end
@@ -650,9 +645,9 @@ local function NewTexture(layer, r, g, b, a)
 	end
 end
 
-local function NewFontString(template, font)
+local function NewFontString(v, template, font)
 	return function()
-		local text = ui.child:CreateFontString(nil, "OVERLAY", template)
+		local text = v.child:CreateFontString(nil, "OVERLAY", template)
 		text:SetJustifyH("LEFT")
 		if font then
 			text:SetFontObject(font)
@@ -661,21 +656,20 @@ local function NewFontString(template, font)
 	end
 end
 
-local resends = 0
-
-local function NewResend()
-	resends = resends + 1
-	local button = CreateFrame("Button", "GnomishRelayResend" .. resends, ui.child)
+-- Resend sends to the chat of the view, which is not always the chat of the window.
+local function NewResend(v)
+	v.resends = v.resends + 1
+	local button = CreateFrame("Button", v.prefix .. "Resend" .. v.resends, v.child)
 	button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	button.label:SetPoint("LEFT", button, "LEFT", 0, 0)
 	button:SetScript("OnClick", function(self)
-		ns.Window.Resend(self.message)
+		ns.Window.Resend(v.drawn.chat, self.message)
 	end)
 	return button
 end
 
-local function NewLink()
-	local button = CreateFrame("Button", nil, ui.child)
+local function NewLink(v)
+	local button = CreateFrame("Button", nil, v.child)
 	button.label = button:CreateFontString(nil, "OVERLAY", "GameFontHighlightSmall")
 	button.label:SetPoint("LEFT", button, "LEFT", 0, 0)
 	button:SetScript("OnClick", function(self)
@@ -684,59 +678,101 @@ local function NewLink()
 	return button
 end
 
+local function RedrawIn(v, entry)
+	local history = v.drawn.chat and v.drawn.chat.history or {}
+	if not IndexOf(v, history, entry) then
+		return
+	end
+	local grew = #history > v.drawn.count
+	RedrawFrom(v, entry)
+	if grew then
+		ScrollTo(v, v.contentHeight)
+	end
+end
+
 -- An old entry changed. An entry that is not on screen draws later as it is now. A new
 -- entry below it still scrolls to the bottom.
 function Transcript.Redraw(entry)
-	local history = drawn.chat and drawn.chat.history or {}
-	if not IndexOf(history, entry) then
-		return
-	end
-	local grew = #history > drawn.count
-	RedrawFrom(entry)
-	if grew then
-		ScrollTo(contentHeight)
+	for _, v in ipairs(views) do
+		RedrawIn(v, entry)
 	end
 end
 
 -- The next Show draws the whole chat again for the new width. A new height keeps the
 -- line at the bottom of the view in place.
-function Transcript.Resize(w, h)
-	local grown = viewHeight and h - viewHeight or 0
-	width, viewHeight = w, h
-	ui.scroll:SetSize(w, h)
-	ui.child:SetWidth(w)
-	ScrollTo(ui.scroll:GetVerticalScroll() - grown)
+function View:Resize(w, h)
+	local grown = self.viewHeight and h - self.viewHeight or 0
+	self.width, self.viewHeight = w, h
+	self.scroll:SetSize(w, h)
+	self.child:SetWidth(w)
+	ScrollTo(self, self.scroll:GetVerticalScroll() - grown)
 end
 
--- `parent` is the inset of the log. The window gives the size, so the layout needs no
--- frame sizes.
-function Transcript.Build(parent, w, h)
-	ui.scroll = CreateFrame("ScrollFrame", "GnomishRelayScroll", parent)
-	ui.scroll:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -6)
-	ui.child = CreateFrame("Frame", "GnomishRelayTranscript", ui.scroll)
-	ui.child:SetHeight(1)
-	Transcript.Resize(w, h)
-	ui.scroll:SetScrollChild(ui.child)
-	ui.mark = ui.child:CreateTexture("GnomishRelayMark", "BACKGROUND")
-	ui.mark:SetColorTexture(1, 0.82, 0, 0.12)
-	ui.mark:Hide()
-	ui.scroll:EnableMouseWheel(true)
-	ui.scroll:SetScript("OnMouseWheel", function(self, delta)
-		ScrollTo(self:GetVerticalScroll() - delta * WHEEL_STEP)
-	end)
-	ui.pools = {
-		text = NewPool(NewFontString("GameFontHighlight", ChatFontNormal)),
-		cell = NewPool(NewFontString("GameFontHighlightSmall")),
-		status = NewPool(NewFontString("GameFontDisableSmall")),
-		resend = NewPool(NewResend),
-		link = NewPool(NewLink),
-		html = NewPool(NewHtml),
-		code = NewPool(NewCodeBox),
-		rule = NewPool(NewTexture("ARTWORK", 0.6, 0.5, 0.2, 0.8)),
-		band = NewPool(NewTexture("BACKGROUND")),
+local function BuildPools(v)
+	local function Of(create)
+		return NewPool(function()
+			return create(v)
+		end)
+	end
+	v.pools = {
+		text = NewPool(NewFontString(v, "GameFontHighlight", ChatFontNormal)),
+		cell = NewPool(NewFontString(v, "GameFontHighlightSmall")),
+		status = NewPool(NewFontString(v, "GameFontDisableSmall")),
+		resend = Of(NewResend),
+		link = Of(NewLink),
+		html = Of(NewHtml),
+		code = Of(NewCodeBox),
+		rule = NewPool(NewTexture(v, "ARTWORK", 0.6, 0.5, 0.2, 0.8)),
+		band = NewPool(NewTexture(v, "BACKGROUND")),
 	}
 	-- A draw again from one entry gives back the change blocks below it too.
-	for name, pool in pairs(ns.Changes.Build(ui.child)) do
-		ui.pools["changes_" .. name] = pool
+	for name, pool in pairs(v.canvas.pools) do
+		v.pools["changes_" .. name] = pool
 	end
+end
+
+-- A transcript in `parent`, with frame names that start with `prefix`. The owner gives
+-- the size, so the layout needs no frame sizes.
+function Transcript.New(parent, w, h, prefix)
+	local v = setmetatable({ prefix = prefix, resends = 0, contentHeight = 0, open = {} }, View)
+	v.drawn = { count = 0, tops = {}, marks = {} }
+	v.scroll = CreateFrame("ScrollFrame", prefix .. "Scroll", parent)
+	v.scroll:SetPoint("TOPLEFT", parent, "TOPLEFT", 8, -6)
+	v.child = CreateFrame("Frame", prefix .. "Transcript", v.scroll)
+	v.child:SetHeight(1)
+	v:Resize(w, h)
+	v.scroll:SetScrollChild(v.child)
+	v.mark = v.child:CreateTexture(prefix .. "Mark", "BACKGROUND")
+	v.mark:SetColorTexture(1, 0.82, 0, 0.12)
+	v.mark:Hide()
+	v.scroll:EnableMouseWheel(true)
+	v.scroll:SetScript("OnMouseWheel", function(self, delta)
+		ScrollTo(v, self:GetVerticalScroll() - delta * WHEEL_STEP)
+	end)
+	v.canvas = ns.Changes.Canvas(v.child)
+	BuildPools(v)
+	table.insert(views, v)
+	return v
+end
+
+-- The transcript of the window. Search and Pins work on this one.
+function Transcript.Build(parent, w, h)
+	main = Transcript.New(parent, w, h, "GnomishRelay")
+	ns.Changes.Build()
+end
+
+function Transcript.Show(chat)
+	main:Show(chat)
+end
+
+function Transcript.Resize(w, h)
+	main:Resize(w, h)
+end
+
+function Transcript.JumpTo(entry)
+	main:JumpTo(entry)
+end
+
+function Transcript.Unmark()
+	main:Unmark()
 end
