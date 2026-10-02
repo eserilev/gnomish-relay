@@ -16,7 +16,7 @@ checksum = "330a5ed07fa54e4702c9d6c4174f74427fc0ef6e214bbd677ae50a5099946470"
 
 [[package]]
 name = "app-protocol"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "protocol",
  "serde",
@@ -52,7 +52,7 @@ dependencies = [
 
 [[package]]
 name = "bridge"
-version = "0.4.4"
+version = "0.5.0"
 dependencies = [
  "anyhow",
  "app-protocol",
@@ -444,7 +444,7 @@ dependencies = [
 
 [[package]]
 name = "protocol"
-version = "0.4.4"
+version = "0.5.0"
 
 [[package]]
 name = "protocol-fuzz"

@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.5.0
+
+- **TBC Anniversary.** Gnomish Relay now works in WoW Classic: TBC Anniversary too. Get
+  the addon on CurseForge, then run `gnomish-relay setup` on your desktop.
+- If you have both WoW: Forever and TBC Anniversary, the desktop app uses the one you
+  played last. To switch, run `gnomish-relay setup --wow <folder>`.
+
 ## 0.4.4
 
 - **Mini chats.** Pop a chat out into its own small window, and keep an eye on it while you
