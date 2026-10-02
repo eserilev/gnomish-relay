@@ -1,4 +1,4 @@
-## Interface: 16001
+## Interface: 16001, 20506
 ## Title: Gnomish Relay self-test
 ## Notes: Measures the game for the tests of Gnomish Relay. For developers only. Never ship it.
 ## Version: 1

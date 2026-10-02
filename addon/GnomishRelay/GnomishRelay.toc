@@ -1,4 +1,4 @@
-## Interface: 16001
+## Interface: 16001, 20506
 ## Title: Gnomish Relay
 ## Notes: Talk to your coding agents from the game.
 ## Version: 0.4.4

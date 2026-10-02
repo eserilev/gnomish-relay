@@ -1,4 +1,4 @@
-## Interface: 16001
+## Interface: 16001, 20506
 ## Title: Gnomish Relay self-test (Off)
 ## Notes: A load-on-demand addon for the self-test. Never ship it.
 ## LoadOnDemand: 1

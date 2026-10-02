@@ -7,7 +7,7 @@ Draft 4 makes the spec match the code where they disagreed, and marks the parts 
 
 ## 1. Summary
 
-Gnomish Relay connects AI coding agents to World of Warcraft: Forever.
+Gnomish Relay connects AI coding agents to World of Warcraft: Forever and WoW Classic: TBC Anniversary (7.9).
 You send a task from a chat window in the game. The agent does the work on your computer.
 The reply comes back into the game with a whisper sound.
 
@@ -32,7 +32,7 @@ Gnomish Relay has two parts:
 
 - Automation of gameplay. The addon never acts in the game for the player.
 - Compatibility with `wow-claude` on the wire. Gnomish Relay has its own magic bytes and version byte.
-- Other WoW versions. The first target is WoW: Forever only.
+- Other WoW versions. Gnomish Relay supports only the clients of 7.9.
 - A hosted service. Everything runs on the local machine.
 
 ## 4. Prior work and credits
@@ -977,7 +977,7 @@ Writing all 1000 slots at every publish costs too much disk: a 20 KB body every 
 
 Each slot is a folder `GnomishRelay_S0001` to `GnomishRelay_S1000` with four files:
 
-- `GnomishRelay_SNNNN.toc`: `## Interface: 16001`, a grey `## Title` ("Gnomish Relay reply slot NNNN (leave on)"), `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the three Lua file names. The AddOns list of the game shows all 1000 slots, so the title says what they are and that the player leaves them on.
+- `GnomishRelay_SNNNN.toc`: the `## Interface` list of 7.9, a grey `## Title` ("Gnomish Relay reply slot NNNN (leave on)"), `## LoadOnDemand: 1`, `## Dependencies: GnomishRelay`, and the three Lua file names. The AddOns list of the game shows all 1000 slots, so the title says what they are and that the player leaves them on.
 - `Inbox.lua`: the body.
 - `Restore.lua`: the restore bundle (7.6). With no restore, its token is empty, and no addon takes it.
 - `Live.lua`: the progress lines of each run, and the permission requests for the game (9.3, S20, S21).
@@ -1079,7 +1079,7 @@ An addon app such as CurseForge replaces the whole folder of an addon at each up
 | Relay | `GnomishRelay_Key` | `GnomishRelayKey` | `App.lua` names both. `KeyHandoff.lua` (shared) takes the key. |
 | Timeways | `Timeways_Key` | `TimewaysKey` | The same, in the Timeways repo. |
 
-- The key addon holds two files. `<name>.toc` has `## Interface: 16001`, a grey `## Title` ("Gnomish Relay key (leave on)"), a `## Notes` line, `## LoadOnDemand: 1`, and `Key.lua`. It has no `## Dependencies`. `Key.lua` is one line: `GnomishRelayKey = "<64 hex digits>"`. The desktop app writes it only from a key of 64 hex digits, with mode 0600, in a folder with mode 0700, and never through a link.
+- The key addon holds two files. `<name>.toc` has the `## Interface` list of 7.9, a grey `## Title` ("Gnomish Relay key (leave on)"), a `## Notes` line, `## LoadOnDemand: 1`, and `Key.lua`. It has no `## Dependencies`. `Key.lua` is one line: `GnomishRelayKey = "<64 hex digits>"`. The desktop app writes it only from a key of 64 hex digits, with mode 0600, in a folder with mode 0700, and never through a link.
 - The app addon lists `KeyHandoff.lua` right after `App.lua`, before each file that reads `ns.key`. `KeyHandoff.lua` calls `C_AddOns.EnableAddOn` and `C_AddOns.LoadAddOn` for the key addon. On the next line it reads the global with `rawget` and sets it to nil with `rawset`. It keeps the key in `ns.key` only when the value is a string of 64 hex digits.
 - The desktop app writes the key addon and the slots. It never writes the relay addon `GnomishRelay`: players get it only from CurseForge (11.3). The CurseForge app manages only that folder. So an update of the addon never removes a key or a slot.
 - **Three tries** (asked for on 2026-09-30, before any test in the real game). Nobody has checked that `LoadAddOn` of a load-on-demand addon works during the file load of another addon in the Forever client. So `KeyHandoff.Try` runs at the file load, again in the `ADDON_LOADED` of the app, and again at `PLAYER_LOGIN`. A try runs only while the app has no key, and the first key wins. Each try reads the global and clears it in the same call. The two later tries widen the exposure below: see the last point of it. Only when all three fail does the app have no key. `/relay diag` shows "Gnomish Relay: key loaded at <step>": `file load`, `ADDON_LOADED`, or `PLAYER_LOGIN`. With no key, `/relay diag` shows only the login line of the first-run window: it says what to do next.
@@ -1210,6 +1210,19 @@ A client patch can break either one. So a patch costs a day of work, not the pro
 - Selene allows only the globals in `wow.yml`. The fake game refuses every method and child key that the real kind and template of an object do not have. The fake game does not check argument counts: the docs mark some arguments as required that the client accepts as missing, for example the last four of `SetPoint`.
 - CI runs the script at the pinned commits, and fails if `api.lua` or `api-signatures.lua` changes. A nightly job runs it at the newest commits with the addon tests, and opens an issue when the client changes.
 - Other addon repos run the same script with their own paths: `wow-api.sh --addon <folder> --lint <wow.yml> --api <file> --signatures <file>`. With no path, it checks this addon.
+
+### 7.9 Supported clients
+
+Gnomish Relay supports two WoW clients. `crates/bridge/src/wow_client.rs` lists them, in this order.
+
+| Client | Folder in `World of Warcraft` | `## Interface` | Measured build |
+|---|---|---|---|
+| WoW: Forever | `_classic_beta_` | `16001` | 1.60.1 |
+| WoW Classic: TBC Anniversary | `_anniversary_` | `20506` | 2.5.6.69795, on the 12.0.7 engine |
+
+- **One addon for all clients.** Each TOC lists every number: `## Interface: 16001, 20506`. The game loads an addon when one number matches it. This applies to the relay addon, the key addons (7.3.2), and the slots (7.3). So one CurseForge file serves each client, and the desktop app writes the same files for each one.
+- **One game folder at a time.** Setup searches each client folder (11.3). With more than one, it takes the one played last. The desktop app serves only the folder of `[wow]` in the config. *Why not both at once:* each folder needs its own slots, key addon, saved-variables watch, and screenshot watch. Nobody has asked to play two clients at the same time.
+- **TBC Anniversary passes the rules of 7.2.** The self-test (14.3.1) ran on 2026-10-02. All six line modes read clean, and `Screenshot()` works from an addon. A load-on-demand addon whose file changed after launch loads the new content, so rule 2 holds.
 
 ## 8. Architecture
 
@@ -2409,7 +2422,7 @@ Only a few paths change per platform. All other code is shared.
 
 | Part | Linux | Windows | macOS |
 |---|---|---|---|
-| WoW folder | Inside the Wine prefix | `Program Files (x86)\World of Warcraft\_classic_beta_` | `/Applications/World of Warcraft/_classic_beta_` |
+| WoW folder | Inside the Wine prefix | `Program Files (x86)\World of Warcraft\<client folder>` | `/Applications/World of Warcraft/<client folder>` |
 | Notifications from hooks (10.2) | A spool folder | A spool folder | A spool folder |
 | Replace a file that the game has open | Rename always works | Rename can fail. Retry with backoff, then log. | Rename always works |
 
@@ -2447,11 +2460,11 @@ The install scripts put the program on `PATH`, also in the open terminal on Wind
 
 **`gnomish-relay setup`** sets up Gnomish Relay. It does every step, and a second run changes nothing that works. `gnomish-relay setup --timeways` sets up Timeways: the same steps for its own files, and the steps of 11.4 and 11.6 (9.7, decision 15). Neither one sets up the other product.
 
-1. **Find the game.** It looks for a `_classic_beta_` folder in the default places and in the install paths of Battle.net's `product.db`:
+1. **Find the game.** It looks for each client folder of 7.9 (`_classic_beta_`, `_anniversary_`) in the default places and in the install paths of Battle.net's `product.db`:
    - Windows: `Program Files (x86)\World of Warcraft`, and `%ProgramData%\Battle.net\Agent\product.db`.
    - macOS: `/Applications/World of Warcraft`, and `/Users/Shared/Battle.net/Agent/product.db`.
    - Linux: each Wine prefix (`~/.wine`, `~/Games/*`, Bottles also as a Flatpak, and Steam Proton), with the `product.db` of the prefix. `C:` maps to `drive_c`, and other drives to `dosdevices`.
-   Setup asks no path question. A config with a game folder that exists skips the search, so a choice stays. With more than one, setup takes the one played last: the one whose `WTF` folder holds the newest file (`Config.wtf` and the saved variables, which WoW writes at each logout). It says "Using WoW at <path>. To use another one, run gnomish-relay setup --wow <folder>." With none, setup still does each step that needs no game: the keys, the config with no `[wow]`, and the autostart. It skips the key addons and the slots, and its last line is "WoW not found. Start WoW once, then run gnomish-relay setup." ("Timeways: WoW not found. Start WoW once, then run gnomish-relay setup --timeways." for Timeways). The next setup finds the game, and adds `[wow]` to the config. A desktop app with no `[wow]` prints the same line and ends with success, so the login service does not start it again. So with no game, the autostart only registers the start at login. `status` prints the line after "Config: OK", and `restart` stops with it. `setup --wow <folder>`, or `setup <folder>`, skips the search, and takes the `World of Warcraft` folder or `_classic_beta_`. It also puts that folder into `[wow]` of a config that exists. It makes `Interface/AddOns` if WoW has not made it yet, and it finds that folder in any case.
+   Setup asks no path question. A config with a game folder that exists skips the search, so a choice stays. With more than one, setup takes the one played last: the one whose `WTF` folder holds the newest file (`Config.wtf` and the saved variables, which WoW writes at each logout). It says "Using WoW at <path>. To use another one, run gnomish-relay setup --wow <folder>." With none, setup still does each step that needs no game: the keys, the config with no `[wow]`, and the autostart. It skips the key addons and the slots, and its last line is "WoW not found. Start WoW once, then run gnomish-relay setup." ("Timeways: WoW not found. Start WoW once, then run gnomish-relay setup --timeways." for Timeways). The next setup finds the game, and adds `[wow]` to the config. A desktop app with no `[wow]` prints the same line and ends with success, so the login service does not start it again. So with no game, the autostart only registers the start at login. `status` prints the line after "Config: OK", and `restart` stops with it. `setup --wow <folder>`, or `setup <folder>`, skips the search, and takes a client folder, or the `World of Warcraft` folder. In a `World of Warcraft` folder with more than one client, it takes the first one in the order of 7.9. It also puts that folder into `[wow]` of a config that exists. It makes `Interface/AddOns` if WoW has not made it yet, and it finds that folder in any case.
 2. **Make the keys**, 32 random bytes from the OS each, with mode 0600, once: `strip.key` when it is missing, and `timeways.key` only with `--timeways`. A `Timeways` addon folder alone makes no Timeways key. The Timeways key is never equal to the strip key. `--new-key` makes a new key only for the product of this setup (9.7, decision 15), and then its addon needs a `/reload`.
 3. **Write the key addons, and check the relay addon.** A plain setup writes the key addon `GnomishRelay_Key` from the strip key (7.3.2). It deletes an old `Key.lua` in the real folder of `GnomishRelay`, also through a link (a developer checkout, 16). It writes no other file there. Then it finds `GnomishRelay` in any case, and checks its version (7.7):
    - With no folder, setup says "Get the Gnomish Relay addon on CurseForge: https://www.curseforge.com/projects/1719624. Install it with the CurseForge app, then restart WoW." It still makes the slots, the config, and the autostart, so the player can install the addon after.

@@ -9,7 +9,7 @@ wow=${WOW_DIR:-$HOME/Games/battlenet/drive_c/Program Files (x86)/World of Warcra
 addons="$wow/Interface/AddOns"
 
 if [ ! -d "$addons" ]; then
-  echo "error: $addons not found. Set WOW_DIR to the _classic_beta_ folder." >&2
+  echo "error: $addons not found. Set WOW_DIR to the client folder: _classic_beta_ or _anniversary_." >&2
   exit 1
 fi
 

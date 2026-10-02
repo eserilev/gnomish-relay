@@ -15,15 +15,13 @@ use crate::config::{Found, Kind};
 use crate::folder_walk::{Limits, is_repo, subfolders};
 use crate::fs_safe::{check_real_dir, make_private_dir, write_atomic_unsynced, write_private};
 use crate::ids::random_hex;
+use crate::wow_client::{TOC_INTERFACE, WowClient};
 use crate::wsl;
 
 pub const ADDON: &str = "GnomishRelay";
 pub const TIMEWAYS: &str = "Timeways";
 pub const KEY_FILE: &str = "Key.lua";
-/// The `## Interface` of every addon that the desktop app writes: the Forever client.
-pub const INTERFACE: &str = "16001";
 
-const GAME: &str = "_classic_beta_";
 const WOW: &str = "World of Warcraft";
 const PRODUCT_DB: [&str; 4] = ["ProgramData", "Battle.net", "Agent", "product.db"];
 
@@ -55,8 +53,8 @@ pub fn addons_dir(game: &Path) -> PathBuf {
     child_any_case(&interface, "AddOns").unwrap_or_else(|| interface.join("AddOns"))
 }
 
-/// The `_classic_beta_` folder of a folder that the user gives: that folder, or the
-/// one inside it. A dragged path comes with quotes.
+/// The client folder of a folder that the user gives: that folder, or the first client
+/// folder inside it. A dragged path comes with quotes.
 pub fn game_folder(given: &str) -> PathBuf {
     game_folder_under(given, windows_root())
 }
@@ -72,11 +70,16 @@ pub fn game_folder_under(given: &str, windows_root: Option<&Path>) -> PathBuf {
     let text = given.trim().trim_matches(|c| c == '"' || c == '\'');
     let mapped = windows_root.and_then(|root| wsl::windows_to_wsl(root, text));
     let path = mapped.unwrap_or_else(|| PathBuf::from(text));
-    if path.file_name().is_some_and(|n| n == GAME) {
+    if is_client_folder(&path) {
         return path;
     }
-    let inner = path.join(GAME);
-    if inner.is_dir() { inner } else { path }
+    let mut inner = WowClient::ALL.iter().map(|c| path.join(c.folder()));
+    inner.find(|game| game.is_dir()).unwrap_or(path)
+}
+
+fn is_client_folder(path: &Path) -> bool {
+    let name = path.file_name().and_then(OsStr::to_str);
+    name.and_then(WowClient::of_folder_name).is_some()
 }
 
 /// The WoW install paths in a Battle.net `product.db`. The file is protobuf, and each
@@ -158,7 +161,7 @@ fn wine_prefixes(home: &Path) -> Vec<PathBuf> {
     prefixes
 }
 
-/// Every WoW Forever folder that setup can find: the default install places and
+/// Every client folder (SPEC.md 7.9) that setup can find: the default install places and
 /// the paths in Battle.net's `product.db`.
 pub fn find_games(home: &Path) -> Vec<PathBuf> {
     let mut installs: Vec<PathBuf> = Vec::new();
@@ -188,9 +191,11 @@ pub fn find_games(home: &Path) -> Vec<PathBuf> {
         }
     }
     let mut games: Vec<PathBuf> = Vec::new();
-    for game in installs.into_iter().map(|install| install.join(GAME)) {
-        if game.is_dir() && !games.iter().any(|g| same_folder(g, &game)) {
-            games.push(game);
+    for install in installs {
+        for game in WowClient::ALL.iter().map(|c| install.join(c.folder())) {
+            if game.is_dir() && !games.iter().any(|g| same_folder(g, &game)) {
+                games.push(game);
+            }
         }
     }
     games
@@ -230,7 +235,7 @@ pub fn key_addon_toc(app: App) -> String {
         App::Timeways => "Timeways",
     };
     format!(
-        "## Interface: {INTERFACE}\n## Title: |cff808080{title} key (leave on)|r\n\
+        "## Interface: {TOC_INTERFACE}\n## Title: |cff808080{title} key (leave on)|r\n\
          ## Notes: Made by the desktop app for this computer. Don't share it.\n\
          ## LoadOnDemand: 1\n\n{KEY_FILE}\n"
     )
@@ -672,9 +677,12 @@ fn xml_text(text: &str) -> String {
 mod tests {
     use super::*;
 
+    const FOREVER: &str = "_classic_beta_";
+    const ANNIVERSARY: &str = "_anniversary_";
+
     #[cfg(target_os = "linux")]
     fn game_in(prefix: &Path) -> PathBuf {
-        let game = join_all(prefix, &["drive_c", "Program Files (x86)", WOW]).join(GAME);
+        let game = join_all(prefix, &["drive_c", "Program Files (x86)", WOW]).join(FOREVER);
         fs::create_dir_all(game.join("Interface/AddOns")).unwrap();
         game
     }
@@ -690,10 +698,45 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
+    fn a_tbc_anniversary_game_is_found_and_listed_after_forever() {
+        let home = tempfile::tempdir().unwrap();
+        let wow = join_all(
+            &home.path().join("Games/battlenet"),
+            &["drive_c", "Program Files (x86)", WOW],
+        );
+        fs::create_dir_all(wow.join(ANNIVERSARY)).unwrap();
+        assert_eq!(find_games(home.path()), [wow.join(ANNIVERSARY)]);
+
+        fs::create_dir_all(wow.join(FOREVER)).unwrap();
+
+        assert_eq!(
+            find_games(home.path()),
+            [wow.join(FOREVER), wow.join(ANNIVERSARY)]
+        );
+    }
+
+    #[test]
+    fn a_given_client_folder_stays_and_a_given_parent_takes_its_first_client() {
+        let root = tempfile::tempdir().unwrap();
+        let wow = root.path().join("World of Warcraft");
+        fs::create_dir_all(wow.join(ANNIVERSARY)).unwrap();
+        assert_eq!(game_folder(&wow.to_string_lossy()), wow.join(ANNIVERSARY));
+
+        fs::create_dir_all(wow.join(FOREVER)).unwrap();
+
+        assert_eq!(game_folder(&wow.to_string_lossy()), wow.join(FOREVER));
+        let given = wow.join(ANNIVERSARY);
+        assert_eq!(game_folder(&given.to_string_lossy()), given);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
     fn product_db_finds_a_game_on_another_drive_of_a_bottle() {
         let home = tempfile::tempdir().unwrap();
         let bottle = home.path().join(".local/share/bottles/bottles/wow");
-        let game = bottle.join("dosdevices/d:/Games/World of Warcraft/_classic_beta_");
+        let game = bottle
+            .join("dosdevices/d:/Games/World of Warcraft")
+            .join(FOREVER);
         fs::create_dir_all(&game).unwrap();
         let db_dir = bottle.join("drive_c/ProgramData/Battle.net/Agent");
         fs::create_dir_all(&db_dir).unwrap();
@@ -736,7 +779,7 @@ mod tests {
     #[test]
     fn the_addons_folder_is_found_in_any_case_and_a_given_folder_can_be_the_parent() {
         let root = tempfile::tempdir().unwrap();
-        let game = root.path().join("World of Warcraft").join(GAME);
+        let game = root.path().join("World of Warcraft").join(FOREVER);
         fs::create_dir_all(game.join("interface/Addons")).unwrap();
         let found = addons_dir(&game);
         assert!(
@@ -752,7 +795,7 @@ mod tests {
     #[test]
     fn under_wsl_a_given_windows_folder_maps_to_its_drive() {
         let root = tempfile::tempdir().unwrap();
-        let game = root.path().join("d/Games/World of Warcraft").join(GAME);
+        let game = root.path().join("d/Games/World of Warcraft").join(FOREVER);
         fs::create_dir_all(&game).unwrap();
 
         let found = game_folder_under(r#""D:\Games\World of Warcraft""#, Some(root.path()));
@@ -822,7 +865,7 @@ mod tests {
     #[test]
     fn the_key_addon_has_the_interface_of_the_addon() {
         let addon_toc = include_str!("../../../addon/GnomishRelay/GnomishRelay.toc");
-        let interface = format!("## Interface: {INTERFACE}\n");
+        let interface = format!("## Interface: {TOC_INTERFACE}\n");
         assert!(addon_toc.starts_with(&interface));
         assert!(key_addon_toc(App::Timeways).starts_with(&interface));
     }

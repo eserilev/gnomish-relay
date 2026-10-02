@@ -11,7 +11,7 @@ folders=(GnomishRelaySelfTest GnomishRelaySelfTest_Slot GnomishRelaySelfTest_Off
 shared=(Sha256.lua Codec.lua Saved.lua Health.lua Strip.lua)
 
 if [ ! -d "$addons" ]; then
-  echo "error: $addons not found. Set WOW_DIR to the _classic_beta_ folder." >&2
+  echo "error: $addons not found. Set WOW_DIR to the client folder: _classic_beta_ or _anniversary_." >&2
   exit 1
 fi
 

@@ -12,7 +12,7 @@ use protocol::slot::{Reply, SLOT_WINDOW, SLOTS, prepare_replies, slot_body};
 
 use crate::app_files::addon_name;
 use crate::fs_safe::{check_real_dir, write_atomic_if_changed, write_atomic_unsynced};
-use crate::install::INTERFACE;
+use crate::wow_client::TOC_INTERFACE;
 
 pub const BODY_FILE: &str = "Inbox.lua";
 pub const RESTORE_FILE: &str = "Restore.lua";
@@ -66,7 +66,7 @@ fn toc(app: App, n: usize) -> String {
         App::Timeways => "Timeways",
     };
     format!(
-        "## Interface: {INTERFACE}\n## Title: |cff808080{title} reply slot {n:04} (leave on)|r\n\
+        "## Interface: {TOC_INTERFACE}\n## Title: |cff808080{title} reply slot {n:04} (leave on)|r\n\
          ## LoadOnDemand: 1\n## Dependencies: {addon}\n\n{BODY_FILE}\n{RESTORE_FILE}\n{LIVE_FILE}\n"
     )
 }
