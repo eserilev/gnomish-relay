@@ -17,7 +17,8 @@ steps in order. Each step starts only when the step before it passed:
 4. It calls `.github/workflows/curseforge.yml`. That workflow builds the addon zip and
    uploads it to CurseForge with the BigWigs packager. The zip holds only the
    `GnomishRelay` folder, with the shared transport files copied in: never a key or the
-   desktop app's addon files.
+   desktop app's addon files. The changelog of the CurseForge file is the same section of
+   `CHANGELOG.md`.
 
 If a check fails, nothing is published: no binaries and no CurseForge upload. The addon
 goes out last, because a new addon makes the desktop app update itself from the latest

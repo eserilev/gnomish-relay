@@ -2,3 +2,12 @@
 # (SPEC.md 11.3), not in the repo root. That folder is the whole addon, so nothing moves.
 package-as: GnomishRelay
 enable-nolib-creation: no
+
+# curseforge.yml writes the notes of the version here, from CHANGELOG.md of the repo. The
+# packager still reads an ignored changelog, and players don't need it in the addon folder.
+manual-changelog:
+  filename: CHANGELOG.md
+  markup-type: markdown
+
+ignore:
+  - CHANGELOG.md

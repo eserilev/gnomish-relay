@@ -4,7 +4,8 @@
 # zip. The upload needs two things that the maintainer makes once: the secret CF_API_KEY,
 # and the project id, in the repo variable CURSEFORGE_PROJECT_ID or in
 # `## X-Curse-Project-ID` of GnomishRelay.toc. Without both, the job still builds the zip
-# and keeps it as an artifact of the run.
+# and keeps it as an artifact of the run. The changelog of the file is the section of the
+# version in CHANGELOG.md.
 name: curseforge
 
 on:
@@ -51,6 +52,12 @@ jobs:
           git -c user.name=release -c user.email=release@localhost commit -q -m "$GITHUB_REF_NAME"
           git tag "$GITHUB_REF_NAME"
           echo "ADDON_DIR=$dir" >> "$GITHUB_ENV"
+      # The file gets the same notes as the GitHub release. .pkgmeta names this changelog
+      # and keeps it out of the zip.
+      - name: Write the changelog
+        run: |
+          version=$(awk '/^## Version:/ { print $3 }' addon/GnomishRelay/GnomishRelay.toc)
+          scripts/changelog-section.sh "$version" > "$ADDON_DIR/CHANGELOG.md"
       - uses: BigWigsMods/packager@e50a250f8705041e40f2fa1ddcb280a686d65aa0 # v2.6.1
         with:
           args: -t ${{ env.ADDON_DIR }} -r ${{ runner.temp }}/release ${{ steps.project.outputs.args }}
