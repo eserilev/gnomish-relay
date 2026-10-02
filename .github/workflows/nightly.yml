@@ -1,4 +1,4 @@
-# The long fuzz run (SPEC 14.4), and the check for a new WoW Forever client (SPEC 7.8).
+# The long fuzz run (SPEC 14.4), and the check for a new build of each WoW client (SPEC 7.8, 7.9).
 name: nightly
 
 on:

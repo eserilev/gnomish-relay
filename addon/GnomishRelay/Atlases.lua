@@ -6,7 +6,7 @@ local _, ns = ...
 local Atlases = {}
 ns.Atlases = Atlases
 
--- TBC Anniversary has neither of these.
+-- TBC Anniversary has none of BELL, BELL_SMALL, and PARCHMENT.
 local BELL = "minimap-genericevent-hornicon"
 local BELL_SMALL = "minimap-genericevent-hornicon-small"
 local BELL_STAND_IN = "communities-icon-notification"

@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# Writes addon/tests/api.lua and addon/tests/api-signatures.lua, the API of the WoW
-# Forever client that the addon uses (SPEC.md 7.8). The tests and the lint check use
+# Writes addon/tests/api.lua and addon/tests/api-signatures.lua, the API of a WoW
+# client that the addon uses (SPEC.md 7.8). With no `--client`, the client is Forever. The tests and the lint check use
 # them, so a call to a function that the client does not have fails here, not in the game.
 #
 # `--client anniversary` checks TBC Anniversary instead (SPEC.md 7.9), and writes

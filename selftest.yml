@@ -1,6 +1,6 @@
 # The WoW API that only the self-test addon uses, for selene, on top of wow.yml.
 # The relay must never call these, so they stay out of wow.yml.
-# scripts/wow-api.sh checks each one against the real Forever client.
+# scripts/selftest-api.sh checks each one against the real Forever client.
 base: lua51
 globals:
   C_CombatLog:

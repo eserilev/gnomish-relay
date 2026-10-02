@@ -14,7 +14,7 @@ local BUSY_POLL = 60
 local OPEN_POLL = 180
 local KINDS = { waiting = true, finished = true, failed = true }
 local AGENTS = { claude = true, codex = true }
--- The bell of the chat line: the horn of a minimap event. The client has no bell texture.
+-- The bell of the chat line. WoW has no bell texture, so it is the horn of a minimap event.
 Notices.ICON = ns.Atlases.BellText(14)
 Notices.LINK = "gnomishrelaynotices"
 -- The least length of finished work that shows, for each choice of the setting.
