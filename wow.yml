@@ -16,6 +16,8 @@ globals:
     any: true
   UIParent:
     any: true
+  WorldFrame:
+    any: true
   UIErrorsFrame:
     any: true
   GameTooltip:

@@ -399,6 +399,13 @@ return {
 				{ Name = "texture", Type = "SimpleTexture", Nilable = false },
 			},
 		},
+		["SimpleFrameAPI:GetChildren"] = {
+			SecretReturnsForAspect = { Enum.SecretAspect.Hierarchy },
+			Arguments = {},
+			Returns = {
+				{ Name = "children", Type = "SimpleFrame", Nilable = false, StrideIndex = 1 },
+			},
+		},
 		["SimpleFrameAPI:GetEffectiveScale"] = {
 			SecretReturnsForAspect = { Enum.SecretAspect.Scale },
 			Arguments = {},
@@ -468,6 +475,13 @@ return {
 		["SimpleFrameAPI:Show"] = {
 			IsProtectedFunction = true,
 			Arguments = {},
+		},
+		["SimpleFrameScriptObjectAPI:GetName"] = {
+			SecretReturnsForAspect = { Enum.SecretAspect.ObjectName },
+			Arguments = {},
+			Returns = {
+				{ Name = "name", Type = "cstring", Nilable = false },
+			},
 		},
 		["SimpleHTMLAPI:GetContentHeight"] = {
 			Arguments = {},

@@ -242,6 +242,20 @@ function methods:CreateFontString(name)
 	return New("FontString", name, self)
 end
 
+function methods:GetName()
+	return self.name
+end
+
+function methods:GetChildren()
+	local children = {}
+	for _, o in ipairs(wow.frames) do
+		if o.parent == self then
+			table.insert(children, o)
+		end
+	end
+	return unpack(children)
+end
+
 function methods:SetColorTexture(r, g, b)
 	self.color = { r, g, b }
 end
@@ -651,6 +665,7 @@ local function StripPicture(frameName)
 end
 
 UIParent = New("Frame", "UIParent")
+WorldFrame = New("Frame", "WorldFrame")
 DEFAULT_CHAT_FRAME = New("ScrollingMessageFrame", "ChatFrame1")
 function DEFAULT_CHAT_FRAME:AddMessage(text, r, g, b)
 	table.insert(wow.printed, text)
@@ -658,6 +673,17 @@ end
 GameTooltip = New("GameTooltip", "GameTooltip")
 UIErrorsFrame = New("MessageFrame", "UIErrorsFrame")
 ActionStatus = New("Frame", "ActionStatus")
+-- Every frame that shows "Screen captured".
+wow.statusFrames = { ActionStatus }
+
+-- TBC Anniversary also keeps the ActionStatus of the Classic UI, a child of WorldFrame.
+-- Both show "Screen captured", and the global name points at only the newer one.
+function wow.AddOldActionStatus()
+	local newer = ActionStatus
+	local old = New("Frame", "ActionStatus", WorldFrame)
+	ActionStatus = newer
+	table.insert(wow.statusFrames, old)
+end
 UISpecialFrames = {}
 SOUNDKIT = { TELL_MESSAGE = 3081, READY_CHECK = 8960, UI_BNET_TOAST = 18019 }
 Minimap = New("Minimap", "Minimap", UIParent)
@@ -755,7 +781,9 @@ end
 
 local function ShowStatus()
 	wow.statusShows = wow.statusShows + 1
-	ActionStatus:Show()
+	for _, frame in ipairs(wow.statusFrames) do
+		frame:Show()
+	end
 end
 
 local function Saved()

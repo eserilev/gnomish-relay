@@ -44,6 +44,7 @@ return {
 		"UIErrorsFrame",
 		"UIParent",
 		"UISpecialFrames",
+		"WorldFrame",
 		"bit",
 		"bit.band",
 		"bit.bnot",

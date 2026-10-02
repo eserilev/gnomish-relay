@@ -5386,6 +5386,24 @@ fn the_screen_captured_text_of_our_shot_stays_hidden_before_or_after_the_event()
 }
 
 #[test]
+fn the_screen_captured_text_of_our_shot_stays_hidden_on_both_status_frames_of_tbc() {
+    let game = Game::start_with(|wow| {
+        wow.get::<Function>("AddOldActionStatus")
+            .unwrap()
+            .call::<()>(())
+            .unwrap();
+    });
+    game.send("hide the text");
+    game.advance(1.0);
+
+    let frames: Table = game.wow.get("statusFrames").unwrap();
+    assert_eq!(frames.len().unwrap(), 2);
+    for frame in frames.sequence_values::<Table>() {
+        assert!(!frame.unwrap().get::<bool>("shown").unwrap());
+    }
+}
+
+#[test]
 fn a_capture_after_the_handler_still_holds_the_whole_strip() {
     let game = Game::start_changed(|fake| fake.capture = Capture::AfterHandler);
     game.send("captured later");

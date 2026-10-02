@@ -372,15 +372,31 @@ function Strip.Show(frameBytes, done)
 end
 
 -- The "Screen captured" text goes through ActionStatus. Only our shots hide it. Each
--- app hooks it, and each hook hides the text of its own shots.
+-- app hooks it, and each hook hides the text of its own shots. TBC Anniversary has a
+-- second ActionStatus, a child of WorldFrame, and the global name points at only one.
+local statusFrames = {}
+
 local function HideStatus()
-	if ActionStatus and GetTime() < hideStatusUntil then
-		ActionStatus:Hide()
+	if GetTime() >= hideStatusUntil then
+		return
+	end
+	for _, frame in ipairs(statusFrames) do
+		frame:Hide()
 	end
 end
 
+local function HookStatus(frame)
+	table.insert(statusFrames, frame)
+	frame:HookScript("OnShow", HideStatus)
+end
+
 if ActionStatus then
-	ActionStatus:HookScript("OnShow", HideStatus)
+	HookStatus(ActionStatus)
+end
+for _, child in ipairs({ WorldFrame:GetChildren() }) do
+	if child ~= ActionStatus and child:GetName() == "ActionStatus" then
+		HookStatus(child)
+	end
 end
 
 -- An event carries no owner. While we hold the corner and wait for our shot, no other

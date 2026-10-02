@@ -455,6 +455,12 @@ return {
 				{ Name = "texture", Type = "SimpleTexture", Nilable = false },
 			},
 		},
+		["SimpleFrameAPI:GetChildren"] = {
+			Arguments = {},
+			Returns = {
+				{ Name = "children", Type = "SimpleFrame", Nilable = false, StrideIndex = 1 },
+			},
+		},
 		["SimpleFrameAPI:GetEffectiveScale"] = {
 			Arguments = {},
 			Returns = {
@@ -581,6 +587,12 @@ return {
 		["SimpleFrameAPI:StopMovingOrSizing"] = {
 			IsProtectedFunction = true,
 			Arguments = {},
+		},
+		["SimpleFrameScriptObjectAPI:GetName"] = {
+			Arguments = {},
+			Returns = {
+				{ Name = "name", Type = "cstring", Nilable = false },
+			},
 		},
 		["SimpleHTMLAPI:GetContentHeight"] = {
 			Arguments = {},
