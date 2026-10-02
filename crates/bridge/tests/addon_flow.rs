@@ -67,6 +67,8 @@ const FILES: &[&str] = &[
     "InputHistory.lua",
     "LevelMenu.lua",
     "Window.lua",
+    "ChatMenu.lua",
+    "MiniChat.lua",
     "Popup.lua",
     "NoticeFrames.lua",
     "SetupNeeded.lua",
@@ -278,7 +280,12 @@ struct Drawn {
 
 /// Every shown object of the transcript, top to bottom.
 fn transcript(game: &Game) -> Vec<Drawn> {
-    let root: Table = game.lua.globals().get("GnomishRelayTranscript").unwrap();
+    transcript_in(game, "GnomishRelayTranscript")
+}
+
+/// Every shown object of the transcript named `name`, top to bottom.
+fn transcript_in(game: &Game, name: &str) -> Vec<Drawn> {
+    let root: Table = game.lua.globals().get(name).unwrap();
     let drawn: Table = game
         .wow
         .get::<Function>("Drawn")
@@ -3068,6 +3075,29 @@ fn right_click(game: &Game, frame: &str) {
         .unwrap();
 }
 
+/// A right-click on the tile, and Delete in its menu.
+fn delete_from_menu(game: &Game, tile: &str) {
+    right_click(game, tile);
+    game.run("GnomishRelayChatMenuDelete:Click()");
+}
+
+#[test]
+fn a_right_click_on_a_tile_opens_a_menu_with_pop_out_and_delete() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+
+    right_click(&game, "GnomishRelayTile1");
+
+    assert!(visible(&game, "GnomishRelayChatMenu"));
+    assert!(named_text(&game, "GnomishRelayChatMenuTitle").contains("Chat 1"));
+    assert_eq!(
+        game.run("return GnomishRelayChatMenuPopOut.text:GetText()"),
+        Value::String(game.lua.create_string("Pop out").unwrap())
+    );
+    assert!(dialog(&game).is_none(), "no question before Delete");
+}
+
 fn chat_count(game: &Game) -> usize {
     game.db().get::<Table>("chats").unwrap().raw_len()
 }
@@ -3098,7 +3128,7 @@ fn a_right_click_and_delete_removes_the_chat_and_tells_the_bridge() {
     game.publish(&[reply(&chat, first_message_id(&game), Status::Done, "hello")]);
     game.advance(5.0);
 
-    right_click(&game, "GnomishRelayTile1");
+    delete_from_menu(&game, "GnomishRelayTile1");
     assert_eq!(dialog(&game).as_deref(), Some("Delete \"Chat 1\"?"));
     press_in_dialog(&game, "button1");
     game.advance(1.0);
@@ -3118,7 +3148,7 @@ fn cancel_keeps_the_chat() {
     game.run("local ns = ... ns.Window.Open()");
     game.send("hi");
 
-    right_click(&game, "GnomishRelayTile1");
+    delete_from_menu(&game, "GnomishRelayTile1");
     press_in_dialog(&game, "button2");
 
     assert_eq!(chat_count(&game), 1);
@@ -3131,7 +3161,7 @@ fn escape_closes_the_delete_question_and_keeps_the_chat() {
     game.run("local ns = ... ns.Window.Open()");
     game.send("hi");
 
-    right_click(&game, "GnomishRelayTile1");
+    delete_from_menu(&game, "GnomishRelayTile1");
     press_in_dialog(&game, "escape");
 
     assert_eq!(chat_count(&game), 1);
@@ -3146,6 +3176,10 @@ fn a_right_click_on_new_chat_asks_nothing() {
     right_click(&game, "GnomishRelayTile1");
 
     assert_eq!(dialog(&game), None);
+    assert_eq!(
+        game.run("return GnomishRelayChatMenu == nil or not GnomishRelayChatMenu:IsShown()"),
+        Value::Boolean(true)
+    );
 }
 
 #[test]
@@ -5509,4 +5543,446 @@ fn a_resumed_session_goes_out_in_the_home_form_of_its_listed_folder() {
 
 fn lua_quote(text: &str) -> String {
     format!("{text:?}")
+}
+
+// Mini chats (SPEC.md 13.1, "Mini chats").
+
+/// Chat 1 with one message, popped out with the Pop out button of the header.
+fn popped_out_chat(game: &Game) {
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+    game.advance(1.0);
+    click(game, "GnomishRelayPopOut");
+}
+
+fn mini_texts(game: &Game, n: usize) -> Vec<String> {
+    texts(&transcript_in(
+        game,
+        &format!("GnomishRelayMini{n}Transcript"),
+    ))
+}
+
+fn is_popped_out(game: &Game, chat: usize) -> bool {
+    game.run(&format!(
+        "return GnomishRelayDB.chats[{chat}].poppedOut == true"
+    )) == Value::Boolean(true)
+}
+
+/// A message typed in the box of mini `n`, then Enter.
+fn type_in_mini(game: &Game, n: usize, text: &str) {
+    game.run(&format!(
+        "local box = GnomishRelayMini{n}Input box:SetFocus() box.text = {text:?} box.scripts.OnEnterPressed(box)"
+    ));
+}
+
+#[test]
+fn pop_out_moves_the_chat_into_a_mini_chat_and_its_tile_says_so() {
+    let game = Game::start();
+
+    popped_out_chat(&game);
+
+    assert!(visible(&game, "GnomishRelayMini1"));
+    assert_eq!(named_text(&game, "GnomishRelayMini1Title"), "Chat 1");
+    assert_eq!(named_text(&game, "GnomishRelayMini1Agent"), "· Claude");
+    assert!(
+        mini_texts(&game, 1).iter().any(|t| t.contains("hi")),
+        "{:?}",
+        mini_texts(&game, 1)
+    );
+    assert_eq!(
+        named_text(&game, "GnomishRelayTile1.agent"),
+        "Popped out. Click to show it."
+    );
+    assert!(is_popped_out(&game, 1));
+    assert!(
+        texts(&transcript(&game)).is_empty(),
+        "the window never draws the chat of a mini chat"
+    );
+}
+
+#[test]
+fn pop_out_in_the_tile_menu_pops_the_chat_out() {
+    let game = Game::start();
+    game.run("local ns = ... ns.Window.Open()");
+    game.send("hi");
+
+    right_click(&game, "GnomishRelayTile1");
+    click(&game, "GnomishRelayChatMenuPopOut");
+
+    assert!(visible(&game, "GnomishRelayMini1"));
+    assert!(!visible(&game, "GnomishRelayChatMenu"));
+}
+
+#[test]
+fn enter_in_a_mini_chat_sends_to_its_own_chat_and_gives_the_keys_back() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    game.run("local ns = ... ns.Store.NewChat() ns.Window.Refresh()");
+    let chat = game.chat_id();
+
+    type_in_mini(&game, 1, "fix the test");
+    game.advance(1.0);
+
+    let record = game
+        .last_strip()
+        .into_iter()
+        .find(|r| r.text == b"fix the test")
+        .expect("the message went out");
+    assert_eq!(record.chat, chat.as_bytes());
+    assert_eq!(named_text(&game, "GnomishRelayMini1Input"), "");
+    assert_eq!(
+        game.run("return GnomishRelayMini1Input:HasFocus()"),
+        Value::Boolean(false)
+    );
+    assert!(
+        mini_texts(&game, 1)
+            .iter()
+            .any(|t| t.contains("fix the test"))
+    );
+}
+
+#[test]
+fn a_new_reply_in_a_mini_chat_shows_the_gold_dot_until_the_player_clicks_in() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    assert!(!visible(&game, "GnomishRelayMini1Dot"));
+
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        "done",
+    )]);
+    game.advance(5.0);
+
+    assert!(visible(&game, "GnomishRelayMini1Dot"));
+    assert_eq!(chat_field(&game, 1, "unread"), "true");
+    assert_eq!(
+        whispers_with(&game, "done"),
+        0,
+        "the gold bar is the notice"
+    );
+    assert_eq!(game.wow.get::<Vec<i64>>("sounds").unwrap(), [3081]);
+
+    game.run("GnomishRelayMini1:GetScript('OnMouseDown')(GnomishRelayMini1)");
+
+    assert!(!visible(&game, "GnomishRelayMini1Dot"));
+    assert_eq!(chat_field(&game, 1, "unread"), "nil");
+}
+
+#[test]
+fn a_reply_while_the_player_types_in_the_mini_chat_is_already_read() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    game.run("GnomishRelayMini1Input:SetFocus()");
+
+    game.publish(&[reply(
+        &game.chat_id(),
+        first_message_id(&game),
+        Status::Done,
+        "done",
+    )]);
+    game.advance(5.0);
+
+    assert!(!visible(&game, "GnomishRelayMini1Dot"));
+}
+
+#[test]
+fn a_mini_chat_shows_the_desktop_wait_with_copy_for_the_approve_command() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    show_progress(
+        &game,
+        &[b"Level: auto-edit", WAIT.as_bytes(), ASKS.as_bytes()],
+    );
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert!(visible(&game, "GnomishRelayMini1Desktop"));
+    assert!(
+        named_text(&game, "GnomishRelayMini1DesktopTitle")
+            .contains("Waiting for your approval on your desktop")
+    );
+    assert_eq!(
+        named_text(&game, "GnomishRelayMini1DesktopAsksText"),
+        "cat ~/.ssh/id_rsa"
+    );
+    assert_eq!(
+        named_text(&game, "GnomishRelayMini1DesktopCommand"),
+        "gnomish-relay approve a1b2c3d4e5f6"
+    );
+    assert_eq!(
+        whispers_with(&game, "desktop"),
+        1,
+        "a desktop request keeps its line"
+    );
+
+    click(&game, "GnomishRelayMini1DesktopCopy");
+
+    assert_eq!(
+        game.run("return GnomishRelayMini1DesktopCommand:HasFocus()"),
+        Value::Boolean(true)
+    );
+    assert!(visible(&game, "GnomishRelayMini1DesktopHint"));
+}
+
+#[test]
+fn a_click_on_the_tile_of_a_popped_out_chat_brings_its_mini_chat_to_the_front() {
+    let game = Game::start();
+    popped_out_chat(&game);
+
+    click(&game, "GnomishRelayTile1");
+
+    assert_eq!(
+        game.run("return GnomishRelayMini1.raised"),
+        Value::Integer(1)
+    );
+    assert_eq!(
+        game.run("return GnomishRelayMini1Input:HasFocus()"),
+        Value::Boolean(true)
+    );
+    assert!(is_popped_out(&game, 1));
+}
+
+#[test]
+fn a_whisper_link_of_a_popped_out_chat_brings_its_mini_chat_to_the_front() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    game.run("GnomishRelayFrame:Hide()");
+
+    game.run(&format!(
+        "local ns = ... ns.Window.Open({:?})",
+        game.chat_id()
+    ));
+
+    assert_eq!(
+        game.run("return GnomishRelayMini1.raised"),
+        Value::Integer(1)
+    );
+    assert!(!visible(&game, "GnomishRelayFrame"));
+}
+
+#[test]
+fn close_puts_the_chat_back_on_its_tile_and_leaves_the_window_as_it_is() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    game.run("GnomishRelayFrame:Hide()");
+
+    click(&game, "GnomishRelayMini1Close");
+
+    assert!(!visible(&game, "GnomishRelayMini1"));
+    assert!(!is_popped_out(&game, 1));
+    assert!(!visible(&game, "GnomishRelayFrame"));
+    game.run("local ns = ... ns.Window.Open()");
+    assert_eq!(named_text(&game, "GnomishRelayTile1.agent"), "Claude");
+}
+
+#[test]
+fn open_in_main_window_puts_the_chat_back_and_shows_it_there() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    game.run("local ns = ... ns.Store.NewChat() GnomishRelayFrame:Hide()");
+
+    click(&game, "GnomishRelayMini1Back");
+
+    assert!(!visible(&game, "GnomishRelayMini1"));
+    assert!(visible(&game, "GnomishRelayFrame"));
+    assert_eq!(text_of(&game, "GnomishRelayDB.selected"), game.chat_id());
+    assert!(texts(&transcript(&game)).iter().any(|t| t.contains("hi")));
+}
+
+#[test]
+fn a_mini_chat_comes_back_after_a_reload_at_its_place_and_size() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    game.run(
+        "local f = GnomishRelayMini1 f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 120, -80) \
+         f.scripts.OnDragStop(f) f:SetSize(420, 300) GnomishRelayMini1Grip.scripts.OnMouseUp()",
+    );
+
+    let game = game.reload();
+
+    assert!(visible(&game, "GnomishRelayMini1"));
+    assert_eq!(named_text(&game, "GnomishRelayMini1Title"), "Chat 1");
+    assert_eq!(
+        text_of(&game, "select(4, GnomishRelayMini1:GetPoint())"),
+        "120"
+    );
+    game.run("UIParent:SetSize(1600, 900)");
+    game.fire("DISPLAY_SIZE_CHANGED", ());
+    assert_eq!(size_of(&game, "GnomishRelayMini1"), (420, 300));
+    game.run("UIParent:SetSize(400, 280)");
+    game.fire("UI_SCALE_CHANGED", ());
+    assert_eq!(
+        size_of(&game, "GnomishRelayMini1"),
+        (400, 280),
+        "never larger than the screen"
+    );
+}
+
+#[test]
+fn a_closed_mini_chat_opens_again_at_its_last_place() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    game.run(
+        "local f = GnomishRelayMini1 f:SetPoint('TOPLEFT', UIParent, 'TOPLEFT', 120, -80) f.scripts.OnDragStop(f)",
+    );
+    click(&game, "GnomishRelayMini1Close");
+    game.run("GnomishRelayMini1:SetPoint('CENTER', UIParent, 'CENTER', 0, 0)");
+
+    click(&game, "GnomishRelayPopOut");
+
+    assert_eq!(
+        text_of(&game, "select(4, GnomishRelayMini1:GetPoint())"),
+        "120"
+    );
+}
+
+#[test]
+fn deleting_a_popped_out_chat_closes_its_mini_chat() {
+    let game = Game::start();
+    popped_out_chat(&game);
+
+    delete_from_menu(&game, "GnomishRelayTile1");
+    press_in_dialog(&game, "button1");
+
+    assert_eq!(chat_count(&game), 0);
+    assert!(!visible(&game, "GnomishRelayMini1"));
+}
+
+#[test]
+fn up_to_four_chats_pop_out_at_once_and_a_fifth_says_why_not() {
+    let game = Game::start();
+    game.run("local ns = ... for _ = 1, 5 do ns.Store.NewChat() end ns.Window.Open()");
+
+    for n in 1..=4 {
+        game.run(&format!(
+            "local ns = ... ns.MiniChat.PopOut(GnomishRelayDB.chats[{n}].id)"
+        ));
+    }
+    click(&game, "GnomishRelayPopOut");
+
+    for n in 1..=4 {
+        assert!(visible(&game, &format!("GnomishRelayMini{n}")), "mini {n}");
+    }
+    assert!(!is_popped_out(&game, 5));
+    let errors: Vec<String> = game
+        .run("return UIErrorsFrame.lines")
+        .as_table()
+        .unwrap()
+        .sequence_values()
+        .map(Result::unwrap)
+        .collect();
+    assert_eq!(errors, ["You can pop out up to 4 chats. Close one first."]);
+    assert_eq!(text_of(&game, "GnomishRelayPopOut.alpha"), "0.45");
+}
+
+#[test]
+fn the_mode_line_shows_the_mode_and_shift_tab_in_the_mini_chat_changes_it() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    assert_eq!(
+        named_text(&game, "GnomishRelayMini1Mode"),
+        "|cffc8b98a> auto-edit|r"
+    );
+
+    game.wow.set("shift", true).unwrap();
+    game.run("GnomishRelayMini1Input.scripts.OnTabPressed(GnomishRelayMini1Input)");
+
+    assert_eq!(chat_field(&game, 1, "mode"), "full-auto");
+    assert_eq!(
+        named_text(&game, "GnomishRelayMini1Mode"),
+        "|cffff5a1f>> full-auto|r"
+    );
+}
+
+#[test]
+fn the_mini_chat_says_working_during_a_run_and_the_hint_while_the_player_types() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    show_progress(&game, &[b"Level: auto-edit", b"edit a.rs"]);
+
+    assert_eq!(
+        named_text(&game, "GnomishRelayMini1State"),
+        "|cff9d9d9dWorking...|r"
+    );
+    game.run("GnomishRelayMini1Input:SetFocus()");
+    assert_eq!(
+        named_text(&game, "GnomishRelayMini1State"),
+        "|cff9d9d9dWorking... · Shift+Tab to change|r"
+    );
+}
+
+#[test]
+fn the_font_size_applies_to_the_box_of_a_mini_chat() {
+    let game = Game::start();
+    popped_out_chat(&game);
+
+    game.run("local ns = ... ns.Window.SetFontSize(18)");
+
+    assert_eq!(text_of(&game, "GnomishRelayMini1Input.fontSize"), "18");
+}
+
+#[test]
+fn resend_in_a_mini_chat_sends_to_the_chat_of_the_mini_chat() {
+    let game = Game::start();
+    game.send("stuck in the outbox");
+    game.advance(900.0);
+    game.run("local ns = ... ns.Window.Open() ns.Store.NewChat() ns.MiniChat.PopOut(GnomishRelayDB.chats[1].id)");
+    assert!(mini_texts(&game, 1).contains(&"|cff69ccf0Resend|r".to_owned()));
+
+    game.run("GnomishRelayMini1Resend1:Click()");
+
+    let open = game
+        .run("local ns = ... local n = 0 for _, item in ipairs(ns.Store.Open()) do if item.chat == GnomishRelayDB.chats[1] and item.message.text == 'stuck in the outbox' then n = n + 1 end end return n")
+        .as_integer()
+        .unwrap();
+    assert_eq!(open, 1);
+}
+
+#[test]
+fn escape_and_closing_the_window_leave_the_mini_chats_open() {
+    let game = Game::start();
+    popped_out_chat(&game);
+
+    game.run("GnomishRelayFrame:Hide()");
+
+    assert!(visible(&game, "GnomishRelayMini1"));
+    let special = game
+        .run("for _, name in ipairs(UISpecialFrames) do if name:find('Mini') then return true end end return false");
+    assert_eq!(special, Value::Boolean(false));
+}
+
+#[test]
+fn a_click_on_the_mode_of_a_mini_chat_opens_the_list_of_modes() {
+    let game = Game::start();
+    popped_out_chat(&game);
+
+    click(&game, "GnomishRelayMini1LevelButton");
+    assert!(visible(&game, "GnomishRelayMini1LevelList"));
+    click(&game, "GnomishRelayMini1LevelChoice1");
+
+    assert_eq!(chat_field(&game, 1, "mode"), "ask");
+    assert_eq!(
+        named_text(&game, "GnomishRelayMini1Mode"),
+        "|cff9a9a9a> ask|r"
+    );
+    assert!(!visible(&game, "GnomishRelayMini1LevelList"));
+}
+
+#[test]
+fn the_menu_of_a_popped_out_tile_offers_open_in_main_window() {
+    let game = Game::start();
+    popped_out_chat(&game);
+    game.run("GnomishRelayFrame:Hide() local ns = ... ns.Window.Open()");
+
+    right_click(&game, "GnomishRelayTile1");
+    assert_eq!(
+        text_of(&game, "GnomishRelayChatMenuPopOut.text:GetText()"),
+        "Open in main window"
+    );
+    click(&game, "GnomishRelayChatMenuPopOut");
+
+    assert!(!is_popped_out(&game, 1));
+    assert!(!visible(&game, "GnomishRelayMini1"));
+    assert!(texts(&transcript(&game)).iter().any(|t| t.contains("hi")));
 }

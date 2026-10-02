@@ -74,9 +74,24 @@ function Relay.RuleAdded(chatId, line)
 	)
 end
 
+-- A popped-out chat has its gold bar as the notice, so only the sound plays.
+local function NotifyMini(chat)
+	if not ns.MiniChat.Reading(chat.id) then
+		chat.unread = true
+	end
+	local db = ns.Store.db
+	if db.whisperOn and db.whisperSound then
+		PlaySound(SOUNDKIT.TELL_MESSAGE)
+	end
+end
+
 -- The reply line is a setting. A desktop request always gets its line: it is the
 -- only notice in the game (SPEC.md 6.6.3).
 local function Whisper(chat, reply)
+	if ns.MiniChat.IsOpen(chat.id) then
+		NotifyMini(chat)
+		return
+	end
 	local shown = ns.Window.Showing(chat.id)
 	if not shown then
 		chat.unread = true
@@ -232,6 +247,7 @@ events:SetScript("OnEvent", function(_, event, name)
 		end
 		ns.NoticeFrames.Build()
 		ns.Transport.Init()
+		ns.MiniChat.Refresh()
 		C_Timer.NewTicker(1, ns.Transport.Tick)
 		C_Timer.After(BRIDGE_WAIT, function()
 			if not ns.Transport.Online() then

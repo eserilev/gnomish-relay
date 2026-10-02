@@ -450,6 +450,11 @@ function methods:Clear()
 	self.lines = {}
 end
 
+-- A test reads how often a frame came to the front.
+function methods:Raise()
+	self.raised = (self.raised or 0) + 1
+end
+
 function methods:SetAlpha(alpha)
 	self.alpha = alpha
 end

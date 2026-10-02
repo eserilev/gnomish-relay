@@ -585,6 +585,10 @@ return {
 				{ Name = "isShown", Type = "bool", Nilable = false },
 			},
 		},
+		["SimpleFrameAPI:Raise"] = {
+			IsProtectedFunction = true,
+			Arguments = {},
+		},
 		["SimpleFrameAPI:RegisterEvent"] = {
 			AddsForbiddenAspects = { { Argument = "self", Aspect = Enum.ForbiddenAspect.EventRegistrations } },
 			ChecksForbiddenAspects = { { Argument = "self", Aspect = Enum.ForbiddenAspect.EventRegistrations } },
@@ -683,6 +687,14 @@ return {
 			SecretArgumentsAddAspect = { Enum.SecretAspect.Shown },
 			Arguments = {
 				{ Name = "shown", Type = "bool", Nilable = false, Default = false },
+			},
+		},
+		["SimpleFrameAPI:SetToplevel"] = {
+			IsProtectedFunction = true,
+			SecretArguments = "AllowedWhenUntainted",
+			SecretArgumentsAddAspect = { Enum.SecretAspect.Toplevel },
+			Arguments = {
+				{ Name = "topLevel", Type = "bool", Nilable = false },
 			},
 		},
 		["SimpleFrameAPI:SetUserPlaced"] = {
@@ -1150,6 +1162,9 @@ return {
 				{ Name = "containsBindings", Type = "bool", Nilable = false },
 			},
 		},
+		DISPLAY_SIZE_CHANGED = {
+			SynchronousEvent = true,
+		},
 		GLOBAL_MOUSE_DOWN = {
 			SynchronousEvent = true,
 			Payload = {
@@ -1166,6 +1181,9 @@ return {
 			SynchronousEvent = true,
 		},
 		SCREENSHOT_SUCCEEDED = {
+			SynchronousEvent = true,
+		},
+		UI_SCALE_CHANGED = {
 			SynchronousEvent = true,
 		},
 	},

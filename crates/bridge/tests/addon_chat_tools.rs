@@ -51,6 +51,8 @@ const FILES: &[&str] = &[
     "InputHistory.lua",
     "LevelMenu.lua",
     "Window.lua",
+    "ChatMenu.lua",
+    "MiniChat.lua",
     "Popup.lua",
     "NoticeFrames.lua",
     "SetupNeeded.lua",

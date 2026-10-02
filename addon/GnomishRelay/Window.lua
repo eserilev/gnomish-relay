@@ -32,8 +32,12 @@ local NEW = "9fe39f"
 local STATUS_BAR = "Interface\\TargetingFrame\\UI-StatusBar"
 local BODY_FONT = "Fonts\\ARIALN.TTF"
 local FONT_MIN, FONT_MAX = 12, 20
--- The room at the right end of the header of a chat, for Pinned and Search.
-local HEADER_RIGHT = 140
+-- The room at the right end of the header of a chat, for Pinned, Search, and Pop out.
+local HEADER_RIGHT = 140 + 76
+local POP_OUT_WIDTH = 72
+-- A popped-out chat has a dim tile, as in the design.
+local POPPED_ALPHA = 0.75
+local GREYED_ALPHA = 0.45
 -- The bottom of the transcript: above the input, or above the row over the input.
 local LOG_BOTTOM, LOG_BOTTOM_ROW = 44, 72
 -- Pings has no content yet, so it has no tab (SPEC.md 13.1).
@@ -48,10 +52,19 @@ local function CenterWidth()
 	return frame:GetWidth() - 2 * SIDE - 28
 end
 
--- The selected chat, or the first chat when none is selected.
+-- The selected chat, or the first chat when none is selected. A popped-out chat shows
+-- in its mini chat, so the window shows another one.
 local function Selected()
 	local db = ns.Store.db
-	return db.selected and ns.Store.Chat(db.selected) or db.chats[1]
+	local chat = db.selected and ns.Store.Chat(db.selected)
+	if chat and not chat.poppedOut then
+		return chat
+	end
+	for _, other in ipairs(db.chats) do
+		if not other.poppedOut then
+			return other
+		end
+	end
 end
 
 local function MarkSelected(chatId)
@@ -122,10 +135,12 @@ local function Tile(index)
 	tile:SetScript("OnClick", function(self, button)
 		if button == "RightButton" then
 			if self.chatId then
-				Window.AskDelete(self.chatId)
+				ns.ChatMenu.Open(self, self.chatId)
 			end
 		elseif self.resume then
 			Window.ShowSessions()
+		elseif self.chatId and ns.MiniChat.IsOpen(self.chatId) then
+			ns.MiniChat.Show(self.chatId)
 		elseif self.chatId then
 			Select(self.chatId)
 		else
@@ -140,6 +155,7 @@ local function ShowResumeTile(index)
 	local tile = Tile(index)
 	tile.chatId = nil
 	tile.resume = true
+	tile:SetAlpha(1)
 	tile.name:SetText("|cff1eff00Resume|r")
 	tile.agent:SetText("")
 	tile.mark:SetText("")
@@ -157,7 +173,11 @@ local function ShowTile(index, chat, selected)
 	tile.chatId = chat and chat.id
 	if chat then
 		tile.name:SetText(ns.Relay.Plain(chat.name))
-		tile.agent:SetText(ns.Relay.AgentName(chat.agent))
+		if chat.poppedOut then
+			tile.agent:SetText("Popped out. Click to show it.")
+		else
+			tile.agent:SetText(ns.Relay.AgentName(chat.agent))
+		end
 		local mark = ""
 		if ns.Transport.WaitsForAnswer(chat.id) then
 			mark = "|cff" .. ORANGE .. "?|r"
@@ -172,6 +192,7 @@ local function ShowTile(index, chat, selected)
 		tile.agent:SetText("")
 		tile.mark:SetText("|cff1eff00+|r")
 	end
+	tile:SetAlpha(chat and chat.poppedOut and POPPED_ALPHA or 1)
 	if selected then
 		tile.bg:SetColorTexture(0.12, 0.35, 0.12, 0.9)
 	else
@@ -278,6 +299,9 @@ local function RefreshStatus(chat)
 		ui.agent:SetText("")
 	end
 	ui.folderButton:SetShown(chat ~= nil)
+	ui.popOut:SetShown(chat ~= nil)
+	-- Grey, not disabled: Disable of a button is a protected function of the client.
+	ui.popOut:SetAlpha(ns.MiniChat.Full() and GREYED_ALPHA or 1)
 	-- The player asked for the search, so its bar comes before the banner.
 	ui.banner:SetShown(ns.Transport.NeedsReload() and not ns.Search.IsOpen())
 	ui.bannerText:SetText(BannerText(#ns.Store.db.outbox))
@@ -294,9 +318,14 @@ local LIGHTS = {
 	mismatch = { "ff2020", { 1, 0.1, 0.1 }, "Update needed" },
 }
 
+-- The text color, the dot color, and the label of the state of the bridge now.
+function Window.BridgeLight()
+	return LIGHTS[ns.Transport.Problem() or ns.Transport.Bridge()]
+end
+
 -- The light is in the title bar, so every tab shows it.
 local function RefreshBridge()
-	local light = LIGHTS[ns.Transport.Problem() or ns.Transport.Bridge()]
+	local light = Window.BridgeLight()
 	ui.bridge:SetText(string.format("|cff%s%s|r", light[1], light[3]))
 	ui.bridgeDot:SetColorTexture(light[2][1], light[2][2], light[2][3], 1)
 end
@@ -444,6 +473,7 @@ local function RefreshChats(chat)
 end
 
 function Window.Refresh()
+	ns.MiniChat.Refresh()
 	if not frame or not frame:IsShown() then
 		return
 	end
@@ -571,7 +601,9 @@ function Window.Resend(chat, message)
 		Window.SendTo(chat, text)
 		return
 	end
-	if ui.input then
+	if ns.MiniChat.IsOpen(chat.id) then
+		ns.MiniChat.Fill(chat.id, message.text)
+	elseif ui.input then
 		ui.input:SetText(message.text)
 		ui.input:SetFocus()
 	end
@@ -625,6 +657,25 @@ local function BuildFolderButton(x)
 	button:SetScript("OnClick", Window.ToggleBrowser)
 	button.text = ui.folder
 	ui.folderButton = button
+end
+
+-- The Pop out button at the right end of the header (SPEC.md 13.1, "Mini chats").
+local function BuildPopOut(right)
+	local button = CreateFrame("Button", "GnomishRelayPopOut", frame, "UIPanelButtonTemplate")
+	button:SetSize(POP_OUT_WIDTH, 20)
+	button:SetPoint("TOPRIGHT", frame, "TOPRIGHT", -right, -60)
+	button:SetText("Pop out")
+	button:SetScript("OnClick", function()
+		local chat = Selected()
+		if chat then
+			ns.MiniChat.PopOut(chat.id)
+		end
+	end)
+	button:SetScript("OnEnter", ns.MiniChat.ShowFullTooltip)
+	button:SetScript("OnLeave", function()
+		GameTooltip:Hide()
+	end)
+	return button
 end
 
 local function RefreshInputHelp()
@@ -686,7 +737,8 @@ local function BuildCenter()
 		Window.Refresh()
 	end, "GnomishRelay")
 	BuildFolderButton(left + 170)
-	ui.pinned = ns.Pins.Build(frame, left, -61)
+	ui.popOut = BuildPopOut(left)
+	ui.pinned = ns.Pins.Build(frame, left + POP_OUT_WIDTH + 4, -61)
 	ui.searchButton = ns.Search.Build(frame, left + 6, 46, ui.pinned)
 
 	ui.logBottom = LOG_BOTTOM
@@ -1000,6 +1052,7 @@ local function Build()
 	-- The Commit dialog sits on UIParent, so it outlives the window unless we close it.
 	frame:HookScript("OnHide", function()
 		ns.Changes.CloseCommit()
+		ns.ChatMenu.Close()
 	end)
 
 	if frame.SetTitle then
@@ -1022,8 +1075,16 @@ local function Build()
 	BuildActivity()
 	BuildTabs()
 	BuildPages()
-	ui.chatParts =
-		{ ui.agent, ui.levelButton, ui.folderButton, ui.pinned, ui.searchButton, ui.activity[1], ui.activity[2] }
+	ui.chatParts = {
+		ui.agent,
+		ui.levelButton,
+		ui.folderButton,
+		ui.popOut,
+		ui.pinned,
+		ui.searchButton,
+		ui.activity[1],
+		ui.activity[2],
+	}
 	frame:Hide()
 end
 
@@ -1039,6 +1100,10 @@ function Window.Open(chatId)
 	end
 	if not frame then
 		Build()
+	end
+	if chatId and ns.MiniChat.IsOpen(chatId) then
+		ns.MiniChat.Show(chatId)
+		return
 	end
 	if chatId then
 		ui.tab = "chats"
