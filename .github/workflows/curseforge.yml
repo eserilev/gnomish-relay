@@ -41,6 +41,13 @@ jobs:
             echo "::notice::No CurseForge upload: only a release uploads, and it needs the secret CF_API_KEY and a numeric project id (see docs/RELEASING.md, CurseForge setup)."
             echo "args=-d" >> "$GITHUB_OUTPUT"
           fi
+      # The packager warns and tags an older game version when CurseForge lacks one, so
+      # the upload stops first (SPEC.md 7.9).
+      - name: Check the CurseForge game versions
+        if: startsWith(steps.project.outputs.args, '-p')
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+        run: python3 scripts/curseforge_versions.py addon/GnomishRelay/GnomishRelay.toc
       # The packager ships only files that git tracks. So the folder gets a repo of its
       # own, with the transport as real files and the tag of this run.
       - name: Make the addon folder

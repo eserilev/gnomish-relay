@@ -92,9 +92,12 @@ This is done once, and it's done already:
   repository secret `CF_API_KEY`.
 
 The packager takes the game versions of the upload from the `## Interface` line of
-`GnomishRelay.toc`. The line lists one number for each client (SPEC.md 7.9). After a
-release that adds a client, open the file on CurseForge and check that it lists the game
-version of each client.
+`GnomishRelay.toc`. The line lists one number for each client (SPEC.md 7.9): 16001 is
+WoW: Forever 1.60.1, and 20506 is Burning Crusade Classic 2.5.6. When CurseForge lacks
+one of these versions, the packager only warns and tags an older one. So before the
+upload, `scripts/curseforge_versions.py` asks CurseForge for its game versions, and the
+upload stops when one is missing. The GitHub release is out by then. Run the
+`curseforge` job of the release again when CurseForge has the version.
 
 Without the ID or the secret, the job still builds the zip, keeps it as an artifact of the
 run, and skips the upload. To test the zip locally, run `scripts/package-addon.sh dist`.
