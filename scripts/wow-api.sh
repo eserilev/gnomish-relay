@@ -45,7 +45,7 @@ while [ $# -gt 0 ]; do
 done
 case $client in
   forever)
-    UI_COMMIT=966519cf0ad2c10301ea011a88c14b25697c9687 # forever, 1.60.1.70124
+    UI_COMMIT=9a789c074b8e73c5d604ef2d6af3bb5b3aefb348 # forever, 1.60.1.70170
     BIR_COMMIT=4149af6437af8631d045f3c6add51555fba3d784 # forever, 1.60.1.70009
     branch=forever title="WoW Forever" suffix=""
     ;;

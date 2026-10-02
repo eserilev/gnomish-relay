@@ -1,9 +1,9 @@
--- The documented WoW Forever 1.60.1.70124 API that GnomishRelay uses.
+-- The documented WoW Forever 1.60.1.70170 API that GnomishRelay uses.
 -- Written by scripts/wow-api.sh from Blizzard_APIDocumentationGenerated. Do not edit.
 -- A patch can change the arguments, returns, or secret flags and keep the name. The diff shows it.
 -- The scan does not know the type of each object, so methods has each widget type with a called name.
 return {
-	build = "1.60.1.70124",
+	build = "1.60.1.70170",
 	functions = {
 		["C_AddOns.DisableAddOn"] = {
 			SecretArguments = "AllowedWhenUntainted",
