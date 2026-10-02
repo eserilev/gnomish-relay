@@ -1,6 +1,7 @@
 # Runs all of ci.yml on the tagged commit, builds the program for each OS, and attaches it
-# to a GitHub Release with its SHA-256 sum (SPEC.md 11.3, 14.7). Then it uploads the addon
-# to CurseForge. scripts/install.sh and install.ps1 download from the latest release.
+# to a GitHub Release with its SHA-256 sum and the notes of CHANGELOG.md (SPEC.md 11.3,
+# 14.7). Then it uploads the addon to CurseForge. scripts/install.sh and install.ps1
+# download from the latest release.
 name: release
 
 on:
@@ -32,6 +33,8 @@ jobs:
             echo "error: tag $GITHUB_REF_NAME, Cargo.toml $cargo, and GnomishRelay.toc $toc do not match" >&2
             exit 1
           fi
+      # Players read these notes on GitHub and CurseForge, so a release needs them first.
+      - run: scripts/changelog-section.sh "${GITHUB_REF_NAME#v}" > /dev/null
 
   # The gate: a tag can point at a commit that CI never checked. Every job of ci.yml runs
   # on the tagged commit, and nothing publishes unless all of them pass.
@@ -49,11 +52,15 @@ jobs:
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          notes=$RUNNER_TEMP/notes.md
+          scripts/changelog-section.sh "${GITHUB_REF_NAME#v}" > "$notes"
+          printf '\nInstall: see the [README](%s#install).\n' "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY" >> "$notes"
           gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --draft \
-            --title "$GITHUB_REF_NAME" --notes "Install: see the README."
+            --title "$GITHUB_REF_NAME" --notes-file "$notes"
 
   build:
     needs: draft

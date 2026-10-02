@@ -7,11 +7,13 @@ For maintainers only. A release needs push access to `main` and the repository s
 A version tag (`v*`) does the whole release. `.github/workflows/release.yml` runs these
 steps in order. Each step starts only when the step before it passed:
 
-1. It checks that the tag, `Cargo.toml`, and `GnomishRelay.toc` name the same version.
+1. It checks that the tag, `Cargo.toml`, and `GnomishRelay.toc` name the same version, and
+   that `CHANGELOG.md` has notes for that version.
 2. It runs all of `.github/workflows/ci.yml` on the tagged commit: Linux, macOS, and
    Windows, with fmt, clippy, the tests, the doc tests, the Lua and WoW API checks, the
    fuzz smoke run, the model, and the proofs. No job skips.
-3. It builds the desktop app for each OS and publishes the GitHub release.
+3. It builds the desktop app for each OS and publishes the GitHub release. The notes of the
+   release are the section of the version in `CHANGELOG.md`.
 4. It calls `.github/workflows/curseforge.yml`. That workflow builds the addon zip and
    uploads it to CurseForge with the BigWigs packager. The zip holds only the
    `GnomishRelay` folder, with the shared transport files copied in: never a key or the
@@ -31,7 +33,13 @@ To publish:
 
 1. Set the version in `Cargo.toml` and in `addon/GnomishRelay/GnomishRelay.toc` (`## Version`).
    The release job refuses a tag that doesn't match both.
-2. Commit, then tag and push:
+2. Write the changelog section. Add a `## 0.3.0` section at the top of `CHANGELOG.md`, with
+   short bullets about what players get. Use the words of the game and of the README, and
+   follow the "UI copy" rules of `CLAUDE.md`. Put bug fixes under `### Fixes`. Leave out
+   work that players don't see, such as CI, proofs, and refactors. To see the notes as
+   the release shows them, run `scripts/changelog-section.sh 0.3.0`. Without notes for
+   the version in `Cargo.toml`, the script tests fail, and the release job refuses the tag.
+3. Commit, then tag and push:
    ```sh
    git tag -a v0.3.0 -m "Release 0.3.0"
    git push origin main v0.3.0
