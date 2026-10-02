@@ -20,10 +20,12 @@ python3 -m unittest discover -q -s scripts -p 'test_*.py'
 # A WoW name that the client does not have, or has only as deprecated, fails here.
 # So does a changed signature or secret flag of a used function or event.
 scripts/wow-api.sh > /dev/null
+scripts/wow-api.sh --client anniversary > /dev/null
 scripts/selftest-api.sh > /dev/null
 if ! git diff --quiet -- addon/tests/api.lua addon/tests/api-signatures.lua \
+  addon/tests/api-anniversary.lua addon/tests/api-signatures-anniversary.lua \
   addon/tests/selftest-api.lua addon/tests/selftest-api-signatures.lua; then
-  echo "error: the WoW API files are out of date. Run scripts/wow-api.sh and scripts/selftest-api.sh, and commit." >&2
+  echo "error: the WoW API files are out of date. Run scripts/wow-api.sh, scripts/wow-api.sh --client anniversary, and scripts/selftest-api.sh, and commit." >&2
   exit 1
 fi
 scripts/check-proofs.sh
