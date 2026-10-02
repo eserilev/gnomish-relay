@@ -85,6 +85,17 @@ impl Image {
         Image { width, height, rgb }
     }
 
+    pub fn to_png(&self) -> Result<Vec<u8>> {
+        let mut bytes = Vec::new();
+        let width = u32::try_from(self.width)?;
+        let height = u32::try_from(self.height)?;
+        let mut encoder = png::Encoder::new(&mut bytes, width, height);
+        encoder.set_color(png::ColorType::Rgb);
+        encoder.set_depth(png::BitDepth::Eight);
+        encoder.write_header()?.write_image_data(&self.rgb)?;
+        Ok(bytes)
+    }
+
     fn cell(&self, x: usize, y: usize) -> Option<u8> {
         self.pixel(x, y).map(full_color_cell)
     }

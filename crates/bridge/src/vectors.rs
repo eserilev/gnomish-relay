@@ -80,6 +80,34 @@ pub fn test_frame(image: &Image) -> Result<Option<Frame>> {
     Ok(decode_frame(&bytes).ok())
 }
 
+/// The smallest top-left corner of `image` that still holds its test strip. The rest of
+/// a screenshot shows the screen of the player, with the character name, so a vector
+/// keeps only this corner.
+pub fn strip_corner(image: &Image) -> Result<Image> {
+    let (width, height) = image.size();
+    let holds = |w, h| -> Result<bool> { Ok(test_frame(&image.crop(0, 0, w, h))?.is_some()) };
+    if !holds(width, height)? {
+        bail!("the screenshot holds no test strip");
+    }
+    let height = least(height, |h| holds(width, h))?;
+    let width = least(width, |w| holds(w, height))?;
+    Ok(image.crop(0, 0, width, height))
+}
+
+/// The least `n` in `1..=max` where `holds(n)`, for a `holds` that stays true above it.
+fn least(max: usize, holds: impl Fn(usize) -> Result<bool>) -> Result<usize> {
+    let (mut low, mut high) = (1, max);
+    while low < high {
+        let mid = low + (high - low) / 2;
+        if holds(mid)? {
+            high = mid;
+        } else {
+            low = mid + 1;
+        }
+    }
+    Ok(high)
+}
+
 /// The signed frame that the self-test drew for `shot`.
 pub fn frame_of(shot: &Shot) -> Result<Vec<u8>> {
     let payload = from_hex(&shot.payload).context("the payload of a shot is not hex")?;
@@ -195,6 +223,13 @@ mod tests {
         ];
         assert_eq!(shot_of(&frame, &shots), Some(&shots[3]));
         assert_eq!(shot_of(&frame, &shots[..3]), None);
+    }
+
+    #[test]
+    fn least_finds_the_first_size_that_holds() {
+        assert_eq!(least(100, |n| Ok(n >= 37)).unwrap(), 37);
+        assert_eq!(least(100, |_| Ok(true)).unwrap(), 1);
+        assert_eq!(least(1, |_| Ok(true)).unwrap(), 1);
     }
 
     #[test]

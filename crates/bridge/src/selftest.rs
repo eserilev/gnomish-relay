@@ -74,7 +74,6 @@ impl Parts {
 pub struct Found {
     pub shot: Shot,
     pub path: PathBuf,
-    pub size: (usize, usize),
 }
 
 fn window(shots: &[Shot]) -> Result<(SystemTime, SystemTime)> {
@@ -109,7 +108,6 @@ fn match_file(path: &Path, shots: &[Shot]) -> Result<Option<Found>> {
     Ok(vectors::shot_of(&frame, shots).map(|shot| Found {
         shot: shot.clone(),
         path: path.to_owned(),
-        size: image.size(),
     }))
 }
 
@@ -161,12 +159,14 @@ fn write_vectors(dir: &Path, build: &str, found: &[Found], saved_file: &Path) ->
     let mut vectors = Vec::new();
     for one in found {
         let file = file_name(&one.shot);
-        fs::copy(&one.path, dir.join(&file))?;
+        let corner = vectors::strip_corner(&vectors::read_png(&one.path)?)?;
+        fs::write(dir.join(&file), corner.to_png()?)?;
+        let (width, height) = corner.size();
         vectors.push(Vector {
             file,
             shot: one.shot.clone(),
-            width: one.size.0,
-            height: one.size.1,
+            width,
+            height,
         });
     }
     let manifest = Manifest {

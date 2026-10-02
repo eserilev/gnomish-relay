@@ -366,6 +366,14 @@ fn collect_writes_the_fixture_and_a_golden_vector_for_each_strip() {
         .join("1.60.1.70009");
     assert_eq!(vectors::check_all(&vectors).unwrap(), 14);
     assert_eq!(fs::read(vectors.join(SAVED_FILE)).unwrap(), saved);
+    let manifest = vectors::read_manifest(&vectors).unwrap();
+    assert!(
+        manifest
+            .vectors
+            .iter()
+            .all(|v| v.width < WIDTH as usize && v.height < HEIGHT as usize),
+        "each vector keeps only the corner of its strip"
+    );
 }
 
 #[test]

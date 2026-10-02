@@ -3338,7 +3338,7 @@ The report prints one line for each mode, with the largest error, then the chose
 1. It reads `GnomishRelaySelfTest.lua`, the newest one of all accounts, with the limits of `saved.rs`. It refuses results that name another key than the public test key.
 2. It scans the `Screenshots` folder for PNGs from the time of the run. It decodes each one with the real bridge reader and the test key, and keeps a file only when its time, frame id, and payload match a shot. It never takes a path from the saved file.
 3. It writes `tests/fixtures/<client>-<build>.json`, for example `anniversary-2.5.6.69795.json`: the measurements, and the behavior of the fake game that follows from them. The interface number of the build names the client (7.9). After a Forever run, it deletes the placeholder fixture.
-4. It writes `tests/vectors/<build>/`: each PNG, `manifest.json` with each payload and the key, and the raw saved file, which shows how WoW writes saved variables.
+4. It writes `tests/vectors/<build>/`: each PNG, `manifest.json` with each payload and the key, and the raw saved file, which shows how WoW writes saved variables. Each PNG keeps only the smallest top-left corner that still decodes its strip. The rest of a screenshot shows the screen of the player, with the character name, and the repo is public.
 5. It judges each line mode, prints the report, and writes `strip-line.json` into the data folder of the bridge (7.1.3). This is the only file that it writes outside the repo.
 
 It reads no key and no config of the relay, and it never deletes a screenshot. A running bridge leaves the test strips alone: it checks each strip that fails its keys against the test key, and keeps and logs a test strip.
