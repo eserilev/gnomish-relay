@@ -37,6 +37,19 @@ To publish:
    git push origin main v0.3.0
    ```
 
+## The Rust version of a release
+
+A release checks and builds with one fixed Rust version, `RUST_TOOLCHAIN` in
+`.github/workflows/release.yml`. CI on `main` uses the newest stable Rust. So a new clippy
+lint fails on `main` first, and it does not stop a release by surprise. Rust 1.99 added
+such a lint on the day of 0.4.0.
+
+To move a release to a newer Rust:
+
+1. Make sure that CI on `main` is green with that version. The Rust version is in the log
+   of the rust job.
+2. Set `RUST_TOOLCHAIN` to it, for example `"1.100.0"`, and commit.
+
 ## CurseForge setup
 
 This is done once, and it's done already:

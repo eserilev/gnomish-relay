@@ -16,6 +16,10 @@ on:
         description: Run every job, also the ones that the path filter skips.
         type: boolean
         default: false
+      toolchain:
+        description: The Rust version of the rust job. A release pins it.
+        type: string
+        default: stable
 
 permissions:
   contents: read
@@ -58,7 +62,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
-          toolchain: stable
+          toolchain: ${{ inputs.toolchain || 'stable' }}
           components: rustfmt, clippy, llvm-tools-preview
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Nextest runs the tests of all binaries side by side, and cargo test runs one binary at a time.

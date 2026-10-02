@@ -10,10 +10,19 @@ on:
 permissions:
   contents: read
 
+# A new stable Rust can add a lint that fails clippy, as 1.99 did to 0.4.0. So a release
+# checks and builds with one fixed version, and CI on main uses the newest stable to find
+# such a lint first. Raise this after CI on main passed with the newer version.
+env:
+  RUST_TOOLCHAIN: "1.99.0"
+
 jobs:
   # The tag names the version that the program and the addon carry.
   version:
     runs-on: ubuntu-latest
+    # A reusable workflow cannot read `env`, so the version passes through this output.
+    outputs:
+      toolchain: ${{ env.RUST_TOOLCHAIN }}
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - run: |
@@ -27,9 +36,11 @@ jobs:
   # The gate: a tag can point at a commit that CI never checked. Every job of ci.yml runs
   # on the tagged commit, and nothing publishes unless all of them pass.
   ci:
+    needs: version
     uses: ./.github/workflows/ci.yml
     with:
       all: true
+      toolchain: ${{ needs.version.outputs.toolchain }}
 
   # The release starts as a draft, so nobody downloads half of it.
   draft:
@@ -61,7 +72,7 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
       - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
         with:
-          toolchain: stable
+          toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
       - run: cargo build --release --locked --bin gnomish-relay --target ${{ matrix.target }}
       - shell: bash
