@@ -3274,7 +3274,7 @@ Write the model before the bridge state machine. The Rust state machine follows 
 - **Fuzzing:** `cargo-fuzz` on the frame decoder and the record parser. No panic and no hang on any input.
 - **Fake agent and fake capture** for the bridge loop. No test needs the game or a real LLM, except live tests marked `#[ignore]`.
 - **Coverage gates:** `protocol` 95% of lines, `bridge` and `agents` 80%.
-- **CI** on Linux, Windows, and macOS. CI runs everything except the live tests.
+- **CI** on Linux, Windows, and macOS. CI runs everything except the live tests. A weekly job runs the live tests that work on a runner (14.8).
 - **CI time.** One fuzz job builds the targets once and runs each target for 5 seconds. The nightly run gives each target its own job and 600 seconds. The proofs and the model run only when `crates/protocol`, `proofs/`, or `models/` change (`scripts/ci-changes.sh`). A weekly run and the nightly run check everything. The rust jobs keep a build cache and run the tests with `cargo nextest`, which runs the test binaries side by side. On Linux the coverage gates run the tests in place of nextest, so each test runs once there. A change of only `*.md` files, `images/`, or `LICENSE` skips the rust and fuzz jobs. The lints, the WoW API gate, and the supply chain share one job. A new push to a branch stops the older CI run of that branch.
 
 #### 14.3.1 The self-test of the game
@@ -3425,6 +3425,39 @@ On 2026-10-01, version 0.4.0 shipped while CI was red. A new clippy lint and the
 - A release checks and builds with one fixed Rust version: `RUST_TOOLCHAIN` in `release.yml`, which it passes to `ci.yml` as the `toolchain` input. A new stable Rust can add a clippy lint, as 1.99 did. CI on `main` keeps the newest stable, so such a lint shows up there first, and a release does not break on it. The maintainer raises the fixed version after CI on `main` passed with the newer one. The fuzz job and the proofs use their own nightly or pinned toolchains.
 - Clippy in `ci.yml` runs with `--locked`, as the release build does, so a stale `Cargo.lock` fails in CI and not in the middle of a release.
 - One gap stays: the workflow files of the tagged commit decide what runs. A commit that removes the gate from `release.yml` also removes it from its own release. A review of every change to `.github/workflows/` closes it.
+
+### 14.8 The weekly live tests
+
+The live tests are marked `#[ignore]`, so CI skips them. Claude Code updates often, and an update can break the desktop app with no failed test. So `.github/workflows/live.yml` runs the live tests that work on a runner, each Wednesday on Linux, and also by hand (`workflow_dispatch`).
+
+- `scripts/live-tests.sh` runs each test alone with `--ignored --exact`. A test passes only when cargo reports exactly one passed test, so a renamed test fails and does not pass with 0 tests.
+- The job installs `bwrap` and sets `GNOMISH_REQUIRE_BWRAP`, as CI does. It installs Claude Code with its native installer (`curl -fsSL https://claude.ai/install.sh | bash`), as players do, at the latest version. The job looks for an update that breaks the app, so it pins no version. A run by hand can name a version, to find the update that broke a test. The ACP adapter `@agentclientprotocol/claude-agent-acp` exists only on npm, so the job installs Node and the adapter.
+- The key is the repository secret `ANTHROPIC_API_KEY`. The desktop app gives an agent only the variables of its allowlist (6.2 rule 12), and a game run loads no settings of the user (`--setting-sources ""`). Managed settings still apply. So the job writes the key to a file of mode 0600 in `/etc/claude-code/` and names it in `apiKeyHelper` of `/etc/claude-code/managed-settings.json`. The job never prints the key. With no secret, as in a fork, the Claude tests skip with a notice, and the other live tests still run.
+- When the job fails, it opens one issue, "The live tests failed", with the names of the failed tests, the Claude Code version, and the link to the run. While that issue is open, a later failure adds a comment to it.
+
+The weekly job runs these tests:
+
+| Test | Needs |
+|---|---|
+| `command_sandbox::tests::a_chat_folder_with_more_than_a_million_entries_gets_a_run` | Time and disk only |
+| `claude`: `live_claude_answers_lists_forks_and_resumes` | `claude` and the key |
+| `claude_gate`: `live_the_hook_of_claude_fires_for_a_read` | `claude`, the key, and `bwrap` |
+| `notices_e2e`: `the_real_claude_fires_the_hooks_and_a_finished_notice_comes` | `claude` and the key |
+| `model`: `live_claude_with_no_tools_cannot_read_a_file` | `claude` and the key |
+| `model`: `live_claude_answers_a_model_call_inside_the_strict_wall` | `claude`, the key, and `bwrap` |
+| `agent_wall`: `live_claude_answers_in_its_wall_and_runs_a_command_in_the_command_sandbox` | `claude`, the key, and `bwrap` |
+| `acp`: `live_claude_lists_and_replays_sessions` | `claude-agent-acp`, and the sessions that the tests above made |
+
+It does not run these:
+
+| Test | Why not |
+|---|---|
+| `codex`: `live_codex_answers_lists_forks_and_resumes` | It needs Codex and an OpenAI login. The repository has no OpenAI secret. |
+| `harness`: `each_installed_preset_answers_inside_the_sandbox` | It needs the other agents (aider, gemini, and more) and their logins. With none installed, it passes and tests nothing. |
+| `command_sandbox`: `cargo_fetch_of_a_small_crate_works_inside_the_sandbox` | It needs the copy-on-write view of `~/.cargo`, which the `bwrap` of a runner cannot make (14.5). |
+| `desktop::tests::live_a_real_dialog_asks_on_this_desktop` | It needs a desktop and a person who clicks Approve. |
+| `timeways_e2e`: both tests | They need a checkout of Timeways: `scripts/e2e-timeways.sh`. |
+| `model`: `live_ollama_answers_a_prompt` | It needs a local Ollama with a model. |
 
 ## 15. Build order
 

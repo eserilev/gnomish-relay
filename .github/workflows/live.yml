@@ -1,0 +1,100 @@
+# The weekly run of the live tests (SPEC.md 14.8). They use the real Claude Code, its ACP
+# adapter, and bwrap, so an update of Claude Code that breaks the desktop app shows up
+# within a week. Every action is pinned to a commit (SPEC 14.6). The comment gives the tag.
+name: live
+
+on:
+  schedule:
+    - cron: "29 5 * * 3"
+  workflow_dispatch:
+    inputs:
+      claude_version:
+        description: The Claude Code version to test, for example 2.1.287, or latest.
+        type: string
+        default: latest
+
+permissions:
+  contents: read
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      - uses: dtolnay/rust-toolchain@02cb101ec7c40f2c49e1d9714d64511d8e1b74de # master
+        with:
+          toolchain: stable
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      # The same sandbox setup as ci.yml, so a test with no working bwrap fails and does not skip.
+      - run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q bubblewrap
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+          echo "GNOMISH_REQUIRE_BWRAP=1" >> "$GITHUB_ENV"
+      # The desktop app gives an agent only the variables of its allowlist (SPEC 6.2 rule 12),
+      # and a game run loads no settings of the user. Managed settings still apply, so the
+      # key reaches Claude Code through a key helper there. Forks have no secrets.
+      - name: Give Claude Code the API key
+        id: key
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: |
+          if [ -z "$ANTHROPIC_API_KEY" ]; then
+            echo "::notice::The Claude tests skip: the repository has no secret ANTHROPIC_API_KEY (see docs/RELEASING.md, Live tests)."
+            echo "claude=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          sudo install -d -o "$(id -u)" -m 700 /etc/claude-code
+          (umask 077 && printf '%s' "$ANTHROPIC_API_KEY" > /etc/claude-code/api-key)
+          echo '{"apiKeyHelper": "cat /etc/claude-code/api-key"}' > /etc/claude-code/managed-settings.json
+          echo "claude=true" >> "$GITHUB_OUTPUT"
+      # The native installer, as players use it (SPEC 11.3). The latest version by default,
+      # because the job looks for an update that breaks the desktop app.
+      - name: Install Claude Code
+        if: steps.key.outputs.claude == 'true'
+        env:
+          VERSION: ${{ inputs.claude_version || 'latest' }}
+        run: |
+          curl -fsSL https://claude.ai/install.sh | bash -s -- "$VERSION"
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          echo "Claude Code: $("$HOME/.local/bin/claude" --version)" >> "$GITHUB_STEP_SUMMARY"
+      # The ACP adapter exists only as an npm package. Players with Node use it too (SPEC 9).
+      - if: steps.key.outputs.claude == 'true'
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 24
+      - if: steps.key.outputs.claude == 'true'
+        run: npm install -g @agentclientprotocol/claude-agent-acp
+      - name: Run the live tests
+        env:
+          CLAUDE: ${{ steps.key.outputs.claude }}
+        run: |
+          if [ "$CLAUDE" = true ]; then
+            scripts/live-tests.sh "$RUNNER_TEMP/failed.txt" --claude
+          else
+            scripts/live-tests.sh "$RUNNER_TEMP/failed.txt"
+          fi
+      # One open issue collects every failed run, so a broken week makes no flood.
+      - name: Open or update the issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RUN: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          title="The live tests failed"
+          names=$(sed 's/.*/- `&`/' "$RUNNER_TEMP/failed.txt" 2>/dev/null)
+          names=${names:-"- none: the job failed before a test ran"}
+          version=$(claude --version 2>/dev/null || echo "not installed")
+          body=$(printf 'Run: %s\nClaude Code: %s\n\nFailed tests:\n%s\n\nRun one by hand: `cargo test -p bridge --test <file> -- --ignored --exact <name>`.\n' \
+            "$RUN" "$version" "$names")
+          number=$(gh issue list --state open --search "\"$title\" in:title" --json number -q '.[0].number')
+          if [ -n "$number" ]; then
+            gh issue comment "$number" --body "$body"
+          else
+            gh issue create --title "$title" --body "$body"
+          fi

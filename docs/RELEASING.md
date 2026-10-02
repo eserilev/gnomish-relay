@@ -50,6 +50,28 @@ To move a release to a newer Rust:
    of the rust job.
 2. Set `RUST_TOOLCHAIN` to it, for example `"1.100.0"`, and commit.
 
+## Live tests
+
+`.github/workflows/live.yml` runs the live tests each Wednesday: the real Claude Code, its
+ACP adapter, and the sandbox. A Claude Code update that breaks the desktop app shows up
+within a week. SPEC.md 14.8 lists the tests that run and the ones that don't.
+
+The job needs a Claude API key once:
+
+1. Make a key at <https://console.anthropic.com/settings/keys>. A key with a low spend
+   limit is enough: a run makes a few short calls.
+2. On GitHub, open the repository, then Settings > Secrets and variables > Actions.
+3. Add a repository secret with the name `ANTHROPIC_API_KEY` and the key as its value.
+
+Without the secret, the Claude tests skip with a notice, and the other live tests still
+run. When a run fails, the job opens the issue "The live tests failed", or adds a comment
+to it if it is open. Close the issue when the fix is in.
+
+To run the job now, open Actions > live > Run workflow. To find the Claude Code update
+that broke a test, give an older version in `claude_version`, for example `2.1.287`.
+To run the tests on your computer, use `scripts/live-tests.sh failed.txt --claude`. They
+use the Claude login of your computer.
+
 ## CurseForge setup
 
 This is done once, and it's done already:
