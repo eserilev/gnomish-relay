@@ -380,14 +380,14 @@ local function HideStatus()
 	if GetTime() >= hideStatusUntil then
 		return
 	end
-	for _, frame in ipairs(statusFrames) do
-		frame:Hide()
+	for _, status in ipairs(statusFrames) do
+		status:Hide()
 	end
 end
 
-local function HookStatus(frame)
-	table.insert(statusFrames, frame)
-	frame:HookScript("OnShow", HideStatus)
+local function HookStatus(status)
+	table.insert(statusFrames, status)
+	status:HookScript("OnShow", HideStatus)
 end
 
 local each = EnumerateFrames()
