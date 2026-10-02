@@ -10,7 +10,7 @@ works on your own computer, in your own projects, the same way it does in your t
 
 ## Requirements
 
-- **WoW: Forever**, and the [CurseForge app](https://www.curseforge.com/download/app).
+- **WoW: Forever or WoW Classic: TBC Anniversary**, and the [CurseForge app](https://www.curseforge.com/download/app).
 - **A coding agent**, installed and logged in on your computer:
   [Claude Code](https://docs.anthropic.com/en/docs/claude-code), Codex, or any agent that
   speaks the Agent Client Protocol (ACP).

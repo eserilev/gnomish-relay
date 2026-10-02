@@ -91,5 +91,10 @@ This is done once, and it's done already:
 - An API token from <https://authors.curseforge.com/#/settings/api-tokens> is the
   repository secret `CF_API_KEY`.
 
+The packager takes the game versions of the upload from the `## Interface` line of
+`GnomishRelay.toc`. The line lists one number for each client (SPEC.md 7.9). After a
+release that adds a client, open the file on CurseForge and check that it lists the game
+version of each client.
+
 Without the ID or the secret, the job still builds the zip, keeps it as an artifact of the
 run, and skips the upload. To test the zip locally, run `scripts/package-addon.sh dist`.
