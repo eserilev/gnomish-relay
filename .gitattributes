@@ -3,3 +3,5 @@
 *.ttf binary
 # Byte-exact fuzz inputs. Some hold \r\n on purpose.
 fuzz/seeds/** binary
+# The raw saved file of the self-test shows the exact bytes that WoW writes.
+tests/vectors/*/GnomishRelaySelfTest.lua binary
