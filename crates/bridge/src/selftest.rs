@@ -18,6 +18,7 @@ use crate::line::{CELLS_PER_ROW, Mode};
 use crate::line_choice::{self, LineChoice};
 use crate::saved;
 use crate::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
+use crate::wow_client::WowClient;
 
 pub const SAVED_FILE: &str = "GnomishRelaySelfTest.lua";
 /// A screenshot file gets its time a moment after the `Screenshot()` call.
@@ -309,9 +310,12 @@ pub fn collect(game: &Path, repo: &Path) -> Result<Collected> {
     )?;
     let fixtures = repo.join("tests").join("fixtures");
     fs::create_dir_all(&fixtures)?;
-    let path = fixtures.join(format!("forever-{}.json", fixture.build));
+    let client = fixture::client(&fixture)?;
+    let path = fixtures.join(fixture::file_name(client, &fixture.build));
     fs::write(&path, serde_json::to_string_pretty(&fixture)? + "\n")?;
-    let _ = fs::remove_file(fixtures.join(PLACEHOLDER));
+    if client == WowClient::Forever {
+        let _ = fs::remove_file(fixtures.join(PLACEHOLDER));
+    }
     let dir = repo.join("tests").join("vectors").join(&fixture.build);
     let vectors = write_vectors(&dir, &fixture.build, &found, &saved_file)?;
     let lines = judge_lines(&game.join("Screenshots"), &shots)?;

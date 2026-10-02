@@ -11,20 +11,31 @@ use std::fs;
 use bridge::fixture::{self, PLACEHOLDER};
 use bridge::ids::hex;
 use bridge::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
+use bridge::wow_client::WowClient;
 use common::{Bits, bytes, fixture, load, lua, repo_path, screenshot_png, strip_rows};
 use mlua::{Function, Table};
 
+/// The real fixtures of every client.
+fn all_real_fixtures() -> Vec<std::path::PathBuf> {
+    let fixtures = repo_path("tests/fixtures");
+    let mut all = Vec::new();
+    for client in WowClient::ALL {
+        let real = fixture::real_fixtures(&fixtures, client).unwrap();
+        all.extend(real.into_iter().map(|(_, path)| path));
+    }
+    all
+}
+
 #[test]
 fn every_committed_golden_vector_decodes_with_the_test_key() {
-    let fixtures = repo_path("tests/fixtures");
-    let real = fixture::real_fixtures(&fixtures).unwrap();
+    let real = all_real_fixtures();
     if real.is_empty() {
         eprintln!(
             "SKIP: tests/vectors has no golden vectors yet. Run the self-test in the game (SPEC.md 14.3)."
         );
         return;
     }
-    for (_, path) in real {
+    for path in real {
         let fixture = fixture::read(&path).unwrap();
         let dir = repo_path("tests/vectors").join(&fixture.build);
 
@@ -46,21 +57,25 @@ fn every_committed_golden_vector_decodes_with_the_test_key() {
 }
 
 #[test]
-fn the_placeholder_fixture_goes_once_a_real_fixture_exists() {
+fn the_placeholder_fixture_goes_once_a_real_forever_fixture_exists() {
     let fixtures = repo_path("tests/fixtures");
-    if fixture::real_fixtures(&fixtures).unwrap().is_empty() {
+    if fixture::real_fixtures(&fixtures, WowClient::Forever)
+        .unwrap()
+        .is_empty()
+    {
         return;
     }
     assert!(
         !fixtures.join(PLACEHOLDER).exists(),
-        "a real fixture exists, so delete tests/fixtures/{PLACEHOLDER}"
+        "a real Forever fixture exists, so delete tests/fixtures/{PLACEHOLDER}"
     );
 }
 
 #[test]
-fn the_fake_game_uses_the_placeholder_only_while_no_real_fixture_exists() {
+fn the_fake_game_uses_the_placeholder_only_while_no_real_forever_fixture_exists() {
     let fixtures = repo_path("tests/fixtures");
-    let none_real = fixture::real_fixtures(&fixtures).unwrap().is_empty();
+    let real = fixture::real_fixtures(&fixtures, WowClient::Forever).unwrap();
+    let none_real = real.is_empty();
 
     let used = fixture();
 

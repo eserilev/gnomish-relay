@@ -10,8 +10,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use crate::vectors::Shot;
+use crate::wow_client::WowClient;
 
 pub const FORMAT: u32 = 1;
+/// The guesses for Forever from before the self-test. No other client has one.
 pub const PLACEHOLDER: &str = "forever-placeholder.json";
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
@@ -474,13 +476,27 @@ fn version_parts(build: &str) -> Option<Vec<u64>> {
     build.split('.').map(|part| part.parse().ok()).collect()
 }
 
-/// Each real fixture in `dir` with its version numbers, oldest first. The placeholder is not one.
-pub fn real_fixtures(dir: &Path) -> Result<Vec<(Vec<u64>, PathBuf)>> {
+/// The file name of a fixture, such as `anniversary-2.5.6.69795.json` (SPEC.md 7.9).
+pub fn file_name(client: WowClient, build: &str) -> String {
+    format!("{}-{build}.json", client.name())
+}
+
+/// The client of a fixture, from the interface number of its build.
+pub fn client(fixture: &Fixture) -> Result<WowClient> {
+    let interface = fixture.fake.build_info.interface;
+    WowClient::of_interface(interface)
+        .with_context(|| format!("no supported client has the interface {interface}"))
+}
+
+/// Each real fixture of `client` in `dir` with its version numbers, oldest first. The
+/// placeholder is not one.
+pub fn real_fixtures(dir: &Path, client: WowClient) -> Result<Vec<(Vec<u64>, PathBuf)>> {
+    let prefix = format!("{}-", client.name());
     let mut found = Vec::new();
     for entry in fs::read_dir(dir)?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();
         let build = name
-            .strip_prefix("forever-")
+            .strip_prefix(&prefix)
             .and_then(|n| n.strip_suffix(".json"));
         if let Some(version) = build.and_then(version_parts) {
             found.push((version, entry.path()));
@@ -490,9 +506,10 @@ pub fn real_fixtures(dir: &Path) -> Result<Vec<(Vec<u64>, PathBuf)>> {
     Ok(found)
 }
 
-/// The fixture of the newest build in `dir`, or the placeholder while there is none.
+/// The fixture of the newest Forever build in `dir`, or the placeholder while there is
+/// none. The fake game of the tests is Forever, the first client.
 pub fn newest(dir: &Path) -> Result<PathBuf> {
-    let newest = real_fixtures(dir)?.pop();
+    let newest = real_fixtures(dir, WowClient::Forever)?.pop();
     Ok(newest.map_or_else(|| dir.join(PLACEHOLDER), |(_, path)| path))
 }
 
@@ -669,6 +686,7 @@ mod tests {
             PLACEHOLDER,
             "forever-1.60.9.1.json",
             "forever-1.60.10.1.json",
+            "anniversary-2.5.7.1.json",
             "notes.json",
         ];
         for name in names {
@@ -676,6 +694,11 @@ mod tests {
         }
         let newest = newest(dir.path()).unwrap();
         assert_eq!(newest, dir.path().join("forever-1.60.10.1.json"));
-        assert_eq!(real_fixtures(dir.path()).unwrap().len(), 2);
+        assert_eq!(
+            real_fixtures(dir.path(), WowClient::Forever).unwrap().len(),
+            2
+        );
+        let anniversary = real_fixtures(dir.path(), WowClient::Anniversary).unwrap();
+        assert_eq!(anniversary.len(), 1);
     }
 }
