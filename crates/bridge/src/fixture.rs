@@ -95,7 +95,17 @@ pub struct LoadReturns {
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone)]
 pub struct SetFontReturns {
     pub present: Option<bool>,
-    pub missing: Option<bool>,
+    pub missing: MissingFont,
+}
+
+/// What `FontString:SetFont` does with a file that WoW did not find at launch.
+#[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
+#[serde(rename_all = "snake_case")]
+pub enum MissingFont {
+    /// Forever. `None` is nil.
+    Returns(Option<bool>),
+    /// TBC Anniversary: "Invalid font asset".
+    Raises,
 }
 
 #[derive(Serialize, Deserialize, Debug, PartialEq, Clone, Copy)]
@@ -269,13 +279,20 @@ fn load_returns(addons: &AddOns) -> Result<LoadReturns> {
 }
 
 fn set_font(probe: &SetFontProbe) -> Result<SetFontReturns> {
-    let first = |list: &[Value], what| -> Result<Option<bool>> {
-        Ok(returned(list, what)?.first().and_then(Value::as_bool))
-    };
+    let present = returned(&probe.present, "SetFont with a present file")?;
     Ok(SetFontReturns {
-        present: first(&probe.present, "SetFont with a present file")?,
-        missing: first(&probe.missing, "SetFont with a missing file")?,
+        present: present.first().and_then(Value::as_bool),
+        missing: missing_font(&probe.missing),
     })
+}
+
+fn missing_font(returns: &[Value]) -> MissingFont {
+    match returns.split_first() {
+        Some((Value::Bool(true), rest)) => {
+            MissingFont::Returns(rest.first().and_then(Value::as_bool))
+        }
+        _ => MissingFont::Raises,
+    }
 }
 
 fn golden(shots: &[TimedShot]) -> impl Iterator<Item = &TimedShot> {
@@ -553,6 +570,17 @@ mod tests {
         assert_eq!(bit_results(&unsigned).unwrap(), BitResults::Unsigned);
         assert_eq!(bit_results(&signed).unwrap(), BitResults::Signed);
         assert!(bit_results(&facts(0.0, vec![], "nil")).is_err());
+    }
+
+    #[test]
+    fn a_set_font_that_raises_for_a_missing_file_is_kept_as_raises() {
+        let raised = [json!(false), json!("Invalid font asset")];
+        assert_eq!(missing_font(&raised), MissingFont::Raises);
+        assert_eq!(
+            missing_font(&[json!(true), json!(false)]),
+            MissingFont::Returns(Some(false))
+        );
+        assert_eq!(missing_font(&[json!(true)]), MissingFont::Returns(None));
     }
 
     #[test]

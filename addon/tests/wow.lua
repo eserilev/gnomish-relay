@@ -386,7 +386,10 @@ function methods:SetFont(...)
 		return
 	end
 	if wow.missingFiles[args[1]] then
-		return fake.set_font.missing
+		if fake.set_font.missing == "raises" then
+			error("FontString:SetFont(): Invalid font asset (" .. args[1] .. "): file not found", 2)
+		end
+		return fake.set_font.missing.returns
 	end
 	self.font, self.fontSize = args[1], args[2]
 	return fake.set_font.present

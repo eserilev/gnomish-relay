@@ -23,7 +23,7 @@
       "enabled_then_loaded": { "loaded": true, "reason": null },
       "out_of_date": { "loaded": false, "reason": "INTERFACE_VERSION" }
     },
-    "set_font": { "present": true, "missing": false },
+    "set_font": { "present": true, "missing": { "returns": false } },
     "content_height_at_once": true,
     "saved_variables": "before_files",
     "login_events": ["ADDON_LOADED", "PLAYER_LOGIN"],

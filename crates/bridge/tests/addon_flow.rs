@@ -9,7 +9,9 @@ use bridge::activity::text_hash;
 use bridge::agent::{Agent, Control, Echo, NO_AGENT};
 use bridge::config::{Permission, Policy};
 use bridge::desktop::{Notice, Prompted, Topic, Waiting};
-use bridge::fixture::{Capture, Fake, HookMissing, SavedVariables, StatusShown, TimerOrder};
+use bridge::fixture::{
+    Capture, Fake, HookMissing, MissingFont, SavedVariables, StatusShown, TimerOrder,
+};
 use bridge::install::key_addon_lua;
 use bridge::receive::{KeySet, StripKey, receive};
 use bridge::relay::{Folders, Relay};
@@ -4580,6 +4582,27 @@ fn a_reply_that_fails_to_draw_shows_as_plain_text() {
 #[test]
 fn a_missing_mono_font_falls_back_to_a_game_font() {
     let game = Game::start_with(|wow| {
+        let missing: Table = wow.get("missingFiles").unwrap();
+        missing.set(MONO, true).unwrap();
+    });
+    rendered_reply(&game, "```\nlet x = 1;\n```");
+
+    let drawn = transcript(&game);
+    let code = drawn
+        .iter()
+        .find(|d| d.text.as_deref() == Some("let x = 1;"))
+        .expect("a code line");
+    assert_eq!(
+        code.object.get::<String>("font").unwrap(),
+        "Fonts\\ARIALN.TTF"
+    );
+}
+
+#[test]
+fn a_missing_mono_font_falls_back_also_where_set_font_raises() {
+    let mut fake = measured();
+    fake.set_font.missing = MissingFont::Raises;
+    let game = Game::boot(fake, None, |wow| {
         let missing: Table = wow.get("missingFiles").unwrap();
         missing.set(MONO, true).unwrap();
     });

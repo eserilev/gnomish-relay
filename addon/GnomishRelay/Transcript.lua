@@ -202,8 +202,10 @@ local function NewCodeBox(v)
 end
 
 -- WoW finds a new file only at launch, so after an update the font can be missing.
+-- Forever returns false for a missing font, and TBC Anniversary raises an error.
 local function SetCodeFont(text)
-	if not text:SetFont(MONO, FontSize() - 2, "") then
+	local ok, set = pcall(text.SetFont, text, MONO, FontSize() - 2, "")
+	if not (ok and set) then
 		text:SetFont(MONO_FALLBACK, FontSize() - 1, "")
 	end
 end

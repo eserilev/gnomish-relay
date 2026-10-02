@@ -1223,6 +1223,7 @@ Gnomish Relay supports two WoW clients. `crates/bridge/src/wow_client.rs` lists 
 - **One addon for all clients.** Each TOC lists every number: `## Interface: 16001, 20506`. The game loads an addon when one number matches it. This applies to the relay addon, the key addons (7.3.2), and the slots (7.3). So one CurseForge file serves each client, and the desktop app writes the same files for each one.
 - **One game folder at a time.** Setup searches each client folder (11.3). With more than one, it takes the one played last. The desktop app serves only the folder of `[wow]` in the config. *Why not both at once:* each folder needs its own slots, key addon, saved-variables watch, and screenshot watch. Nobody has asked to play two clients at the same time.
 - **TBC Anniversary passes the rules of 7.2.** The self-test (14.3.1) ran on 2026-10-02. All six line modes read clean, and `Screenshot()` works from an addon. A load-on-demand addon whose file changed after launch loads the new content, so rule 2 holds.
+- **`FontString:SetFont` with a missing file.** Forever returns `false`. TBC Anniversary raises "Invalid font asset". The fixture keeps it as `missing: "raises"`, and the fake game raises too. So the addon calls `SetFont` for a font that can be missing (the mono font after an update) inside `pcall`.
 
 ## 8. Architecture
 
