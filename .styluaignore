@@ -2,3 +2,5 @@ addon/tests/api.lua
 addon/tests/api-signatures.lua
 addon/tests/selftest-api.lua
 addon/tests/selftest-api-signatures.lua
+addon/tests/api-anniversary.lua
+addon/tests/api-signatures-anniversary.lua
