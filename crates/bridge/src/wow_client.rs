@@ -38,11 +38,12 @@ impl WowClient {
         WowClient::ALL.into_iter().find(|c| c.folder() == name)
     }
 
-    /// The client of a build, from the major and minor version of its interface number.
+    /// The client of a build, from the major version of its interface number. Each
+    /// supported client has its own major version.
     pub fn of_interface(interface: u32) -> Option<WowClient> {
         WowClient::ALL
             .into_iter()
-            .find(|c| c.interface() / 100 == interface / 100)
+            .find(|c| c.interface() / 10_000 == interface / 10_000)
     }
 }
 
@@ -79,14 +80,18 @@ mod tests {
     #[test]
     fn a_patch_of_a_client_still_gives_that_client() {
         assert_eq!(WowClient::of_interface(20507), Some(WowClient::Anniversary));
-        assert_eq!(WowClient::of_interface(16001), Some(WowClient::Forever));
+        assert_eq!(WowClient::of_interface(16101), Some(WowClient::Forever));
         assert_eq!(WowClient::of_interface(120_001), None);
     }
 
     #[test]
-    fn each_client_has_its_own_folder_and_name() {
+    fn each_client_has_its_own_folder_name_and_major_version() {
         let [forever, anniversary] = WowClient::ALL;
         assert_ne!(forever.folder(), anniversary.folder());
         assert_ne!(forever.name(), anniversary.name());
+        assert_ne!(
+            forever.interface() / 10_000,
+            anniversary.interface() / 10_000
+        );
     }
 }

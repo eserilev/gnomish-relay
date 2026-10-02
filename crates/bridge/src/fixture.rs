@@ -284,16 +284,18 @@ fn set_font(probe: &SetFontProbe) -> Result<SetFontReturns> {
     let present = returned(&probe.present, "SetFont with a present file")?;
     Ok(SetFontReturns {
         present: present.first().and_then(Value::as_bool),
-        missing: missing_font(&probe.missing),
+        missing: missing_font(&probe.missing)?,
     })
 }
 
-fn missing_font(returns: &[Value]) -> MissingFont {
-    match returns.split_first() {
+/// The `pcall` of `SetFont` with a missing file: its returns, or an error in the call.
+fn missing_font(pcall: &[Value]) -> Result<MissingFont> {
+    match pcall.split_first() {
         Some((Value::Bool(true), rest)) => {
-            MissingFont::Returns(rest.first().and_then(Value::as_bool))
+            Ok(MissingFont::Returns(rest.first().and_then(Value::as_bool)))
         }
-        _ => MissingFont::Raises,
+        Some((Value::Bool(false), _)) => Ok(MissingFont::Raises),
+        _ => bail!("SetFont with a missing file has no pcall result: {pcall:?}"),
     }
 }
 
@@ -592,12 +594,21 @@ mod tests {
     #[test]
     fn a_set_font_that_raises_for_a_missing_file_is_kept_as_raises() {
         let raised = [json!(false), json!("Invalid font asset")];
-        assert_eq!(missing_font(&raised), MissingFont::Raises);
+        assert_eq!(missing_font(&raised).unwrap(), MissingFont::Raises);
         assert_eq!(
-            missing_font(&[json!(true), json!(false)]),
+            missing_font(&[json!(true), json!(false)]).unwrap(),
             MissingFont::Returns(Some(false))
         );
-        assert_eq!(missing_font(&[json!(true)]), MissingFont::Returns(None));
+        assert_eq!(
+            missing_font(&[json!(true)]).unwrap(),
+            MissingFont::Returns(None)
+        );
+    }
+
+    #[test]
+    fn a_set_font_probe_with_no_pcall_result_is_refused() {
+        assert!(missing_font(&[]).is_err());
+        assert!(missing_font(&[json!("garbled")]).is_err());
     }
 
     #[test]

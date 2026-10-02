@@ -292,6 +292,19 @@ fn chosen_line(line: Option<LineChoice>) -> String {
     )
 }
 
+/// Writes `fixture` under the name of its client (SPEC.md 7.9). Only Forever has a
+/// placeholder, so only a Forever fixture deletes it.
+fn write_fixture(fixtures: &Path, fixture: &fixture::Fixture) -> Result<PathBuf> {
+    fs::create_dir_all(fixtures)?;
+    let client = fixture::client(fixture)?;
+    let path = fixtures.join(fixture::file_name(client, &fixture.build));
+    fs::write(&path, serde_json::to_string_pretty(fixture)? + "\n")?;
+    if client == WowClient::Forever {
+        let _ = fs::remove_file(fixtures.join(PLACEHOLDER));
+    }
+    Ok(path)
+}
+
 /// Reads the results in `game` and writes `tests/fixtures` and `tests/vectors` in `repo`.
 pub fn collect(game: &Path, repo: &Path) -> Result<Collected> {
     let accounts = game.join("WTF").join("Account");
@@ -308,14 +321,7 @@ pub fn collect(game: &Path, repo: &Path) -> Result<Collected> {
         parts.combat.as_ref(),
         probe_in_picture,
     )?;
-    let fixtures = repo.join("tests").join("fixtures");
-    fs::create_dir_all(&fixtures)?;
-    let client = fixture::client(&fixture)?;
-    let path = fixtures.join(fixture::file_name(client, &fixture.build));
-    fs::write(&path, serde_json::to_string_pretty(&fixture)? + "\n")?;
-    if client == WowClient::Forever {
-        let _ = fs::remove_file(fixtures.join(PLACEHOLDER));
-    }
+    let path = write_fixture(&repo.join("tests").join("fixtures"), &fixture)?;
     let dir = repo.join("tests").join("vectors").join(&fixture.build);
     let vectors = write_vectors(&dir, &fixture.build, &found, &saved_file)?;
     let lines = judge_lines(&game.join("Screenshots"), &shots)?;
@@ -387,6 +393,37 @@ fn collect_args<'a>(args: &[&'a str]) -> Option<(Option<&'a str>, Option<&'a str
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const PLACEHOLDER_JSON: &str = include_str!("../../../tests/fixtures/forever-placeholder.json");
+
+    /// The placeholder fixture as if a client with `interface` measured it.
+    fn fixture_of(interface: u32) -> fixture::Fixture {
+        let mut fixture: fixture::Fixture = serde_json::from_str(PLACEHOLDER_JSON).unwrap();
+        fixture.fake.build_info.interface = interface;
+        fixture.build = "2.5.6.69795".into();
+        fixture
+    }
+
+    #[test]
+    fn an_anniversary_fixture_is_named_after_its_client_and_keeps_the_placeholder() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(PLACEHOLDER), "{}").unwrap();
+
+        let path = write_fixture(dir.path(), &fixture_of(20506)).unwrap();
+
+        assert_eq!(path, dir.path().join("anniversary-2.5.6.69795.json"));
+        assert!(dir.path().join(PLACEHOLDER).exists());
+    }
+
+    #[test]
+    fn a_fixture_of_an_unknown_client_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let error = write_fixture(dir.path(), &fixture_of(120_001)).unwrap_err();
+
+        assert!(format!("{error:#}").contains("120001"), "{error:#}");
+        assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 0);
+    }
 
     #[test]
     fn collect_takes_a_game_folder_and_a_repo_in_that_order() {
