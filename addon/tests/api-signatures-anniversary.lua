@@ -455,12 +455,6 @@ return {
 				{ Name = "texture", Type = "SimpleTexture", Nilable = false },
 			},
 		},
-		["SimpleFrameAPI:GetChildren"] = {
-			Arguments = {},
-			Returns = {
-				{ Name = "children", Type = "SimpleFrame", Nilable = false, StrideIndex = 1 },
-			},
-		},
 		["SimpleFrameAPI:GetEffectiveScale"] = {
 			Arguments = {},
 			Returns = {
@@ -987,6 +981,7 @@ return {
 	},
 	undocumented = {
 		"CreateFrame",
+		"EnumerateFrames",
 		"GetBuildInfo",
 		"GetPhysicalScreenSize",
 		"GetTime",

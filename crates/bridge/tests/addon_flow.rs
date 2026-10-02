@@ -5388,7 +5388,7 @@ fn the_screen_captured_text_of_our_shot_stays_hidden_before_or_after_the_event()
 #[test]
 fn the_screen_captured_text_of_our_shot_stays_hidden_on_both_status_frames_of_tbc() {
     let game = Game::start_with(|wow| {
-        wow.get::<Function>("AddOldActionStatus")
+        wow.get::<Function>("AddSecondActionStatus")
             .unwrap()
             .call::<()>(())
             .unwrap();

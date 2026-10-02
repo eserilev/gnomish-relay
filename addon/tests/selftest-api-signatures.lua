@@ -399,13 +399,6 @@ return {
 				{ Name = "texture", Type = "SimpleTexture", Nilable = false },
 			},
 		},
-		["SimpleFrameAPI:GetChildren"] = {
-			SecretReturnsForAspect = { Enum.SecretAspect.Hierarchy },
-			Arguments = {},
-			Returns = {
-				{ Name = "children", Type = "SimpleFrame", Nilable = false, StrideIndex = 1 },
-			},
-		},
 		["SimpleFrameAPI:GetEffectiveScale"] = {
 			SecretReturnsForAspect = { Enum.SecretAspect.Scale },
 			Arguments = {},

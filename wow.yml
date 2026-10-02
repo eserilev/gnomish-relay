@@ -16,8 +16,8 @@ globals:
     any: true
   UIParent:
     any: true
-  WorldFrame:
-    any: true
+  EnumerateFrames:
+    args: [{type: any, required: false}]
   UIErrorsFrame:
     any: true
   GameTooltip:
