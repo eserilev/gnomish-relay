@@ -26,6 +26,7 @@ const FILES: &[&str] = &[
     "Slots.lua",
     "Messages.lua",
     "Transport.lua",
+    "Atlases.lua",
     "Notices.lua",
     "Blocks.lua",
     "Pins.lua",
@@ -67,6 +68,16 @@ impl Game {
         Game::boot(None)
     }
 
+    /// A client that lacks `atlases`, as TBC Anniversary lacks some of Forever.
+    fn start_without_atlases(atlases: &[&str]) -> Game {
+        Game::boot_with(None, |wow| {
+            let missing: Table = wow.get("missingAtlases").unwrap();
+            for atlas in atlases {
+                missing.set(*atlas, true).unwrap();
+            }
+        })
+    }
+
     /// `/reload`: WoW saves the saved variables, and a new UI session loads them.
     fn reload(&self) -> Game {
         let saved: String = self
@@ -79,9 +90,15 @@ impl Game {
     }
 
     fn boot(saved: Option<&str>) -> Game {
+        Game::boot_with(saved, |_| {})
+    }
+
+    /// `before` changes the fake game before the addon files load.
+    fn boot_with(saved: Option<&str>, before: impl FnOnce(&Table)) -> Game {
         let fake = measured();
         let lua = game_lua_for(&fake);
         let wow = fake_game_for(&lua, "addon/tests/api.lua", &fake);
+        before(&wow);
         let ns = lua.create_table().unwrap();
         ns.set("key", lua.create_string(KEY).unwrap()).unwrap();
         start_addon(
@@ -259,6 +276,34 @@ fn a_waiting_notice_shows_the_line_the_toast_sound_the_toast_and_a_glowing_bell(
             .as_boolean()
             .unwrap()
     );
+}
+
+#[test]
+fn the_bell_shows_the_horn_of_a_minimap_event() {
+    let game = Game::start();
+    game.publish_and_poll(1, 1, &[waiting(1)]);
+
+    let atlas = game.run("return GnomishRelayBell.icon.atlas");
+
+    assert_eq!(atlas.to_string().unwrap(), "minimap-genericevent-hornicon");
+}
+
+#[test]
+fn without_the_horn_atlas_the_bell_and_the_line_show_the_notification_icon() {
+    let game = Game::start_without_atlases(&[
+        "minimap-genericevent-hornicon",
+        "minimap-genericevent-hornicon-small",
+    ]);
+
+    game.publish_and_poll(1, 1, &[waiting(1)]);
+
+    let lines = game.lines_with("Waiting for you");
+    assert!(
+        lines[0].contains("|A:communities-icon-notification:14:14|a"),
+        "{lines:?}"
+    );
+    let atlas = game.run("return GnomishRelayBell.icon.atlas");
+    assert_eq!(atlas.to_string().unwrap(), "communities-icon-notification");
 }
 
 #[test]

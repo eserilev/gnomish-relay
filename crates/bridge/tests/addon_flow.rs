@@ -49,6 +49,7 @@ const FILES: &[&str] = &[
     "Slots.lua",
     "Messages.lua",
     "Transport.lua",
+    "Atlases.lua",
     "Notices.lua",
     "Blocks.lua",
     "Pins.lua",
@@ -2938,6 +2939,37 @@ fn a_fresh_install_with_no_desktop_app_shows_the_first_run_window_once() {
     assert!(windows.ends_with("scripts/install.ps1 | iex"), "{windows}");
     let linux = text_of(&game, "GnomishRelaySetupCommand2:GetText()");
     assert!(linux.ends_with("scripts/install.sh | sh"), "{linux}");
+}
+
+/// True when a texture of the game has `value` in `field`: `atlas` or `file`.
+fn texture_drawn(game: &Game, field: &str, value: &str) -> bool {
+    let textures: Table = game.wow.get("textures").unwrap();
+    textures.sequence_values::<Table>().any(|texture| {
+        let set: Option<String> = texture.unwrap().get(field).unwrap();
+        set.as_deref() == Some(value)
+    })
+}
+
+#[test]
+fn the_first_run_window_draws_the_quest_parchment() {
+    let game = start_with_no_key_addon();
+
+    assert!(texture_drawn(&game, "atlas", "QuestBG-Parchment"));
+}
+
+#[test]
+fn without_the_parchment_atlas_the_first_run_window_draws_the_quest_background() {
+    let game = Game::boot_with_key_addon(measured(), None, |wow| {
+        let missing: Table = wow.get("missingAtlases").unwrap();
+        missing.set("QuestBG-Parchment", true).unwrap();
+    });
+
+    assert!(texture_drawn(
+        &game,
+        "file",
+        "Interface\\QuestFrame\\QuestBG"
+    ));
+    assert!(!texture_drawn(&game, "atlas", "QuestBG-Parchment"));
 }
 
 #[test]

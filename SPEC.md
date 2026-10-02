@@ -1224,6 +1224,7 @@ Gnomish Relay supports two WoW clients. `crates/bridge/src/wow_client.rs` lists 
 - **One game folder at a time.** Setup searches each client folder (11.3). With more than one, it takes the one played last. The desktop app serves only the folder of `[wow]` in the config. *Why not both at once:* each folder needs its own slots, key addon, saved-variables watch, and screenshot watch. Nobody has asked to play two clients at the same time.
 - **TBC Anniversary passes the rules of 7.2.** The self-test (14.3.1) ran on 2026-10-02. All six line modes read clean, and `Screenshot()` works from an addon. A load-on-demand addon whose file changed after launch loads the new content, so rule 2 holds.
 - **`FontString:SetFont` with a missing file.** Forever returns `false`. TBC Anniversary raises "Invalid font asset". The fixture keeps it as `missing: "raises"`, and the fake game raises too. So the addon calls `SetFont` for a font that can be missing (the mono font after an update) inside `pcall`.
+- **Atlases.** TBC Anniversary lacks the atlases `minimap-genericevent-hornicon` (the bell, 10.4) and `QuestBG-Parchment` (the first-run window, 7.3.2). `SetAtlas` with a missing name draws nothing and raises no error. So `Atlases.lua` asks `C_Texture.GetAtlasInfo` first, and draws a stand-in that every client has: the atlas `communities-icon-notification` for the bell, and the file `Interface\QuestFrame\QuestBG` for the parchment. The fake game takes a list of missing atlases.
 
 ## 8. Architecture
 
@@ -2343,7 +2344,7 @@ notices = {busy = 1, open = 2, list = {
 - **The toast.** For a new `waiting` notice: a small frame at the bottom left, above the chat frame, as the Battle.net toast. Its first line is `<Agent> is waiting · <repo>`, and below it at most 2 lines of the text. It goes away after 8 seconds. A click opens the list.
 - **In combat** (`InCombatLockdown`), the chat line shows at once. The toast and the sound wait until combat ends, and then come only for notices that are still in the list.
 
-**The bell.** A round button on the edge of the minimap (parent `Minimap`). It shows only while the list holds a notice, and it glows while a `waiting` notice is in the list. The user can drag it along the edge of the minimap, and the saved variables keep its angle. A click opens the list, and a second click closes it. Changed in the build: the Forever client has no bell texture. The icon is the horn of a minimap event (the atlas `minimap-genericevent-hornicon`, and its `-small` form in the chat line), on the border and the background of a minimap button. The name "the bell" stays.
+**The bell.** A round button on the edge of the minimap (parent `Minimap`). It shows only while the list holds a notice, and it glows while a `waiting` notice is in the list. The user can drag it along the edge of the minimap, and the saved variables keep its angle. A click opens the list, and a second click closes it. Changed in the build: the Forever client has no bell texture. The icon is the horn of a minimap event (the atlas `minimap-genericevent-hornicon`, and its `-small` form in the chat line), on the border and the background of a minimap button. TBC Anniversary has no horn, and gets a stand-in (7.9). The name "the bell" stays.
 
 **The list frame.** A small frame in the style of a tooltip, below the minimap:
 

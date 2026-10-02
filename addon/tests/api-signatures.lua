@@ -52,6 +52,16 @@ return {
 				{ Name = "success", Type = "bool", Nilable = false },
 			},
 		},
+		["C_Texture.GetAtlasInfo"] = {
+			MayReturnNothing = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "atlas", Type = "textureAtlas", Nilable = false },
+			},
+			Returns = {
+				{ Name = "info", Type = "AtlasInfo", Nilable = false },
+			},
+		},
 		["C_Timer.After"] = {
 			SecretArguments = "AllowedWhenUntainted",
 			Arguments = {

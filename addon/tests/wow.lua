@@ -57,6 +57,8 @@ local wow = {
 	frames = {},
 	-- Files that the game did not find at launch.
 	missingFiles = {},
+	-- Atlases that the client lacks, as TBC Anniversary lacks some of Forever.
+	missingAtlases = {},
 	-- Makes every SimpleHTML fail, as a client with a different SimpleHTML could.
 	brokenHtml = false,
 	-- IsMacClient(). Linux players run the Windows client under Wine.
@@ -242,6 +244,14 @@ end
 
 function methods:SetColorTexture(r, g, b)
 	self.color = { r, g, b }
+end
+
+function methods:SetAtlas(atlas)
+	self.atlas = atlas
+end
+
+function methods:SetTexture(file)
+	self.file = file
 end
 
 -- `anchors` keeps every point, so a test can see a text with a left and a right edge.
@@ -809,6 +819,15 @@ function C_Timer.NewTicker(every, fn)
 			timer.cancelled = true
 		end,
 	}
+end
+
+C_Texture = {}
+
+function C_Texture.GetAtlasInfo(atlas)
+	if wow.missingAtlases[atlas] then
+		return nil
+	end
+	return { width = 64, height = 64 }
 end
 
 C_AddOns = {}

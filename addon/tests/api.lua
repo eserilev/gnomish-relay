@@ -11,6 +11,8 @@ return {
 		"C_AddOns.LoadAddOn",
 		"C_CVar",
 		"C_CVar.SetCVar",
+		"C_Texture",
+		"C_Texture.GetAtlasInfo",
 		"C_Timer",
 		"C_Timer.After",
 		"C_Timer.NewTicker",

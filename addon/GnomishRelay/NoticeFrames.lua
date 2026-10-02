@@ -26,7 +26,6 @@ local STATES = {
 local BORDER = "Interface\\Minimap\\MiniMap-TrackingBorder"
 local BACKGROUND = "Interface\\Minimap\\UI-Minimap-Background"
 local HIGHLIGHT = "Interface\\Minimap\\UI-Minimap-ZoomButton-Highlight"
-local ICON = "minimap-genericevent-hornicon"
 
 local ui = { rows = {}, open = {} }
 
@@ -73,7 +72,7 @@ local function BuildBell()
 	bell:SetFrameLevel(8)
 	Texture(bell, "BACKGROUND", BACKGROUND, 20):SetPoint("CENTER", bell, "CENTER", 0, 0)
 	bell.icon = bell:CreateTexture(nil, "ARTWORK")
-	bell.icon:SetAtlas(ICON)
+	ns.Atlases.SetBell(bell.icon)
 	bell.icon:SetSize(18, 18)
 	bell.icon:SetPoint("CENTER", bell, "CENTER", 0, 0)
 	Texture(bell, "OVERLAY", BORDER, 53):SetPoint("TOPLEFT", bell, "TOPLEFT", 0, 0)
