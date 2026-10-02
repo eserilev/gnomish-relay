@@ -9,6 +9,13 @@ on:
   schedule:
     - cron: "41 4 * * 1"
   workflow_dispatch:
+  # release.yml runs every job of this file on the tagged commit before it publishes.
+  workflow_call:
+    inputs:
+      all:
+        description: Run every job, also the ones that the path filter skips.
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -30,10 +37,14 @@ jobs:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
         with:
           fetch-depth: 0
+      # With no base commit, the script turns on every job.
       - id: diff
         env:
+          ALL: ${{ inputs.all }}
           BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
-        run: scripts/ci-changes.sh "$BASE" >> "$GITHUB_OUTPUT"
+        run: |
+          if [ "$ALL" = true ]; then BASE=""; fi
+          scripts/ci-changes.sh "$BASE" >> "$GITHUB_OUTPUT"
 
   rust:
     needs: changes
@@ -55,7 +66,8 @@ jobs:
         with:
           tool: cargo-nextest,cargo-llvm-cov
       - run: cargo fmt --check
-      - run: cargo clippy --all-targets -- -D warnings
+      # A stale Cargo.lock fails here, and not later in the release build.
+      - run: cargo clippy --all-targets --locked -- -D warnings
       # The story and command sandbox tests need a working bwrap (SPEC 14.5). Ubuntu blocks user
       # namespaces for normal users, so the runner allows them. They must not skip here.
       - if: runner.os == 'Linux'

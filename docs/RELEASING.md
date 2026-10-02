@@ -4,13 +4,28 @@ For maintainers only. A release needs push access to `main` and the repository s
 
 ## Publish a release
 
-A version tag (`v*`) does the whole release:
+A version tag (`v*`) does the whole release. `.github/workflows/release.yml` runs these
+steps in order. Each step starts only when the step before it passed:
 
-- `.github/workflows/release.yml` tests the tagged commit on Linux, macOS, and Windows,
-  builds the desktop app for each OS, and publishes the GitHub release.
-- `.github/workflows/curseforge.yml` builds the addon zip and uploads it to CurseForge with
-  the BigWigs packager. The zip holds only the `GnomishRelay` folder, with the shared
-  transport files copied in: never a key or the desktop app's addon files.
+1. It checks that the tag, `Cargo.toml`, and `GnomishRelay.toc` name the same version.
+2. It runs all of `.github/workflows/ci.yml` on the tagged commit: Linux, macOS, and
+   Windows, with fmt, clippy, the tests, the doc tests, the Lua and WoW API checks, the
+   fuzz smoke run, the model, and the proofs. No job skips.
+3. It builds the desktop app for each OS and publishes the GitHub release.
+4. It calls `.github/workflows/curseforge.yml`. That workflow builds the addon zip and
+   uploads it to CurseForge with the BigWigs packager. The zip holds only the
+   `GnomishRelay` folder, with the shared transport files copied in: never a key or the
+   desktop app's addon files.
+
+If a check fails, nothing is published: no binaries and no CurseForge upload. The addon
+goes out last, because a new addon makes the desktop app update itself from the latest
+GitHub release. A tag never starts `curseforge.yml` by itself. A run of it by hand only
+builds the zip.
+
+Before you tag, make sure that CI on `main` is green. A red check on the tag stops the
+release. To try again, fix `main`, delete the tag (`git push origin :v0.3.0` and
+`git tag -d v0.3.0`), and tag the fixed commit. If a draft release exists, delete it on
+GitHub too.
 
 To publish:
 

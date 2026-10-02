@@ -1,13 +1,21 @@
-# Builds the zip of the relay addon on a version tag, and uploads it to CurseForge with
-# the BigWigs packager (SPEC.md 11.3). The upload needs two things that the maintainer
-# makes once: the secret CF_API_KEY, and the project id, in the repo variable
-# CURSEFORGE_PROJECT_ID or in `## X-Curse-Project-ID` of GnomishRelay.toc. Without both,
-# the job still builds the zip and keeps it as an artifact of the run.
+# Builds the zip of the relay addon, and uploads it to CurseForge with the BigWigs packager
+# (SPEC.md 11.3). Only release.yml uploads: it calls this file after every job of ci.yml
+# passed on the tag and the GitHub release is out (14.7). A run by hand only builds the
+# zip. The upload needs two things that the maintainer makes once: the secret CF_API_KEY,
+# and the project id, in the repo variable CURSEFORGE_PROJECT_ID or in
+# `## X-Curse-Project-ID` of GnomishRelay.toc. Without both, the job still builds the zip
+# and keeps it as an artifact of the run.
 name: curseforge
 
 on:
-  push:
-    tags: ["v*"]
+  workflow_call:
+    inputs:
+      upload:
+        type: boolean
+        default: false
+    secrets:
+      CF_API_KEY:
+        required: false
   workflow_dispatch:
 
 permissions:
@@ -23,12 +31,13 @@ jobs:
         env:
           CF_API_KEY: ${{ secrets.CF_API_KEY }}
           PROJECT_ID: ${{ vars.CURSEFORGE_PROJECT_ID }}
+          UPLOAD: ${{ inputs.upload }}
         run: |
           id=${PROJECT_ID:-$(awk -F: '/^## X-Curse-Project-ID:/ { gsub(/[ \t\r]/, "", $2); print $2 }' addon/GnomishRelay/GnomishRelay.toc)}
-          if [[ $GITHUB_REF_TYPE == tag && $id =~ ^[0-9]+$ && -n $CF_API_KEY ]]; then
+          if [[ $UPLOAD == true && $GITHUB_REF_TYPE == tag && $id =~ ^[0-9]+$ && -n $CF_API_KEY ]]; then
             echo "args=-p $id" >> "$GITHUB_OUTPUT"
           else
-            echo "::notice::No CurseForge upload: set the secret CF_API_KEY and a numeric project id (see docs/RELEASING.md, CurseForge setup)."
+            echo "::notice::No CurseForge upload: only a release uploads, and it needs the secret CF_API_KEY and a numeric project id (see docs/RELEASING.md, CurseForge setup)."
             echo "args=-d" >> "$GITHUB_OUTPUT"
           fi
       # The packager ships only files that git tracks. So the folder gets a repo of its

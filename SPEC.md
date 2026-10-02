@@ -2517,14 +2517,14 @@ All set! Restart WoW, then type /timeways test
 
 **Distribution.**
 
-- A version tag (`v*`) starts `.github/workflows/release.yml`. It builds the program for Linux (x86-64), macOS (Arm and x86-64), and Windows (x86-64), and attaches each archive with its SHA-256 sum to a GitHub Release. The release stays a draft until every build is attached. Before the draft, the workflow runs fmt, clippy, and the tests on the three OSes, and checks that the tag, the `Cargo.toml` version, and the TOC version match.
+- A version tag (`v*`) starts `.github/workflows/release.yml`. It builds the program for Linux (x86-64), macOS (Arm and x86-64), and Windows (x86-64), and attaches each archive with its SHA-256 sum to a GitHub Release. The release stays a draft until every build is attached. Before the draft, the workflow runs every job of CI on the tagged commit (14.7), and checks that the tag, the `Cargo.toml` version, and the TOC version match.
 - `scripts/install.sh` (Linux and macOS) and `scripts/install.ps1` (Windows) download the archive of the latest release, check its SHA-256 sum, install the program, and run `setup --autostart`. With no argument, they set up only Gnomish Relay. With `--timeways`, they set up only Timeways (9.7, decision 15). Setup is their last step. So when the relay addon is missing, the CurseForge line of step 3 is also the last line of the installer. Setup asks its questions on the terminal, also under `curl | sh`.
 - Setup asks no folder question. It trusts the usual folders of code projects that hold a git repository (`suggest_roots` in `install.rs`), never the home folder. The usual folders are `~/Documents/Code`, `~/code`, `~/Code`, `~/src`, `~/dev`, `~/projects`, `~/Projects`, `~/repos`, and `~/workspace`. A folder counts when a repository is at most 3 levels below it, so `~/Documents/Code/Personal/app` makes `~/Documents/Code` a root. The search follows no link, skips the folders that the walk skips (9.9), stops at the first repository, and stops after 2000 folders or 1 second for each usual folder. Setup trusts the usual folder itself, never each repository. With none, `allowed_roots` is empty, and the player picks the first folder in the game (9.12). `--roots a,b` gives the roots instead, for scripts. A later setup with a relay config whose `allowed_roots` is empty searches again. It adds each folder that it finds with the edit of a desktop Approve (9.12), so the config also gets `default_cwd = "~"` and the folders of the saved chats stay the same. When the line cannot change, setup says so and keeps the config.
 - Setup installs no agent. It uses the agents that are already on `PATH`. With none, the config uses `echo`, and setup says so. After the player installs an agent, a second setup adds its entry (12).
 - Later: winget, Homebrew, and the AUR point at the release.
 - Players get the addon only from CurseForge, and the desktop app never installs it. The listing points to the desktop app: the addon alone does nothing, because each computer needs its own key (7.3.2).
-  - A version tag also starts `.github/workflows/curseforge.yml`. `scripts/package-addon.sh` makes the `GnomishRelay` folder: the files of `addon/GnomishRelay` and of `addon/transport` as real files, and `.pkgmeta`. It never holds a key addon or a slot. The BigWigs packager ships only files that git tracks, so the job gives the folder a git repo of its own with the tag, and then runs the packager on it.
-  - The project id comes from the repository variable `CURSEFORGE_PROJECT_ID`, or else from `## X-Curse-Project-ID` in `GnomishRelay.toc`. The TOC holds a placeholder until the maintainer makes the project. With no numeric id, no `CF_API_KEY` secret, or no tag, the job skips the upload and keeps the zip as an artifact of the run.
+  - After the GitHub release is out, `release.yml` calls `.github/workflows/curseforge.yml`. The addon goes out last, because a new addon on disk makes the desktop app update itself from the latest release. `scripts/package-addon.sh` makes the `GnomishRelay` folder: the files of `addon/GnomishRelay` and of `addon/transport` as real files, and `.pkgmeta`. It never holds a key addon or a slot. The BigWigs packager ships only files that git tracks, so the job gives the folder a git repo of its own with the tag, and then runs the packager on it.
+  - The project id comes from the repository variable `CURSEFORGE_PROJECT_ID`, or else from `## X-Curse-Project-ID` in `GnomishRelay.toc`. The TOC holds a placeholder until the maintainer makes the project. With no numeric id, no `CF_API_KEY` secret, or no tag, the job skips the upload and keeps the zip as an artifact of the run. A run by hand (`workflow_dispatch`) never uploads, also on a tag.
   - A test checks that the folder holds exactly the files that the addon needs: the TOC, each file that the TOC lists, `Bindings.xml`, the mono font and its license, and `.pkgmeta`. Each file is the same as in the repo.
   - Later: Wago Addons.
 
@@ -3414,6 +3414,16 @@ Each rule in 6.2 has at least one named test. These are the ones that need a rea
 - `Cargo.lock` is in the repo.
 - The verified core (`crates/protocol`) has no dependencies. Every dependency there is code that we trust but do not prove.
 - New dependencies in the bridge need a reason in the commit or PR.
+
+### 14.7 The release gate
+
+On 2026-10-01, version 0.4.0 shipped while CI was red. A new clippy lint and the Windows path tests failed, and two fix releases followed. So a release now publishes nothing unless all of CI passes on the tagged commit.
+
+- `release.yml` calls `ci.yml` as a reusable workflow (`workflow_call`) with `all: true`. Every job runs on the tagged commit: the rust job on Linux, macOS, and Windows (fmt, clippy with `-D warnings`, the tests or the coverage gates, and the doc tests), the checks job (cargo deny, cargo audit, stylua, selene, the script tests, and both WoW API gates), the fuzz smoke run, the Quint model, and the proofs. The path filter does not apply, so no job skips.
+- The draft of the GitHub release needs the version job and the CI job. The builds need the draft, and the CurseForge upload needs the published release. So a failed check stops both the binaries and the addon.
+- No tag starts `curseforge.yml` by itself. It uploads only when `release.yml` calls it with `upload: true`. A run by hand only builds the zip.
+- Clippy in `ci.yml` runs with `--locked`, as the release build does, so a stale `Cargo.lock` fails in CI and not in the middle of a release.
+- One gap stays: the workflow files of the tagged commit decide what runs. A commit that removes the gate from `release.yml` also removes it from its own release. A review of every change to `.github/workflows/` closes it.
 
 ## 15. Build order
 
