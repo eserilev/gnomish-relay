@@ -3,6 +3,8 @@
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
+use crate::install::{addons_dir, relay_dir, timeways_dir};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WowClient {
     Forever,
@@ -59,8 +61,9 @@ impl WowClient {
 }
 
 /// The game folders that the desktop app serves: `configured` first, then each other
-/// client folder next to it. Battle.net puts every client in one `World of Warcraft`
-/// folder, so a player with two clients needs no switch.
+/// client folder next to it that has the relay or the Timeways addon. Battle.net puts
+/// every client in one `World of Warcraft` folder, so a player with two clients needs no
+/// switch, and a client with no addon gets no slots.
 pub fn served_games(configured: &Path) -> Vec<PathBuf> {
     let mut games = vec![configured.to_owned()];
     let name = configured.file_name().and_then(OsStr::to_str);
@@ -72,11 +75,16 @@ pub fn served_games(configured: &Path) -> Vec<PathBuf> {
     };
     for client in WowClient::ALL {
         let game = install.join(client.folder());
-        if game != configured && game.is_dir() {
+        if game != configured && has_an_app_addon(&game) {
             games.push(game);
         }
     }
     games
+}
+
+fn has_an_app_addon(game: &Path) -> bool {
+    let addons = addons_dir(game);
+    relay_dir(&addons).is_some() || timeways_dir(&addons).is_some()
 }
 
 /// The `## Interface` of every addon that the desktop app writes. It lists every client,
@@ -116,14 +124,19 @@ mod tests {
         assert_eq!(WowClient::of_interface(120_001), None);
     }
 
+    /// A client folder with the relay addon in it.
+    fn client_with_addon(wow: &Path, folder: &str) -> PathBuf {
+        let game = wow.join(folder);
+        std::fs::create_dir_all(game.join("Interface/AddOns/GnomishRelay")).unwrap();
+        game
+    }
+
     #[test]
-    fn the_configured_game_comes_first_and_each_other_client_next_to_it_follows() {
+    fn the_configured_game_comes_first_and_each_other_client_with_the_addon_follows() {
         let wow = tempfile::tempdir().unwrap();
-        let forever = wow.path().join("_classic_beta_");
-        let anniversary = wow.path().join("_anniversary_");
-        std::fs::create_dir_all(&forever).unwrap();
-        std::fs::create_dir_all(&anniversary).unwrap();
-        std::fs::create_dir_all(wow.path().join("_retail_")).unwrap();
+        let forever = client_with_addon(wow.path(), "_classic_beta_");
+        let anniversary = client_with_addon(wow.path(), "_anniversary_");
+        client_with_addon(wow.path(), "_retail_");
 
         assert_eq!(
             served_games(&anniversary),
@@ -133,7 +146,16 @@ mod tests {
     }
 
     #[test]
-    fn a_client_that_is_not_installed_is_not_served() {
+    fn a_client_with_no_addon_gets_no_slots() {
+        let wow = tempfile::tempdir().unwrap();
+        let forever = client_with_addon(wow.path(), "_classic_beta_");
+        std::fs::create_dir_all(wow.path().join("_anniversary_/Interface/AddOns")).unwrap();
+
+        assert_eq!(served_games(&forever), [forever]);
+    }
+
+    #[test]
+    fn the_configured_game_is_served_also_before_its_addon_is_installed() {
         let wow = tempfile::tempdir().unwrap();
         let forever = wow.path().join("_classic_beta_");
         std::fs::create_dir_all(&forever).unwrap();
