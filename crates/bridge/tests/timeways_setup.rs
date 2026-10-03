@@ -14,6 +14,7 @@ use bridge::config;
 use bridge::config_text::timeways_config;
 use bridge::dirs::Dirs;
 use bridge::ids::hex;
+use bridge::lore_job::REBUILD_FILE;
 use bridge::lore_pack;
 use bridge::setup::write_config;
 use bridge::timeways_install::{self, Lore, Places, Sources};
@@ -135,12 +136,11 @@ impl Computer {
         fs::read_to_string(self.dirs.config.join(config::FILE)).unwrap()
     }
 
-    fn install(&self, release: &Release, dump: &str) -> anyhow::Result<timeways_install::Report> {
+    fn install(&self, release: &Release) -> anyhow::Result<timeways_install::Report> {
         let sources = Sources {
             release: release.url(),
-            dump: dump.to_owned(),
         };
-        timeways_install::install(&self.dirs, &sources, &self.places(), |_| {})
+        timeways_install::install(&self.dirs, &sources, &self.places())
     }
 }
 
@@ -149,29 +149,20 @@ fn story_program(computer: &Computer) -> PathBuf {
 }
 
 #[test]
-fn setup_installs_both_programs_builds_the_pack_and_sets_the_config() {
+fn setup_installs_both_programs_and_sets_the_config_before_any_lore_exists() {
     let computer = Computer::new();
     let release = Release::new("#!/bin/sh\necho story\n", 1);
-    let dump = computer.dump("wowpedia dump");
 
-    let report = computer.install(&release, &dump).unwrap();
+    let report = computer.install(&release).unwrap();
 
     assert_eq!(report.version, "0.1.0");
     assert_eq!(report.changed, ["timeways-story", "timeways-pack"]);
-    assert_eq!(
-        report.lore,
-        Lore::Built(vec![
-            "read 1 pages, skipped 0".into(),
-            format!(
-                "wrote 325 passages to {}.new",
-                computer.places().pack.display()
-            ),
-        ])
-    );
+    assert_eq!(report.lore, Lore::Later);
     let places = computer.places();
     assert_eq!(places.bin, computer.dirs.home.join(".local/bin"));
     assert!(places.bin.join("timeways-pack").is_file());
-    assert_eq!(fs::read_to_string(&places.pack).unwrap(), "lore");
+    assert!(!places.pack.exists(), "setup builds no lore");
+    assert!(!computer.dirs.data.join(REBUILD_FILE).exists());
     assert_eq!(
         places.pack,
         computer.dirs.home.join(".local/share/timeways/lore.sqlite")
@@ -197,9 +188,7 @@ fn setup_installs_only_the_two_timeways_programs_of_a_release() {
     let computer = Computer::new();
     let release = Release::with_extra("#!/bin/sh\n", 1, Some("gnomish-relay"));
 
-    let report = computer
-        .install(&release, &computer.dump("wowpedia"))
-        .unwrap();
+    let report = computer.install(&release).unwrap();
 
     assert_eq!(report.changed, ["timeways-story", "timeways-pack"]);
     assert!(!computer.places().bin.join("gnomish-relay").exists());
@@ -210,9 +199,7 @@ fn the_dump_and_the_downloads_are_gone_after_the_install() {
     let computer = Computer::new();
     let release = Release::new("#!/bin/sh\n", 1);
 
-    computer
-        .install(&release, &computer.dump("wowpedia"))
-        .unwrap();
+    computer.install(&release).unwrap();
 
     assert!(!computer.places().work.exists());
     assert!(computer.places().work.starts_with(&computer.dirs.data));
@@ -225,9 +212,7 @@ fn an_archive_with_a_wrong_sum_is_refused_and_nothing_is_installed() {
     fs::write(release.dir.path().join(&release.asset), b"changed").unwrap();
     let before = computer.config_text();
 
-    let error = computer
-        .install(&release, &computer.dump("wowpedia"))
-        .unwrap_err();
+    let error = computer.install(&release).unwrap_err();
 
     assert!(format!("{error:#}").contains("wrong SHA-256"), "{error:#}");
     assert!(!story_program(&computer).exists());
@@ -240,9 +225,7 @@ fn an_archive_that_sha256sums_does_not_list_is_refused() {
     let release = Release::new("#!/bin/sh\n", 1);
     fs::write(release.dir.path().join(SUMS), "").unwrap();
 
-    let error = computer
-        .install(&release, &computer.dump("wowpedia"))
-        .unwrap_err();
+    let error = computer.install(&release).unwrap_err();
 
     assert!(format!("{error:#}").contains("wrong SHA-256"), "{error:#}");
     assert!(!story_program(&computer).exists());
@@ -254,11 +237,7 @@ fn a_release_with_a_missing_archive_installs_nothing() {
     let release = Release::new("#!/bin/sh\n", 1);
     fs::remove_file(release.dir.path().join(&release.asset)).unwrap();
 
-    assert!(
-        computer
-            .install(&release, &computer.dump("wowpedia"))
-            .is_err()
-    );
+    assert!(computer.install(&release).is_err());
 
     assert!(!story_program(&computer).exists());
     assert!(!computer.places().work.exists());
@@ -269,9 +248,7 @@ fn a_release_for_a_newer_desktop_app_is_refused() {
     let computer = Computer::new();
     let release = Release::new("#!/bin/sh\n", 99);
 
-    let error = computer
-        .install(&release, &computer.dump("wowpedia"))
-        .unwrap_err();
+    let error = computer.install(&release).unwrap_err();
 
     assert!(
         error.to_string().contains("gnomish-relay update"),
@@ -280,56 +257,18 @@ fn a_release_for_a_newer_desktop_app_is_refused() {
 }
 
 #[test]
-fn a_broken_dump_keeps_the_old_pack() {
+fn setup_with_old_lore_asks_the_desktop_app_for_new_lore_and_keeps_the_old() {
     let computer = Computer::new();
     let release = Release::new("#!/bin/sh\n", 1);
-    computer
-        .install(&release, &computer.dump("wowpedia"))
-        .unwrap();
     let pack = computer.places().pack;
+    fs::create_dir_all(pack.parent().unwrap()).unwrap();
     fs::write(&pack, "old lore").unwrap();
 
-    let report = computer
-        .install(&release, &computer.dump("garbage"))
-        .unwrap();
+    let report = computer.install(&release).unwrap();
 
-    assert!(matches!(report.lore, Lore::Kept(ref e) if e.contains("old lore stays")));
+    assert_eq!(report.lore, Lore::Rebuild);
+    assert!(computer.dirs.data.join(REBUILD_FILE).is_file());
     assert_eq!(fs::read_to_string(&pack).unwrap(), "old lore");
-    assert!(!pack.with_extension("sqlite.new").exists());
-}
-
-#[test]
-fn a_broken_dump_with_no_old_pack_sets_no_program() {
-    let computer = Computer::new();
-    let release = Release::new("#!/bin/sh\n", 1);
-    let before = computer.config_text();
-
-    let error = computer
-        .install(&release, &computer.dump("garbage"))
-        .unwrap_err();
-
-    assert!(
-        error
-            .to_string()
-            .contains("Couldn't build the Timeways lore"),
-        "{error}"
-    );
-    assert_eq!(computer.config_text(), before);
-}
-
-#[test]
-fn a_missing_dump_keeps_the_old_pack() {
-    let computer = Computer::new();
-    let release = Release::new("#!/bin/sh\n", 1);
-    computer
-        .install(&release, &computer.dump("wowpedia"))
-        .unwrap();
-    let missing = format!("{}/none.7z", file_url(computer.root.path()));
-
-    let report = computer.install(&release, &missing).unwrap();
-
-    assert!(matches!(report.lore, Lore::Kept(_)));
-    assert_eq!(fs::read_to_string(computer.places().pack).unwrap(), "lore");
 }
 
 #[test]
@@ -349,17 +288,13 @@ fn the_download_of_the_dump_reports_its_size() {
 fn update_installs_new_programs_into_the_folder_of_the_story_program() {
     let computer = Computer::new();
     computer
-        .install(
-            &Release::new("#!/bin/sh\necho 1\n", 1),
-            &computer.dump("wowpedia"),
-        )
+        .install(&Release::new("#!/bin/sh\necho 1\n", 1))
         .unwrap();
     let config = config::load(&computer.dirs.config, &computer.dirs.home).unwrap();
     let program = timeways_install::installed_story_program(&config).unwrap();
     let newer = Release::new("#!/bin/sh\necho 2\n", 1);
     let sources = Sources {
         release: newer.url(),
-        dump: String::new(),
     };
 
     let changed = timeways_install::update(&computer.dirs, &sources, &program).unwrap();
@@ -375,9 +310,7 @@ fn update_installs_new_programs_into_the_folder_of_the_story_program() {
 fn setup_and_update_save_the_installed_timeways_version() {
     let computer = Computer::new();
     let release = Release::new("#!/bin/sh\necho 1\n", 1);
-    computer
-        .install(&release, &computer.dump("wowpedia"))
-        .unwrap();
+    computer.install(&release).unwrap();
     let installed = || installed_timeways(&computer.dirs.data).map(|v| v.to_string());
     assert_eq!(installed().as_deref(), Some("0.1.0"));
 
@@ -386,7 +319,6 @@ fn setup_and_update_save_the_installed_timeways_version() {
     let program = timeways_install::installed_story_program(&config).unwrap();
     let sources = Sources {
         release: release.url(),
-        dump: String::new(),
     };
     timeways_install::update(&computer.dirs, &sources, &program).unwrap();
 

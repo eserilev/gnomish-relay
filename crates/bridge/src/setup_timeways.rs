@@ -100,23 +100,10 @@ fn setup_story_config(
 
 /// A failed step prints one line, and setup goes on (SPEC.md 11.4).
 fn install_story_program(dirs: &Dirs) -> StoryInstall {
-    use std::io::Write;
     println!("{INSTALLING}");
     let bin = std::env::var_os("GNOMISH_BIN").map(PathBuf::from);
     let places = timeways_install::Places::of(dirs, bin);
-    let mut shown = None;
-    let result = timeways_install::install(dirs, &Sources::from_env(), &places, |bytes| {
-        let megabytes = bytes / 1_000_000;
-        if shown != Some(megabytes) {
-            print!("\rDownloading the Wowpedia lore: {megabytes} MB");
-            let _ = std::io::stdout().flush();
-            shown = Some(megabytes);
-        }
-    });
-    if shown.is_some() {
-        println!();
-    }
-    match result {
+    match timeways_install::install(dirs, &Sources::from_env(), &places) {
         Ok(report) => {
             for line in installed_lines(&report) {
                 println!("{line}");
@@ -130,7 +117,7 @@ fn install_story_program(dirs: &Dirs) -> StoryInstall {
     }
 }
 
-const INSTALLING: &str = "Installing Timeways. It downloads about 133 MB of lore from Wowpedia.";
+const INSTALLING: &str = "Installing Timeways.";
 
 const TRY_AGAIN: &str = "To try again, run gnomish-relay setup --timeways";
 
@@ -147,14 +134,22 @@ fn install_failed_line(error: &anyhow::Error) -> String {
     )
 }
 
-/// The page counts and the folders of the lore are for the log, not for the player.
+/// The desktop app builds the lore after setup ends (SPEC.md 11.4).
 fn installed_lines(report: &timeways_install::Report) -> Vec<String> {
-    let lore = match &report.lore {
-        Lore::Built(_) => "Lore ready".to_owned(),
-        Lore::Kept(error) => format!("{} {TRY_AGAIN}", timeways_install::sentence(error)),
+    let lore = match report.lore {
+        Lore::Later => LORE_LATER,
+        Lore::Rebuild => LORE_REBUILD,
     };
-    vec![format!("Timeways {} installed", report.version), lore]
+    vec![
+        format!("Timeways {} installed", report.version),
+        lore.into(),
+    ]
 }
+
+const LORE_LATER: &str =
+    "The lore downloads in the background. Until it's ready, /lore answers from what you've seen.";
+const LORE_REBUILD: &str =
+    "New lore downloads in the background. Your current lore works until then.";
 
 /// Whether setup installs a free local model for Timeways (SPEC.md 11.6).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -406,35 +401,18 @@ mod tests {
     }
 
     #[test]
-    fn an_install_says_the_version_and_that_the_lore_is_ready_with_no_counts_or_folders() {
-        let built = timeways_install::Report {
+    fn an_install_says_the_version_and_that_the_lore_comes_in_the_background() {
+        let report = |lore| timeways_install::Report {
             version: "0.1.0".into(),
             changed: vec![],
-            lore: Lore::Built(vec![
-                "read 9 pages, skipped 1".into(),
-                "wrote 30 passages to /p/lore.sqlite.new".into(),
-            ]),
+            lore,
         };
-
-        let lines = installed_lines(&built);
-
-        assert_eq!(lines, ["Timeways 0.1.0 installed", "Lore ready"]);
-    }
-
-    #[test]
-    fn a_lore_error_says_why_and_then_the_next_step() {
-        let kept = timeways_install::Report {
-            version: "0.1.0".into(),
-            changed: vec![],
-            lore: Lore::Kept("couldn't download the Wowpedia lore (no internet connection)".into()),
-        };
-
-        let lines = installed_lines(&kept);
 
         assert_eq!(
-            lines[1],
-            "Couldn't download the Wowpedia lore (no internet connection). To try again, run gnomish-relay setup --timeways"
+            installed_lines(&report(Lore::Later)),
+            ["Timeways 0.1.0 installed", LORE_LATER]
         );
+        assert_eq!(installed_lines(&report(Lore::Rebuild))[1], LORE_REBUILD);
     }
 
     #[test]

@@ -217,6 +217,29 @@ impl LoreJob {
 mod tests {
     use super::*;
 
+    fn failed(reason: Reason) -> anyhow::Error {
+        anyhow::Error::new(DownloadFailed {
+            reason,
+            details: String::new(),
+        })
+    }
+
+    #[test]
+    fn a_failed_build_names_the_reason_and_no_command() {
+        assert_eq!(
+            failure_reason(&failed(Reason::Offline)),
+            "couldn't download the Wowpedia lore (no internet connection)"
+        );
+        assert_eq!(
+            failure_reason(&failed(Reason::Missing)),
+            "couldn't download the Wowpedia lore (Wowpedia doesn't have it right now)"
+        );
+        assert_eq!(
+            failure_reason(&anyhow::anyhow!("the pack program crashed")),
+            "couldn't build the lore"
+        );
+    }
+
     #[test]
     fn each_state_reads_back_as_it_was_written() {
         let states = [

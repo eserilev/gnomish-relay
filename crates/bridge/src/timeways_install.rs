@@ -1,10 +1,11 @@
-//! Setup and update for Timeways (SPEC.md 11.4): the programs of its release, the lore
-//! pack, and `program` and `lore_pack` of `[story]`.
+//! Setup and update for Timeways (SPEC.md 11.4): the programs of its release, and
+//! `program` and `lore_pack` of `[story]`. The desktop app builds the lore pack itself
+//! (`lore_job`).
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use anyhow::{Context, Result, bail};
+use anyhow::{Context, Result};
 use semver::Version;
 
 use crate::auto_update::{pinned_releases, save_installed_timeways};
@@ -13,19 +14,19 @@ use crate::config_story::{config_path, with_story_paths};
 use crate::dirs::Dirs;
 use crate::download_failure::{self, DownloadFailed, Reason};
 use crate::fs_safe::make_private_dir;
-use crate::lore_pack::{self, DUMP_URL, DUMP_URL_VAR, PACK_FILE};
+use crate::lore_job::REBUILD_FILE;
+use crate::lore_pack::PACK_FILE;
 use crate::service;
 use crate::setup::write_config;
-use crate::timeways_release::{self, PACK, RELEASES, STORY, URL_VAR};
+use crate::timeways_release::{self, RELEASES, STORY, URL_VAR};
 
-/// Where the release and the dump come from.
+/// Where the release comes from.
 pub struct Sources {
     pub release: String,
-    pub dump: String,
 }
 
 impl Sources {
-    /// `TIMEWAYS_URL` and `TIMEWAYS_DUMP_URL` change them, for a mirror or a test.
+    /// `TIMEWAYS_URL` changes it, for a mirror or a test.
     pub fn from_env() -> Sources {
         Sources::with_release(RELEASES)
     }
@@ -36,16 +37,13 @@ impl Sources {
     }
 
     fn with_release(release: &str) -> Sources {
-        let var =
-            |name: &str, default: &str| std::env::var(name).unwrap_or_else(|_| default.into());
         Sources {
-            release: var(URL_VAR, release),
-            dump: var(DUMP_URL_VAR, DUMP_URL),
+            release: std::env::var(URL_VAR).unwrap_or_else(|_| release.into()),
         }
     }
 }
 
-/// Where the programs, the pack, and the downloads go.
+/// Where the programs, the pack, and the download go.
 pub struct Places {
     pub bin: PathBuf,
     pub pack: PathBuf,
@@ -77,13 +75,13 @@ impl Places {
     }
 }
 
-/// What happened to the lore pack.
+/// What happens to the lore pack. The desktop app builds it in the background.
 #[derive(Debug, PartialEq, Eq)]
 pub enum Lore {
-    /// The last two lines of `timeways-pack`.
-    Built(Vec<String>),
-    /// The build failed, and the old pack stays.
-    Kept(String),
+    /// No pack yet. Until it is built, `/lore` answers from the seen text only.
+    Later,
+    /// The old pack serves until the new one is built.
+    Rebuild,
 }
 
 #[derive(Debug)]
@@ -99,27 +97,18 @@ fn fresh_work_folder(work: &Path) -> Result<()> {
     make_private_dir(work)
 }
 
-/// Installs the programs, builds a new lore pack, and sets the config. With no pack at
-/// all after the build, the config keeps no program, and this fails.
-pub fn install(
-    dirs: &Dirs,
-    sources: &Sources,
-    places: &Places,
-    progress: impl FnMut(u64),
-) -> Result<Report> {
+/// Installs the programs, sets the config, and asks the desktop app for a lore pack. It
+/// downloads no dump: the build takes minutes, and a closed terminal would lose it.
+pub fn install(dirs: &Dirs, sources: &Sources, places: &Places) -> Result<Report> {
     fresh_work_folder(&places.work)?;
-    let result = install_in_work_folder(dirs, sources, places, progress);
-    // The dump is 133 MB, and nothing needs it after the build.
+    let result = install_release(sources, places);
     let _ = fs::remove_dir_all(&places.work);
     if let Err(error) = &result {
         log_details(dirs, error);
     }
-    let (version, changed, lore) = result?;
+    let (version, changed) = result?;
     save_installed_timeways(&dirs.data, &version)?;
-    // A built pack is always there, so only a failed build with no old pack stops here.
-    if let (Lore::Kept(error), false) = (&lore, places.pack.is_file()) {
-        bail!("{error}");
-    }
+    let lore = ask_for_lore(dirs, places)?;
     set_config(dirs, places)?;
     Ok(Report {
         version,
@@ -128,51 +117,26 @@ pub fn install(
     })
 }
 
-fn install_in_work_folder(
-    dirs: &Dirs,
-    sources: &Sources,
-    places: &Places,
-    progress: impl FnMut(u64),
-) -> Result<(String, Vec<String>, Lore)> {
+fn install_release(sources: &Sources, places: &Places) -> Result<(String, Vec<String>)> {
     let download = timeways_release::fetch(&sources.release, &places.work)?;
     let changed = timeways_release::install(&download, &places.bin)?;
-    let lore = match build_lore(sources, places, progress) {
-        Ok(summary) => Lore::Built(summary),
-        Err(error) => {
-            log_details(dirs, &error);
-            Lore::Kept(lore_error(&error))
-        }
-    };
-    Ok((download.version, changed, lore))
+    Ok((download.version, changed))
 }
 
-fn build_lore(
-    sources: &Sources,
-    places: &Places,
-    progress: impl FnMut(u64),
-) -> Result<Vec<String>> {
-    let dump = lore_pack::download_dump(&sources.dump, &places.work, progress)?;
-    lore_pack::build(&places.program(PACK), &dump, &places.pack)
+/// An old pack serves until the new one is in place (SPEC.md 11.4).
+fn ask_for_lore(dirs: &Dirs, places: &Places) -> Result<Lore> {
+    if !places.pack.is_file() {
+        return Ok(Lore::Later);
+    }
+    fs::write(dirs.data.join(REBUILD_FILE), "")
+        .with_context(|| format!("cannot write {}", dirs.data.join(REBUILD_FILE).display()))?;
+    Ok(Lore::Rebuild)
 }
 
 /// The details of a failed download go to the log, never to the terminal.
 fn log_details(dirs: &Dirs, error: &anyhow::Error) {
     if let Some(details) = download_failure::details_of(error) {
         let _ = service::append_to_log(dirs, &format!("timeways: {details}"));
-    }
-}
-
-fn lore_error(error: &anyhow::Error) -> String {
-    let reason = error.downcast_ref::<DownloadFailed>().map(|f| f.reason);
-    match reason {
-        Some(Reason::Missing) => {
-            "couldn't download the Wowpedia lore (Wowpedia doesn't have it right now)".into()
-        }
-        Some(Reason::Offline) => {
-            "couldn't download the Wowpedia lore (no internet connection)".into()
-        }
-        Some(Reason::Other) => "couldn't download the Wowpedia lore".into(),
-        None => format!("{error:#}"),
     }
 }
 
@@ -276,22 +240,6 @@ mod tests {
              setup --timeways"
         );
         assert_eq!(download_failed_line(&anyhow::anyhow!("x"), again), None);
-    }
-
-    #[test]
-    fn a_failed_download_of_the_lore_names_the_reason_and_no_command() {
-        assert_eq!(
-            lore_error(&failed(Reason::Offline)),
-            "couldn't download the Wowpedia lore (no internet connection)"
-        );
-        assert_eq!(
-            lore_error(&failed(Reason::Missing)),
-            "couldn't download the Wowpedia lore (Wowpedia doesn't have it right now)"
-        );
-        assert_eq!(
-            lore_error(&anyhow::anyhow!("the pack failed")),
-            "the pack failed"
-        );
     }
 
     #[test]
