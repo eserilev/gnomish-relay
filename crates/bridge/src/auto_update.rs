@@ -11,7 +11,7 @@ use semver::Version;
 
 use crate::config::{AutoUpdate, Config};
 use crate::dirs::Dirs;
-use crate::install::{ADDON, TIMEWAYS, addons_dir};
+use crate::install::{ADDON, TIMEWAYS};
 use crate::run::log;
 use crate::timeways_install::installed_story_program;
 
@@ -54,7 +54,8 @@ pub fn pinned_releases(repo: &str, version: &Version) -> String {
 /// The parts of the desktop app that follow their addon.
 #[derive(Clone, Debug)]
 pub struct Parts {
-    pub addons: PathBuf,
+    /// The `AddOns` folder of each served game (SPEC.md 7.9).
+    pub addons: Vec<PathBuf>,
     pub data: PathBuf,
     pub relay: bool,
     /// Only for a story program that setup installed (SPEC.md 11.4).
@@ -68,7 +69,7 @@ impl Parts {
             return None;
         }
         Some(Parts {
-            addons: addons_dir(config.wow.as_deref()?),
+            addons: config.games().into_iter().map(|g| g.addons).collect(),
             data: dirs.data.clone(),
             relay: config.relay.is_some(),
             timeways: installed_story_program(config).is_some(),
@@ -94,14 +95,23 @@ impl Parts {
         }
     }
 
+    /// The newest version in any served game: the `CurseForge` app updates each game on
+    /// its own.
     fn addon_version(&self, addon: &str) -> Option<Version> {
-        let toc = self.addons.join(addon).join(format!("{addon}.toc"));
-        toc_version(&fs::read_to_string(toc).ok()?)
+        self.addons
+            .iter()
+            .filter_map(|dir| version_in(dir, addon))
+            .max()
     }
 
     fn timeways_installed(&self) -> Option<Version> {
         installed_timeways(&self.data)
     }
+}
+
+fn version_in(addons: &Path, addon: &str) -> Option<Version> {
+    let toc = addons.join(addon).join(format!("{addon}.toc"));
+    toc_version(&fs::read_to_string(toc).ok()?)
 }
 
 pub fn installed_timeways(data: &Path) -> Option<Version> {
@@ -316,7 +326,7 @@ mod tests {
             fs::write(addons.join(addon).join(format!("{addon}.toc")), toc).unwrap();
         }
         let parts = Parts {
-            addons,
+            addons: vec![addons],
             data,
             relay: true,
             timeways: true,
@@ -332,6 +342,18 @@ mod tests {
 
         assert_eq!(same.parts.wanted(), Wanted::default());
         assert_eq!(newer_one.parts.wanted().relay, Some(version("999.0.0")));
+    }
+
+    #[test]
+    fn the_newest_relay_addon_of_any_served_game_wants_its_release() {
+        let mut forever = disk(Some("## Version: 0.0.1\n"), None);
+        let anniversary = disk(Some("## Version: 999.0.0\n"), None);
+        forever
+            .parts
+            .addons
+            .extend(anniversary.parts.addons.clone());
+
+        assert_eq!(forever.parts.wanted().relay, Some(version("999.0.0")));
     }
 
     #[test]

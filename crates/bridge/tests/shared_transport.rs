@@ -9,6 +9,7 @@
 mod common;
 
 use bridge::app_files::key_addon_name;
+use bridge::game_folders::GameFolders;
 use bridge::ids::hex;
 use bridge::install::key_addon_lua;
 use bridge::receive::{KeySet, StripKey, receive};
@@ -661,22 +662,25 @@ fn two_addons_in_one_game_keep_separate_saved_variables() {
 fn bridge_folders() -> (tempfile::TempDir, bridge::run::Paths) {
     let root = tempfile::tempdir().unwrap();
     let paths = bridge::run::Paths {
-        addons: root.path().join("Interface/AddOns"),
-        screenshots: root.path().join("Screenshots"),
-        accounts: root.path().join("WTF/Account"),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: root.path().join("Interface/AddOns"),
+            screenshots: root.path().join("Screenshots"),
+            accounts: root.path().join("WTF/Account"),
+        }],
         state: root.path().join("data"),
         config: root.path().join("config"),
     };
     for dir in [
-        &paths.addons,
-        &paths.screenshots,
-        &paths.accounts,
+        &paths.games[0].addons,
+        &paths.games[0].screenshots,
+        &paths.games[0].accounts,
         &paths.state,
     ] {
         std::fs::create_dir_all(dir).unwrap();
     }
     for app in [App::Relay, App::Timeways] {
-        install_window(&paths.addons, app);
+        install_window(&paths.games[0].addons, app);
     }
     (root, paths)
 }
@@ -688,8 +692,8 @@ fn slot_bytes(addons: &std::path::Path, file: &str) -> Vec<u8> {
 #[test]
 fn a_lua_timeways_strip_comes_back_as_the_fixed_reply_in_a_timeways_slot() {
     let (_root, paths) = bridge_folders();
-    let addons = paths.addons.clone();
-    let screenshot = paths.screenshots.join("WoWScrnShot_1.png");
+    let addons = paths.games[0].addons.clone();
+    let screenshot = paths.games[0].screenshots.join("WoWScrnShot_1.png");
     let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
     let policy = bridge::config::Policy {
         folders: bridge::relay::Folders {
@@ -733,8 +737,8 @@ fn a_lua_timeways_strip_comes_back_as_the_fixed_reply_in_a_timeways_slot() {
 #[test]
 fn a_lua_timeways_strip_comes_back_from_the_fake_story_program_through_the_slot_poll() {
     let (_root, paths) = bridge_folders();
-    let addons = paths.addons.clone();
-    let screenshot = paths.screenshots.join("WoWScrnShot_1.png");
+    let addons = paths.games[0].addons.clone();
+    let screenshot = paths.games[0].screenshots.join("WoWScrnShot_1.png");
     let story = StorySpec {
         program: env!("CARGO_BIN_EXE_fake-story").into(),
         args: vec!["echo".into()],

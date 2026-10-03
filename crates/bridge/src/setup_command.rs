@@ -454,16 +454,18 @@ fn all_set(changed: &setup::Changed, keys: KeyChoice) -> &'static str {
 /// `gnomish-relay install`: the slots of each product that this computer has.
 pub fn install_slots(dirs: &Dirs) -> Result<()> {
     let config = config::load(&dirs.config, &dirs.home)?;
-    let dir = install::addons_dir(config.game()?);
+    config.game()?;
     let products = setup::products_of(&config, &dirs.config);
-    setup::install_all_slots(&dir, &products)?;
-    for product in products {
-        println!(
-            "Made {} addon files for {:?} in {}",
-            protocol::slot::SLOTS,
-            product.app(),
-            dir.display()
-        );
+    for game in config.games() {
+        setup::install_all_slots(&game.addons, &products)?;
+        for product in &products {
+            println!(
+                "Made {} addon files for {:?} in {}",
+                protocol::slot::SLOTS,
+                product.app(),
+                game.addons.display()
+            );
+        }
     }
     Ok(())
 }

@@ -1,5 +1,8 @@
 //! The WoW clients that Gnomish Relay supports (SPEC.md 7.9).
 
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum WowClient {
     Forever,
@@ -34,6 +37,14 @@ impl WowClient {
         }
     }
 
+    /// The name that players see, in `status` and in the README.
+    pub fn title(self) -> &'static str {
+        match self {
+            WowClient::Forever => "WoW: Forever",
+            WowClient::Anniversary => "TBC Anniversary",
+        }
+    }
+
     pub fn of_folder_name(name: &str) -> Option<WowClient> {
         WowClient::ALL.into_iter().find(|c| c.folder() == name)
     }
@@ -45,6 +56,27 @@ impl WowClient {
             .into_iter()
             .find(|c| c.interface() / 10_000 == interface / 10_000)
     }
+}
+
+/// The game folders that the desktop app serves: `configured` first, then each other
+/// client folder next to it. Battle.net puts every client in one `World of Warcraft`
+/// folder, so a player with two clients needs no switch.
+pub fn served_games(configured: &Path) -> Vec<PathBuf> {
+    let mut games = vec![configured.to_owned()];
+    let name = configured.file_name().and_then(OsStr::to_str);
+    if name.and_then(WowClient::of_folder_name).is_none() {
+        return games;
+    }
+    let Some(install) = configured.parent() else {
+        return games;
+    };
+    for client in WowClient::ALL {
+        let game = install.join(client.folder());
+        if game != configured && game.is_dir() {
+            games.push(game);
+        }
+    }
+    games
 }
 
 /// The `## Interface` of every addon that the desktop app writes. It lists every client,
@@ -82,6 +114,41 @@ mod tests {
         assert_eq!(WowClient::of_interface(20507), Some(WowClient::Anniversary));
         assert_eq!(WowClient::of_interface(16101), Some(WowClient::Forever));
         assert_eq!(WowClient::of_interface(120_001), None);
+    }
+
+    #[test]
+    fn the_configured_game_comes_first_and_each_other_client_next_to_it_follows() {
+        let wow = tempfile::tempdir().unwrap();
+        let forever = wow.path().join("_classic_beta_");
+        let anniversary = wow.path().join("_anniversary_");
+        std::fs::create_dir_all(&forever).unwrap();
+        std::fs::create_dir_all(&anniversary).unwrap();
+        std::fs::create_dir_all(wow.path().join("_retail_")).unwrap();
+
+        assert_eq!(
+            served_games(&anniversary),
+            [anniversary.clone(), forever.clone()]
+        );
+        assert_eq!(served_games(&forever), [forever, anniversary]);
+    }
+
+    #[test]
+    fn a_client_that_is_not_installed_is_not_served() {
+        let wow = tempfile::tempdir().unwrap();
+        let forever = wow.path().join("_classic_beta_");
+        std::fs::create_dir_all(&forever).unwrap();
+
+        assert_eq!(served_games(&forever), [forever]);
+    }
+
+    #[test]
+    fn a_game_folder_with_another_name_is_served_alone() {
+        let wow = tempfile::tempdir().unwrap();
+        let custom = wow.path().join("my wow");
+        std::fs::create_dir_all(&custom).unwrap();
+        std::fs::create_dir_all(wow.path().join("_anniversary_")).unwrap();
+
+        assert_eq!(served_games(&custom), [custom]);
     }
 
     #[test]

@@ -14,6 +14,7 @@ use std::time::Duration;
 
 use bridge::agent::{Agent, Control, Run};
 use bridge::config::{Permission, Policy};
+use bridge::game_folders::GameFolders;
 use bridge::ids::hex;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::{Folders, Job};
@@ -80,9 +81,12 @@ fn both_keys() -> KeySet {
 
 fn bridge(f: &Dirs, keys: KeySet, runs: &Arc<Counting>) -> Bridge {
     let paths = Paths {
-        addons: f.addons.clone(),
-        screenshots: f.screenshots.clone(),
-        accounts: f.accounts.clone(),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: f.addons.clone(),
+            screenshots: f.screenshots.clone(),
+            accounts: f.accounts.clone(),
+        }],
         state: f.state.clone(),
         config: f.state.join("config"),
     };
@@ -513,9 +517,12 @@ fn a_batch_of_game_events_gets_the_events_seen_reply() {
 fn a_bridge_with_no_relay_serves_timeways_and_drops_a_relay_strip() {
     let f = folders(true);
     let paths = Paths {
-        addons: f.addons.clone(),
-        screenshots: f.screenshots.clone(),
-        accounts: f.accounts.clone(),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: f.addons.clone(),
+            screenshots: f.screenshots.clone(),
+            accounts: f.accounts.clone(),
+        }],
         state: f.state.clone(),
         config: f.state.join("config"),
     };

@@ -17,6 +17,7 @@ use std::time::Duration;
 use bridge::agent::Echo;
 use bridge::config::{Permission, Policy};
 use bridge::folder_path::{path_bytes, real_path};
+use bridge::game_folders::GameFolders;
 use bridge::ids::hex;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
@@ -51,21 +52,24 @@ impl LogBuffer {
 
 fn echo_bridge(root: &std::path::Path) -> Bridge {
     let paths = Paths {
-        addons: root.join("Interface/AddOns"),
-        screenshots: root.join("Screenshots"),
-        accounts: root.join("WTF/Account"),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: root.join("Interface/AddOns"),
+            screenshots: root.join("Screenshots"),
+            accounts: root.join("WTF/Account"),
+        }],
         state: root.join("data"),
         config: root.join("data/config"),
     };
     for folder in [
-        &paths.addons,
-        &paths.screenshots,
-        &paths.accounts,
+        &paths.games[0].addons,
+        &paths.games[0].screenshots,
+        &paths.games[0].accounts,
         &paths.state,
     ] {
         fs::create_dir_all(folder).unwrap();
     }
-    install_window(&paths.addons, App::Relay);
+    install_window(&paths.games[0].addons, App::Relay);
     let base = path_bytes(&std::env::temp_dir().canonicalize().unwrap());
     let policy = Policy {
         folders: Folders {

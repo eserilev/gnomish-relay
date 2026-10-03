@@ -14,6 +14,7 @@ use std::time::Duration;
 use bridge::agent::Echo;
 use bridge::config::{Permission, Policy};
 use bridge::folder_path::path_bytes;
+use bridge::game_folders::GameFolders;
 use bridge::ids::hex;
 use bridge::line::{self, MODES, Mode};
 use bridge::line_choice::{self, LineChoice, Reason};
@@ -262,9 +263,12 @@ impl Desktop {
         let (accounts, data) = (dir("WTF/Account"), dir("data"));
         install_window(&addons, App::Relay);
         let paths = Paths {
-            addons: addons.clone(),
-            screenshots: screenshots.clone(),
-            accounts,
+            games: vec![GameFolders {
+                name: "game".into(),
+                addons: addons.clone(),
+                screenshots: screenshots.clone(),
+                accounts,
+            }],
             state: data.clone(),
             config: data.join("config"),
         };

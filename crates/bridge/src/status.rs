@@ -12,12 +12,13 @@ use crate::config::{self, RelayConfig};
 use crate::desktop::Prompt;
 use crate::fs_safe::write_atomic_unsynced;
 use crate::game_choice::NO_WOW;
+use crate::game_folders::GameFolders;
 use crate::gate::{Gate, Places};
 use crate::install;
 use crate::line_choice;
 use crate::lock::{self, Bridge};
 use crate::program::find_program;
-use crate::relay_addon;
+use crate::relay_addon::{self, RelayAddon};
 use crate::story_sandbox::Sandbox;
 use crate::wsl;
 
@@ -42,10 +43,10 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
         }
     };
     lines.push("Config: OK".into());
-    let Some(wow) = config.wow.as_deref() else {
+    if config.wow.is_none() {
         lines.push(NO_WOW.into());
         return lines;
-    };
+    }
     // Timeways alone is another product, so its status has no relay line (SPEC.md 9.7,
     // decision 15).
     let Some(relay) = &config.relay else {
@@ -54,9 +55,32 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let gate = Gate::new(relay, places, Prompt::Off);
     lines.push(sandbox_line(&SandboxFound::of(&gate.sandbox.tool, path)));
     lines.push(agent_line(relay, &gate));
-    let addons = install::addons_dir(wow);
-    lines.push(relay_addon::status_line(relay_addon::find(&addons)));
+    lines.extend(addon_lines(&config.games()));
     lines.extend(default_agent_off_service_path(relay, places));
+    lines
+}
+
+/// The addon line of each served game (SPEC.md 7.9). With one game it has no game name.
+/// A second game with no addon is a game that the player uses without Gnomish Relay.
+fn addon_lines(games: &[GameFolders]) -> Vec<String> {
+    let [first, others @ ..] = games else {
+        return Vec::new();
+    };
+    let line = relay_addon::status_line(relay_addon::find(&first.addons));
+    if others.is_empty() {
+        return vec![line];
+    }
+    let mut lines = vec![format!("{line} ({})", first.title())];
+    for game in others {
+        let addon = relay_addon::find(&game.addons);
+        if addon != RelayAddon::Missing {
+            lines.push(format!(
+                "{} ({})",
+                relay_addon::status_line(addon),
+                game.title()
+            ));
+        }
+    }
     lines
 }
 

@@ -16,7 +16,6 @@ use bridge::dirs::Dirs;
 use bridge::forward;
 use bridge::gate::Places;
 use bridge::hooks_install;
-use bridge::install;
 use bridge::report;
 use bridge::run::now;
 use bridge::selftest;
@@ -66,9 +65,10 @@ Developers
                           Copy the results of the self-test addon into the repo";
 
 fn say(dirs: &Dirs, chat: &str, id: &str, text: &str) -> Result<()> {
-    let reply = Reply {
+    let id = id.parse().context("the message id is a number")?;
+    let reply = || Reply {
         chat: chat.as_bytes().to_vec(),
-        id: id.parse().context("the message id is a number")?,
+        id,
         status: Status::Done,
         text: text.as_bytes().to_vec(),
     };
@@ -81,7 +81,10 @@ fn say(dirs: &Dirs, chat: &str, id: &str, text: &str) -> Result<()> {
     };
     let config = config::load(&dirs.config, &dirs.home)?;
     config.require_relay()?;
-    slots::publish_reply(&install::addons_dir(config.game()?), reply, next, now())?;
+    config.game()?;
+    for game in config.games() {
+        slots::publish_reply(&game.addons, reply(), next, now())?;
+    }
     println!(
         "published to {} slots from slot {next}",
         protocol::slot::SLOT_WINDOW

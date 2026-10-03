@@ -14,7 +14,6 @@ use crate::app_files::key_addon_name;
 use crate::auto_update::{Parts, Wanted, pinned_releases};
 use crate::config;
 use crate::dirs::Dirs;
-use crate::install;
 use crate::timeways_install;
 use crate::timeways_release::NeedsNewerApp;
 
@@ -152,10 +151,12 @@ pub fn install_program(target: &Path, new: &Path) -> Result<Replaced> {
 }
 
 /// A key addon that is new since the launch of the game loads only after a restart
-/// (SPEC.md 7.3.2). `relay_addons` is `None` with the relay off.
-pub fn finish_line(relay_addons: Option<&Path>) -> &'static str {
-    let key_addon_is_new =
-        relay_addons.is_some_and(|addons| !addons.join(key_addon_name(App::Relay)).is_dir());
+/// (SPEC.md 7.3.2). `relay_addons` holds the `AddOns` folder of each served game, and
+/// is empty with the relay off.
+pub fn finish_line(relay_addons: &[PathBuf]) -> &'static str {
+    let key_addon_is_new = relay_addons
+        .iter()
+        .any(|addons| !addons.join(key_addon_name(App::Relay)).is_dir());
     if key_addon_is_new {
         "Restart WoW to finish."
     } else {
@@ -163,11 +164,15 @@ pub fn finish_line(relay_addons: Option<&Path>) -> &'static str {
     }
 }
 
-/// The `AddOns` folder of a config with the relay.
-fn relay_addons(dirs: &Dirs) -> Option<PathBuf> {
-    let config = config::load(&dirs.config, &dirs.home).ok()?;
-    config.relay.as_ref()?;
-    Some(install::addons_dir(config.wow.as_deref()?))
+/// The `AddOns` folder of each served game, with the relay on.
+fn relay_addons(dirs: &Dirs) -> Vec<PathBuf> {
+    let Ok(config) = config::load(&dirs.config, &dirs.home) else {
+        return Vec::new();
+    };
+    if config.relay.is_none() {
+        return Vec::new();
+    }
+    config.games().into_iter().map(|g| g.addons).collect()
 }
 
 /// Which release each part takes.
@@ -294,7 +299,7 @@ fn update_desktop_app(dirs: &Dirs, base: &str, pick: Pick) -> Result<()> {
 
 fn restart_bridge(dirs: &Dirs, exe: &Path) -> Result<()> {
     // Before the restart: the new bridge writes the key addon at its start.
-    let finish = finish_line(relay_addons(dirs).as_deref());
+    let finish = finish_line(&relay_addons(dirs));
     crate::service::restart(dirs, exe)?;
     println!("{finish}");
     Ok(())
@@ -458,13 +463,22 @@ mod tests {
     #[test]
     fn an_update_asks_for_a_restart_only_when_the_key_addon_is_new() {
         let addons = tempfile::tempdir().unwrap();
-        assert_eq!(finish_line(Some(addons.path())), "Restart WoW to finish.");
+        let games = [addons.path().to_owned()];
+        assert_eq!(finish_line(&games), "Restart WoW to finish.");
         fs::create_dir(addons.path().join("GnomishRelay_Key")).unwrap();
-        assert_eq!(
-            finish_line(Some(addons.path())),
-            "Type /reload in WoW to finish."
-        );
-        assert_eq!(finish_line(None), "Type /reload in WoW to finish.");
+        assert_eq!(finish_line(&games), "Type /reload in WoW to finish.");
+        assert_eq!(finish_line(&[]), "Type /reload in WoW to finish.");
+    }
+
+    #[test]
+    fn an_update_asks_for_a_restart_when_any_served_game_lacks_the_key_addon() {
+        let forever = tempfile::tempdir().unwrap();
+        let anniversary = tempfile::tempdir().unwrap();
+        fs::create_dir(forever.path().join("GnomishRelay_Key")).unwrap();
+
+        let games = [forever.path().to_owned(), anniversary.path().to_owned()];
+
+        assert_eq!(finish_line(&games), "Restart WoW to finish.");
     }
 
     #[test]

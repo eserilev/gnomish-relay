@@ -18,9 +18,11 @@ use crate::ci_checks::CiChecks;
 use crate::claude;
 use crate::folder_path::path_bytes;
 use crate::game_choice::NO_WOW;
+use crate::game_folders::GameFolders;
 use crate::model::{ModelChoice, ModelSpec};
 use crate::model_local::{self, LocalModel};
 use crate::relay::Folders;
+use crate::wow_client::served_games;
 use crate::{harness_args, harness_presets};
 
 pub const FILE: &str = "config.toml";
@@ -135,6 +137,12 @@ pub enum AutoUpdate {
 impl Config {
     pub fn game(&self) -> Result<&Path> {
         self.wow.as_deref().context(NO_WOW)
+    }
+
+    /// Every game that the desktop app serves (SPEC.md 7.9). Empty with no game folder.
+    pub fn games(&self) -> Vec<GameFolders> {
+        let games = self.wow.as_deref().map(served_games).unwrap_or_default();
+        games.iter().map(|game| GameFolders::of(game)).collect()
     }
 
     pub fn require_relay(&self) -> Result<&RelayConfig> {

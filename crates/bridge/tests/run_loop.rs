@@ -18,6 +18,7 @@ use bridge::daily_usage;
 use bridge::desktop::{Approvals, Prompt, Verdict};
 use bridge::folder_path::{path_bytes, real_path};
 use bridge::full_auto::FullAutoAsker;
+use bridge::game_folders::GameFolders;
 use bridge::gate::Gate;
 use bridge::ids::hex;
 use bridge::line_choice::{self, LineChoice};
@@ -88,9 +89,12 @@ fn bridge_with(f: &Dirs, agent: Arc<dyn Agent>) -> Bridge {
 
 fn bridge_in(f: &Dirs, policy: Policy, agent: Arc<dyn Agent>) -> Bridge {
     let paths = Paths {
-        addons: f.addons.clone(),
-        screenshots: f.screenshots.clone(),
-        accounts: f.accounts.clone(),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: f.addons.clone(),
+            screenshots: f.screenshots.clone(),
+            accounts: f.accounts.clone(),
+        }],
         state: f.state.clone(),
         config: f.state.join("config"),
     };
@@ -379,9 +383,12 @@ fn a_damaged_state_file_stops_the_bridge_at_start() {
     let f = folders();
     fs::write(f.state.join("state.json"), "{").unwrap();
     let paths = Paths {
-        addons: f.addons.clone(),
-        screenshots: f.screenshots.clone(),
-        accounts: f.accounts.clone(),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: f.addons.clone(),
+            screenshots: f.screenshots.clone(),
+            accounts: f.accounts.clone(),
+        }],
         state: f.state.clone(),
         config: f.state.join("config"),
     };

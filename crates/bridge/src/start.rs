@@ -1,6 +1,8 @@
 //! `gnomish-relay run`: the config, the keys, a repair of the key addons, and the
 //! agents, then the run loop.
 
+use std::path::PathBuf;
+
 use anyhow::Result;
 
 use crate::agent;
@@ -13,6 +15,7 @@ use crate::folder_path::real_path;
 use crate::fs_safe::make_private_dir;
 use crate::full_auto::FullAutoAsker;
 use crate::game_choice::NO_WOW;
+use crate::game_folders::GameFolders;
 use crate::gate::{Gate, Places};
 use crate::hooks_install::files_for_bridge;
 use crate::install;
@@ -30,10 +33,11 @@ use crate::trust::Truster;
 /// and ends with success, so the login service does not start it again and again.
 pub fn start(dirs: &Dirs) -> Result<()> {
     let config = config::load(&dirs.config, &dirs.home)?;
-    let Some(wow) = config.wow.as_deref() else {
+    let games = config.games();
+    if games.is_empty() {
         println!("{NO_WOW}");
         return Ok(());
-    };
+    }
     let state = dirs.data.clone();
     make_private_dir(&state)?;
     let _lock = lock::take(&state)?;
@@ -41,15 +45,20 @@ pub fn start(dirs: &Dirs) -> Result<()> {
     let paths = Paths {
         state,
         config: dirs.config.clone(),
-        screenshots: wow.join("Screenshots"),
-        accounts: wow.join("WTF").join("Account"),
-        addons: install::addons_dir(wow),
+        games,
     };
     // Equal keys, or a `timeways.key` that does not load, stop the bridge here.
     let keys = KeySet::load(&dirs.config)?;
     // Never a file of the Timeways addon but an old `Key.lua` (SPEC.md 9.7, decision 15).
-    if let Some(changed) = setup::repair_timeways_key(&dirs.config, &paths.addons)? {
-        print_changed("Timeways", changed);
+    for game in &paths.games {
+        if let Some(changed) = setup::repair_timeways_key(&dirs.config, &game.addons)? {
+            print_changed("Timeways", changed);
+        }
+    }
+    // A game installed after setup has no slots yet (SPEC.md 7.9).
+    let products = setup::products_of(&config, &dirs.config);
+    for game in &paths.games {
+        setup::install_missing_slots(&game.addons, &products)?;
     }
     let auto_update = auto_updater(dirs, &config)?;
     let relay = match config.relay {
@@ -61,6 +70,14 @@ pub fn start(dirs: &Dirs) -> Result<()> {
         None => None,
     };
     run(paths, relay, keys, story, auto_update)
+}
+
+/// The private files of every served game: no agent and no command reads them.
+fn private_paths(games: &[GameFolders]) -> Vec<PathBuf> {
+    games
+        .iter()
+        .flat_map(|g| private_game_paths(&g.addons, &g.accounts, &g.screenshots))
+        .collect()
 }
 
 fn auto_updater(dirs: &Dirs, config: &config::Config) -> Result<Option<AutoUpdater>> {
@@ -78,18 +95,19 @@ pub fn start_relay(
     paths: &Paths,
 ) -> Result<RelayParts> {
     let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
-    print_changed(
-        "Gnomish Relay",
-        install::write_relay_keys(&paths.addons, hex.trim())?,
-    );
+    for game in &paths.games {
+        print_changed(
+            "Gnomish Relay",
+            install::write_relay_keys(&game.addons, hex.trim())?,
+        );
+    }
     let places = Places {
         config_dir: &dirs.config,
         data_dir: &paths.state,
         home: &dirs.home,
     };
     let mut gate = Gate::new(&relay, &places, Prompt::Dialog);
-    let private = private_game_paths(&paths.addons, &paths.accounts, &paths.screenshots);
-    gate.sandbox = gate.sandbox.with_game(private);
+    gate.sandbox = gate.sandbox.with_game(private_paths(&paths.games));
     gate.approvals.clear();
     let sandbox = gate.sandbox.summary();
     println!("Commands from WoW run in: {sandbox}");
@@ -173,6 +191,8 @@ fn story_spec(dirs: &Dirs, story: &StoryConfig, paths: &Paths) -> Result<Option<
 
 #[cfg(test)]
 mod tests {
+    use std::path::Path;
+
     use super::*;
 
     const CONFIG: &str = "allowed_roots = [\"~/Code\"]\ndefault_agent = \"echo\"\n\
@@ -190,25 +210,40 @@ mod tests {
         let config = setup::write_config(&dirs.config, CONFIG, &dirs.home).unwrap();
         std::fs::write(dirs.config.join(RELAY_KEY_FILE), "ab".repeat(32)).unwrap();
         make_private_dir(&dirs.data).unwrap();
-        let wow = home.path().join("wow");
+        let forever = GameFolders::of(&home.path().join("wow/_classic_beta_"));
+        let anniversary = GameFolders::of(&home.path().join("wow/_anniversary_"));
         let paths = Paths {
-            addons: install::addons_dir(&wow),
-            screenshots: wow.join("Screenshots"),
-            accounts: wow.join("WTF").join("Account"),
+            games: vec![forever, anniversary],
             state: dirs.data.clone(),
             config: dirs.config.clone(),
         };
 
         let parts = start_relay(&dirs, config.relay.unwrap(), None, &paths).unwrap();
 
-        let key_addon = paths.addons.join("GnomishRelay_Key");
-        assert!(key_addon.join(install::KEY_FILE).is_file());
-        assert!(!paths.addons.join(install::ADDON).exists());
+        for game in &paths.games {
+            let key_addon = game.addons.join("GnomishRelay_Key");
+            assert!(key_addon.join(install::KEY_FILE).is_file());
+            assert!(!game.addons.join(install::ADDON).exists());
+        }
         assert_eq!(parts.policy.default_agent, "echo");
         assert!(parts.raiser.free_commands.is_empty());
         assert_eq!(parts.max_parallel_runs, 3);
         let full_auto = parts.full_auto.unwrap();
         assert!(full_auto.agents.is_empty(), "echo has no command sandbox");
+    }
+
+    #[test]
+    fn the_private_files_of_every_served_game_are_hidden() {
+        let forever = GameFolders::of(Path::new("/wow/_classic_beta_"));
+        let anniversary = GameFolders::of(Path::new("/wow/_anniversary_"));
+
+        let private = private_paths(&[forever.clone(), anniversary.clone()]);
+
+        for game in [&forever, &anniversary] {
+            assert!(private.contains(&game.addons.join("GnomishRelay_Key")));
+            assert!(private.contains(&game.accounts));
+            assert!(private.contains(&game.screenshots));
+        }
     }
 
     #[test]

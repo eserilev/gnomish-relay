@@ -143,6 +143,18 @@ pub fn install_all_slots(addons: &Path, products: &[Product]) -> Result<()> {
     Ok(())
 }
 
+/// The slots of each product of `products` that `addons` lacks. The desktop app runs
+/// this at each start, so a game installed after setup gets its slots (SPEC.md 7.9).
+pub fn install_missing_slots(addons: &Path, products: &[Product]) -> Result<()> {
+    for product in products {
+        let app = product.app();
+        if !slots::is_installed(addons, app) {
+            slots::install(addons, app, &Files::empty(app, now()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Writes the Timeways key addon again when it is missing or old, as the bridge does for
 /// the relay at each start (SPEC.md 11.3). The bridge never makes a key.
 pub fn repair_timeways_key(config_dir: &Path, addons: &Path) -> Result<Option<Installed>> {

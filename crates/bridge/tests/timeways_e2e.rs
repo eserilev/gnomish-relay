@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use bridge::config::Policy;
+use bridge::game_folders::GameFolders;
 use bridge::ids::hex;
 use bridge::receive::{KeySet, StripKey};
 use bridge::relay::Folders;
@@ -168,7 +169,7 @@ impl Machine {
     }
 
     fn slot_file(&self, app: App, slot: usize, file: &str) -> PathBuf {
-        self.game
+        self.game.games[0]
             .addons
             .join(slots::slot_name(app, slot))
             .join(file)
@@ -182,17 +183,25 @@ fn machine() -> Machine {
     let config = home.join(".config/gnomish-relay");
     let data = home.join(".local/share/gnomish-relay");
     let game = Paths {
-        addons: wow.join("Interface/AddOns"),
-        screenshots: wow.join("Screenshots"),
-        accounts: wow.join("WTF/Account"),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: wow.join("Interface/AddOns"),
+            screenshots: wow.join("Screenshots"),
+            accounts: wow.join("WTF/Account"),
+        }],
         state: data.clone(),
         config: config.clone(),
     };
-    for dir in [&config, &game.addons, &game.screenshots, &game.accounts] {
+    for dir in [
+        &config,
+        &game.games[0].addons,
+        &game.games[0].screenshots,
+        &game.games[0].accounts,
+    ] {
         std::fs::create_dir_all(dir).unwrap();
     }
     for app in [App::Relay, App::Timeways] {
-        slots::install(&game.addons, app, &Files::empty(app, 0)).unwrap();
+        slots::install(&game.games[0].addons, app, &Files::empty(app, 0)).unwrap();
     }
     Machine {
         pack: home.join(".local/share/timeways/lore.sqlite"),
@@ -238,9 +247,12 @@ fn key(bytes: &[u8]) -> StripKey {
 /// A relay lane too, so the test can show that no Timeways batch reaches it.
 fn start_bridge(machine: &Machine, spec: StorySpec) -> Bridge {
     let paths = Paths {
-        addons: machine.game.addons.clone(),
-        screenshots: machine.game.screenshots.clone(),
-        accounts: machine.game.accounts.clone(),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: machine.game.games[0].addons.clone(),
+            screenshots: machine.game.games[0].screenshots.clone(),
+            accounts: machine.game.games[0].accounts.clone(),
+        }],
         state: machine.game.state.clone(),
         config: machine.game.config.clone(),
     };
@@ -394,7 +406,7 @@ impl World {
             self.shots_sent += 1;
             let name = format!("WoWScrnShot_{}.png", self.shots_sent);
             std::fs::write(
-                self.machine.game.screenshots.join(name),
+                self.machine.game.games[0].screenshots.join(name),
                 screenshot_png(rows),
             )
             .unwrap();

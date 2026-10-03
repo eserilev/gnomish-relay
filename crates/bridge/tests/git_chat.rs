@@ -17,6 +17,7 @@ use bridge::ci_checks::CiChecks;
 use bridge::config::{Permission, Policy};
 use bridge::desktop::{Approvals, Prompt, Verdict};
 use bridge::folder_path::{path_bytes, real_path};
+use bridge::game_folders::GameFolders;
 use bridge::git_host::{GitHost, UserConfig};
 use bridge::ids::hex;
 use bridge::raise::Raiser;
@@ -125,9 +126,12 @@ fn bridge_with(w: &World, output: Option<&str>, ci: CiChecks) -> Bridge {
         default_agent: "claude".into(),
     };
     let paths = Paths {
-        addons: w.addons.clone(),
-        screenshots: w.addons.join("../../Screenshots"),
-        accounts: w.accounts.clone(),
+        games: vec![GameFolders {
+            name: "game".into(),
+            addons: w.addons.clone(),
+            screenshots: w.addons.join("../../Screenshots"),
+            accounts: w.accounts.clone(),
+        }],
         state: w.data.clone(),
         config: w.data.join("config"),
     };

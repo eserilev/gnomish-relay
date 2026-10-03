@@ -20,6 +20,7 @@ use crate::ci_checks::CiChecks;
 use crate::config::{Permission, Policy};
 use crate::folder_path::real_path;
 use crate::full_auto::{self, FullAutoAsker};
+use crate::game_folders::GameFolders;
 use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
@@ -89,10 +90,8 @@ const NO_GIT: &str =
 type RunEvent = (ChatId, MessageId, Event);
 
 pub struct Paths {
-    pub addons: PathBuf,
-    pub screenshots: PathBuf,
-    /// `WTF/Account`, which holds the saved variables of each account.
-    pub accounts: PathBuf,
+    /// Every game that the bridge serves, the configured one first (SPEC.md 7.9).
+    pub games: Vec<GameFolders>,
     /// The data folder of the bridge, for `state.json`.
     pub state: PathBuf,
     /// The config folder of the bridge, with the keys. The folder list never shows it.
@@ -119,13 +118,15 @@ pub fn log(line: &str) {
 /// The bridge between the Screenshots folder, the agents, and the slots. `run`
 /// calls `step` four times a second. Tests call it directly.
 pub struct Bridge {
-    addons: PathBuf,
+    /// The `AddOns` folder of each game. Each publish writes the slots into all of them.
+    addons: Vec<PathBuf>,
     /// The data folder, for the time of the last strip.
     data: PathBuf,
     /// The strip line that each publish sends to the addons (SPEC.md 7.1.3).
     line: LineFile,
     keys: KeySet,
-    watcher: Watcher,
+    /// One for the `Screenshots` folder of each game.
+    watchers: Vec<Watcher>,
     /// Only with the relay part in the config (SPEC.md 9.7, decision 15).
     relay: Option<RelayLane>,
     /// Only with a Timeways key. It holds no agents.
@@ -137,17 +138,18 @@ pub struct Bridge {
 /// What one app keeps on disk, and when it writes it (SPEC.md 9.7, decision 4).
 struct LaneFiles {
     state: PathBuf,
-    saved: saved::Watcher,
+    /// One for each game.
+    saved: Vec<saved::Watcher>,
     changed: bool,
     stored: bool,
     last_publish: Instant,
 }
 
 impl LaneFiles {
-    fn new(state: PathBuf, accounts: &Path, app: App) -> LaneFiles {
+    fn new(state: PathBuf, games: &[GameFolders], app: App) -> LaneFiles {
         LaneFiles {
             state,
-            saved: saved::Watcher::new(accounts, app),
+            saved: games.iter().map(|g| saved::Watcher::new(g, app)).collect(),
             changed: true,
             stored: false,
             last_publish: Instant::now(),
@@ -156,6 +158,14 @@ impl LaneFiles {
 
     fn publish_due(&self) -> bool {
         self.changed || self.last_publish.elapsed() >= HEARTBEAT
+    }
+
+    /// The changed saved variables files of every game.
+    fn changed_saved(&mut self) -> Vec<saved::SavedFile> {
+        self.saved
+            .iter_mut()
+            .flat_map(saved::Watcher::changed)
+            .collect()
     }
 }
 
@@ -234,10 +244,14 @@ impl Bridge {
             None
         };
         Ok(Bridge {
-            watcher: Watcher::new(&paths.screenshots),
+            watchers: paths
+                .games
+                .iter()
+                .map(|g| Watcher::new(&g.screenshots))
+                .collect(),
             timeways,
             relay,
-            addons: paths.addons,
+            addons: paths.games.iter().map(|g| g.addons.clone()).collect(),
             line: LineFile::new(&paths.state),
             data: paths.state,
             keys,
@@ -348,7 +362,8 @@ impl Bridge {
     }
 
     fn take_screenshots(&mut self) {
-        for path in self.watcher.ready() {
+        let ready: Vec<PathBuf> = self.watchers.iter_mut().flat_map(Watcher::ready).collect();
+        for path in ready {
             let keys = &self.keys;
             let tag_checks =
                 |bytes: &[u8]| receive(bytes, keys, now()).is_ok() || is_test_strip(bytes);
@@ -538,7 +553,7 @@ impl RelayLane {
             spans: BTreeMap::new(),
             replies: Vec::new(),
             relay,
-            files: LaneFiles::new(paths.state.clone(), &paths.accounts, App::Relay),
+            files: LaneFiles::new(paths.state.clone(), &paths.games, App::Relay),
             agents,
             walk,
             stops: BTreeMap::new(),
@@ -562,7 +577,7 @@ impl RelayLane {
         })
     }
 
-    fn step(&mut self, keys: &KeySet, addons: &Path, line: &mut LineFile) {
+    fn step(&mut self, keys: &KeySet, addons: &[PathBuf], line: &mut LineFile) {
         self.take_saved_variables(keys);
         self.take_notices();
         self.signal_stops();
@@ -619,7 +634,7 @@ impl RelayLane {
 
     /// A changed file means a `/reload`: the outbox frames get the same checks as a strip.
     fn take_saved_variables(&mut self, keys: &KeySet) {
-        for file in self.files.saved.changed() {
+        for file in self.files.changed_saved() {
             let token = saved::saved_token(&file.text);
             self.relay.reset_window(token.as_deref());
             self.files.changed = true;
@@ -1168,16 +1183,15 @@ impl RelayLane {
     }
 
     /// A failed publish waits for the next heartbeat, so it does not log every tick.
-    fn publish(&mut self, addons: &Path, line: Option<LineChoice>) {
+    fn publish(&mut self, addons: &[PathBuf], line: Option<LineChoice>) {
         let body = with_line(self.relay.body(now()), App::Relay, line);
         let files = Files {
             body: slots::with_bad_tags(body, App::Relay, self.bad_tags),
             restore: self.relay.restore_file(),
             live: self.relay.live_file(&self.terminal.notices()),
         };
-        if let Err(e) = slots::publish_windows(addons, App::Relay, &files, &self.relay.next_slots())
-        {
-            log(&format!("publish failed: {e:#}"));
+        let windows = self.relay.next_slots();
+        if !publish_in_each_game(addons, App::Relay, &files, &windows) {
             self.files.changed = false;
             self.notices_changed = false;
             return;
@@ -1405,12 +1419,12 @@ impl TimewaysLane {
         log("Timeways lane on");
         Ok(TimewaysLane {
             timeways,
-            files: LaneFiles::new(dir, &paths.accounts, App::Timeways),
+            files: LaneFiles::new(dir, &paths.games, App::Timeways),
             story: None,
         })
     }
 
-    fn step(&mut self, keys: &KeySet, addons: &Path, line: &mut LineFile) {
+    fn step(&mut self, keys: &KeySet, addons: &[PathBuf], line: &mut LineFile) {
         self.take_saved_variables(keys);
         if self.files.publish_due() {
             self.store();
@@ -1426,7 +1440,7 @@ impl TimewaysLane {
     }
 
     fn take_saved_variables(&mut self, keys: &KeySet) {
-        for file in self.files.saved.changed() {
+        for file in self.files.changed_saved() {
             let token = saved::saved_token(&file.text);
             self.timeways.reset_window(token.as_deref());
             self.files.changed = true;
@@ -1491,20 +1505,37 @@ impl TimewaysLane {
 
     /// Setup makes the Timeways slots only for a player with the Timeways addon, so
     /// missing slots are normal.
-    fn publish(&mut self, addons: &Path, line: Option<LineChoice>) {
+    fn publish(&mut self, addons: &[PathBuf], line: Option<LineChoice>) {
         self.files.changed = false;
-        if !slots::is_installed(addons, App::Timeways) {
-            return;
-        }
+        let installed: Vec<PathBuf> = addons
+            .iter()
+            .filter(|dir| slots::is_installed(dir, App::Timeways))
+            .cloned()
+            .collect();
         let files = Files {
             body: with_line(self.timeways.body(now()), App::Timeways, line),
             ..Files::empty(App::Timeways, now())
         };
         let windows = self.timeways.next_slots();
-        if let Err(e) = slots::publish_windows(addons, App::Timeways, &files, &windows) {
-            log(&format!("Timeways publish failed: {e:#}"));
+        publish_in_each_game(&installed, App::Timeways, &files, &windows);
+    }
+}
+
+/// Writes the slot windows into the `AddOns` folder of each game. Each game loads only
+/// its own slots, and each token reads only its own records (SPEC.md 7.9). Returns
+/// false when every write failed.
+fn publish_in_each_game(addons: &[PathBuf], app: App, files: &Files, windows: &[usize]) -> bool {
+    let mut any = addons.is_empty();
+    for dir in addons {
+        match slots::publish_windows(dir, app, files, windows) {
+            Ok(()) => any = true,
+            Err(e) => log(&format!(
+                "{app:?} publish to {} failed: {e:#}",
+                dir.display()
+            )),
         }
     }
+    any
 }
 
 /// A desktop request always waits inside a run, so no run means no open request.
@@ -1588,7 +1619,9 @@ pub fn run(
     story: Option<StorySpec>,
     auto_update: Option<AutoUpdater>,
 ) -> Result<()> {
-    log(&format!("watching {}", paths.screenshots.display()));
+    for game in &paths.games {
+        log(&format!("watching {}", game.screenshots.display()));
+    }
     let mut bridge = match relay {
         Some(parts) => {
             let bridge = Bridge::new(paths, parts.policy, keys, parts.agents)?

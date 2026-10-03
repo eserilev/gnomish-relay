@@ -11,6 +11,7 @@ use protocol::apps::App;
 
 use crate::app_files::saved_variables_file;
 use crate::fs_safe::read_at_most;
+use crate::game_folders::GameFolders;
 
 /// Saved variables hold at most 200 messages per chat, far below this.
 const MAX_FILE: u64 = 16 * 1024 * 1024;
@@ -87,23 +88,27 @@ pub fn from_hex(hex: &str) -> Option<Vec<u8>> {
         .collect()
 }
 
-/// One changed saved variables file, with the name of its account folder.
+/// One changed saved variables file, with the name of its account.
 pub struct SavedFile {
+    /// `<game folder>/<account folder>`, such as `_anniversary_/ACCOUNT1`: two games can
+    /// have account folders with the same name (SPEC.md 7.9).
     pub account: String,
     pub text: String,
 }
 
-/// Watches the saved variables file of one app in every account.
+/// Watches the saved variables file of one app in every account of one game.
 pub struct Watcher {
     accounts: PathBuf,
+    game: String,
     file: String,
     seen: HashMap<PathBuf, SystemTime>,
 }
 
 impl Watcher {
-    pub fn new(accounts: &Path, app: App) -> Watcher {
+    pub fn new(game: &GameFolders, app: App) -> Watcher {
         Watcher {
-            accounts: accounts.to_owned(),
+            accounts: game.accounts.clone(),
+            game: game.name.clone(),
             file: saved_variables_file(app),
             seen: HashMap::new(),
         }
@@ -131,7 +136,7 @@ impl Watcher {
             self.seen.insert(path.clone(), modified);
             if let Ok(Some(bytes)) = read_at_most(&path, MAX_FILE) {
                 texts.push(SavedFile {
-                    account: account.file_name().to_string_lossy().into_owned(),
+                    account: format!("{}/{}", self.game, account.file_name().to_string_lossy()),
                     text: String::from_utf8_lossy(&bytes).into_owned(),
                 });
             }
@@ -199,7 +204,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let file = account_file(root.path());
         fs::write(&file, "one").unwrap();
-        let mut watcher = Watcher::new(root.path(), App::Relay);
+        let mut watcher = Watcher::new(&game(root.path()), App::Relay);
         assert_eq!(texts(watcher.changed()), ["one"]);
         assert!(watcher.changed().is_empty());
         let later = SystemTime::now() + std::time::Duration::from_secs(5);
@@ -213,6 +218,16 @@ mod tests {
         assert_eq!(texts(watcher.changed()), ["two"]);
     }
 
+    /// A game whose `WTF/Account` folder is `accounts`.
+    fn game(accounts: &Path) -> GameFolders {
+        GameFolders {
+            name: "_anniversary_".into(),
+            addons: accounts.join("AddOns"),
+            screenshots: accounts.join("Screenshots"),
+            accounts: accounts.to_owned(),
+        }
+    }
+
     fn texts(files: Vec<SavedFile>) -> Vec<String> {
         files.into_iter().map(|f| f.text).collect()
     }
@@ -222,9 +237,9 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         fs::write(account_file(root.path()), "one").unwrap();
 
-        let files = Watcher::new(root.path(), App::Relay).changed();
+        let files = Watcher::new(&game(root.path()), App::Relay).changed();
 
-        assert_eq!(files[0].account, "ACCOUNT1");
+        assert_eq!(files[0].account, "_anniversary_/ACCOUNT1");
     }
 
     #[test]
@@ -250,7 +265,7 @@ mod tests {
         let file = account_file(root.path());
         fs::write(&file, b"[\"name\"] = \"\xff\", [\"frame\"] = \"6e52\"").unwrap();
 
-        let texts = texts(Watcher::new(root.path(), App::Relay).changed());
+        let texts = texts(Watcher::new(&game(root.path()), App::Relay).changed());
 
         assert_eq!(texts.len(), 1);
         assert_eq!(frames(&texts[0]), [vec![0x6e, 0x52]]);
@@ -263,11 +278,11 @@ mod tests {
         fs::write(&relay, "relay").unwrap();
         fs::write(relay.with_file_name("Timeways.lua"), "story").unwrap();
         assert_eq!(
-            texts(Watcher::new(root.path(), App::Relay).changed()),
+            texts(Watcher::new(&game(root.path()), App::Relay).changed()),
             ["relay"]
         );
         assert_eq!(
-            texts(Watcher::new(root.path(), App::Timeways).changed()),
+            texts(Watcher::new(&game(root.path()), App::Timeways).changed()),
             ["story"]
         );
     }
@@ -280,6 +295,10 @@ mod tests {
         let target = root.path().join("elsewhere.lua");
         fs::write(&target, "[\"frame\"] = \"00\"").unwrap();
         std::os::unix::fs::symlink(&target, &file).unwrap();
-        assert!(Watcher::new(root.path(), App::Relay).changed().is_empty());
+        assert!(
+            Watcher::new(&game(root.path()), App::Relay)
+                .changed()
+                .is_empty()
+        );
     }
 }
