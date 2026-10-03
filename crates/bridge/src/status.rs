@@ -17,6 +17,7 @@ use crate::gate::{Gate, Places};
 use crate::install;
 use crate::line_choice;
 use crate::lock::{self, Bridge};
+use crate::lore_job::{LoreState, read_state};
 use crate::program::find_program;
 use crate::relay_addon::{self, RelayAddon};
 use crate::story_sandbox::Sandbox;
@@ -47,6 +48,7 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
         lines.push(NO_WOW.into());
         return lines;
     }
+    lines.extend(lore_line(&config, places.data_dir));
     // Timeways alone is another product, so its status has no relay line (SPEC.md 9.7,
     // decision 15).
     let Some(relay) = &config.relay else {
@@ -83,6 +85,18 @@ fn addon_lines(games: &[GameFolders]) -> Vec<String> {
     }
     lines
 }
+
+/// The state of the Timeways lore, with a story program in the config (SPEC.md 11.4).
+/// Before the first build of this desktop app, a pack on disk is ready lore.
+fn lore_line(config: &config::Config, data: &Path) -> Option<String> {
+    let story = config.story.as_ref()?.program.as_ref()?;
+    let ready = story.lore_pack.is_file().then_some(LoreState::Ready);
+    let state = read_state(data).or(ready);
+    Some(state.map_or_else(|| LORE_NOT_BUILT.into(), |state| state.status_line()))
+}
+
+const LORE_NOT_BUILT: &str =
+    "Timeways lore: not built yet. The desktop app builds it while it runs.";
 
 fn default_agent_off_service_path(relay: &RelayConfig, places: &Places) -> Option<String> {
     let spec = relay.agents.get(&relay.policy.default_agent)?;

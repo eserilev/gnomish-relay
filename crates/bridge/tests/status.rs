@@ -218,3 +218,54 @@ fn status_with_the_relay_addon_of_this_repo_says_it_is_ok() {
 
     assert_eq!(lines[6], "Addon: OK");
 }
+
+/// A Timeways config: a story program and a lore pack that does not exist yet.
+fn write_story_config(computer: &Computer) {
+    let text = "[wow]\npath = \"~/wow\"\n[story]\nprogram = \"~/bin/timeways-story\"\n\
+                lore_pack = \"~/timeways/lore.sqlite\"\n";
+    setup::write_config(&computer.config_dir(), text, computer.home.path()).unwrap();
+}
+
+fn lore_line(lines: &[String]) -> &str {
+    lines
+        .iter()
+        .find(|line| line.starts_with("Timeways lore:"))
+        .expect("a lore line")
+}
+
+#[test]
+fn status_says_the_lore_is_not_built_before_the_first_build() {
+    let computer = Computer::new();
+    write_story_config(&computer);
+
+    let lines = computer.status();
+
+    assert_eq!(
+        lore_line(&lines),
+        "Timeways lore: not built yet. The desktop app builds it while it runs."
+    );
+}
+
+#[test]
+fn status_shows_the_state_of_the_lore_build() {
+    let computer = Computer::new();
+    write_story_config(&computer);
+    fs::write(computer.data_dir().join("lore-state"), "downloading 45").unwrap();
+
+    let lines = computer.status();
+
+    assert_eq!(lore_line(&lines), "Timeways lore: downloading (45 MB)");
+}
+
+#[test]
+fn status_calls_a_pack_from_an_older_setup_ready() {
+    let computer = Computer::new();
+    write_story_config(&computer);
+    let pack = computer.home.path().join("timeways/lore.sqlite");
+    fs::create_dir_all(pack.parent().unwrap()).unwrap();
+    fs::write(&pack, "lore").unwrap();
+
+    let lines = computer.status();
+
+    assert_eq!(lore_line(&lines), "Timeways lore: ready");
+}
