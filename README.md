@@ -33,8 +33,9 @@ your agents. To install both:
      irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex
      ```
 4. **Let setup finish.** It asks no questions about folders. It finds WoW and your code
-   folders, such as `~/code`, and says where agents can work. With more than one WoW, it
-   uses the one you played last. To use another one, run
+   folders, such as `~/code`, and says where agents can work. If you have both WoW: Forever
+   and TBC Anniversary, Gnomish Relay works in both, with nothing to switch. With more
+   than one WoW install, it uses the one you played last. To use another one, run
    `gnomish-relay setup --wow <folder>`. If WoW isn't installed yet, setup does the rest,
    and tells you to start WoW once and run `gnomish-relay setup` again.
 5. **Start WoW** and type `/relay`. To work in another folder, pick it in the game, then
@@ -56,7 +57,8 @@ If a line shows a problem, it also says how to fix it. See also
 - It runs `gnomish-relay setup --autostart`. Setup finds the game, makes a key that only
   your computer has, writes its settings file `config.toml`, and starts the desktop
   app each time you log in.
-- Setup asks no questions about folders. With more than one WoW, it uses the one you
+- Setup asks no questions about folders. The desktop app works in WoW: Forever and TBC
+  Anniversary at the same time. With more than one WoW install, it uses the one you
   played last, and says so. With no WoW yet, it does everything else, and ends with
   "WoW not found. Start WoW once, then run gnomish-relay setup."
 - Setup uses the agents it finds on your computer: `claude`, `codex`, `gemini`, `qwen`,

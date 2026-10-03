@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.5.1
+
+- If you have both WoW: Forever and TBC Anniversary, Gnomish Relay now works in both at
+  the same time. No more switching.
+
 ## 0.5.0
 
 - **TBC Anniversary.** Gnomish Relay now works in WoW Classic: TBC Anniversary too. Get
