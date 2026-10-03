@@ -2791,6 +2791,7 @@ fn blocked_screenshots_show_one_line_and_mark_the_window() {
 
 const NO_APP_LINE: &str = "Gnomish Relay needs its desktop app. Get it at github.com/eserilev/gnomish-relay, then restart WoW.";
 const RESTART_LINE: &str = "Gnomish Relay: restart WoW to finish setup. If this shows again, run gnomish-relay setup on your desktop.";
+const OLD_APP_LINE: &str = "Gnomish Relay: the desktop app is out of date. On your desktop, run gnomish-relay update, then restart WoW.";
 
 /// A fresh install from an addon site: the desktop app has written no key addon yet.
 fn start_with_no_key_addon() -> Game {
@@ -2919,6 +2920,25 @@ fn a_key_addon_with_a_broken_key_counts_as_no_key() {
 
     assert!(game.run("local ns = ... return ns.key").is_nil());
     assert!(game.printed().contains(&NO_APP_LINE.into()));
+}
+
+#[test]
+fn a_key_addon_for_another_wow_version_says_to_update_the_desktop_app() {
+    let game = Game::boot_with_key_addon(measured(), None, |wow| {
+        install_key_addon(wow);
+        let out_of_date: Table = wow.get("outOfDate").unwrap();
+        out_of_date.set("GnomishRelay_Key", true).unwrap();
+    });
+
+    assert!(game.run("local ns = ... return ns.key").is_nil());
+    assert_eq!(setup_window_title(&game), "Update the desktop app");
+    assert!(
+        game.printed().contains(&OLD_APP_LINE.into()),
+        "{:?}",
+        game.printed()
+    );
+    let install_line = game.run("return GnomishRelaySetupCommand1:IsShown()");
+    assert_eq!(install_line.as_boolean(), Some(false));
 }
 
 #[test]

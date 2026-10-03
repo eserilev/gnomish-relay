@@ -1,6 +1,7 @@
 -- The first-run window of an addon with no key: an install from an addon site with no
--- desktop app yet, or a new key addon that WoW finds only after a restart (SPEC.md 7.3.2).
--- It looks like the setup window of Timeways.
+-- desktop app yet, a new key addon that WoW finds only after a restart (SPEC.md 7.3.2),
+-- or a key addon that an older desktop app wrote for another WoW version (7.9). It looks
+-- like the setup window of Timeways.
 
 local _, ns = ...
 
@@ -13,10 +14,26 @@ local TEXT_WIDTH = WIDTH - 2 * SHEET_INSET - 32
 local INSTALL_WINDOWS = "irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex"
 local INSTALL_UNIX = "curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh"
 
-SetupNeeded.NO_APP =
-	"Gnomish Relay needs its desktop app. Get it at github.com/eserilev/gnomish-relay, then restart WoW."
-SetupNeeded.RESTART =
-	"Gnomish Relay: restart WoW to finish setup. If this shows again, run gnomish-relay setup on your desktop."
+-- The chat line, the heading, and the text of the window for each missing step.
+local STEPS = {
+	install = {
+		line = "Gnomish Relay needs its desktop app. Get it at github.com/eserilev/gnomish-relay, then restart WoW.",
+		heading = "Gnomish Relay needs its desktop app",
+		body = "The desktop app runs your coding agents. Paste this line in a terminal to install it.",
+	},
+	restart = {
+		line = "Gnomish Relay: restart WoW to finish setup. If this shows again, run gnomish-relay setup on your desktop.",
+		heading = "Restart WoW to finish setup",
+		body = "If this shows again after the restart, run gnomish-relay setup on your desktop.",
+	},
+	update = {
+		line = "Gnomish Relay: the desktop app is out of date. On your desktop, run gnomish-relay update, then restart WoW.",
+		heading = "Update the desktop app",
+		body = "The desktop app is older than this version of WoW. On your desktop, run gnomish-relay update, then restart WoW.",
+	},
+}
+SetupNeeded.NO_APP = STEPS.install.line
+SetupNeeded.RESTART = STEPS.restart.line
 
 local frame
 local ui = {}
@@ -27,8 +44,19 @@ function SetupNeeded.HadKey()
 	return db ~= nil and db.hadKey == true
 end
 
+-- The key addon is wrong before a restart can help: an old desktop app wrote it.
+local function Step()
+	if ns.KeyHandoff.OutOfDate() then
+		return STEPS.update
+	end
+	if SetupNeeded.HadKey() then
+		return STEPS.restart
+	end
+	return STEPS.install
+end
+
 function SetupNeeded.Line()
-	return SetupNeeded.HadKey() and SetupNeeded.RESTART or SetupNeeded.NO_APP
+	return Step().line
 end
 
 -- Linux players run the Windows client under Wine, so a Windows client gets both lines.
@@ -146,16 +174,11 @@ local function Build()
 end
 
 local function Refresh()
-	local restart = SetupNeeded.HadKey()
-	if restart then
-		ui.heading:SetText("Restart WoW to finish setup")
-		ui.body:SetText("If this shows again after the restart, run gnomish-relay setup on your desktop.")
-	else
-		ui.heading:SetText("Gnomish Relay needs its desktop app")
-		ui.body:SetText("The desktop app runs your coding agents. Paste this line in a terminal to install it.")
-	end
+	local step = Step()
+	ui.heading:SetText(step.heading)
+	ui.body:SetText(step.body)
 	for _, part in ipairs(ui.commands) do
-		part:SetShown(not restart)
+		part:SetShown(step == STEPS.install)
 	end
 end
 
