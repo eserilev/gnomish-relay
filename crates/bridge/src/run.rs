@@ -14,14 +14,14 @@ use crate::active_folders::ActiveFolders;
 use crate::agent::{
     Agent, Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal,
 };
-use crate::auto_update::{Activity, AutoUpdater, start_detached};
+use crate::auto_update::{Activity, start_detached};
+use crate::background::Background;
 use crate::chat_branch;
 use crate::ci_checks::CiChecks;
 use crate::config::{Permission, Policy};
 use crate::folder_path::real_path;
 use crate::full_auto::{self, FullAutoAsker};
 use crate::game_folders::GameFolders;
-use crate::game_watch::GameWatch;
 use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
@@ -132,10 +132,8 @@ pub struct Bridge {
     relay: Option<RelayLane>,
     /// Only with a Timeways key. It holds no agents.
     timeways: Option<TimewaysLane>,
-    /// `None` with `auto_update = false` (SPEC.md 11.3).
-    auto_update: Option<AutoUpdater>,
-    /// `None` in tests: a restart needs the real program (SPEC.md 7.9).
-    game_watch: Option<GameWatch>,
+    /// Empty in tests: a restart needs the real program.
+    background: Background,
 }
 
 /// What one app keeps on disk, and when it writes it (SPEC.md 9.7, decision 4).
@@ -258,8 +256,7 @@ impl Bridge {
             line: LineFile::new(&paths.state),
             data: paths.state,
             keys,
-            auto_update: None,
-            game_watch: None,
+            background: Background::default(),
         })
     }
 
@@ -360,16 +357,9 @@ impl Bridge {
         if let Some(timeways) = &mut self.timeways {
             timeways.step(&self.keys, &self.addons, &mut self.line);
         }
-        if let Some(updater) = &mut self.auto_update {
-            updater.tick(activity(self.relay.as_ref()), Instant::now());
-        }
         let busy = activity(self.relay.as_ref());
-        let new_game = self
-            .game_watch
-            .as_mut()
-            .and_then(|w| w.new_game(busy, Instant::now()));
-        if let Some(game) = new_game {
-            restart_for(&game, &self.data);
+        if let Some(why) = self.background.step(busy, Instant::now()) {
+            restart(&why, &self.data);
         }
     }
 
@@ -1550,12 +1540,10 @@ fn publish_in_each_game(addons: &[PathBuf], app: App, files: &Files, windows: &[
     any
 }
 
-/// A client that got the addon since the start needs a new bridge (SPEC.md 7.9).
-fn restart_for(game: &Path, data: &Path) {
-    log(&format!(
-        "{}: the addon is there now, so the desktop app restarts to serve it",
-        game.display()
-    ));
+/// A new game (SPEC.md 7.9) or a new lore pack (11.4) needs a new bridge: the sandbox
+/// takes its paths at the start.
+fn restart(why: &str, data: &Path) {
+    log(why);
     let started = std::env::current_exe()
         .map_err(anyhow::Error::from)
         .and_then(|exe| start_detached(&exe, data, &["restart"]));
@@ -1643,8 +1631,7 @@ pub fn run(
     relay: Option<RelayParts>,
     keys: KeySet,
     story: Option<StorySpec>,
-    auto_update: Option<AutoUpdater>,
-    game_watch: Option<GameWatch>,
+    background: Background,
 ) -> Result<()> {
     for game in &paths.games {
         log(&format!("watching {}", game.screenshots.display()));
@@ -1667,8 +1654,7 @@ pub fn run(
     if let Some(spec) = story {
         bridge = bridge.with_story(spec);
     }
-    bridge.auto_update = auto_update;
-    bridge.game_watch = game_watch;
+    bridge.background = background;
     loop {
         bridge.step();
         thread::sleep(TICK);

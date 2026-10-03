@@ -9,6 +9,8 @@ use std::fs;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use bridge::auto_update::Activity;
+use bridge::background::Background;
 use bridge::lore_job::{self, Finished, LoreJob, LoreParts, LoreState, REBUILD_FILE, read_state};
 use bridge::lore_pack::DUMP_FILE;
 
@@ -155,4 +157,29 @@ fn a_failed_build_tries_again_only_after_an_hour() {
 
     assert_eq!((soon, still), (None, None));
     assert!(!parts.pack.exists(), "no second try within the hour");
+}
+
+#[test]
+fn a_built_lore_restarts_the_desktop_app_once_no_run_is_in_progress() {
+    let root = tempfile::tempdir().unwrap();
+    let parts = computer(root.path(), "wowpedia dump");
+    let mut background = Background::new(None, None, Some(LoreJob::new(parts.clone())));
+    let start = Instant::now();
+    while read_state(&parts.data) != Some(LoreState::Ready) {
+        assert_eq!(background.step(Activity::Busy, Instant::now()), None);
+        assert!(
+            start.elapsed() < Duration::from_secs(30),
+            "the build never ended"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    std::thread::sleep(Duration::from_millis(200));
+
+    let while_busy = background.step(Activity::Busy, Instant::now());
+    let when_idle = background.step(Activity::Idle, Instant::now());
+    let again = background.step(Activity::Idle, Instant::now());
+
+    assert_eq!(while_busy, None);
+    assert!(when_idle.unwrap().contains("the lore is ready"));
+    assert_eq!(again, None);
 }

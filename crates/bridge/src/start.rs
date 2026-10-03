@@ -8,6 +8,7 @@ use anyhow::Result;
 use crate::agent;
 use crate::app_files::private_game_paths;
 use crate::auto_update::{AutoUpdater, Parts};
+use crate::background::Background;
 use crate::config::{self, FullAuto, RelayConfig, StoryConfig};
 use crate::desktop::Prompt;
 use crate::dirs::Dirs;
@@ -22,6 +23,7 @@ use crate::hooks_install::files_for_bridge;
 use crate::install;
 use crate::lock;
 use crate::logging;
+use crate::lore_job::{LoreJob, LoreParts};
 use crate::raise::Raiser;
 use crate::receive::{KeySet, RELAY_KEY_FILE};
 use crate::run::{Paths, RelayParts, run};
@@ -63,6 +65,7 @@ pub fn start(dirs: &Dirs) -> Result<()> {
         setup::install_missing_slots(&game.addons, &products)?;
     }
     let auto_update = auto_updater(dirs, &config)?;
+    let lore = lore_job(dirs, &config);
     let relay = match config.relay {
         Some(relay) => Some(start_relay(dirs, relay, config.story.as_ref(), &paths)?),
         None => None,
@@ -75,7 +78,8 @@ pub fn start(dirs: &Dirs) -> Result<()> {
         .wow
         .as_deref()
         .map(|wow| GameWatch::new(wow, served_games(wow)));
-    run(paths, relay, keys, story, auto_update, game_watch)
+    let background = Background::new(auto_update, game_watch, lore);
+    run(paths, relay, keys, story, background)
 }
 
 /// The private files of every served game: no agent and no command reads them.
@@ -84,6 +88,16 @@ fn private_paths(games: &[GameFolders]) -> Vec<PathBuf> {
         .iter()
         .flat_map(|g| private_game_paths(&g.addons, &g.accounts, &g.screenshots))
         .collect()
+}
+
+/// The lore build of Timeways, with a story program in the config (SPEC.md 11.4).
+fn lore_job(dirs: &Dirs, config: &config::Config) -> Option<LoreJob> {
+    let story = config.story.as_ref()?.program.as_ref()?;
+    Some(LoreJob::new(LoreParts::of(
+        &story.program,
+        &story.lore_pack,
+        &dirs.data,
+    )))
 }
 
 fn auto_updater(dirs: &Dirs, config: &config::Config) -> Result<Option<AutoUpdater>> {
