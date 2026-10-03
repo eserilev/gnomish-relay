@@ -258,6 +258,22 @@ mod tests {
     }
 
     #[test]
+    fn a_lore_pack_that_does_not_exist_yet_is_not_bound() {
+        let root = tempfile::tempdir().unwrap();
+        let folder = root.path().join("data/story");
+        std::fs::create_dir_all(&folder).unwrap();
+        let pack = root.path().join("timeways/lore.sqlite");
+
+        let missing = walls(&folder, root.path(), root.path(), root.path(), &[&pack]);
+        std::fs::create_dir_all(pack.parent().unwrap()).unwrap();
+        std::fs::write(&pack, "").unwrap();
+        let built = walls(&folder, root.path(), root.path(), root.path(), &[&pack]);
+
+        assert!(missing.readable.is_empty());
+        assert_eq!(built.readable, [pack.canonicalize().unwrap()]);
+    }
+
+    #[test]
     fn with_no_sandbox_the_program_starts_as_it_is() {
         let (program, args) = command_line(
             &Sandbox::None,
