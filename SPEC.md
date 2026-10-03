@@ -1259,7 +1259,7 @@ A client patch can break either one. The design makes such a patch cost a day of
 
 | Direction | Interface | Channels, in order |
 |---|---|---|
-| Out (game to bridge) | Addon `Out.Send(frame)`, bridge `trait FrameSource` | Strip by `Screenshot()`, reload outbox (7.5) |
+| Out (game to bridge) | Addon `Out.Send(frame)`, bridge `trait FrameSource` | Strip by `Screenshot()`, reload outbox (7.5). Planned: window capture (7.8.1). |
 | In (bridge to game) | Addon `In.Poll()`, bridge `trait Publisher` | Slots (7.3), fonts (17), reload inbox (7.5) |
 
 - The protocol core, the model, and the proofs work on frames and records. A channel change does not touch them.
@@ -1290,6 +1290,37 @@ A client patch can break either one. The design makes such a patch cost a day of
 - Selene allows only the globals in `wow.yml`. The fake game refuses every method and child key that the real kind and template of an object lack. It does not check argument counts: the docs mark as required some arguments that the client accepts as missing, for example the last four of `SetPoint`.
 - CI runs the script at the pinned commits and fails if `api.lua` or `api-signatures.lua` changes. A nightly job runs it at the newest commits with the addon tests, and opens an issue when the client changes.
 - Other addon repos run the same script with their own paths: `wow-api.sh --addon <folder> --lint <wow.yml> --api <file> --signatures <file>`. With no path, it checks this addon.
+
+#### 7.8.1 Window capture: the fallback for `Screenshot()`
+
+**Status: planned, not built** (decided by the user on 2026-10-03). `Screenshot()` works today, so nobody builds this until it breaks. Build it when the self-test, the health line, or the nightly API gate shows that `Screenshot()` is blocked or restricted for addons (7.8). The reload outbox (7.5) is no real fallback: a reload for each message is worse than a switch to a terminal.
+
+**The idea.** The addon still draws the signed strip. The desktop app reads the pixels of the strip from the WoW window itself, as screen-sharing programs do. The strip format, the tag, the reader, and the replay store stay the same. Only the `FrameSource` changes (one new module on each side, as above). Blizzard cannot block it with an addon patch, because the addon only draws pixels. Goal 5 holds: no game memory, no code in the game, no keys to the game.
+
+**Shared design.**
+
+- A new frame source reads only the top-left corner of the WoW window, as large as the largest strip, about 10 times a second. It never stores an image.
+- The bridge says `capture=on` in the slot body when its capture reads strips. The addon then makes no `Screenshot()` call, and shows each strip for about 0.5 s. With no `capture=on`, the addon takes screenshots as today.
+- The retry schedule stays. After repeated failures with capture, the addon goes back to `Screenshot()`.
+- Side effects: no "Screen captured" text, no PNG files, and less delay than a screenshot.
+- Limits: a minimized window draws nothing, as today. Capture asks for 8-bit color, so an HDR screen gives the same colors.
+
+**Each OS.**
+
+| OS | Capture | Permission |
+|---|---|---|
+| Windows | Windows Graphics Capture of the WoW window. `PrintWindow` as the fallback. | None. Windows 10 shows a yellow border, and Windows 11 can turn it off. |
+| Windows with WSL2 (11.5) | The Linux bridge cannot see Windows windows, so the Windows `gnomish-relay.exe` captures and passes the bytes to the bridge. | None |
+| macOS | ScreenCaptureKit on the WoW window, cropped to the corner. macOS 12.3 or later. | Screen Recording, asked once by the system. Setup says that the app reads only one corner of the WoW window. |
+| Linux | The first path that works, in this order: | |
+| — X11 session, or Wine in XWayland on Wayland (the default of Wine and Proton) | Find the window by its class, and read the corner with XShm (`x11rb`, pure Rust). | None. The spike checks it under XWayland on GNOME. |
+| — Wine as a native Wayland window | The ScreenCast portal (`zbus`) and PipeWire. The player picks the WoW window once, and a restore token keeps the choice on GNOME and KDE. | Once, or at each start on wlroots desktops |
+| — gamescope (Steam Deck, Bazzite) | The PipeWire stream of gamescope, with no portal. | None |
+| — none of these | `Screenshot()`, as today. | |
+
+**Linux details.** The bridge runs as a user service, so it needs `DISPLAY` and `XAUTHORITY`, or `WAYLAND_DISPLAY`. Setup checks them and writes them into the service file when the session does not pass them. The bridge loads `libpipewire` only when it is there, so the one Linux binary works on every distro.
+
+**The order of work, when it starts:** a spike on Linux under XWayland, then Windows, macOS, and WSL2. Each step is one capture module and its tests. The bridge tests use the fake capture.
 
 ### 7.9 Supported clients
 
