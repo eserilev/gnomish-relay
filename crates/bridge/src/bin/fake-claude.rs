@@ -210,6 +210,24 @@ fn whereabouts(args: &[String]) -> String {
     json!({ "cwd": cwd, "entries": entries, "mode": mode, "args": args, "env": env }).to_string()
 }
 
+/// One step tells a test that the turn runs. Then it waits for the interrupt, and ends
+/// the turn as Claude Code does.
+fn slow(session: &str) -> Option<String> {
+    said(&json!([{ "type": "tool_use", "name": "Bash", "input": { "command": "sleep 60" } }]));
+    while let Some(message) = read() {
+        if message.pointer("/request/subtype").and_then(Value::as_str) == Some("interrupt") {
+            send(
+                &json!({ "type": "control_response", "response": { "subtype": "success", "request_id": message["request_id"] } }),
+            );
+            break;
+        }
+    }
+    send(
+        &json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": session, "total_cost_usd": 0.5 }),
+    );
+    None
+}
+
 fn reply(
     script: &str,
     args: &[String],
@@ -287,22 +305,7 @@ fn reply(
                 .unwrap_or("?");
             Some(format!("hook answer {subtype}"))
         }
-        "slow" => {
-            // Waits for the interrupt, then ends the turn as Claude Code does.
-            while let Some(message) = read() {
-                if message.pointer("/request/subtype").and_then(Value::as_str) == Some("interrupt")
-                {
-                    send(
-                        &json!({ "type": "control_response", "response": { "subtype": "success", "request_id": message["request_id"] } }),
-                    );
-                    break;
-                }
-            }
-            send(
-                &json!({ "type": "result", "subtype": "error_during_execution", "is_error": true, "session_id": session, "total_cost_usd": 0.5 }),
-            );
-            None
-        }
+        "slow" => slow(session),
         _ => {
             let secret = if std::env::var_os("CARGO_MANIFEST_DIR").is_some() {
                 "leaked"

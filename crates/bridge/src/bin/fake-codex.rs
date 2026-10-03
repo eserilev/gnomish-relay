@@ -156,7 +156,12 @@ fn turn(script: &str, text: &str, state: &str, arg: &str) -> Option<String> {
             Some(format!("input answer {answer}"))
         }
         "slow" => {
-            // Waits for the interrupt, then ends the turn as Codex does.
+            // One step tells a test that the turn runs. Then it waits for the interrupt,
+            // and ends the turn as Codex does.
+            notify(
+                "item/started",
+                &json!({ "threadId": "t1", "turnId": "u1", "item": { "type": "commandExecution", "id": "c1", "command": "sleep 60", "cwd": "/w" } }),
+            );
             while let Some(message) = read() {
                 if message.get("method").and_then(Value::as_str) == Some("turn/interrupt") {
                     send(&json!({ "id": message["id"], "result": {} }));

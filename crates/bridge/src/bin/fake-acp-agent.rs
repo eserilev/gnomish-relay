@@ -137,7 +137,14 @@ fn prompt_reply(script: &str, params: &Value, mode: &str, resumed: &str) -> Opti
             Some(format!("in {session}, resumed {resumed}"))
         }
         "slow" => {
-            // Waits for `session/cancel`, then ends the turn as ACP says.
+            // One step tells a test that the turn runs. Then it waits for
+            // `session/cancel`, and ends the turn as ACP says.
+            send(
+                &json!({ "jsonrpc": "2.0", "method": "session/update", "params": {
+                    "sessionId": session,
+                    "update": { "sessionUpdate": "tool_call", "toolCallId": "wait", "title": "$ sleep 60" },
+                }}),
+            );
             while let Some(message) = read() {
                 if message.get("method").and_then(Value::as_str) == Some("session/cancel") {
                     break;

@@ -214,18 +214,22 @@ fn a_line_that_is_not_json_ends_the_run() {
 #[test]
 fn stop_interrupts_the_turn_and_keeps_the_thread() {
     let dir = tempfile::tempdir().unwrap();
+    let job = job(&dir, Permission::Ask, "hi");
     let stop = StopSignal::default();
     let later = stop.clone();
+    let (to, events) = std::sync::mpsc::channel();
+    // A stop before the turn ends the run with no session. A slow CI runner starts the
+    // fake late, so the stop waits for the first step of the turn, not for a time.
     std::thread::spawn(move || {
-        std::thread::sleep(Duration::from_millis(300));
+        let _ = events.recv_timeout(Duration::from_secs(20));
         later.request();
     });
     let control = Control {
         stop,
-        ..Control::default()
+        events: Events::to_bridge(to, &job),
     };
     let start = Instant::now();
-    let run = agent("slow").run(&job(&dir, Permission::Ask, "hi"), &control);
+    let run = agent("slow").run(&job, &control);
     assert_eq!(run.reply.unwrap_err(), "Stopped.");
     assert_eq!(run.session, Some("t1".into()));
     assert!(start.elapsed() < Duration::from_secs(5));
