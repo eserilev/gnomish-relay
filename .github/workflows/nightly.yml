@@ -55,7 +55,9 @@ jobs:
       - run: scripts/wow-api.sh --latest
       - run: scripts/wow-api.sh --latest --client anniversary
       - run: scripts/selftest-api.sh --latest
-      - run: git diff --exit-code -- addon/tests/api.lua addon/tests/api-signatures.lua addon/tests/api-anniversary.lua addon/tests/api-signatures-anniversary.lua addon/tests/selftest-api.lua addon/tests/selftest-api-signatures.lua
+      # A new client build with no change to the API that the addon uses changes only the
+      # build lines, so those lines open no issue. The pin catches up with a real change.
+      - run: git diff --exit-code -I '^\s*build = "' -I '^-- The .* API that ' -- addon/tests/api.lua addon/tests/api-signatures.lua addon/tests/api-anniversary.lua addon/tests/api-signatures-anniversary.lua addon/tests/selftest-api.lua addon/tests/selftest-api-signatures.lua
       - run: cargo test -p bridge --test addon_flow
       - name: Open an issue
         if: failure()
