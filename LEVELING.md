@@ -1,10 +1,10 @@
 # Leveling: a draft for later
 
-Status: ideas only. We brainstorm this later. Nothing here is built, and nothing here is part of SPEC.md yet.
+Status: ideas only, for a later brainstorm. Nothing here is built or in SPEC.md yet.
 
 ## Goal
 
-Make the killer use case feel good: you start a long task, you keep playing, and the task finishes while you quest.
+Make the main use case feel good. You start a long task, you keep playing, and the task finishes while you quest.
 Levels are cosmetic. They never unlock a tool, a permission, or a feature.
 
 ## The core: Gnomish Engineering
@@ -20,10 +20,10 @@ XP comes from outcomes, never from usage.
 
 - A task that ends `done`, not `error`.
 - Tests that turn green after they were red.
-- A pull request that you open. A bigger bonus when it merges.
+- A pull request that you open. The bonus is bigger when it merges.
 - **AFK Tinkering:** a long run that finishes while you play.
 - A terminal ping that you answer from the game.
-- **Rested XP:** after a day with no coding, the next tasks give double XP. A small nudge against burnout.
+- **Rested XP:** after a day with no coding, the next tasks give double XP, as a small nudge against burnout.
 
 ## Achievements
 
@@ -54,15 +54,15 @@ All cosmetic:
 
 ## Rules
 
-1. **No XP for "Allow" clicks.** A reward for approvals trains people to click without reading. That breaks the security design (SPEC.md 6.6).
-2. **No XP for tokens or messages.** That rewards spam and cost, not good work.
+1. **No XP for "Allow" clicks.** A reward for approvals trains people to click without reading. This breaks the security design (SPEC.md 6.6).
+2. **No XP for tokens or messages.** This rewards spam and cost, not good work.
 3. **No gated features.** A level-1 user has the same relay as a level-60 user.
 4. **Local only.** No leaderboard and no sharing by default. Task names can leak private work.
 5. **The bridge awards XP, not the addon.** Another addon can change the saved data (SPEC.md 6.6.1). XP is cosmetic, but it stays honest.
 
 ## How it fits the design
 
-- The bridge already knows each outcome. It adds "XP events" to the slot body. The body writer and its proofs (S9, S12) need a new field for them.
+- The bridge already knows each outcome. It adds "XP events" to the slot body. The body writer and its proofs (S9, S12) need a new field for these events.
 - The addon plays the level-up and achievement effects, and stores the level for display only.
 - A good first slice: the Engineering skill bar and 10 achievements with the toast.
 

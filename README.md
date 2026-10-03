@@ -6,7 +6,7 @@
 
 Gnomish Relay puts your AI coding agent in a chat window inside World of Warcraft. Send
 Claude Code or Codex a task, keep questing, and read the result when it's done. The agent
-works on your own computer, in your own projects, the same way it does in your terminal.
+works on your computer, in your projects, just like in your terminal.
 
 ## Requirements
 
@@ -19,7 +19,7 @@ works on your own computer, in your own projects, the same way it does in your t
 ## Install
 
 Gnomish Relay has two parts: the addon, from CurseForge, and a small desktop app that runs
-your agents. To install both:
+your agents.
 
 1. **Install the addon** from CurseForge: <https://www.curseforge.com/projects/1719624>.
 2. **Close WoW.**
@@ -32,12 +32,12 @@ your agents. To install both:
      ```powershell
      irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex
      ```
-4. **Let setup finish.** It asks no questions about folders. It finds WoW and your code
-   folders, such as `~/code`, and says where agents can work. If you have both WoW: Forever
-   and TBC Anniversary, Gnomish Relay works in both, with nothing to switch. With more
-   than one WoW install, it uses the one you played last. To use another one, run
-   `gnomish-relay setup --wow <folder>`. If WoW isn't installed yet, setup does the rest,
-   and tells you to start WoW once and run `gnomish-relay setup` again.
+4. **Let setup finish.** It finds WoW and your code folders, such as `~/code`, and says
+   where agents can work. No questions. If you have both WoW: Forever and TBC Anniversary,
+   it works in both, with nothing to switch. With more than one WoW install, it uses the
+   one you played last. To use another, run `gnomish-relay setup --wow <folder>`. If WoW
+   isn't installed yet, setup does the rest and tells you to start WoW once, then run
+   `gnomish-relay setup` again.
 5. **Start WoW** and type `/relay`. To work in another folder, pick it in the game, then
    click **Approve** on your desktop. You approve each new folder once.
 
@@ -47,25 +47,24 @@ Run `gnomish-relay status`. It shows `Desktop app: running`, your agent, and
 `Sandbox: bwrap` (Linux) or `sandbox-exec` (macOS). In the game, the top of the
 Gnomish Relay window says **Connected**.
 
-If a line shows a problem, it also says how to fix it. See also
-[Troubleshooting](#troubleshooting).
+A line with a problem says how to fix it. See also [Troubleshooting](#troubleshooting).
 
 <details>
 <summary>What the installer does</summary>
 
-- It downloads the desktop app for your OS and checks its SHA-256 sum.
-- It runs `gnomish-relay setup --autostart`. Setup finds the game, makes a key that only
-  your computer has, writes its settings file `config.toml`, and starts the desktop
-  app each time you log in.
-- Setup asks no questions about folders. The desktop app works in WoW: Forever and TBC
-  Anniversary at the same time. With more than one WoW install, it uses the one you
-  played last, and says so. With no WoW yet, it does everything else, and ends with
+- Downloads the desktop app for your OS and checks its SHA-256 sum.
+- Runs `gnomish-relay setup --autostart`. Setup finds the game, makes a key only your
+  computer has, writes its settings file `config.toml`, and starts the desktop app each
+  time you log in.
+- The desktop app works in WoW: Forever and TBC Anniversary at the same time. With more
+  than one WoW install, setup uses the one you played last, and says so. With no WoW yet,
+  it does everything else and ends with
   "WoW not found. Start WoW once, then run gnomish-relay setup."
 - Setup uses the agents it finds on your computer: `claude`, `codex`, `gemini`, `qwen`,
   `opencode`, `goose`, and the other ACP agents in `SPEC.md` 9.2.
-- If the addon is missing or too old, setup ends with a line that says what to get or
-  update in the CurseForge app. The desktop app never installs the addon itself.
-- You can run it again at any time. It leaves alone whatever already works.
+- If the addon is missing or too old, setup ends by saying what to get or update in the
+  CurseForge app. The desktop app never installs the addon itself.
+- You can run it again anytime. It leaves alone whatever already works.
 - To install without the login service, add `--no-autostart`:
   `curl -fsSL …/install.sh | sh -s -- --no-autostart`.
 
@@ -74,8 +73,8 @@ If a line shows a problem, it also says how to fix it. See also
 ### Windows: the Linux sandbox (experimental)
 
 On Windows, the desktop app can run in WSL2, Windows' built-in Linux. Every command from
-Claude Code then runs in the same sandbox as on Linux. WoW stays on Windows. This setup is
-new and not yet tested on many PCs.
+Claude Code then runs in the same sandbox as on Linux. WoW stays on Windows. This is new
+and not yet tested on many PCs.
 
 To use it, run the Windows install command with `-Wsl`:
 
@@ -84,8 +83,8 @@ To use it, run the Windows install command with `-Wsl`:
 ```
 
 - The first time, the installer turns on WSL2 and installs Ubuntu. Windows asks for admin
-  rights once, and then you restart. The installer continues after you sign in. Ubuntu
-  asks you to pick a Linux user name and password.
+  rights once, then you restart. The installer goes on after you sign in. Ubuntu asks you
+  to pick a Linux user name and password.
 - It installs the sandbox (`bubblewrap`) and Claude Code in Ubuntu, and opens Claude once
   so you can log in. For Codex, install it in Ubuntu, then run `gnomish-relay setup` there.
 - Keep your projects in Ubuntu, for example `~/code`. Projects on `C:` work too, but
@@ -102,10 +101,9 @@ To use it, run the Windows install command with `-Wsl`:
 3. **The reply comes back in the game**, with live progress while it works and a
    whisper-style message in your chat when it's done.
 
-Along the way you get approval popups, a list of the files that changed with **Commit**
-and **Revert** buttons, a branch of its own for each chat, one-click suggestions in a new
-chat, test and CI results under each reply, and the tokens each run used (with the cost
-when you pay with an API key).
+You also get approval popups, a list of changed files with **Commit** and **Revert**
+buttons, a branch for each chat, one-click suggestions in a new chat, test and CI results
+under each reply, and the tokens each run used (with the cost when you pay with an API key).
 
 ## Add an agent
 
@@ -164,8 +162,8 @@ At `auto-edit`, risky commands still ask you first: commands that run other comm
 Every command asks when there's no sandbox: on Windows, on Linux without a working `bwrap`, and
 with Codex or other ACP agents (see [How your computer is protected](#how-your-computer-is-protected)).
 
-Some actions ask on your desktop at `ask` and `auto-edit`: for example reading `~/.ssh`,
-writing outside the chat's folder, or a chat in a new folder. A dialog with **Approve** and
+Some actions ask on your desktop at `ask` and `auto-edit`, like reading `~/.ssh`, writing
+outside the chat's folder, or a chat in a new folder. A dialog with **Approve** and
 **Deny** opens. Agents never work in your whole home folder or in a hidden folder.
 
 ### Full-auto for one chat
@@ -178,10 +176,10 @@ no question in the chat ...? It stays in the sandbox". After you approve, that c
 asks again, even after a restart or `/reload`, until you switch it back or pick another
 folder.
 
-At full-auto the agent runs every command and every edit in the chat's folder without
-asking, also `git push`, `rm -rf`, and `npx`. It still can't write outside the chat's folder,
-read your secrets (`~/.ssh`, `.env` files, tokens), or reach sites that the sandbox doesn't
-allow. Those just fail. A prompt hidden in a file can make the agent push, publish, or change
+At full-auto the agent runs every command and edit in the chat's folder without asking,
+even `git push`, `rm -rf`, and `npx`. It still can't write outside the chat's folder, read
+your secrets (`~/.ssh`, `.env` files, tokens), or reach sites the sandbox doesn't allow.
+Those just fail. A prompt hidden in a file can make the agent push, publish, or change
 files such as `.git/config` that git runs later on your computer. Use full-auto only in
 chats you trust.
 
@@ -191,8 +189,8 @@ macOS). Other agents run at `auto-edit`. To turn full-auto off for every chat, a
 
 ### Answer a desktop request in a terminal
 
-If your computer shows no dialog, or you closed it, answer in a terminal. The chat in WoW
-shows what the agent wants to do and the command to run, with a **Copy** button:
+No dialog, or you closed it? Answer in a terminal. The chat in WoW shows what the agent
+wants to do and the command to run, with a **Copy** button:
 
 ```sh
 gnomish-relay approve          # list the requests waiting for you
@@ -202,9 +200,9 @@ gnomish-relay deny <id>        # deny one
 
 ### Let trusted commands run without asking
 
-At `auto-edit`, commands that match a rule run without asking. With Claude
-Code in the sandbox, most commands already run on their own at `auto-edit`, so a rule matters
-mostly for Codex and for scripts such as `./build.sh`.
+At `auto-edit`, commands that match a rule run without asking. With Claude Code in the
+sandbox, most commands already run on their own at `auto-edit`, so rules matter mostly for
+Codex and for scripts such as `./build.sh`.
 
 - **From the game:** click **Always allow** on a popup.
 - **In `config.toml`:**
@@ -228,7 +226,7 @@ Where a command runs depends on your OS and your agent (`SPEC.md` 6.6.4):
 
 - **Inside the sandbox**, a command can write only to the chat's folder and a temp folder.
   It can't see `~/.ssh`, the desktop app's keys, or your other credential folders. It can
-  only reach the package hosts you allow. That's why Claude Code's commands run on their own
+  reach only the package hosts you allow. That's why Claude Code's commands run on their own
   at `auto-edit`: the sandbox, not a popup, keeps them in bounds.
 - **Linux without a working `bwrap`** acts like Windows: every command asks.
 - **On macOS**, a command can read (never write) each repository's `.git/config`, because git
@@ -245,23 +243,23 @@ Where a command runs depends on your OS and your agent (`SPEC.md` 6.6.4):
 
 ## Get notifications from your terminal
 
-If you also run Claude Code or Codex in a normal terminal, Gnomish Relay can tell you in the
-game when a session needs you or finishes long work.
+Also run Claude Code or Codex in a normal terminal? Gnomish Relay can tell you in the game
+when a session needs you or finishes long work.
 
 1. Run:
    ```sh
    gnomish-relay hooks install
    ```
    It adds a hook to `~/.claude/settings.json` and `~/.codex/hooks.json`, for each of
-   `claude` and `codex` that it finds. It keeps your own hooks, and backs up each file first.
+   `claude` and `codex` it finds. It keeps your own hooks and backs up each file first.
 2. Restart the Claude Code and Codex sessions that are open.
 3. The next time Codex starts, it asks you to trust the new hooks. Trust them.
 
 The first notification can take up to 10 minutes. To check at once, type `/relay poll` in
 the game.
 
-When a notification comes in, a bell shows at the edge of your minimap, with a chat line
-and a sound. A notification never runs anything: you answer in the terminal.
+A notification shows a bell at the edge of your minimap, with a chat line and a sound. It
+never runs anything: you answer in the terminal.
 
 - To choose chat lines, sounds, or banners, open Settings in the game.
 - To check the hooks, run `gnomish-relay hooks status`.
@@ -270,14 +268,14 @@ and a sound. A notification never runs anything: you answer in the terminal.
 ## Update
 
 - **The addon:** the CurseForge app keeps it up to date.
-- **The desktop app:** updates itself when CurseForge updates the addon. It waits until
-  no chat is running. To update it yourself, run `gnomish-relay update`, then type
+- **The desktop app:** updates itself when CurseForge updates the addon, once no chat is
+  running. To update it yourself, run `gnomish-relay update`, then type
   `/reload` in WoW. To turn automatic updates off, add `auto_update = false` to
   `config.toml`.
 
 ## Troubleshooting
 
-First, run `gnomish-relay status`. It checks every part, and says what to fix.
+First, run `gnomish-relay status`. It checks every part and says what to fix.
 
 | What you see | Likely cause | Fix |
 |---|---|---|
@@ -303,8 +301,8 @@ First, run `gnomish-relay status`. It checks every part, and says what to fix.
 | macOS | `~/Library/Logs/gnomish-relay.log` |
 | Any OS, started by hand | `bridge.log` in the desktop app's data folder |
 
-The desktop app also keeps a detailed log in `logs/` in its data folder. It never holds your
-messages, the agent's replies, or your keys.
+The desktop app also keeps a detailed log in `logs/` in its data folder. It never holds
+your messages, the agent's replies, or your keys.
 
 Still stuck? Run `gnomish-relay report`. It saves one file with your recent log, status, and
 settings, with keys and tokens removed. [Open an issue](https://github.com/eserilev/gnomish-relay/issues)
