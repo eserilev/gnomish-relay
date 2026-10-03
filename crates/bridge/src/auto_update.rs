@@ -19,7 +19,7 @@ use crate::timeways_install::installed_story_program;
 pub const TIMEWAYS_VERSION_FILE: &str = "timeways-version";
 /// The lines of `update --auto`, which has no terminal.
 pub const LOG_FILE: &str = "update.log";
-const CHECK_EVERY: Duration = Duration::from_mins(1);
+pub const CHECK_EVERY: Duration = Duration::from_mins(1);
 const TRY_AGAIN_AFTER: Duration = Duration::from_hours(1);
 
 /// The `## Version:` of a TOC. The packager of Timeways writes the tag, with its `v`.
@@ -206,21 +206,22 @@ impl AutoUpdater {
         log(&format!(
             "auto-update: an addon is newer ({name}), so the desktop app updates"
         ));
-        if let Err(e) = start_update(&self.program, &self.parts.data) {
+        if let Err(e) = start_detached(&self.program, &self.parts.data, &["update", "--auto"]) {
             log(&format!("auto-update: cannot start the update: {e:#}"));
         }
     }
 }
 
-/// `update --auto` restarts the bridge last, so it runs as a process of its own.
-fn start_update(program: &Path, data: &Path) -> anyhow::Result<()> {
+/// Starts `program` with `args` as a process of its own, with its output in the update
+/// log. `update --auto` and `restart` stop the bridge that starts them.
+pub fn start_detached(program: &Path, data: &Path, args: &[&str]) -> anyhow::Result<()> {
     let log = fs::OpenOptions::new()
         .create(true)
         .append(true)
         .open(data.join(LOG_FILE))?;
     let mut command = Command::new(program);
     command
-        .args(["update", "--auto"])
+        .args(args)
         .stdin(Stdio::null())
         .stdout(log.try_clone()?)
         .stderr(log);

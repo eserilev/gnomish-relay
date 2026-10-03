@@ -49,6 +49,7 @@ pub mod fs_safe;
 pub mod full_auto;
 pub mod game_choice;
 pub mod game_folders;
+pub mod game_watch;
 pub mod gate;
 pub mod git_actions;
 pub mod git_blocks;

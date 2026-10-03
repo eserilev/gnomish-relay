@@ -14,13 +14,14 @@ use crate::active_folders::ActiveFolders;
 use crate::agent::{
     Agent, Agents, Control, Event, Events, Run, SessionInfo, StopReason, StopSignal,
 };
-use crate::auto_update::{Activity, AutoUpdater};
+use crate::auto_update::{Activity, AutoUpdater, start_detached};
 use crate::chat_branch;
 use crate::ci_checks::CiChecks;
 use crate::config::{Permission, Policy};
 use crate::folder_path::real_path;
 use crate::full_auto::{self, FullAutoAsker};
 use crate::game_folders::GameFolders;
+use crate::game_watch::GameWatch;
 use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
@@ -133,6 +134,8 @@ pub struct Bridge {
     timeways: Option<TimewaysLane>,
     /// `None` with `auto_update = false` (SPEC.md 11.3).
     auto_update: Option<AutoUpdater>,
+    /// `None` in tests: a restart needs the real program (SPEC.md 7.9).
+    game_watch: Option<GameWatch>,
 }
 
 /// What one app keeps on disk, and when it writes it (SPEC.md 9.7, decision 4).
@@ -256,6 +259,7 @@ impl Bridge {
             data: paths.state,
             keys,
             auto_update: None,
+            game_watch: None,
         })
     }
 
@@ -358,6 +362,14 @@ impl Bridge {
         }
         if let Some(updater) = &mut self.auto_update {
             updater.tick(activity(self.relay.as_ref()), Instant::now());
+        }
+        let busy = activity(self.relay.as_ref());
+        let new_game = self
+            .game_watch
+            .as_mut()
+            .and_then(|w| w.new_game(busy, Instant::now()));
+        if let Some(game) = new_game {
+            restart_for(&game, &self.data);
         }
     }
 
@@ -1538,6 +1550,20 @@ fn publish_in_each_game(addons: &[PathBuf], app: App, files: &Files, windows: &[
     any
 }
 
+/// A client that got the addon since the start needs a new bridge (SPEC.md 7.9).
+fn restart_for(game: &Path, data: &Path) {
+    log(&format!(
+        "{}: the addon is there now, so the desktop app restarts to serve it",
+        game.display()
+    ));
+    let started = std::env::current_exe()
+        .map_err(anyhow::Error::from)
+        .and_then(|exe| start_detached(&exe, data, &["restart"]));
+    if let Err(e) = started {
+        log(&format!("cannot restart the desktop app: {e:#}"));
+    }
+}
+
 /// A desktop request always waits inside a run, so no run means no open request.
 fn activity(relay: Option<&RelayLane>) -> Activity {
     match relay {
@@ -1618,6 +1644,7 @@ pub fn run(
     keys: KeySet,
     story: Option<StorySpec>,
     auto_update: Option<AutoUpdater>,
+    game_watch: Option<GameWatch>,
 ) -> Result<()> {
     for game in &paths.games {
         log(&format!("watching {}", game.screenshots.display()));
@@ -1641,6 +1668,7 @@ pub fn run(
         bridge = bridge.with_story(spec);
     }
     bridge.auto_update = auto_update;
+    bridge.game_watch = game_watch;
     loop {
         bridge.step();
         thread::sleep(TICK);

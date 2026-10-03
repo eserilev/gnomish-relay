@@ -16,6 +16,7 @@ use crate::fs_safe::make_private_dir;
 use crate::full_auto::FullAutoAsker;
 use crate::game_choice::NO_WOW;
 use crate::game_folders::GameFolders;
+use crate::game_watch::GameWatch;
 use crate::gate::{Gate, Places};
 use crate::hooks_install::files_for_bridge;
 use crate::install;
@@ -28,6 +29,7 @@ use crate::settings_list::BridgeSettings;
 use crate::setup;
 use crate::story::StorySpec;
 use crate::trust::Truster;
+use crate::wow_client::served_games;
 
 /// Holds the lock of the bridge until the run loop ends. With no game yet, it says so
 /// and ends with success, so the login service does not start it again and again.
@@ -69,7 +71,11 @@ pub fn start(dirs: &Dirs) -> Result<()> {
         Some(story) => story_spec(dirs, story, &paths)?,
         None => None,
     };
-    run(paths, relay, keys, story, auto_update)
+    let game_watch = config
+        .wow
+        .as_deref()
+        .map(|wow| GameWatch::new(wow, served_games(wow)));
+    run(paths, relay, keys, story, auto_update, game_watch)
 }
 
 /// The private files of every served game: no agent and no command reads them.
