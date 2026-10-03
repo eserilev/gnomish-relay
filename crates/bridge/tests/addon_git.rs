@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{fake_game_for, game_lua_for, is_cut, load_into, measured, start_addon};
+use common::{api_file, fake_game_for, game_lua_for, is_cut, load_into, measured, start_addon};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::cell::decode_cells;
@@ -70,7 +70,7 @@ impl Game {
     fn start() -> Game {
         let fake = measured();
         let lua = game_lua_for(&fake);
-        let wow = fake_game_for(&lua, "addon/tests/api.lua", &fake);
+        let wow = fake_game_for(&lua, api_file(), &fake);
         let ns = lua.create_table().unwrap();
         ns.set("key", lua.create_string(KEY).unwrap()).unwrap();
         start_addon(&lua, &wow, &fake, "GnomishRelay", None, || {

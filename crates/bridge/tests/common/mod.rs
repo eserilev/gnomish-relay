@@ -10,6 +10,7 @@ use std::time::{Duration, Instant};
 
 use bridge::fixture::{self, BitResults, Fake, Fixture, SavedVariables};
 use bridge::run::Bridge;
+use bridge::wow_client::WowClient;
 use mlua::{Function, IntoLuaMulti, Lua, MultiValue, Table, Value};
 use serde_json::Value as Json;
 
@@ -175,10 +176,32 @@ pub fn repo_path(path: &str) -> PathBuf {
         .join(path)
 }
 
-/// The newest fixture of `tests/fixtures`: what the self-test measured in the real
-/// game, or the placeholder while nothing is measured (SPEC.md 14.3).
+/// The client of the fake game: Forever, or the client that `GNOMISH_TEST_CLIENT`
+/// names. CI runs the addon tests once more with `anniversary` (SPEC.md 7.9).
+pub fn test_client() -> WowClient {
+    let name = std::env::var("GNOMISH_TEST_CLIENT").unwrap_or_default();
+    if name.is_empty() {
+        return WowClient::Forever;
+    }
+    WowClient::ALL
+        .into_iter()
+        .find(|c| c.name() == name)
+        .unwrap_or_else(|| panic!("GNOMISH_TEST_CLIENT names no client: {name}"))
+}
+
+/// The API file of the test client, which the fake game checks each call against.
+pub fn api_file() -> &'static str {
+    match test_client() {
+        WowClient::Forever => "addon/tests/api.lua",
+        WowClient::Anniversary => "addon/tests/api-anniversary.lua",
+    }
+}
+
+/// The newest fixture of the test client in `tests/fixtures`: what the self-test
+/// measured in the real game, or the Forever placeholder while nothing is measured
+/// (SPEC.md 14.3).
 pub fn fixture() -> Fixture {
-    let path = fixture::newest(&repo_path("tests/fixtures")).unwrap();
+    let path = fixture::newest_of(&repo_path("tests/fixtures"), test_client()).unwrap();
     fixture::read(&path).unwrap()
 }
 
@@ -239,7 +262,7 @@ pub fn fake_game_for(lua: &Lua, api: &str, fake: &Fake) -> Table {
 
 /// The fake game for the relay and the shared transport, as the real game measured.
 pub fn fake_game(lua: &Lua) -> Table {
-    fake_game_for(lua, "addon/tests/api.lua", &measured())
+    fake_game_for(lua, api_file(), &measured())
 }
 
 pub fn fire(lua: &Lua, wow: &Table, event: &str, args: impl IntoLuaMulti) {

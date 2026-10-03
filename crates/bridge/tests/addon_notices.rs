@@ -6,7 +6,7 @@
 
 mod common;
 
-use common::{bytes, fake_game_for, game_lua_for, load_into, measured, start_addon};
+use common::{api_file, bytes, fake_game_for, game_lua_for, load_into, measured, start_addon};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::live::{Notice, NoticeKind, Notices, Source, live_body, prepare_notices};
@@ -97,7 +97,7 @@ impl Game {
     fn boot_with(saved: Option<&str>, before: impl FnOnce(&Table)) -> Game {
         let fake = measured();
         let lua = game_lua_for(&fake);
-        let wow = fake_game_for(&lua, "addon/tests/api.lua", &fake);
+        let wow = fake_game_for(&lua, api_file(), &fake);
         before(&wow);
         let ns = lua.create_table().unwrap();
         ns.set("key", lua.create_string(KEY).unwrap()).unwrap();

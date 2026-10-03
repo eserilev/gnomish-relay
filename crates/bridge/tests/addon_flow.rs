@@ -18,8 +18,8 @@ use bridge::relay::{Folders, Relay};
 use bridge::settings_list::{BridgeSettings, StorySettings, settings_reply};
 use bridge::strip::{self, Image};
 use common::{
-    fake_game_for, fire, font_string_with, game_lua_for, is_cut, load_into, lua_value, measured,
-    repo_file, screenshot_png, start_addon,
+    api_file, fake_game_for, fire, font_string_with, game_lua_for, is_cut, load_into, lua_value,
+    measured, repo_file, screenshot_png, start_addon,
 };
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
@@ -146,7 +146,7 @@ impl Game {
     /// addon site does.
     fn boot_with_key_addon(fake: Fake, saved: Option<&str>, before: impl FnOnce(&Table)) -> Game {
         let lua = game_lua_for(&fake);
-        let wow = fake_game_for(&lua, "addon/tests/api.lua", &fake);
+        let wow = fake_game_for(&lua, api_file(), &fake);
         before(&wow);
         let ns = lua.create_table().unwrap();
         start_addon(
@@ -180,6 +180,17 @@ impl Game {
 
     fn db(&self) -> Table {
         self.lua.globals().get("GnomishRelayDB").unwrap()
+    }
+
+    /// Waits for the shot of a strip: 0.1 s to draw it, the slowest measured shot, and
+    /// a margin. Never less than one second, so each client waits at least as before.
+    fn wait_for_shot(&self) {
+        self.wait_for_shots(1);
+    }
+
+    /// Waits for `count` strips, one after the other.
+    fn wait_for_shots(&self, count: u32) {
+        self.advance((0.2 + self.fake.shot_delay).max(1.0) * f64::from(count));
     }
 
     fn send(&self, text: &str) {
@@ -331,7 +342,7 @@ fn first_message_id(game: &Game) -> u32 {
 fn a_sent_message_goes_out_as_a_signed_strip_that_the_bridge_decodes() {
     let game = Game::start();
     game.send("fix the flaky test");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     let records = game.last_strip();
     assert_eq!(records.len(), 1);
@@ -357,7 +368,7 @@ fn a_sent_message_goes_out_as_a_signed_strip_that_the_bridge_decodes() {
 fn the_strip_is_on_screen_only_while_the_screenshot_is_taken() {
     let game = Game::start();
     game.send("hello");
-    game.advance(1.0);
+    game.wait_for_shot();
     let strip: Table = game.lua.globals().get("GnomishRelayStrip").unwrap();
     assert!(!strip.get::<bool>("shown").unwrap());
 }
@@ -366,7 +377,7 @@ fn the_strip_is_on_screen_only_while_the_screenshot_is_taken() {
 fn the_first_poll_after_a_send_reads_the_reply_and_whispers_it() {
     let game = Game::start();
     game.send("fix the flaky test");
-    game.advance(1.0);
+    game.wait_for_shot();
     game.publish(&[reply(
         &game.chat_id(),
         first_message_id(&game),
@@ -395,12 +406,12 @@ fn the_first_poll_after_a_send_reads_the_reply_and_whispers_it() {
 fn a_read_reply_is_reported_in_the_next_strip() {
     let game = Game::start();
     game.send("one");
-    game.advance(1.0);
+    game.wait_for_shot();
     let id = first_message_id(&game);
     game.publish(&[reply(&game.chat_id(), id, Status::Done, "done")]);
     game.advance(5.0);
     game.send("two");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     let f = flags(&game.last_strip()[0]);
     assert!(f.contains(&format!("read={id}")), "{f:?}");
@@ -411,7 +422,7 @@ fn a_read_reply_is_reported_in_the_next_strip() {
 fn an_acknowledged_message_is_not_shown_again() {
     let game = Game::start();
     game.send("long task");
-    game.advance(1.0);
+    game.wait_for_shot();
     game.publish(&[reply(
         &game.chat_id(),
         first_message_id(&game),
@@ -525,7 +536,7 @@ fn stat(game: &Game, name: &str) -> i64 {
 fn a_long_fight_during_a_working_run_stops_the_polls_at_the_end_of_the_window() {
     let game = Game::start();
     game.send("a long job");
-    game.advance(1.0);
+    game.wait_for_shot();
     let id = first_message_id(&game);
     game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
     game.advance(20.0);
@@ -644,7 +655,7 @@ fn the_window_shows_the_transcript_with_code_and_safe_pipes() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("show |cffff0000 red");
-    game.advance(1.0);
+    game.wait_for_shot();
     let id = first_message_id(&game);
     game.publish(&[reply(
         &game.chat_id(),
@@ -934,7 +945,7 @@ fn a_click_on_the_whisper_link_opens_that_chat() {
 fn a_message_goes_around_the_whole_loop_and_the_echo_comes_back() {
     let game = Game::start();
     game.send("ping the relay");
-    game.advance(1.0);
+    game.wait_for_shot();
     let now = 1_790_211_080;
 
     let png = screenshot_png(&game.shot_rows(game.shots()));
@@ -1084,7 +1095,7 @@ fn the_input_counts_the_bytes_left_near_the_limit_of_one_strip() {
 fn a_change_to_saved_data_after_a_send_does_not_change_the_strip() {
     let game = Game::start();
     game.send("the real task");
-    game.advance(1.0);
+    game.wait_for_shot();
     game.run(
         "local ns = ... local chat = ns.Store.db.chats[1]
          chat.cwd = '/etc' chat.history[1].text = 'rm -rf ~'",
@@ -1182,7 +1193,7 @@ fn after_a_reload_resend_puts_the_text_in_the_input_for_enter() {
 fn a_stored_frame_too_old_at_login_asks_to_be_sent_again() {
     let game = Game::start();
     game.send("sent before a long break");
-    game.advance(1.0);
+    game.wait_for_shot();
     let game = game.reload_after(300);
     game.publish(&[]);
     game.run("local ns = ... ns.Transport.Poll()");
@@ -1200,7 +1211,7 @@ const BRIDGE_OFF: &str =
 fn a_message_given_up_while_the_bridge_is_off_says_how_to_start_it() {
     let game = Game::start();
     game.send("nobody home");
-    game.advance(1.0);
+    game.wait_for_shot();
     let game = game.reload_after(300);
     game.advance(2.0);
     assert_eq!(last_entry(&game).get::<String>("text").unwrap(), BRIDGE_OFF);
@@ -1210,7 +1221,7 @@ fn a_message_given_up_while_the_bridge_is_off_says_how_to_start_it() {
 fn a_message_given_up_while_the_bridge_sees_bad_tags_says_to_run_setup() {
     let game = Game::start();
     game.send("signed with an old key");
-    game.advance(1.0);
+    game.wait_for_shot();
     let game = game.reload_after(300);
     let now = u32::try_from(game.run("return time()").as_integer().unwrap()).unwrap();
     let body = bridge::slots::with_bad_tags(slot_body(App::Relay, now, &[]), App::Relay, 2);
@@ -1323,7 +1334,7 @@ fn stop_sends_a_stop_record_for_the_chat() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("long task");
-    game.advance(1.0);
+    game.wait_for_shot();
     game.publish(&[reply(
         &game.chat_id(),
         first_message_id(&game),
@@ -1380,7 +1391,7 @@ fn the_activity_panel_shows_the_progress_of_a_working_agent() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("build it");
-    game.advance(1.0);
+    game.wait_for_shot();
     let id = first_message_id(&game);
     game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
     let progress = Progress {
@@ -1423,7 +1434,7 @@ fn a_message_that_waits_for_other_chats_shows_it_on_a_still_grey_cast_bar() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("build it");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     show_progress(&game, &[b"Waiting: 3 other chats are running"]);
 
@@ -1458,7 +1469,7 @@ fn an_agent_line_like_a_waiting_line_after_the_first_line_stays_a_step() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("build it");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     show_progress(&game, &[b"Level: ask", b"Waiting: 1 other chat is running"]);
 
@@ -1476,7 +1487,7 @@ fn the_header_shows_the_level_that_the_bridge_used_not_the_one_the_chat_asked_fo
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("build it");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(&game, &[b"Level: ask (config)", b"edit src/main.rs"]);
 
     let texts = texts_of(&game, "FontString");
@@ -1495,7 +1506,7 @@ fn a_level_line_that_is_not_first_does_not_change_the_header() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("build it");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(&game, &[b"edit src/main.rs", b"Level: full-auto"]);
 
     let texts = texts_of(&game, "FontString");
@@ -1569,7 +1580,7 @@ fn the_header_shows_full_auto_in_the_warning_color_and_the_level_of_the_run_when
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("build it");
-    game.advance(1.0);
+    game.wait_for_shot();
     press_shift_tab(&game);
     assert!(texts_of(&game, "FontString").contains(&FULL_AUTO_HEADER.to_owned()));
 
@@ -1636,7 +1647,7 @@ fn a_desktop_request_shows_a_row_and_no_popup() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     wait_on_desktop(&game, WAIT);
     game.run("local ns = ... ns.Transport.Poll()");
 
@@ -1662,7 +1673,7 @@ fn the_desktop_row_changes_on_each_answer() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     for (state, row) in [
         ("wait", "Approve on your desktop"),
         ("approved", "Approved on your desktop"),
@@ -1680,7 +1691,7 @@ fn the_desktop_row_changes_on_each_answer() {
 fn the_whisper_line_prints_once_per_desktop_request_also_after_a_reload() {
     let game = Game::start();
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     wait_on_desktop(&game, WAIT);
     game.advance(30.0);
     assert_eq!(whispers_with(&game, "] Approve on your desktop."), 1);
@@ -1699,7 +1710,7 @@ fn the_whisper_line_prints_once_per_desktop_request_also_after_a_reload() {
 fn with_no_dialog_the_whisper_line_names_the_command_and_a_raise_names_the_level() {
     let game = Game::start();
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     wait_on_desktop(&game, "Desktop: wait a1b2c3d4e5f6 command");
     game.run("local ns = ... ns.Transport.Poll()");
     wait_on_desktop(&game, "Desktop: wait 0123456789ab dialog raise auto-edit");
@@ -1726,7 +1737,7 @@ fn a_folder_request_asks_to_approve_this_folder_on_the_desktop() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("work in lighthouse");
-    game.advance(1.0);
+    game.wait_for_shot();
     wait_on_desktop(&game, "Desktop: wait a1b2c3d4e5f6 dialog folder");
     game.run("local ns = ... ns.Transport.Poll()");
     wait_on_desktop(&game, "Desktop: wait 0123456789ab command folder");
@@ -1757,7 +1768,7 @@ fn a_desktop_line_in_the_wrong_place_or_shape_is_only_a_step() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(&game, &[b"Level: auto-edit", b"edit a.rs", WAIT.as_bytes()]);
     wait_on_desktop(&game, "Desktop: wait a1b2 dialog");
     game.run("local ns = ... ns.Transport.Poll()");
@@ -1787,7 +1798,7 @@ fn a_waiting_desktop_request_shows_its_command_and_the_approve_command_in_the_ch
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(
         &game,
         &[
@@ -1825,7 +1836,7 @@ fn copy_selects_the_approve_command_for_ctrl_c() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(
         &game,
         &[b"Level: auto-edit", WAIT.as_bytes(), ASKS.as_bytes()],
@@ -1849,7 +1860,7 @@ fn typing_in_the_approve_command_box_keeps_the_command() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(
         &game,
         &[b"Level: auto-edit", WAIT.as_bytes(), ASKS.as_bytes()],
@@ -1872,7 +1883,7 @@ fn the_desktop_request_in_the_chat_shows_how_it_ended() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     for (state, title) in [
         ("approved", "Approved on your desktop"),
         ("denied", "Denied on your desktop"),
@@ -1897,7 +1908,7 @@ fn the_desktop_request_leaves_the_chat_when_the_run_ends() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(
         &game,
         &[b"Level: auto-edit", WAIT.as_bytes(), ASKS.as_bytes()],
@@ -1920,7 +1931,7 @@ fn a_raise_in_the_chat_names_the_permission_and_a_folder_its_folder() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(
         &game,
         &[
@@ -1959,7 +1970,7 @@ fn an_asks_line_away_from_its_place_is_only_a_step() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     show_progress(
         &game,
         &[
@@ -1998,7 +2009,7 @@ fn poll_gaps(game: &Game, seconds: usize) -> Vec<usize> {
 fn a_desktop_wait_polls_every_five_seconds_and_stops_after_24_polls() {
     let game = Game::start();
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     let id = first_message_id(&game);
     game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
     game.advance(400.0);
@@ -2019,7 +2030,7 @@ fn a_working_run_polls_every_fifteen_seconds_and_activity_shows_the_next_check()
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("a long job");
-    game.advance(1.0);
+    game.wait_for_shot();
     let id = first_message_id(&game);
     game.publish(&[reply(&game.chat_id(), id, Status::Working, "")]);
     game.advance(400.0);
@@ -2057,7 +2068,7 @@ fn a_new_message_in_the_game_ends_the_wait_on_the_desktop() {
         default_agent: "claude".into(),
     });
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     relay.on_frame(&records_of_last_shot(&game, now), now);
     let job = relay.next_job().unwrap();
     relay.desktop(
@@ -2086,7 +2097,7 @@ fn a_new_message_in_the_game_ends_the_wait_on_the_desktop() {
     assert_eq!(whispers_with(&game, "Approve on your desktop."), 1);
 
     game.send("no, do this instead");
-    game.advance(1.0);
+    game.wait_for_shot();
     relay.on_frame(&records_of_last_shot(&game, now), now);
 
     assert_eq!(relay.take_interrupts(), [job.chat]);
@@ -2124,7 +2135,7 @@ fn a_chat_that_waits_for_a_popup_answer_says_so_in_activity_and_on_its_tile() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("clean up");
-    game.advance(1.0);
+    game.wait_for_shot();
     game.publish(&[reply(
         &game.chat_id(),
         first_message_id(&game),
@@ -2479,7 +2490,7 @@ fn relay_with_a_job(game: &Game, now: u32) -> (Relay, bridge::relay::Job) {
         default_agent: "claude".into(),
     });
     game.send("test it");
-    game.advance(1.0);
+    game.wait_for_shot();
     relay.on_frame(&records_of_last_shot(game, now), now);
     let job = relay.next_job().unwrap();
     (relay, job)
@@ -2603,7 +2614,7 @@ fn a_remove_sends_the_id_asks_for_a_new_list_and_greys_the_row() {
     let shots = game.shots();
 
     click(&game, "GnomishRelayRuleRemove1");
-    game.advance(2.0);
+    game.wait_for_shots(2);
 
     assert!(strips_with(&game, shots, "rule=remove:a1b2") >= 1);
     assert!(
@@ -2737,11 +2748,7 @@ fn a_client_without_a_required_function_turns_the_relay_off() {
 #[test]
 fn every_required_function_is_in_the_forever_api() {
     let game = Game::start();
-    let api: Table = game
-        .lua
-        .load(repo_file("addon/tests/api.lua"))
-        .call(())
-        .unwrap();
+    let api: Table = game.lua.load(repo_file(api_file())).call(()).unwrap();
     let known: Vec<String> = api.get("globals").unwrap();
     let required: Vec<String> = game
         .run("local ns = ... local out = {} for _, r in ipairs(ns.Health.Required()) do table.insert(out, r[1]) end return out")
@@ -2763,10 +2770,11 @@ fn a_strip_reports_the_build_and_the_health_of_both_channels() {
     let game = Game::start();
     game.advance(6.0);
     game.send("health check");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     let f = flags(&game.last_strip()[0]);
-    for flag in ["build=70009", "out=shot", "in=slots", "ver=1"] {
+    let build = format!("build={}", game.fake.build_info.build);
+    for flag in [build.as_str(), "out=shot", "in=slots", "ver=1"] {
         assert!(f.contains(&flag.into()), "{f:?}");
     }
 }
@@ -3177,7 +3185,7 @@ fn a_right_click_and_delete_removes_the_chat_and_tells_the_bridge() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     let chat = game.chat_id();
     game.publish(&[reply(&chat, first_message_id(&game), Status::Done, "hello")]);
     game.advance(5.0);
@@ -3280,7 +3288,7 @@ fn open_sessions(game: &Game, list: &str, status: Status) -> u32 {
     let resume_tile = format!("GnomishRelayTile{}", chat_count(game) + 2);
     let before = game.shots();
     game.run(&format!("{resume_tile}:Click()"));
-    game.advance(2.0);
+    game.wait_for_shots(2);
     let request = (before + 1..=game.shots())
         .flat_map(|n| game.strip(n))
         .find(|r| flags(r).contains(&"list".into()))
@@ -3333,7 +3341,7 @@ fn the_list_reply_is_reported_as_read() {
     let game = Game::start();
     let id = open_sessions(&game, LIST, Status::Done);
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     let first = &game.last_strip()[0];
     assert!(
         flags(first).contains(&format!("read={id}")),
@@ -3442,7 +3450,7 @@ fn the_attach_reply_shows_the_last_exchange_and_later_messages_resume() {
     );
 
     game.send("go on");
-    game.advance(1.0);
+    game.wait_for_shot();
     let record = game
         .last_strip()
         .into_iter()
@@ -3602,7 +3610,7 @@ fn escape_in_the_browser_of_a_new_chat_keeps_the_default_folder_and_its_transcri
     assert!(!shown(&game, "GnomishRelayBrowser"));
     assert!(shown(&game, "GnomishRelayTranscript"));
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     let record = sent_by_chat(&game, b"hi");
     assert!(record.cwd.is_empty());
     assert!(!flags(&record).contains(&"mkdir=1".into()));
@@ -3696,7 +3704,7 @@ fn open_sets_the_folder_and_the_first_message_carries_it() {
     assert_eq!(chat_field(&game, 1, "name"), "gnomish-relay");
     assert_eq!(header_folder(&game), "~/Code/Personal/gnomish-relay");
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     let record = sent_by_chat(&game, b"hi");
     assert_eq!(record.cwd, b"Personal/gnomish-relay");
     assert!(flags(&record).contains(&"n".into()));
@@ -4015,7 +4023,7 @@ fn new_folder_checks_the_name_and_sets_the_folder_with_a_mark() {
     assert_eq!(chat_field(&game, 1, "name"), "fresh");
     assert_eq!(header_folder(&game), "~/Code/fresh |cff9fe39fnew|r");
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     let record = sent_by_chat(&game, b"hi");
     assert_eq!(record.cwd, b"fresh");
     assert!(flags(&record).contains(&"mkdir=1".into()));
@@ -4096,7 +4104,7 @@ fn the_tree_is_kept_so_the_browser_shows_it_at_once_with_a_spinner_for_the_new_o
     let id = open_browser(&game);
     game.run("GnomishRelayFolderButton:Click()");
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     assert!(flags(&game.last_strip()[0]).contains(&format!("read={id}")));
 
     let game = game.reload();
@@ -4459,7 +4467,7 @@ const MONO: &str = "Interface\\AddOns\\GnomishRelay\\JetBrainsMono-Regular.ttf";
 fn rendered_reply(game: &Game, markdown: &str) {
     game.run("local ns = ... ns.Window.Open()");
     game.send("go");
-    game.advance(1.0);
+    game.wait_for_shot();
     let text = render_markdown(markdown.as_bytes());
     game.publish(&[Reply {
         chat: game.chat_id().into_bytes(),
@@ -4709,7 +4717,7 @@ fn a_reply_shows_its_usage_line_in_grey_below_the_blocks_and_not_in_the_whisper(
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("go");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     game.publish(&[reply(
         &game.chat_id(),
@@ -4733,7 +4741,7 @@ fn a_long_reply_shown_in_full_keeps_its_usage_line() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("go");
-    game.advance(1.0);
+    game.wait_for_shot();
     let details = "p\x1fDetail.\n".repeat(9);
     let body = format!(
         "\x1bM1\nu\x1f1.2k in · 350 out · $0.04\np\x1fThe summary.\n{details}p\x1fDetail 9.\n"
@@ -4763,7 +4771,7 @@ fn a_reply_with_no_usage_line_shows_none() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("go");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     game.publish(&[reply(
         &game.chat_id(),
@@ -4782,7 +4790,7 @@ fn an_error_that_looks_rendered_shows_as_plain_text() {
     let game = Game::start();
     game.run("local ns = ... ns.Window.Open()");
     game.send("go");
-    game.advance(1.0);
+    game.wait_for_shot();
     game.publish(&[reply(
         &game.chat_id(),
         first_message_id(&game),
@@ -5131,7 +5139,7 @@ fn relay_size_sets_the_font_size_within_12_to_20() {
 
 fn answer_first_message(game: &Game, text: &str) {
     game.send("go");
-    game.advance(1.0);
+    game.wait_for_shot();
     game.publish(&[reply(
         &game.chat_id(),
         first_message_id(game),
@@ -5177,7 +5185,7 @@ fn a_desktop_request_gets_its_line_also_with_the_reply_line_off() {
     let game = Game::start();
     game.run("local ns = ... ns.Store.db.whisperOn = false");
     game.send("read my key");
-    game.advance(1.0);
+    game.wait_for_shot();
     wait_on_desktop(&game, WAIT);
     game.run("local ns = ... ns.Transport.Poll()");
     assert_eq!(whispers_with(&game, "Approve on your desktop."), 1);
@@ -5382,13 +5390,14 @@ fn problem(game: &Game) -> Option<String> {
         .as_string_lossy()
 }
 
-/// The tests wait one second for a strip: 0.1 s to draw it, then the shot.
+/// `wait_for_shot` waits for the slowest measured shot. A shot over 10 s is the timeout
+/// of the strip, and no wait helps.
 #[test]
-fn the_measured_screenshot_delay_fits_the_one_second_waits_of_these_tests() {
+fn the_measured_screenshot_delay_fits_the_waits_of_these_tests() {
     let delay = measured().shot_delay;
     assert!(
-        0.1 + delay < 0.9,
-        "the real game takes {delay} s for a screenshot. Make the waits after a send longer"
+        0.1 + delay < 10.0,
+        "the real game takes {delay} s for a screenshot, over the strip timeout"
     );
 }
 
@@ -5397,7 +5406,7 @@ fn the_screen_captured_text_of_our_shot_stays_hidden_before_or_after_the_event()
     for status in [StatusShown::BeforeEvent, StatusShown::AfterEvent] {
         let game = Game::start_changed(|fake| fake.status_shown = status);
         game.send("hide the text");
-        game.advance(1.0);
+        game.wait_for_shot();
 
         let action_status: Table = game.lua.globals().get("ActionStatus").unwrap();
         assert_eq!(game.wow.get::<i64>("statusShows").unwrap(), 1, "{status:?}");
@@ -5414,7 +5423,7 @@ fn the_screen_captured_text_of_our_shot_stays_hidden_on_both_status_frames_of_tb
             .unwrap();
     });
     game.send("hide the text");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     let frames: Table = game.wow.get("statusFrames").unwrap();
     assert_eq!(frames.len().unwrap(), 2);
@@ -5427,7 +5436,7 @@ fn the_screen_captured_text_of_our_shot_stays_hidden_on_both_status_frames_of_tb
 fn a_capture_after_the_handler_still_holds_the_whole_strip() {
     let game = Game::start_changed(|fake| fake.capture = Capture::AfterHandler);
     game.send("captured later");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     assert!(
         game.last_strip()
@@ -5440,7 +5449,7 @@ fn a_capture_after_the_handler_still_holds_the_whole_strip() {
 fn saved_variables_that_load_after_the_files_keep_the_chats_across_a_reload() {
     let game = Game::start_changed(|fake| fake.saved_variables = SavedVariables::AfterFiles);
     game.send("remember me");
-    game.advance(1.0);
+    game.wait_for_shot();
     let chat = game.chat_id();
 
     let again = game.reload();
@@ -5491,7 +5500,7 @@ fn an_out_of_date_slot_counts_as_missing() {
 fn a_hooksecurefunc_that_refuses_a_missing_global_still_loads_the_relay() {
     let game = Game::start_changed(|fake| fake.hook_missing_global = HookMissing::Error);
     game.send("still here");
-    game.advance(1.0);
+    game.wait_for_shot();
 
     assert!(game.last_strip().iter().any(|r| r.text == b"still here"));
 }
@@ -5501,7 +5510,7 @@ fn a_timer_order_that_the_fake_does_not_model_stops_the_fake_at_load() {
     let mut fake = measured();
     fake.timers_due_together = TimerOrder::Other;
     let lua = game_lua_for(&fake);
-    let api: Table = lua.load(repo_file("addon/tests/api.lua")).call(()).unwrap();
+    let api: Table = lua.load(repo_file(api_file())).call(()).unwrap();
     let fake = lua_value(&lua, &serde_json::to_value(&fake).unwrap());
 
     let loaded = lua
@@ -5528,7 +5537,7 @@ fn with_the_home_line_a_chosen_folder_goes_out_in_the_home_form() {
     assert_eq!(chat_field(&game, 1, "name"), "gnomish-relay");
     assert_eq!(header_folder(&game), "~/Code/Personal/gnomish-relay");
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     let record = sent_by_chat(&game, b"hi");
     assert_eq!(record.cwd, b"~/Code/Personal/gnomish-relay");
 }
@@ -5562,7 +5571,7 @@ fn a_saved_chat_of_the_home_base_gets_the_home_form_and_keeps_its_folder() {
     assert_eq!(header_folder(&game), "~/Code/Personal/gnomish-relay");
     game.run("GnomishRelayFolderButton:Click()");
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     assert_eq!(
         sent_by_chat(&game, b"hi").cwd,
         b"~/Code/Personal/gnomish-relay"
@@ -5644,7 +5653,7 @@ fn lua_quote(text: &str) -> String {
 fn popped_out_chat(game: &Game) {
     game.run("local ns = ... ns.Window.Open()");
     game.send("hi");
-    game.advance(1.0);
+    game.wait_for_shot();
     click(game, "GnomishRelayPopOut");
 }
 

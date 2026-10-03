@@ -7,7 +7,7 @@
 
 mod common;
 
-use common::{fake_game_for, game_lua_for, load_into, measured, start_addon};
+use common::{api_file, fake_game_for, game_lua_for, load_into, measured, start_addon};
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
@@ -89,7 +89,7 @@ impl Game {
     fn boot(saved: Option<&str>) -> Game {
         let fake = measured();
         let lua = game_lua_for(&fake);
-        let wow = fake_game_for(&lua, "addon/tests/api.lua", &fake);
+        let wow = fake_game_for(&lua, api_file(), &fake);
         let ns = lua.create_table().unwrap();
         ns.set("key", lua.create_string(KEY).unwrap()).unwrap();
         start_addon(

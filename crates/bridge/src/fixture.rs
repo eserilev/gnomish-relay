@@ -511,8 +511,16 @@ pub fn real_fixtures(dir: &Path, client: WowClient) -> Result<Vec<(Vec<u64>, Pat
 /// The fixture of the newest Forever build in `dir`, or the placeholder while there is
 /// none. The fake game of the tests is Forever, the first client.
 pub fn newest(dir: &Path) -> Result<PathBuf> {
-    let newest = real_fixtures(dir, WowClient::Forever)?.pop();
-    Ok(newest.map_or_else(|| dir.join(PLACEHOLDER), |(_, path)| path))
+    newest_of(dir, WowClient::Forever)
+}
+
+/// The fixture of the newest build of `client` in `dir`. Only Forever has a placeholder.
+pub fn newest_of(dir: &Path, client: WowClient) -> Result<PathBuf> {
+    match (real_fixtures(dir, client)?.pop(), client) {
+        (Some((_, path)), _) => Ok(path),
+        (None, WowClient::Forever) => Ok(dir.join(PLACEHOLDER)),
+        (None, _) => bail!("tests/fixtures has no fixture of {}", client.name()),
+    }
 }
 
 pub fn read(path: &Path) -> Result<Fixture> {

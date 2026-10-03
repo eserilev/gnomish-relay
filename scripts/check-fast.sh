@@ -6,6 +6,7 @@ cd "$root"
 cargo fmt --check
 cargo clippy --all-targets -q -- -D warnings
 cargo test -q --workspace
+scripts/test-addon-clients.sh
 stylua --check addon
 selene --quiet addon/GnomishRelay addon/transport
 selene --quiet --config addon/GnomishRelaySelfTest/selene.toml addon/GnomishRelaySelfTest addon/GnomishRelaySelfTest_Slot addon/GnomishRelaySelfTest_Off addon/GnomishRelaySelfTest_Old

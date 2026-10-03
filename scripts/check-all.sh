@@ -11,6 +11,7 @@ if rustup target list --installed | grep -q x86_64-pc-windows-gnu; then
   cargo clippy -p bridge --lib --bins --target x86_64-pc-windows-gnu -q -- -D warnings
 fi
 cargo test -q
+scripts/test-addon-clients.sh
 cargo deny --log-level error check
 stylua --check addon
 selene --quiet addon/GnomishRelay addon/transport

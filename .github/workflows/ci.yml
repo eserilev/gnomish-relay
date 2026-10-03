@@ -88,6 +88,10 @@ jobs:
       # On Linux the coverage gates run every test once, so a plain test run is not needed.
       - if: runner.os == 'Linux'
         run: scripts/check-coverage.sh
+      # The addon tests again in the fake game of TBC Anniversary: its fixture and its API
+      # file (SPEC 7.9). The OS does not change the Lua, so one runner is enough.
+      - if: runner.os == 'Linux'
+        run: scripts/test-addon-clients.sh
       # Nextest does not run doc tests.
       - run: cargo test --doc
 
