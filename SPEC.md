@@ -2736,6 +2736,16 @@ The development machine runs Wayland with XWayland, on ext4.
   }
   ```
 
+**Linux to do** (asked for by the user on 2026-10-03). The desktop app covers the common setups. These gaps stay open:
+
+- [ ] **More places in the game search** (11.3, step 1). Setup does not search Steam as a Flatpak (`~/.var/app/com.valvesoftware.Steam/.local/share/Steam/steamapps/compatdata/*/pfx`), Lutris as a Flatpak (`~/.var/app/net.lutris.Lutris/data/lutris`), Heroic, or Faugus. Today such a player needs `setup --wow <folder>`. Fix: add these prefixes to `wine_prefixes` in `install.rs`, with a test for each.
+- [ ] **Start at login with no systemd** (Void, Artix, Gentoo with OpenRC, Alpine). Setup writes only a systemd user service, so the player runs `gnomish-relay run` by hand. Fix: an XDG autostart file in `~/.config/autostart` when no systemd user manager runs.
+- [ ] **Steam Deck in game mode.** Nobody has tested it. Desktop mode works as on any distro. Test game mode, where gamescope runs WoW.
+- [ ] **musl** (Alpine). The `x86_64-unknown-linux-gnu` binary does not run. Fix: a musl build in the release. Low value: WoW on Alpine is rare.
+- [ ] **ARM64 Linux** (Asahi, Raspberry Pi). There is no build. Low value: WoW needs an x86 emulator there.
+
+Not a gap of the app: on Ubuntu 24.04 and later, AppArmor blocks `bwrap` until the player adds the profile above.
+
 ### 11.2 Other platform notes
 
 - **File system:** any except FAT32 and exFAT. (`wow-claude` says NTFS. That line comes from `wow-forever-codex`, which stores 65,535 font files, and has no reason in `wow-claude`.)
