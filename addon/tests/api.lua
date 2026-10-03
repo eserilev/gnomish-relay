@@ -1,7 +1,7 @@
--- The WoW Forever 1.60.1.70170 API that GnomishRelay uses.
+-- The WoW Forever 1.60.1.70205 API that GnomishRelay uses.
 -- Written by scripts/wow-api.sh. Do not edit.
 return {
-	build = "1.60.1.70170",
+	build = "1.60.1.70205",
 	globals = {
 		"ActionStatus",
 		"C_AddOns",
