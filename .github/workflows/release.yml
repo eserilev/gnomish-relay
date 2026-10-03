@@ -35,6 +35,18 @@ jobs:
           fi
       # Players read these notes on GitHub and CurseForge, so a release needs them first.
       - run: scripts/changelog-section.sh "${GITHUB_REF_NAME#v}" > /dev/null
+      # The packager warns and tags an older game version when CurseForge lacks one. The
+      # check runs here, before anything is published, so a release is never half out
+      # (SPEC.md 7.9). With no CF_API_KEY, as in a fork, there is no upload to protect.
+      - name: Check the CurseForge game versions
+        env:
+          CF_API_KEY: ${{ secrets.CF_API_KEY }}
+        run: |
+          if [ -z "$CF_API_KEY" ]; then
+            echo "::notice::No CF_API_KEY, so no CurseForge upload and no game version check."
+          else
+            python3 scripts/curseforge_versions.py addon/GnomishRelay/GnomishRelay.toc
+          fi
 
   # The gate: a tag can point at a commit that CI never checked. Every job of ci.yml runs
   # on the tagged commit, and nothing publishes unless all of them pass.
