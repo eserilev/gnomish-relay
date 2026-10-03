@@ -4,6 +4,8 @@
 
 - If you have both WoW: Forever and TBC Anniversary, Gnomish Relay now works in both at
   the same time. No more switching.
+- When the desktop app is too old for your version of WoW, the game now says so and tells
+  you how to update it.
 
 ## 0.5.0
 
