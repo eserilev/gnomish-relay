@@ -80,6 +80,7 @@ pub mod lock;
 pub mod log_command;
 pub mod log_file;
 pub mod logging;
+pub mod lore_job;
 pub mod lore_pack;
 pub mod model;
 pub mod model_claude;
