@@ -726,7 +726,7 @@ The goal is one click for the common case, with a bounded worst case. Any game c
 
 **The folder of a rule.** A rule covers one folder: the resolved chat folder, and every chat inside it, as `[allow.folders]` does. One exception: when the chat folder is an entry of `allowed_roots` or the home folder, the rule covers that exact folder only. Else one click in `~/Documents/Code` gives a global rule from the game. The rule folder is the chat folder, not the current folder of the Bash tool, so a `cd` into a subfolder keeps the chat rules.
 
-**The popup** (6.4). The buttons are Allow once, Always allow, and Reject. One more line, above the buttons, names the rule: "Always allow: cargo test *, tail * in Code/Personal/gnomish-relay".
+**The popup** (6.4). The buttons are Allow once, Always allow, and Deny. One more line, above the buttons, names the rule: "Always allow: cargo test *, tail * in Code/Personal/gnomish-relay".
 
 - The folder is its path from the folder above its allowed root, `~/` in the home folder, else the full path. A folder name that does not fit is cut from the left, after "...".
 - The line is bridge text: the rule words (plain ASCII) and a folder name that the user chose, with each non-printable-ASCII character as `?`. The addon shows it with the escape of S10.
@@ -3673,6 +3673,8 @@ The first run ever needs one more `/reload`: its first session has no saved file
 - The strips at other UI scales run only on `/grst scale`. `UIParent:SetScale` is allowed out of combat, but a fight that starts before the restore blocks it. The addon then restores the scale at the end of the fight.
 - The run starts after `PLAYER_ENTERING_WORLD`, not at `PLAYER_LOGIN`: a shot at login can catch the loading screen.
 - The placeholder fixture is the only place for the guesses. The fake game has no second copy of them.
+
+### 14.4 Fuzzing
 
 Each target runs in CI for a short time and nightly for a long time. Every crash becomes a regression test.
 
