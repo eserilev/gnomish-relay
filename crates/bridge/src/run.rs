@@ -16,6 +16,7 @@ use crate::agent::{
 };
 use crate::auto_update::{Activity, start_detached};
 use crate::background::Background;
+use crate::build_kind::BuildKind;
 use crate::chat_branch;
 use crate::ci_checks::CiChecks;
 use crate::config::{Permission, Policy};
@@ -1541,8 +1542,14 @@ fn publish_in_each_game(addons: &[PathBuf], app: App, files: &Files, windows: &[
 }
 
 /// A new game (SPEC.md 7.9) or a new lore pack (11.4) needs a new bridge: the sandbox
-/// takes its paths at the start.
+/// takes its paths at the start. A build from source only says so (11.3).
 fn restart(why: &str, data: &Path) {
+    if !BuildKind::THIS.manages_itself() {
+        log(&format!(
+            "{why} (not done: this is a build from source, so restart it by hand)"
+        ));
+        return;
+    }
     log(why);
     let started = std::env::current_exe()
         .map_err(anyhow::Error::from)

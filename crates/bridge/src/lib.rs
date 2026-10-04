@@ -17,6 +17,7 @@ pub mod always_rules;
 pub mod app_files;
 pub mod auto_update;
 pub mod background;
+pub mod build_kind;
 pub mod calibration;
 pub mod chat_branch;
 pub mod chat_merge;

@@ -9,6 +9,7 @@ use crate::agent;
 use crate::app_files::private_game_paths;
 use crate::auto_update::{AutoUpdater, Parts};
 use crate::background::Background;
+use crate::build_kind::BuildKind;
 use crate::config::{self, FullAuto, RelayConfig, StoryConfig};
 use crate::desktop::Prompt;
 use crate::dirs::Dirs;
@@ -64,7 +65,7 @@ pub fn start(dirs: &Dirs) -> Result<()> {
     for game in &paths.games {
         setup::install_missing_slots(&game.addons, &products)?;
     }
-    let auto_update = auto_updater(dirs, &config)?;
+    let auto_update = auto_updater(dirs, &config, BuildKind::THIS)?;
     let lore = lore_job(dirs, &config);
     let relay = match config.relay {
         Some(relay) => Some(start_relay(dirs, relay, config.story.as_ref(), &paths)?),
@@ -100,7 +101,16 @@ fn lore_job(dirs: &Dirs, config: &config::Config) -> Option<LoreJob> {
     )))
 }
 
-fn auto_updater(dirs: &Dirs, config: &config::Config) -> Result<Option<AutoUpdater>> {
+/// A build from source never updates itself (SPEC.md 11.3).
+fn auto_updater(
+    dirs: &Dirs,
+    config: &config::Config,
+    build: BuildKind,
+) -> Result<Option<AutoUpdater>> {
+    if !build.manages_itself() {
+        crate::run::log("auto-update is off: this is a build from source");
+        return Ok(None);
+    }
     let Some(parts) = Parts::of(dirs, config) else {
         return Ok(None);
     };
@@ -264,6 +274,24 @@ mod tests {
             assert!(private.contains(&game.accounts));
             assert!(private.contains(&game.screenshots));
         }
+    }
+
+    #[test]
+    fn a_build_from_source_never_updates_itself() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("Code")).unwrap();
+        let dirs = Dirs {
+            home: home.path().to_owned(),
+            config: home.path().join("config"),
+            data: home.path().join("data"),
+        };
+        let config = setup::write_config(&dirs.config, CONFIG, &dirs.home).unwrap();
+
+        let source = auto_updater(&dirs, &config, BuildKind::Source).unwrap();
+        let release = auto_updater(&dirs, &config, BuildKind::Release).unwrap();
+
+        assert!(source.is_none());
+        assert!(release.is_some());
     }
 
     #[test]

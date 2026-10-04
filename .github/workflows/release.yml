@@ -93,7 +93,10 @@ jobs:
         with:
           toolchain: ${{ env.RUST_TOOLCHAIN }}
           targets: ${{ matrix.target }}
+      # The mark of a release build: only it updates and restarts itself (SPEC.md 11.3).
       - run: cargo build --release --locked --bin gnomish-relay --target ${{ matrix.target }}
+        env:
+          GNOMISH_RELEASE_BUILD: "1"
       - shell: bash
         env:
           GH_TOKEN: ${{ github.token }}

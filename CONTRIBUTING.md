@@ -30,6 +30,8 @@ Before you change code, read these two files:
    scripts/dev-link.sh
    ```
 
+A build from source never updates or restarts itself. Only the builds of the release job do. To run your build, stop the installed desktop app first, then start yours with `cargo run --bin gnomish-relay -- run`.
+
 ## Run the checks
 
 | Check | Command | When |
