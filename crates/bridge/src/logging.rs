@@ -6,7 +6,7 @@ use std::io::Write;
 use std::path::Path;
 use std::str::FromStr;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use protocol::action::ToolCall;
 use tracing::field::{Field, Visit};
@@ -87,7 +87,10 @@ pub fn json_line(millis: u128, level: &str, line: &str, fields: &Fields) -> Stri
     serde_json::Value::Object(object).to_string()
 }
 
-/// Writes each event to stderr and to the JSON file.
+/// When a span opened, for the line that says how long it took.
+struct Opened(Instant);
+
+/// Writes each event to stderr and to the JSON file, and one line when a span closes.
 pub struct LogLayer {
     stderr: Mutex<Box<dyn Write + Send>>,
     file: Option<Mutex<RotatingFile>>,
@@ -105,6 +108,13 @@ impl LogLayer {
         if let Ok(mut stderr) = self.stderr.lock() {
             let _ = writeln!(stderr, "{line}");
         }
+    }
+
+    fn write(&self, level: &str, line: &str, fields: &Fields) {
+        let millis = now_millis();
+        let unix = u64::try_from(millis / 1000).unwrap_or(u64::MAX);
+        self.write_stderr(&human_line(unix, line, fields));
+        self.write_file(&json_line(millis, level, line, fields));
     }
 
     /// A file that fails says so once on stderr, and the log goes on there.
@@ -131,7 +141,9 @@ where
         };
         let mut fields = Fields::default();
         attrs.record(&mut fields);
-        span.extensions_mut().insert(fields);
+        let mut extensions = span.extensions_mut();
+        extensions.insert(fields);
+        extensions.insert(Opened(Instant::now()));
     }
 
     fn on_record(&self, id: &tracing::span::Id, values: &Record<'_>, ctx: Context<'_, S>) {
@@ -149,11 +161,30 @@ where
         event.record(&mut own);
         let line = own.take(MESSAGE).unwrap_or_default();
         fields.0.extend(own.0);
-        let millis = now_millis();
-        let unix = u64::try_from(millis / 1000).unwrap_or(u64::MAX);
-        self.write_stderr(&human_line(unix, &line, &fields));
         let level = event.metadata().level().as_str().to_ascii_lowercase();
-        self.write_file(&json_line(millis, &level, &line, &fields));
+        self.write(&level, &line, &fields);
+    }
+
+    /// How long a message, a question, or a desktop request took (SPEC.md 8.5).
+    fn on_close(&self, id: tracing::span::Id, ctx: Context<'_, S>) {
+        let Some(span) = ctx.span(&id) else {
+            return;
+        };
+        let Some(Opened(opened)) = span.extensions().get::<Opened>().map(|o| Opened(o.0)) else {
+            return;
+        };
+        let millis = opened.elapsed().as_millis();
+        let mut fields = Fields::default();
+        for each in span.scope().from_root() {
+            if let Some(own) = each.extensions().get::<Fields>() {
+                for (name, value) in &own.0 {
+                    fields.set(name, value.clone());
+                }
+            }
+        }
+        fields.set("duration_ms", millis.to_string());
+        let line = format!("{} took {millis} ms", span.name());
+        self.write("info", &line, &fields);
     }
 }
 
@@ -317,22 +348,19 @@ mod tests {
             crate::run::log("run c7 #12 with claude at AutoEdit");
         });
 
-        let line = stderr.text();
+        let text = stderr.text();
+        let line = text.lines().next().unwrap();
         assert!(line.ends_with(
-            " run c7 #12 with claude at AutoEdit chat=c7 message_id=12 agent=claude permission=auto-edit folder=/w/app-real\n"
-        ), "{line}");
-        let json: serde_json::Value = serde_json::from_str(
-            std::fs::read_to_string(dir.path().join(crate::log_file::JSON_LOG))
-                .unwrap()
-                .trim(),
-        )
-        .unwrap();
+            " run c7 #12 with claude at AutoEdit chat=c7 message_id=12 agent=claude permission=auto-edit folder=/w/app-real"
+        ), "{text}");
+        let log = std::fs::read_to_string(dir.path().join(crate::log_file::JSON_LOG)).unwrap();
+        let json: serde_json::Value = serde_json::from_str(log.lines().next().unwrap()).unwrap();
         assert_eq!(json["chat"], "c7");
         assert_eq!(json["message_id"], "12");
         assert_eq!(json["folder"], "/w/app-real");
         assert_eq!(json["level"], "info");
         assert_eq!(json["line"], "run c7 #12 with claude at AutoEdit");
-        assert!(!line.contains("secret prompt text"));
+        assert!(!text.contains("secret prompt text"));
     }
 
     #[test]
@@ -368,6 +396,32 @@ mod tests {
             "{line}"
         );
         assert!(line.contains(" chat=c7 message_id=12 "), "{line}");
+    }
+
+    #[test]
+    fn a_closed_span_logs_how_long_it_took_with_its_fields() {
+        let stderr = Buffer::default();
+        let dir = tempfile::tempdir().unwrap();
+        let file = RotatingFile::new(dir.path(), MAX_FILE_BYTES, FILES);
+
+        tracing::subscriber::with_default(subscriber(&stderr, Some(file)), || {
+            let message = message_span(&job("/w/app"));
+            std::thread::sleep(std::time::Duration::from_millis(20));
+            drop(message);
+        });
+
+        let line = stderr.text();
+        assert!(line.contains(" message took "), "{line}");
+        assert!(line.contains(" ms chat=c7 message_id=12 "), "{line}");
+        let json: serde_json::Value = serde_json::from_str(
+            std::fs::read_to_string(dir.path().join(crate::log_file::JSON_LOG))
+                .unwrap()
+                .trim(),
+        )
+        .unwrap();
+        let took: u64 = json["duration_ms"].as_str().unwrap().parse().unwrap();
+        assert!(took >= 20, "{took}");
+        assert_eq!(json["chat"], "c7");
     }
 
     #[test]

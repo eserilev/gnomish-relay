@@ -1450,6 +1450,8 @@ Asked for by the user on 2026-09-30. One bug took more than 5 commands to find: 
 - **A command span** around each game question and each desktop request of a tool call: `command`, the full command of a shell call.
 - **A request span** for each desktop request: `request` (its id) and `kind`.
 
+**Durations** (asked for by the user on 2026-10-03). When a span closes, the log gets one line: `<span> took <N> ms`, with the fields of the span and its parents, and `duration_ms`. So the log shows how long each message took, from the start of its run to the write of its reply into the slots (`message`), how long a game question waited for its answer (`command`), and how long a desktop request waited (`desktop_request`). The layer keeps the open time of each span. No span needs code of its own for it.
+
 **The command field.** It is the raw command of the classifier input (6.6.3), not the popup text. The bridge cuts it to 500 characters, removes control characters, and replaces possible secrets with `***`:
 
 - the value of an assignment word with no dash, such as `TOKEN=***`;
@@ -1478,6 +1480,7 @@ The home folder shows as `~` everywhere in the file. The file never holds `strip
 **Tests** (`crates/bridge/src/logging.rs`, `crates/bridge/src/report.rs`, and `crates/bridge/tests/report.rs`):
 
 - `a_message_span_carries_chat_message_id_and_folder`
+- `a_closed_span_logs_how_long_it_took_with_its_fields`
 - `a_desktop_request_event_carries_its_full_command`
 - `the_json_file_rotates_at_its_size_limit`
 - `the_report_holds_no_key_or_token`
