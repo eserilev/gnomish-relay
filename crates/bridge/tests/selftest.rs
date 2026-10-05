@@ -18,30 +18,13 @@ use bridge::strip::Image;
 use bridge::vectors::{self, Shot};
 use common::{
     HEIGHT, WIDTH, encode_png, fake_game_for, game_lua_for, load_addon, measured,
-    measured_at_test_screen, screenshot_png, signed_frame, start_addon, strip_rows,
+    measured_at_test_screen, screenshot_png, signed_frame, start_addon, strip_rows, toc_files,
 };
 use mlua::{Function, Lua, Table};
 use png::{BitDepth, ColorType};
 
 const ADDON: &str = "GnomishRelaySelfTest";
 const STRIP: &str = "GnomishRelaySelfTestStrip";
-const FILES: &[&str] = &[
-    "Load.lua",
-    "App.lua",
-    "Sha256.lua",
-    "Codec.lua",
-    "Saved.lua",
-    "Health.lua",
-    "Strip.lua",
-    "Json.lua",
-    "Client.lua",
-    "Fonts.lua",
-    "AddOns.lua",
-    "Secrets.lua",
-    "Timing.lua",
-    "Shots.lua",
-    "SelfTest.lua",
-];
 /// The functions that only the self-test calls. The fake game of the relay has none of them.
 const SELFTEST_GLOBALS: &str = r#"
 local wow = ...
@@ -95,7 +78,7 @@ impl Game {
             .unwrap();
         let ns = lua.create_table().unwrap();
         start_addon(&lua, &wow, &fake, ADDON, saved, || {
-            load_addon(&lua, ADDON, &ns, FILES);
+            load_addon(&lua, ADDON, &ns, &toc_files(ADDON));
         });
         Game { lua, wow }
     }

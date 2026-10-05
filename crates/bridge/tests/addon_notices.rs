@@ -6,7 +6,9 @@
 
 mod common;
 
-use common::{api_file, bytes, fake_game_for, game_lua_for, load_into, measured, start_addon};
+use common::{
+    api_file, bytes, fake_game_for, game_lua_for, load_into, measured, start_addon, toc_files,
+};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::live::{Notice, NoticeKind, Notices, Source, live_body, prepare_notices};
@@ -14,46 +16,6 @@ use protocol::notice::notice_text;
 use protocol::slot::slot_body;
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
-const FILES: &[&str] = &[
-    "App.lua",
-    "KeyHandoff.lua",
-    "Sha256.lua",
-    "Codec.lua",
-    "Saved.lua",
-    "Store.lua",
-    "Health.lua",
-    "Strip.lua",
-    "Slots.lua",
-    "Messages.lua",
-    "Transport.lua",
-    "Atlases.lua",
-    "Notices.lua",
-    "Blocks.lua",
-    "Pins.lua",
-    "Search.lua",
-    "QuickActions.lua",
-    "Suggestions.lua",
-    "QuickEditor.lua",
-    "Changes.lua",
-    "Transcript.lua",
-    "Folders.lua",
-    "Browser.lua",
-    "GitBar.lua",
-    "DesktopRequest.lua",
-    "BridgeSettings.lua",
-    "RulesGroup.lua",
-    "SettingsTab.lua",
-    "DiagTab.lua",
-    "InputHistory.lua",
-    "LevelMenu.lua",
-    "Window.lua",
-    "ChatMenu.lua",
-    "MiniChat.lua",
-    "Popup.lua",
-    "NoticeFrames.lua",
-    "SetupNeeded.lua",
-    "Core.lua",
-];
 const TOAST_SOUND: i64 = 18019;
 const WHISPER_SOUND: i64 = 3081;
 
@@ -108,7 +70,7 @@ impl Game {
             "GnomishRelay",
             saved.map(str::as_bytes),
             || {
-                load_into(&lua, &ns, FILES);
+                load_into(&lua, &ns, &toc_files("GnomishRelay"));
             },
         );
         Game { lua, wow, ns }

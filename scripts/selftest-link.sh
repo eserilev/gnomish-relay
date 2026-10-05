@@ -8,7 +8,6 @@ root=$(git rev-parse --show-toplevel)
 wow=${WOW_DIR:-$HOME/Games/battlenet/drive_c/Program Files (x86)/World of Warcraft/_classic_beta_}
 addons="$wow/Interface/AddOns"
 folders=(GnomishRelaySelfTest GnomishRelaySelfTest_Slot GnomishRelaySelfTest_Off GnomishRelaySelfTest_Old)
-shared=(Sha256.lua Codec.lua Saved.lua Health.lua Strip.lua)
 
 if [ ! -d "$addons" ]; then
   echo "error: $addons not found. Set WOW_DIR to the client folder: _classic_beta_ or _anniversary_." >&2
@@ -29,9 +28,12 @@ for folder in "${folders[@]}"; do
   ln -sfn "$root/addon/$folder" "$addons/$folder"
   echo "linked $addons/$folder"
 done
-# The self-test draws its strips with the real shared transport. The links are ignored files.
-for file in "${shared[@]}"; do
-  ln -sfn "../transport/$file" "$root/addon/GnomishRelaySelfTest/$file"
+# The self-test draws its strips with the real shared transport. Each file of its TOC that
+# lives in addon/transport gets a link. The links are ignored files.
+grep -v '^#' "$root/addon/GnomishRelaySelfTest/GnomishRelaySelfTest.toc" | tr -d '\r' | while read -r file; do
+  if [ -n "$file" ] && [ -f "$root/addon/transport/$file" ]; then
+    ln -sfn "../transport/$file" "$root/addon/GnomishRelaySelfTest/$file"
+  fi
 done
 echo "linked addon/transport into addon/GnomishRelaySelfTest"
 echo "Start the game and log in. Wait for \"done\", type /reload, then run: gnomish-relay selftest collect"

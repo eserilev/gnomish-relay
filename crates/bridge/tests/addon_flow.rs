@@ -19,7 +19,7 @@ use bridge::settings_list::{BridgeSettings, StorySettings, settings_reply};
 use bridge::strip::{self, Image};
 use common::{
     api_file, fake_game_for, fire, font_string_with, game_lua_for, is_cut, load_into, measured,
-    repo_file, screenshot_png, start_addon,
+    repo_file, screenshot_png, start_addon, toc_files,
 };
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
@@ -37,46 +37,6 @@ use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 use sha2::Sha256;
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
-const FILES: &[&str] = &[
-    "App.lua",
-    "KeyHandoff.lua",
-    "Sha256.lua",
-    "Codec.lua",
-    "Saved.lua",
-    "Store.lua",
-    "Health.lua",
-    "Strip.lua",
-    "Slots.lua",
-    "Messages.lua",
-    "Transport.lua",
-    "Atlases.lua",
-    "Notices.lua",
-    "Blocks.lua",
-    "Pins.lua",
-    "Search.lua",
-    "QuickActions.lua",
-    "Suggestions.lua",
-    "QuickEditor.lua",
-    "Changes.lua",
-    "Transcript.lua",
-    "Folders.lua",
-    "Browser.lua",
-    "GitBar.lua",
-    "DesktopRequest.lua",
-    "BridgeSettings.lua",
-    "RulesGroup.lua",
-    "SettingsTab.lua",
-    "DiagTab.lua",
-    "InputHistory.lua",
-    "LevelMenu.lua",
-    "Window.lua",
-    "ChatMenu.lua",
-    "MiniChat.lua",
-    "Popup.lua",
-    "NoticeFrames.lua",
-    "SetupNeeded.lua",
-    "Core.lua",
-];
 
 struct Game {
     lua: Lua,
@@ -156,7 +116,7 @@ impl Game {
             "GnomishRelay",
             saved.map(str::as_bytes),
             || {
-                load_into(&lua, &ns, FILES);
+                load_into(&lua, &ns, &toc_files("GnomishRelay"));
             },
         );
         Game { lua, wow, ns, fake }

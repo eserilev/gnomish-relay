@@ -49,7 +49,7 @@ pub fn load(lua: &Lua, files: &[&str]) -> Table {
     ns
 }
 
-pub fn load_into(lua: &Lua, ns: &Table, files: &[&str]) {
+pub fn load_into(lua: &Lua, ns: &Table, files: &[impl AsRef<str>]) {
     load_addon(lua, "GnomishRelay", ns, files);
 }
 
@@ -63,13 +63,24 @@ pub fn addon_file(addon: &str, file: &str) -> String {
     repo_file(&format!("addon/{addon}/{file}"))
 }
 
-pub fn load_addon(lua: &Lua, addon: &str, ns: &Table, files: &[&str]) {
+pub fn load_addon(lua: &Lua, addon: &str, ns: &Table, files: &[impl AsRef<str>]) {
     for file in files {
+        let file = file.as_ref();
         lua.load(addon_file(addon, file))
-            .set_name(*file)
+            .set_name(file)
             .call::<()>((addon, ns.clone()))
             .unwrap();
     }
+}
+
+/// The files of `addon` in the load order of its TOC, so no test keeps a copy of the list.
+pub fn toc_files(addon: &str) -> Vec<String> {
+    repo_file(&format!("addon/{addon}/{addon}.toc"))
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty() && !line.starts_with('#'))
+        .map(str::to_owned)
+        .collect()
 }
 
 /// Deterministic test bytes.

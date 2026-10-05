@@ -7,7 +7,9 @@
 
 mod common;
 
-use common::{api_file, fake_game_for, game_lua_for, is_cut, load_into, measured, start_addon};
+use common::{
+    api_file, fake_game_for, game_lua_for, is_cut, load_into, measured, start_addon, toc_files,
+};
 use mlua::{Function, Lua, Table, Value};
 use protocol::apps::App;
 use protocol::cell::decode_cells;
@@ -17,46 +19,6 @@ use protocol::record::{Record, parse_records};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
 const KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
-const FILES: &[&str] = &[
-    "App.lua",
-    "KeyHandoff.lua",
-    "Sha256.lua",
-    "Codec.lua",
-    "Saved.lua",
-    "Store.lua",
-    "Health.lua",
-    "Strip.lua",
-    "Slots.lua",
-    "Messages.lua",
-    "Transport.lua",
-    "Atlases.lua",
-    "Notices.lua",
-    "Blocks.lua",
-    "Pins.lua",
-    "Search.lua",
-    "QuickActions.lua",
-    "Suggestions.lua",
-    "QuickEditor.lua",
-    "Changes.lua",
-    "Transcript.lua",
-    "Folders.lua",
-    "Browser.lua",
-    "GitBar.lua",
-    "DesktopRequest.lua",
-    "BridgeSettings.lua",
-    "RulesGroup.lua",
-    "SettingsTab.lua",
-    "DiagTab.lua",
-    "InputHistory.lua",
-    "LevelMenu.lua",
-    "Window.lua",
-    "ChatMenu.lua",
-    "MiniChat.lua",
-    "Popup.lua",
-    "NoticeFrames.lua",
-    "SetupNeeded.lua",
-    "Core.lua",
-];
 /// A reply of a run on its own branch that changed two files, with its tests and checks.
 const REPLY: &str = "\x1bM1\nB\x1fgnomish/fix\x1f1\x1fmain\nG\x1f2\x1f5\x1f1\nF\x1fsrc/a.rs\x1f4\x1f1\x1fM\nF\x1fnew.txt\x1f1\x1f0\x1fA\nT\x1f41\x1f2\x1f0\nC\x1f5\x1f1\x1f0\x1flint\np\x1fDone.\n";
 
@@ -74,7 +36,7 @@ impl Game {
         let ns = lua.create_table().unwrap();
         ns.set("key", lua.create_string(KEY).unwrap()).unwrap();
         start_addon(&lua, &wow, &fake, "GnomishRelay", None, || {
-            load_into(&lua, &ns, FILES);
+            load_into(&lua, &ns, &toc_files("GnomishRelay"));
         });
         let game = Game { lua, wow, ns };
         game.run("local ns = ... ns.Window.Open()");
