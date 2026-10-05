@@ -11,14 +11,14 @@ use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
 use bridge::calibration::Verdict;
-use bridge::fixture::{self, Fake, PLACEHOLDER};
+use bridge::fixture::{self, Capture, PLACEHOLDER};
 use bridge::line_choice::{self, LineChoice, Reason};
 use bridge::selftest::{self, Parts, SAVED_FILE};
 use bridge::strip::Image;
 use bridge::vectors::{self, Shot};
 use common::{
-    HEIGHT, WIDTH, encode_png, fake_game_for, fire, game_lua_for, load_addon, measured,
-    screenshot_png, signed_frame, start_addon, strip_rows,
+    HEIGHT, WIDTH, encode_png, fake_game_for, game_lua_for, load_addon, measured,
+    measured_at_test_screen, screenshot_png, signed_frame, start_addon, strip_rows,
 };
 use mlua::{Function, Lua, Table};
 use png::{BitDepth, ColorType};
@@ -75,7 +75,7 @@ struct Game {
 
 impl Game {
     fn start(saved: Option<&[u8]>, epoch: i64) -> Game {
-        let fake = measured();
+        let fake = measured_at_test_screen();
         let lua = game_lua_for(&fake);
         let wow = fake_game_for(&lua, "addon/tests/selftest-api.lua", &fake);
         wow.set("epoch", epoch).unwrap();
@@ -97,25 +97,7 @@ impl Game {
         start_addon(&lua, &wow, &fake, ADDON, saved, || {
             load_addon(&lua, ADDON, &ns, FILES);
         });
-        let game = Game { lua, wow };
-        game.enter_world(&fake, saved.is_some());
-        game
-    }
-
-    /// The placeholder has no `PLAYER_ENTERING_WORLD`. The self-test needs it.
-    fn enter_world(&self, fake: &Fake, reload: bool) {
-        if !fake
-            .login_events
-            .iter()
-            .any(|e| e == "PLAYER_ENTERING_WORLD")
-        {
-            fire(
-                &self.lua,
-                &self.wow,
-                "PLAYER_ENTERING_WORLD",
-                (!reload, reload),
-            );
-        }
+        Game { lua, wow }
     }
 
     fn advance(&self, seconds: f64) {
@@ -192,6 +174,21 @@ fn blur(rgb: &[u8]) -> Vec<u8> {
     out
 }
 
+/// The strips that show in a picture: every shot but the probe, which hides its strip
+/// in the hook of `Screenshot()`. A client that captures at the call still shows it.
+fn strips_in_pictures() -> usize {
+    match measured_at_test_screen().capture {
+        Capture::Call => 14,
+        Capture::AfterHandler => 13,
+    }
+}
+
+/// The build of the fake game, as the newest fixture measured it.
+fn fake_build() -> String {
+    let info = measured().build_info;
+    format!("{}.{}", info.version, info.build)
+}
+
 /// A first login, the run, and a /reload: the saved file then knows the load order.
 fn two_sessions() -> (Game, Vec<u8>) {
     let first = Game::start(None, 1_790_300_000);
@@ -223,7 +220,7 @@ fn the_run_draws_every_golden_strip_with_the_public_test_key() {
         14,
         "six sizes, the records, six lines, and the probe"
     );
-    assert_eq!(pictures.len(), shots.len());
+    assert_eq!(pictures.len(), strips_in_pictures());
     for (shot, png_bytes) in shots.iter().zip(&pictures) {
         let image = Image::from_png(png_bytes).unwrap();
         let frame = vectors::test_frame(&image).unwrap().expect("a test strip");
@@ -264,20 +261,16 @@ fn the_first_session_does_not_know_the_load_order_and_asks_for_one_more_reload()
 fn after_a_reload_the_results_make_a_fixture_that_the_fake_game_can_read() {
     let (_, saved) = two_sessions();
     let parts = parts(&saved);
+    let probe_in_picture = strips_in_pictures() == 14;
 
-    let fixture = fixture::build(&parts.results, &parts.load, None, true).unwrap();
+    let fixture = fixture::build(&parts.results, &parts.load, None, probe_in_picture).unwrap();
 
     assert!(!fixture.placeholder);
-    assert_eq!(fixture.build, "1.60.1.70009");
-    // The self-test in the fake game measures the fake game itself. The test fires
-    // PLAYER_ENTERING_WORLD after the login events of the fixture.
-    let expected = measured();
+    assert_eq!(fixture.build, fake_build());
+    // The self-test in the fake game measures the fake game itself.
+    let expected = measured_at_test_screen();
     let mut got = fixture.fake.clone();
     assert!((got.shot_delay - expected.shot_delay).abs() < 0.01);
-    assert_eq!(
-        got.login_events.pop().as_deref(),
-        Some("PLAYER_ENTERING_WORLD")
-    );
     got.shot_delay = expected.shot_delay;
     assert_eq!(got, expected);
     assert_eq!(
@@ -352,19 +345,15 @@ fn collect_writes_the_fixture_and_a_golden_vector_for_each_strip() {
 
     let collected = selftest::collect(game_dir.path(), repo.path()).unwrap();
 
-    assert_eq!(collected.build, "1.60.1.70009");
-    assert_eq!(collected.vectors, 14);
+    assert_eq!(collected.build, fake_build());
+    assert_eq!(collected.vectors, strips_in_pictures());
     assert!(collected.missing.is_empty(), "{:?}", collected.missing);
     let fixtures = repo.path().join("tests").join("fixtures");
     assert!(!fixtures.join(PLACEHOLDER).exists());
     let written = fixture::read(&fixture::newest(&fixtures).unwrap()).unwrap();
-    assert_eq!(written.build, "1.60.1.70009");
-    let vectors = repo
-        .path()
-        .join("tests")
-        .join("vectors")
-        .join("1.60.1.70009");
-    assert_eq!(vectors::check_all(&vectors).unwrap(), 14);
+    assert_eq!(written.build, fake_build());
+    let vectors = repo.path().join("tests").join("vectors").join(fake_build());
+    assert_eq!(vectors::check_all(&vectors).unwrap(), strips_in_pictures());
     assert_eq!(fs::read(vectors.join(SAVED_FILE)).unwrap(), saved);
     let manifest = vectors::read_manifest(&vectors).unwrap();
     assert!(
@@ -394,7 +383,7 @@ fn collect_never_takes_a_screenshot_from_outside_the_time_of_the_run() {
     let collected = selftest::collect(game_dir.path(), repo.path()).unwrap();
 
     assert_eq!(collected.missing, ["len-0000"]);
-    assert_eq!(collected.vectors, 13);
+    assert_eq!(collected.vectors, strips_in_pictures() - 1);
 }
 
 #[test]

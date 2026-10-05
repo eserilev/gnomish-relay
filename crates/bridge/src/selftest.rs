@@ -394,11 +394,10 @@ fn collect_args<'a>(args: &[&'a str]) -> Option<(Option<&'a str>, Option<&'a str
 mod tests {
     use super::*;
 
-    const PLACEHOLDER_JSON: &str = include_str!("../../../tests/fixtures/forever-placeholder.json");
-
-    /// The placeholder fixture as if a client with `interface` measured it.
+    /// The newest Forever fixture of the repo as if a client with `interface` measured it.
     fn fixture_of(interface: u32) -> fixture::Fixture {
-        let mut fixture: fixture::Fixture = serde_json::from_str(PLACEHOLDER_JSON).unwrap();
+        let fixtures = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/fixtures");
+        let mut fixture = fixture::read(&fixture::newest(&fixtures).unwrap()).unwrap();
         fixture.fake.build_info.interface = interface;
         fixture.build = "2.5.6.69795".into();
         fixture

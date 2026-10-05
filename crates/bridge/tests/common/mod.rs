@@ -85,6 +85,8 @@ pub fn bytes(seed: u64, len: usize) -> Vec<u8> {
         .collect()
 }
 
+/// The screen of the strip and line tests. Their pictures and drawing math are for this
+/// size, and the screen size is no part of the client.
 pub const WIDTH: u32 = 1280;
 pub const HEIGHT: u32 = 720;
 
@@ -260,9 +262,17 @@ pub fn fake_game_for(lua: &Lua, api: &str, fake: &Fake) -> Table {
         .unwrap()
 }
 
-/// The fake game for the relay and the shared transport, as the real game measured.
+/// The behavior of the real game on the screen of the strip tests.
+pub fn measured_at_test_screen() -> Fake {
+    let mut fake = measured();
+    fake.physical_screen = [WIDTH, HEIGHT];
+    fake
+}
+
+/// The fake game for the relay and the shared transport, as the real game measured, on
+/// the screen of the strip tests.
 pub fn fake_game(lua: &Lua) -> Table {
-    fake_game_for(lua, api_file(), &measured())
+    fake_game_for(lua, api_file(), &measured_at_test_screen())
 }
 
 pub fn fire(lua: &Lua, wow: &Table, event: &str, args: impl IntoLuaMulti) {

@@ -8,8 +8,12 @@
 
 local api, fake = ...
 
--- The fake has one model of timers that are due together: the order of their start.
-assert(fake.timers_due_together == "fifo", "the fake game has no model for the timer order of this client")
+-- Timers that are due together run in the order of their start ("fifo"), or newest first
+-- ("other"). Forever 1.60.1.70205 runs them in no fixed order, so "other" makes any
+-- code that counts on the order of start fail a test.
+local dueOrders = { fifo = true, other = true }
+assert(dueOrders[fake.timers_due_together], "the fake game has no model for the timer order of this client")
+local newestFirst = fake.timers_due_together == "other"
 
 local wow = {
 	now = 1000,
@@ -556,14 +560,17 @@ local function AddTimer(timer)
 	table.insert(wow.timers, timer)
 end
 
--- Moves the clock forward and runs every timer that comes due. Timers that are due
--- together run in the order of their start.
+-- Moves the clock forward and runs every timer that comes due, in the order of
+-- `timers_due_together` for timers that are due together.
 function wow.Advance(seconds)
 	local stop = wow.now + seconds
 	while true do
 		table.sort(wow.timers, function(a, b)
 			if a.at ~= b.at then
 				return a.at < b.at
+			end
+			if newestFirst then
+				return a.seq > b.seq
 			end
 			return a.seq < b.seq
 		end)
@@ -902,7 +909,7 @@ function C_AddOns.LoadAddOn(name)
 	local returns = fake.load_addon
 	if IsMissing(name) then
 		return Returns(returns.missing)
-	elseif wow.disabled[name] then
+	elseif wow.disabled[name] and not returns.disabled.loaded then
 		return Returns(returns.disabled)
 	elseif wow.outOfDate[name] then
 		return Returns(returns.out_of_date)

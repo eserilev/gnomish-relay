@@ -1,0 +1,704 @@
+{
+  "format": 1,
+  "placeholder": false,
+  "build": "1.60.1.70205",
+  "fake": {
+    "build_info": {
+      "version": "1.60.1",
+      "build": "70205",
+      "date": "Oct  2 2026",
+      "interface": 16001
+    },
+    "physical_screen": [
+      1867,
+      1011
+    ],
+    "shot_delay": 0.988,
+    "shot_event": "SCREENSHOT_SUCCEEDED",
+    "capture": "after_handler",
+    "status_shown": "before_event",
+    "load_addon": {
+      "present": {
+        "loaded": true,
+        "reason": null
+      },
+      "again": {
+        "loaded": true,
+        "reason": null
+      },
+      "missing": {
+        "loaded": false,
+        "reason": "MISSING"
+      },
+      "disabled": {
+        "loaded": true,
+        "reason": null
+      },
+      "enabled_then_loaded": {
+        "loaded": true,
+        "reason": null
+      },
+      "out_of_date": {
+        "loaded": false,
+        "reason": "INCOMPATIBLE"
+      }
+    },
+    "set_font": {
+      "present": true,
+      "missing": "raises"
+    },
+    "content_height_at_once": true,
+    "saved_variables": "after_files",
+    "login_events": [
+      "ADDON_LOADED",
+      "VARIABLES_LOADED",
+      "PLAYER_LOGIN",
+      "PLAYER_ENTERING_WORLD"
+    ],
+    "timers_due_together": "other",
+    "bit": "unsigned",
+    "hook_missing_global": "error"
+  },
+  "measured": {
+    "addons": {
+      "disabled": {
+        "disabled": {
+          "addon_loaded_in_call": false,
+          "file_runs": 1,
+          "is_loaded_after": true,
+          "returns": [
+            true,
+            true,
+            null
+          ]
+        },
+        "enabled_then_loaded": {
+          "addon_loaded_in_call": false,
+          "file_runs": 1,
+          "is_loaded_after": true,
+          "returns": [
+            true,
+            true,
+            null
+          ]
+        }
+      },
+      "missing": {
+        "addon_loaded_in_call": false,
+        "file_runs": 0,
+        "is_loaded_after": false,
+        "returns": [
+          true,
+          false,
+          "MISSING"
+        ]
+      },
+      "old_info": [
+        true,
+        "GnomishRelaySelfTest_Old",
+        "Gnomish Relay self-test (Old)",
+        "A load-on-demand addon with an old Interface number for the self-test. Never ship it.",
+        false,
+        "INCOMPATIBLE",
+        "INSECURE"
+      ],
+      "out_of_date": {
+        "addon_loaded_in_call": false,
+        "file_runs": 0,
+        "is_loaded_after": false,
+        "returns": [
+          true,
+          false,
+          "INCOMPATIBLE"
+        ]
+      },
+      "present": {
+        "again": {
+          "addon_loaded_in_call": false,
+          "file_runs": 1,
+          "is_loaded_after": true,
+          "returns": [
+            true,
+            true,
+            null
+          ]
+        },
+        "first": {
+          "addon_loaded_in_call": false,
+          "file_runs": 1,
+          "is_loaded_after": true,
+          "returns": [
+            true,
+            true,
+            null
+          ]
+        },
+        "is_loaded_before": true
+      }
+    },
+    "client": {
+      "build": "70205",
+      "date": "Oct  2 2026",
+      "interface": 16001,
+      "version": "1.60.1"
+    },
+    "clocks_at_end": {
+      "framerate": 48.46526336669922,
+      "get_time_ms": 174518953,
+      "precise_ms": 174518954,
+      "server_time": 1791159095,
+      "time": 1791159095
+    },
+    "clocks_at_start": {
+      "framerate": 41.688377380371094,
+      "get_time_ms": 174473304,
+      "precise_ms": 174473305,
+      "server_time": 1791159048,
+      "time": 1791159049
+    },
+    "fonts": {
+      "colored": {
+        "at_once": 56.000003814697266,
+        "later": 56.000003814697266,
+        "set_text_ok": true
+      },
+      "font_string_set_font": {
+        "missing": [
+          false,
+          "FontString:SetFont(): Invalid font asset (Interface\\AddOns\\GnomishRelaySelfTest\\NoSuchFont.ttf): file not found\nLua Taint: GnomishRelaySelfTest"
+        ],
+        "present": [
+          true,
+          true
+        ],
+        "relay_mono": [
+          true,
+          false
+        ]
+      },
+      "glyphs": {
+        "bullet": 5.000000953674316,
+        "color_code": 7.000000476837158,
+        "doubled_pipe": 3,
+        "four_no_break_spaces_then_x": 23,
+        "line_height": 14.000000953674316,
+        "no_break_space": 4,
+        "space": 4,
+        "ten_letters": 58,
+        "x": 7.000000476837158
+      },
+      "plain": {
+        "at_once": 56.000003814697266,
+        "later": 56.000003814697266,
+        "set_text_ok": true
+      },
+      "simple_html_set_font": {
+        "h1": [
+          true
+        ],
+        "h2": [
+          true
+        ],
+        "h3": [
+          true
+        ],
+        "p": [
+          true
+        ]
+      },
+      "two_blocks": {
+        "at_once": 28.000001907348633,
+        "later": 28.000001907348633,
+        "next_frame": 28.000001907348633,
+        "set_text_ok": true
+      }
+    },
+    "format": 1,
+    "format_probe": {
+      "backslash": "\\",
+      "big": 9007199254740991,
+      "carriage_return": "a\rb",
+      "control": "\u0001\u0002\u001f",
+      "fraction": 0.1,
+      "high": "Èÿ",
+      "list": [
+        1,
+        "two",
+        false
+      ],
+      "negative": -12,
+      "newline": "a\nb",
+      "nul": "a\u0000b",
+      "quote": "\"",
+      "yes": true
+    },
+    "key": "676e6f6d6973682d72656c6179207075626c69632074657374206b6579203031",
+    "lua": {
+      "bit_band_minus_1": 4294967295,
+      "bit_bnot_0": 4294967295,
+      "bit_lshift_1_31": 2147483648,
+      "bit_rshift_minus_1_28": 15,
+      "get_time_same_in_one_handler": true,
+      "hooksecurefunc_missing": {
+        "global_after": "nil",
+        "returns": [
+          false,
+          "hooksecurefunc(): GnomishRelaySelfTestNoSuchFunction is not a function"
+        ]
+      },
+      "quoted_control": "\"\u0001\\\n\\000\"",
+      "version": "Lua 5.1"
+    },
+    "placeholder": false,
+    "screen": {
+      "cvars": {
+        "renderScale": "1",
+        "screenshotFormat": "png",
+        "screenshotQuality": "3",
+        "uiScale": "1.000000",
+        "useUiScale": "0"
+      },
+      "physical": [
+        1867,
+        1011
+      ],
+      "ui": [
+        1867,
+        1011
+      ],
+      "ui_parent_effective_scale": 0.7596439123153687,
+      "ui_parent_scale": 0.7596439123153687
+    },
+    "screenshot_format_before": "png",
+    "secrets": {
+      "has_issecretvalue": true,
+      "player_health": {
+        "secret": true,
+        "status": "measured"
+      },
+      "player_power": {
+        "secret": true,
+        "status": "measured"
+      },
+      "player_role": {
+        "secret": false,
+        "status": "measured",
+        "value": "NONE"
+      },
+      "player_threat": {
+        "secret": false,
+        "status": "measured"
+      },
+      "t1_threat_percent": {
+        "status": "needs combat"
+      },
+      "t3_nameplate_health": {
+        "status": "needs nameplate"
+      },
+      "t6_party_power": {
+        "status": "needs group"
+      },
+      "t7_party_role": {
+        "status": "needs group"
+      },
+      "t8_combat_log_event": {
+        "registered": true,
+        "status": "measured"
+      },
+      "t8_combat_log_restricted": {
+        "secret": false,
+        "status": "measured",
+        "value": true
+      }
+    },
+    "set_screenshot_format": {
+      "read_back": "png",
+      "returns": [
+        true,
+        true
+      ]
+    },
+    "shots": [
+      {
+        "called_ms": 174476334,
+        "date": "100426_171053",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 939
+          }
+        ],
+        "frame_id": 1,
+        "kind": "golden",
+        "name": "len-0000",
+        "ok": true,
+        "unix": 1791159053,
+        "scaled": false,
+        "status_shown_ms": 939,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174479383,
+        "date": "100426_171056",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 856
+          }
+        ],
+        "frame_id": 2,
+        "kind": "golden",
+        "name": "len-0001",
+        "ok": true,
+        "unix": 1791159056,
+        "scaled": false,
+        "status_shown_ms": 856,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174482345,
+        "date": "100426_171059",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 919
+          }
+        ],
+        "frame_id": 3,
+        "kind": "golden",
+        "name": "len-0062",
+        "ok": true,
+        "unix": 1791159059,
+        "scaled": false,
+        "status_shown_ms": 919,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174485365,
+        "date": "100426_171102",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 988
+          }
+        ],
+        "frame_id": 4,
+        "kind": "golden",
+        "name": "len-0137",
+        "ok": true,
+        "unix": 1791159062,
+        "scaled": false,
+        "status_shown_ms": 987,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174488462,
+        "date": "100426_171105",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 940
+          }
+        ],
+        "frame_id": 5,
+        "kind": "golden",
+        "name": "len-0500",
+        "ok": true,
+        "unix": 1791159065,
+        "scaled": false,
+        "status_shown_ms": 940,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174491519,
+        "date": "100426_171108",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 905
+          }
+        ],
+        "frame_id": 6,
+        "kind": "golden",
+        "name": "len-3200",
+        "ok": true,
+        "unix": 1791159068,
+        "scaled": false,
+        "status_shown_ms": 905,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174494549,
+        "date": "100426_171111",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 951
+          }
+        ],
+        "frame_id": 7,
+        "kind": "golden",
+        "name": "records",
+        "ok": true,
+        "unix": 1791159071,
+        "scaled": false,
+        "status_shown_ms": 951,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174497625,
+        "date": "100426_171114",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 930
+          }
+        ],
+        "frame_id": 8,
+        "kind": "line",
+        "mode": 1,
+        "name": "line-1",
+        "ok": true,
+        "unix": 1791159074,
+        "scaled": false,
+        "status_shown_ms": 929,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174500679,
+        "date": "100426_171117",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 928
+          }
+        ],
+        "frame_id": 9,
+        "kind": "line",
+        "mode": 2,
+        "name": "line-2",
+        "ok": true,
+        "unix": 1791159077,
+        "scaled": false,
+        "status_shown_ms": 927,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174503706,
+        "date": "100426_171120",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 942
+          }
+        ],
+        "frame_id": 10,
+        "kind": "line",
+        "mode": 3,
+        "name": "line-3",
+        "ok": true,
+        "unix": 1791159080,
+        "scaled": false,
+        "status_shown_ms": 941,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174506756,
+        "date": "100426_171123",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 937
+          }
+        ],
+        "frame_id": 11,
+        "kind": "line",
+        "mode": 4,
+        "name": "line-4",
+        "ok": true,
+        "unix": 1791159083,
+        "scaled": false,
+        "status_shown_ms": 937,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174509829,
+        "date": "100426_171126",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 934
+          }
+        ],
+        "frame_id": 12,
+        "kind": "line",
+        "mode": 5,
+        "name": "line-5",
+        "ok": true,
+        "unix": 1791159086,
+        "scaled": false,
+        "status_shown_ms": 934,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174512885,
+        "date": "100426_171129",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 932
+          }
+        ],
+        "frame_id": 13,
+        "kind": "line",
+        "mode": 6,
+        "name": "line-6",
+        "ok": true,
+        "unix": 1791159089,
+        "scaled": false,
+        "status_shown_ms": 932,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      },
+      {
+        "called_ms": 174515941,
+        "date": "100426_171132",
+        "events": [
+          {
+            "event": "SCREENSHOT_SUCCEEDED",
+            "ms": 1008
+          }
+        ],
+        "frame_id": 14,
+        "kind": "hide_after_call",
+        "name": "hide-after-call",
+        "ok": true,
+        "unix": 1791159092,
+        "scaled": false,
+        "status_shown_ms": 1008,
+        "strip_effective_scale": 0.7596439123153687,
+        "time": 1790211079,
+        "ui_parent_scale": 0.7596439123153687
+      }
+    ],
+    "timing": {
+      "after": [
+        {
+          "asked_ms": 0,
+          "get_time_ms": 23,
+          "precise_ms": 23
+        },
+        {
+          "asked_ms": 10,
+          "get_time_ms": 22,
+          "precise_ms": 23
+        },
+        {
+          "asked_ms": 100,
+          "get_time_ms": 115,
+          "precise_ms": 115
+        },
+        {
+          "asked_ms": 1000,
+          "get_time_ms": 1002,
+          "precise_ms": 1003
+        }
+      ],
+      "same_time_order": [
+        "second",
+        "third",
+        "first"
+      ],
+      "ticker_steps_ms": [
+        108,
+        134,
+        101,
+        99,
+        100,
+        100,
+        100,
+        100,
+        100,
+        100
+      ]
+    },
+    "load": {
+      "sessions": {
+        "login": {
+          "events": [
+            {
+              "detail": "self",
+              "event": "ADDON_LOADED",
+              "ms": 12
+            },
+            {
+              "event": "VARIABLES_LOADED",
+              "ms": 5915
+            },
+            {
+              "event": "PLAYER_LOGIN",
+              "ms": 6403
+            },
+            {
+              "detail": "login",
+              "event": "PLAYER_ENTERING_WORLD",
+              "ms": 6671
+            }
+          ],
+          "saved_at_addon_loaded": "nil",
+          "saved_at_file_load": "nil"
+        },
+        "reload": {
+          "events": [
+            {
+              "detail": "self",
+              "event": "ADDON_LOADED",
+              "ms": 15
+            },
+            {
+              "event": "VARIABLES_LOADED",
+              "ms": 102
+            },
+            {
+              "event": "PLAYER_LOGIN",
+              "ms": 508
+            },
+            {
+              "detail": "reload",
+              "event": "PLAYER_ENTERING_WORLD",
+              "ms": 735
+            }
+          ],
+          "saved_at_addon_loaded": "table",
+          "saved_at_file_load": "nil"
+        }
+      }
+    },
+    "combat": null
+  }
+}

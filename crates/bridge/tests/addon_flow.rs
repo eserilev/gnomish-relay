@@ -18,8 +18,8 @@ use bridge::relay::{Folders, Relay};
 use bridge::settings_list::{BridgeSettings, StorySettings, settings_reply};
 use bridge::strip::{self, Image};
 use common::{
-    api_file, fake_game_for, fire, font_string_with, game_lua_for, is_cut, load_into, lua_value,
-    measured, repo_file, screenshot_png, start_addon,
+    api_file, fake_game_for, fire, font_string_with, game_lua_for, is_cut, load_into, measured,
+    repo_file, screenshot_png, start_addon,
 };
 use hmac::{Hmac, Mac};
 use mlua::{Function, Lua, Table, Value};
@@ -5472,6 +5472,8 @@ fn a_disabled_slot_loads_only_when_the_enable_of_slots_lua_works() {
     for enable_works in [true, false] {
         let game = Game::start_changed(|fake| {
             fake.load_addon.enabled_then_loaded.loaded = Some(enable_works);
+            fake.load_addon.disabled.loaded = Some(false);
+            fake.load_addon.disabled.reason = Some("DISABLED".into());
         });
         let disabled: Table = game.wow.get("disabled").unwrap();
         disabled.set("GnomishRelay_S0001", true).unwrap();
@@ -5482,6 +5484,23 @@ fn a_disabled_slot_loads_only_when_the_enable_of_slots_lua_works() {
         let missing = problem(&game).as_deref() == Some("missing");
         assert_eq!(missing, !enable_works, "enable works: {enable_works}");
     }
+}
+
+/// Forever 1.60.1.70205 loads a disabled addon anyway (measured by the self-test).
+#[test]
+fn a_client_that_loads_a_disabled_slot_reads_its_body() {
+    let game = Game::start_changed(|fake| {
+        fake.load_addon.enabled_then_loaded.loaded = Some(false);
+        fake.load_addon.disabled.loaded = Some(true);
+        fake.load_addon.disabled.reason = None;
+    });
+    let disabled: Table = game.wow.get("disabled").unwrap();
+    disabled.set("GnomishRelay_S0001", true).unwrap();
+
+    game.run("local ns = ... ns.Transport.Poll()");
+
+    assert_eq!(loaded_slots(&game), 1);
+    assert_ne!(problem(&game).as_deref(), Some("missing"));
 }
 
 #[test]
@@ -5505,19 +5524,32 @@ fn a_hooksecurefunc_that_refuses_a_missing_global_still_loads_the_relay() {
     assert!(game.last_strip().iter().any(|r| r.text == b"still here"));
 }
 
-#[test]
-fn a_timer_order_that_the_fake_does_not_model_stops_the_fake_at_load() {
+/// The order in which three timers that are due together run in the fake game.
+fn due_order(order: TimerOrder) -> String {
     let mut fake = measured();
-    fake.timers_due_together = TimerOrder::Other;
+    fake.timers_due_together = order;
     let lua = game_lua_for(&fake);
-    let api: Table = lua.load(repo_file(api_file())).call(()).unwrap();
-    let fake = lua_value(&lua, &serde_json::to_value(&fake).unwrap());
+    let wow = fake_game_for(&lua, api_file(), &fake);
+    lua.load(
+        "ran = {} for _, name in ipairs({'first', 'second', 'third'}) do \
+         C_Timer.After(1, function() table.insert(ran, name) end) end",
+    )
+    .exec()
+    .unwrap();
+    wow.get::<Function>("Advance")
+        .unwrap()
+        .call::<()>(2.0)
+        .unwrap();
+    lua.load("return table.concat(ran, ' ')").eval().unwrap()
+}
 
-    let loaded = lua
-        .load(repo_file("addon/tests/wow.lua"))
-        .call::<Table>((api, fake));
-
-    assert!(loaded.is_err());
+/// Forever 1.60.1.70205 ran three timers due together as second, third, first. So the
+/// fake runs them newest first for such a client, and code that counts on the order of
+/// start fails a test.
+#[test]
+fn timers_due_together_run_in_order_of_start_or_newest_first() {
+    assert_eq!(due_order(TimerOrder::Fifo), "first second third");
+    assert_eq!(due_order(TimerOrder::Other), "third second first");
 }
 
 /// `TREE` from a desktop app that takes the home form: the `~` line names the home folder.

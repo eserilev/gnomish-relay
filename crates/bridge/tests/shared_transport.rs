@@ -27,6 +27,10 @@ use protocol::record::Record;
 use protocol::restore::{Chat, Entry, Role, prepare_restore, restore_body};
 use protocol::slot::{Reply, Status, prepare_replies, slot_body};
 
+/// The shot delay of every test here, so that the timelines do not change with the fixture.
+/// A real shot can take 1 s (SPEC.md 17).
+const TIMELINE_SHOT_DELAY: f64 = 0.4;
+
 const RELAY_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 const TIMEWAYS_KEY: &[u8] = b"fedcba9876543210fedcba9876543210";
 const SHARED: &[&str] = &[
@@ -167,6 +171,7 @@ impl Game {
     fn new() -> Game {
         let lua = game_lua();
         let wow = fake_game(&lua);
+        wow.set("shotDelay", TIMELINE_SHOT_DELAY).unwrap();
         let strips = lua
             .create_sequence_from([RELAY.strip, TIMEWAYS.strip])
             .unwrap();
@@ -1005,7 +1010,8 @@ fn two_addons_in_one_game_send_and_get_replies_through_their_own_messages() {
 }
 
 // The shared strip corner (SPEC.md 7.1 and 9.7, decision 13). Both addons tick at the
-// same whole seconds, and a strip takes 0.5 s, so each timeline below is exact. The
+// same whole seconds, and a strip takes 0.5 s (`TIMELINE_SHOT_DELAY`), so each timeline
+// below is exact. The
 // hellos of both addons at login are done after 7 s: a strip, a tail of 2 s, and a strip.
 
 /// Past the login hellos of both addons and their tails.
@@ -1087,6 +1093,24 @@ fn the_relay_strip_goes_out_within_four_seconds_while_the_test_addon_sends() {
     assert_eq!(game.overlaps(), 0);
 }
 
+/// Forever 1.60.1.70205 and TBC Anniversary take about 1 s for a shot (SPEC.md 17).
+#[test]
+fn at_the_measured_shot_delay_the_relay_strip_goes_out_within_five_seconds() {
+    let game = Game::new();
+    game.wow.set("shotDelay", measured().shot_delay).unwrap();
+    let relay = game.relay();
+    let timeways = game.timeways();
+    game.advance(AFTER_HELLOS + 3.0);
+
+    link_send(&timeways, "story first");
+    relay_send(&relay, "relay second");
+    game.advance(5.0);
+
+    assert_eq!(game.shows_of(&TIMEWAYS, b"story first"), 1);
+    assert_eq!(game.shows_of(&RELAY, b"relay second"), 1);
+    assert_eq!(game.overlaps(), 0);
+}
+
 #[test]
 fn an_app_that_waits_longer_gets_the_next_turn() {
     let game = Game::new();
@@ -1120,7 +1144,7 @@ fn a_late_failed_event_of_one_app_never_ends_the_strip_of_the_other_or_its_healt
     game.wow.set("shotsBlocked", true).unwrap();
     link_send(&timeways, "story slow");
     game.advance(0.2);
-    game.wow.set("shotDelay", 0.4).unwrap();
+    game.wow.set("shotDelay", TIMELINE_SHOT_DELAY).unwrap();
     game.wow.set("shotsBlocked", false).unwrap();
 
     relay_send(&relay, "relay waits");
