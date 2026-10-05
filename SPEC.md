@@ -3703,26 +3703,25 @@ The report prints one line per mode, with the largest error, then the chosen mod
 
 1. It reads `GnomishRelaySelfTest.lua`, the newest one of all accounts, with the limits of `saved.rs`. It refuses results that name a key other than the public test key.
 2. It scans the `Screenshots` folder for PNGs from the time of the run. It decodes each one with the real bridge reader and the test key, and keeps a file only when its time, frame id, and payload match a shot. It never takes a path from the saved file.
-3. It writes `tests/fixtures/<client>-<build>.json`, for example `anniversary-2.5.6.69795.json`: the measurements, and the fake game behavior that follows from them. The interface number of the build names the client (7.9). After a Forever run, it deletes the placeholder fixture.
+3. It writes `tests/fixtures/<client>-<build>.json`, for example `anniversary-2.5.6.69795.json`: the measurements, and the fake game behavior that follows from them. The interface number of the build names the client (7.9).
 4. It writes `tests/vectors/<build>/`: each PNG, `manifest.json` with each payload and the key, and the raw saved file, which shows how WoW writes saved variables. Each PNG keeps only the smallest top-left corner that still decodes its strip. The rest of a screenshot shows the player's screen with the character name, and the repo is public.
 5. It judges each line mode, prints the report, and writes `strip-line.json` into the bridge data folder (7.1.3). This is the only file that it writes outside the repo.
 
 It reads no key and no config of the relay, and it never deletes a screenshot. A running bridge leaves the test strips alone: it checks each strip that fails its keys against the test key, and keeps and logs a test strip.
 
-**The fake game.** The tests load the newest real Forever fixture, or `tests/fixtures/forever-placeholder.json` while none exists. The first real Forever fixture (1.60.1.70205) came on 2026-10-04, and the placeholder is gone. A fixture of another client never replaces it: each behavior where that client differs gets its own test (7.9).
+**The fake game.** The tests load the newest Forever fixture. The first one (1.60.1.70205) came on 2026-10-04 and replaced a fixture of guesses. A fixture of another client never replaces it: each behavior where that client differs gets its own test (7.9).
 
 - CI also runs the addon behavior suites (`addon_flow`, `addon_notices`, `addon_chat_tools`, `addon_git`, and `addon_update`) once more in the fake game of each other client. `scripts/test-addon-clients.sh` sets `GNOMISH_TEST_CLIENT`, and the tests take that client's fixture and API file.
 - The waits after a send come from the measured shot delay (`wait_for_shot`), never less than one second.
 - The strip and line suites stay on Forever. Their pictures and drawing math are for a screen of 1280x720, so the fake game of these suites reports that screen in place of the measured one (`measured_at_test_screen`). The screen size is no part of the client.
 - The timelines of `shared_transport.rs` use a shot delay of 0.4 s, so that they do not change with the fixture. One test runs at the measured shot delay (17, "Slow shots and two apps").
-- The placeholder holds the fake game's guesses from before the self-test, and says so.
 - The fake game takes these values from the fixture: `GetBuildInfo`, the screen size, the delay of the slowest shot, the event of a good shot, when the picture is taken, when "Screen captured" shows, the returns of `LoadAddOn` and `FontString:SetFont`, whether `GetContentHeight` waits for the next frame, whether the saved variables load before or after the files, the login events, the timer order, the `bit` results, and `hooksecurefunc` on a missing global.
 - The addon tests also run the relay in the other behaviors that it depends on: "Screen captured" before and after the event, a picture after the handler, saved variables after the files, a content height in the next frame, a disabled slot with and without a working `EnableAddOn`, an out-of-date slot, and a `hooksecurefunc` that refuses a missing global.
 - For the timer order `other`, the fake game runs timers that are due together newest first. Forever 1.60.1.70205 runs them in no fixed order, so code that counts on the order of start fails a test.
 - Forever 1.60.1.70205 loads a disabled addon. The fixture keeps this, and a test runs the relay in both behaviors.
 - A test fails when the measured shot delay no longer fits the one-second waits of the addon tests.
 
-**Tests.** `crates/bridge/tests/golden.rs` decodes every committed vector on all three OSes. It skips with a message only while no real fixture exists. When a real fixture exists, a missing vector folder fails, and so does a placeholder that is still there. `crates/bridge/tests/selftest.rs` runs the self-test addon in the fake game, and collect on what it leaves.
+**Tests.** `crates/bridge/tests/golden.rs` decodes every committed vector on all three OSes. A fixture without its vector folder fails. `crates/bridge/tests/selftest.rs` runs the self-test addon in the fake game, and collect on what it leaves.
 
 **The API gate.** The self-test calls functions that the relay must never call. So it has its own lint list (`selftest.yml`), and `scripts/selftest-api.sh` writes its own API files (`addon/tests/selftest-api.lua` and `selftest-api-signatures.lua`). CI and the nightly job run both gates.
 
@@ -3741,7 +3740,7 @@ The first run ever needs one more `/reload`: its first session has no saved file
 - Collect finds each screenshot by the frame that it holds, not by a name or a time. WoW names a screenshot by the second, and the saved file is untrusted text.
 - The strips at other UI scales run only on `/grst scale`. `UIParent:SetScale` is allowed out of combat, but a fight that starts before the restore blocks it. The addon then restores the scale at the end of the fight.
 - The run starts after `PLAYER_ENTERING_WORLD`, not at `PLAYER_LOGIN`: a shot at login can catch the loading screen.
-- The placeholder fixture is the only place for the guesses. The fake game has no second copy of them.
+- The fixture is the only place for the behavior of the game. The fake game has no second copy of it.
 
 ### 14.4 Fuzzing
 

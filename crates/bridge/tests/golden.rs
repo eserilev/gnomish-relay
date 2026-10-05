@@ -8,34 +8,27 @@ mod common;
 
 use std::fs;
 
-use bridge::fixture::{self, PLACEHOLDER};
+use bridge::fixture;
 use bridge::ids::hex;
 use bridge::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
 use bridge::wow_client::WowClient;
-use common::{Bits, bytes, fixture, load, lua, repo_path, screenshot_png, strip_rows};
+use common::{Bits, bytes, load, lua, repo_path, screenshot_png, strip_rows};
 use mlua::{Function, Table};
 
-/// The real fixtures of every client.
-fn all_real_fixtures() -> Vec<std::path::PathBuf> {
+/// The fixtures of every client.
+fn all_fixtures() -> Vec<std::path::PathBuf> {
     let fixtures = repo_path("tests/fixtures");
     let mut all = Vec::new();
     for client in WowClient::ALL {
-        let real = fixture::real_fixtures(&fixtures, client).unwrap();
-        all.extend(real.into_iter().map(|(_, path)| path));
+        let found = fixture::fixtures_of(&fixtures, client).unwrap();
+        all.extend(found.into_iter().map(|(_, path)| path));
     }
     all
 }
 
 #[test]
 fn every_committed_golden_vector_decodes_with_the_test_key() {
-    let real = all_real_fixtures();
-    if real.is_empty() {
-        eprintln!(
-            "SKIP: tests/vectors has no golden vectors yet. Run the self-test in the game (SPEC.md 14.3)."
-        );
-        return;
-    }
-    for path in real {
+    for path in all_fixtures() {
         let fixture = fixture::read(&path).unwrap();
         let dir = repo_path("tests/vectors").join(&fixture.build);
 
@@ -54,32 +47,6 @@ fn every_committed_golden_vector_decodes_with_the_test_key() {
             fixture.build
         );
     }
-}
-
-#[test]
-fn the_placeholder_fixture_goes_once_a_real_forever_fixture_exists() {
-    let fixtures = repo_path("tests/fixtures");
-    if fixture::real_fixtures(&fixtures, WowClient::Forever)
-        .unwrap()
-        .is_empty()
-    {
-        return;
-    }
-    assert!(
-        !fixtures.join(PLACEHOLDER).exists(),
-        "a real Forever fixture exists, so delete tests/fixtures/{PLACEHOLDER}"
-    );
-}
-
-#[test]
-fn the_fake_game_uses_the_placeholder_only_while_no_real_forever_fixture_exists() {
-    let fixtures = repo_path("tests/fixtures");
-    let real = fixture::real_fixtures(&fixtures, WowClient::Forever).unwrap();
-    let none_real = real.is_empty();
-
-    let used = fixture();
-
-    assert_eq!(used.placeholder, none_real);
 }
 
 /// A vector as the game would make it: the Lua codec signs the frame, and a scene at a

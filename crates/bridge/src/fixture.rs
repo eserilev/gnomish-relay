@@ -13,13 +13,10 @@ use crate::vectors::Shot;
 use crate::wow_client::WowClient;
 
 pub const FORMAT: u32 = 1;
-/// The guesses for Forever from before the self-test. No other client has one.
-pub const PLACEHOLDER: &str = "forever-placeholder.json";
 
 #[derive(Serialize, Deserialize, Debug, PartialEq)]
 pub struct Fixture {
     pub format: u32,
-    pub placeholder: bool,
     pub build: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub note: Option<String>,
@@ -466,7 +463,6 @@ pub fn build(
         serde_json::from_value(load.clone()).context("the load order has a wrong shape")?;
     Ok(Fixture {
         format: FORMAT,
-        placeholder: false,
         build: build_name(&typed.client)?,
         note: None,
         fake: fake(&typed, &part, probe_in_picture)?,
@@ -490,9 +486,8 @@ pub fn client(fixture: &Fixture) -> Result<WowClient> {
         .with_context(|| format!("no supported client has the interface {interface}"))
 }
 
-/// Each real fixture of `client` in `dir` with its version numbers, oldest first. The
-/// placeholder is not one.
-pub fn real_fixtures(dir: &Path, client: WowClient) -> Result<Vec<(Vec<u64>, PathBuf)>> {
+/// Each fixture of `client` in `dir` with its version numbers, oldest first.
+pub fn fixtures_of(dir: &Path, client: WowClient) -> Result<Vec<(Vec<u64>, PathBuf)>> {
     let prefix = format!("{}-", client.name());
     let mut found = Vec::new();
     for entry in fs::read_dir(dir)?.flatten() {
@@ -508,19 +503,18 @@ pub fn real_fixtures(dir: &Path, client: WowClient) -> Result<Vec<(Vec<u64>, Pat
     Ok(found)
 }
 
-/// The fixture of the newest Forever build in `dir`, or the placeholder while there is
-/// none. The fake game of the tests is Forever, the first client.
+/// The fixture of the newest Forever build in `dir`. The fake game of the tests is
+/// Forever, the first client.
 pub fn newest(dir: &Path) -> Result<PathBuf> {
     newest_of(dir, WowClient::Forever)
 }
 
-/// The fixture of the newest build of `client` in `dir`. Only Forever has a placeholder.
+/// The fixture of the newest build of `client` in `dir`.
 pub fn newest_of(dir: &Path, client: WowClient) -> Result<PathBuf> {
-    match (real_fixtures(dir, client)?.pop(), client) {
-        (Some((_, path)), _) => Ok(path),
-        (None, WowClient::Forever) => Ok(dir.join(PLACEHOLDER)),
-        (None, _) => bail!("tests/fixtures has no fixture of {}", client.name()),
-    }
+    let Some((_, path)) = fixtures_of(dir, client)?.pop() else {
+        bail!("tests/fixtures has no fixture of {}", client.name());
+    };
+    Ok(path)
 }
 
 pub fn read(path: &Path) -> Result<Fixture> {
@@ -698,11 +692,11 @@ mod tests {
     }
 
     #[test]
-    fn the_newest_fixture_compares_versions_as_numbers_and_skips_the_placeholder() {
+    fn the_newest_fixture_compares_versions_as_numbers_and_skips_other_files() {
         let dir = tempfile::tempdir().unwrap();
-        assert_eq!(newest(dir.path()).unwrap(), dir.path().join(PLACEHOLDER));
+        assert!(newest(dir.path()).is_err());
         let names = [
-            PLACEHOLDER,
+            "forever-placeholder.json",
             "forever-1.60.9.1.json",
             "forever-1.60.10.1.json",
             "anniversary-2.5.7.1.json",
@@ -714,10 +708,10 @@ mod tests {
         let newest = newest(dir.path()).unwrap();
         assert_eq!(newest, dir.path().join("forever-1.60.10.1.json"));
         assert_eq!(
-            real_fixtures(dir.path(), WowClient::Forever).unwrap().len(),
+            fixtures_of(dir.path(), WowClient::Forever).unwrap().len(),
             2
         );
-        let anniversary = real_fixtures(dir.path(), WowClient::Anniversary).unwrap();
+        let anniversary = fixtures_of(dir.path(), WowClient::Anniversary).unwrap();
         assert_eq!(anniversary.len(), 1);
     }
 }

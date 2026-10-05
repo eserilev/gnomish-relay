@@ -11,7 +11,7 @@ use std::path::Path;
 use std::time::{Duration, UNIX_EPOCH};
 
 use bridge::calibration::Verdict;
-use bridge::fixture::{self, Capture, PLACEHOLDER};
+use bridge::fixture::{self, Capture};
 use bridge::line_choice::{self, LineChoice, Reason};
 use bridge::selftest::{self, Parts, SAVED_FILE};
 use bridge::strip::Image;
@@ -248,7 +248,6 @@ fn after_a_reload_the_results_make_a_fixture_that_the_fake_game_can_read() {
 
     let fixture = fixture::build(&parts.results, &parts.load, None, probe_in_picture).unwrap();
 
-    assert!(!fixture.placeholder);
     assert_eq!(fixture.build, fake_build());
     // The self-test in the fake game measures the fake game itself.
     let expected = measured_at_test_screen();
@@ -331,7 +330,6 @@ fn game_folder_with(root: &Path, saved: &[u8], pictures: Vec<Vec<u8>>) {
 fn repo_folder(root: &Path) {
     let fixtures = root.join("tests").join("fixtures");
     fs::create_dir_all(&fixtures).unwrap();
-    fs::write(fixtures.join(PLACEHOLDER), "{}").unwrap();
 }
 
 #[test]
@@ -348,7 +346,6 @@ fn collect_writes_the_fixture_and_a_golden_vector_for_each_strip() {
     assert_eq!(collected.vectors, strips_in_pictures());
     assert!(collected.missing.is_empty(), "{:?}", collected.missing);
     let fixtures = repo.path().join("tests").join("fixtures");
-    assert!(!fixtures.join(PLACEHOLDER).exists());
     let written = fixture::read(&fixture::newest(&fixtures).unwrap()).unwrap();
     assert_eq!(written.build, fake_build());
     let vectors = repo.path().join("tests").join("vectors").join(fake_build());

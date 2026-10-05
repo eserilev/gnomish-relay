@@ -11,14 +11,13 @@ use serde_json::Value;
 
 use crate::calibration::{self, Verdict};
 use crate::dirs::Dirs;
-use crate::fixture::{self, PLACEHOLDER};
+use crate::fixture;
 use crate::game_choice;
 use crate::ids::hex;
 use crate::line::{CELLS_PER_ROW, Mode};
 use crate::line_choice::{self, LineChoice};
 use crate::saved;
 use crate::vectors::{self, MANIFEST, Manifest, Shot, TEST_KEY, Vector};
-use crate::wow_client::WowClient;
 
 pub const SAVED_FILE: &str = "GnomishRelaySelfTest.lua";
 /// A screenshot file gets its time a moment after the `Screenshot()` call.
@@ -292,16 +291,12 @@ fn chosen_line(line: Option<LineChoice>) -> String {
     )
 }
 
-/// Writes `fixture` under the name of its client (SPEC.md 7.9). Only Forever has a
-/// placeholder, so only a Forever fixture deletes it.
+/// Writes `fixture` under the name of its client (SPEC.md 7.9).
 fn write_fixture(fixtures: &Path, fixture: &fixture::Fixture) -> Result<PathBuf> {
     fs::create_dir_all(fixtures)?;
     let client = fixture::client(fixture)?;
     let path = fixtures.join(fixture::file_name(client, &fixture.build));
     fs::write(&path, serde_json::to_string_pretty(fixture)? + "\n")?;
-    if client == WowClient::Forever {
-        let _ = fs::remove_file(fixtures.join(PLACEHOLDER));
-    }
     Ok(path)
 }
 
@@ -404,14 +399,12 @@ mod tests {
     }
 
     #[test]
-    fn an_anniversary_fixture_is_named_after_its_client_and_keeps_the_placeholder() {
+    fn an_anniversary_fixture_is_named_after_its_client() {
         let dir = tempfile::tempdir().unwrap();
-        fs::write(dir.path().join(PLACEHOLDER), "{}").unwrap();
 
         let path = write_fixture(dir.path(), &fixture_of(20506)).unwrap();
 
         assert_eq!(path, dir.path().join("anniversary-2.5.6.69795.json"));
-        assert!(dir.path().join(PLACEHOLDER).exists());
     }
 
     #[test]

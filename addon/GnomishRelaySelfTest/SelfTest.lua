@@ -82,7 +82,6 @@ end
 local function Measure(withScales, done)
 	local results = {
 		format = FORMAT,
-		placeholder = false,
 		key = ns.Codec.Hex(ns.Shots.TEST_KEY),
 		clocks_at_start = Safe(ns.Timing.Clocks),
 		client = ns.Client.Build(),

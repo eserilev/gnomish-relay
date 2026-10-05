@@ -211,8 +211,7 @@ pub fn api_file() -> &'static str {
 }
 
 /// The newest fixture of the test client in `tests/fixtures`: what the self-test
-/// measured in the real game, or the Forever placeholder while nothing is measured
-/// (SPEC.md 14.3).
+/// measured in the real game (SPEC.md 14.3).
 pub fn fixture() -> Fixture {
     let path = fixture::newest_of(&repo_path("tests/fixtures"), test_client()).unwrap();
     fixture::read(&path).unwrap()
