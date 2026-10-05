@@ -133,13 +133,23 @@ events:SetScript("OnEvent", function(_, event)
 	table.insert(current.events, { event = event, ms = since })
 end)
 
-if ActionStatus then
-	ActionStatus:HookScript("OnShow", function()
-		local since = Since(ns.Timing.Ms())
-		if since and not current.status_shown_ms then
-			current.status_shown_ms = since
-		end
-	end)
+local function NoteStatusShown()
+	local since = Since(ns.Timing.Ms())
+	if since and not current.status_shown_ms then
+		current.status_shown_ms = since
+	end
+end
+
+-- TBC Anniversary has two frames named ActionStatus, and the global name points at the
+-- one that never shows "Screen captured". So the self-test hooks each one, and counts them.
+Shots.statusFrames = 0
+local each = EnumerateFrames()
+while each do
+	if each:GetName() == "ActionStatus" then
+		each:HookScript("OnShow", NoteStatusShown)
+		Shots.statusFrames = Shots.statusFrames + 1
+	end
+	each = EnumerateFrames(each)
 end
 
 local function RestoreScale()

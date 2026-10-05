@@ -58,6 +58,11 @@ struct Game {
 
 impl Game {
     fn start(saved: Option<&[u8]>, epoch: i64) -> Game {
+        Game::start_changed(saved, epoch, "")
+    }
+
+    /// Runs the Lua `change` with the fake game as `...` before the self-test loads.
+    fn start_changed(saved: Option<&[u8]>, epoch: i64, change: &str) -> Game {
         let fake = measured_at_test_screen();
         let lua = game_lua_for(&fake);
         let wow = fake_game_for(&lua, "addon/tests/selftest-api.lua", &fake);
@@ -76,6 +81,7 @@ impl Game {
                 true,
             )
             .unwrap();
+        lua.load(change).call::<()>(wow.clone()).unwrap();
         let ns = lua.create_table().unwrap();
         start_addon(&lua, &wow, &fake, ADDON, saved, || {
             load_addon(&lua, ADDON, &ns, &toc_files(ADDON));
@@ -260,6 +266,22 @@ fn after_a_reload_the_results_make_a_fixture_that_the_fake_game_can_read() {
         None,
         "the payloads go into the manifest only"
     );
+}
+
+/// TBC Anniversary shows "Screen captured" on a second `ActionStatus`, never on the global one.
+#[test]
+fn the_run_hears_screen_captured_on_a_status_frame_that_is_not_the_global_one() {
+    let game = Game::start_changed(
+        None,
+        1_790_300_000,
+        "local wow = ... wow.AddSecondActionStatus() table.remove(wow.statusFrames, 1)",
+    );
+
+    game.advance(RUN);
+
+    let parts = parts(&game.saved_variables());
+    assert_eq!(parts.results["screen"]["status_frames"], 2);
+    assert!(parts.results["shots"][0]["status_shown_ms"].is_number());
 }
 
 /// Forever 1.60.1.70205 blocks the register with a popup that pcall does not see.

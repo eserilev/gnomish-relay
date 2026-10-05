@@ -49,6 +49,7 @@ function Client.Screen()
 		ui_parent_scale = UIParent:GetScale(),
 		ui_parent_effective_scale = UIParent:GetEffectiveScale(),
 		cvars = CVars(),
+		status_frames = ns.Shots.statusFrames,
 	}
 end
 
