@@ -21,16 +21,17 @@ Before you change code, read these two files:
 ## Build from source
 
 1. Install Rust stable.
-2. Run the desktop app's setup from the repo:
+2. Run the desktop app's setup from the repo. A build from source doesn't start at login:
    ```sh
    cargo run -q --bin gnomish-relay -- setup
    ```
-3. For addon work, link the addon into the game. Then an edit plus `/reload` loads your code:
+3. Run your code in the game with dev mode:
    ```sh
-   scripts/dev-link.sh
+   cargo run -q --bin gnomish-relay -- dev
    ```
+   Dev mode pauses your installed desktop app, and links the addon of your checkout into the game. Then an edit plus `/reload` loads your code. Ctrl-C puts your installed addon and desktop app back. Close the CurseForge app first: an addon update writes through the link into your checkout. If dev mode didn't stop cleanly, run `cargo run -- dev --end`.
 
-A build from source never updates or restarts itself. Only the builds of the release job do. To run your build, stop the installed desktop app first, then start yours with `cargo run --bin gnomish-relay -- run`.
+A build from source never updates or restarts itself, and never writes the login service. Only the builds of the release job do.
 
 ## Run the checks
 

@@ -2842,7 +2842,7 @@ All set! Restart WoW, then type /timeways test
 
 **Auto-update** (asked for by the user on 2026-10-01). Players update the addons in the CurseForge app, and the desktop app follows on its own. The game takes no part: an addon cannot start a program, and the desktop app already runs from autostart.
 
-**Only a release build manages itself** (fixed on 2026-10-04). The release job compiles with `GNOMISH_RELEASE_BUILD=1` (`build_kind.rs`), and only such a build auto-updates and restarts itself for a new game (7.9) or new lore (11.4). A build from source logs one line instead. Why: on 2026-10-03 a build in `target/release` saw a newer addon, wrote the 0.5.1 release over itself, and pointed the login service at `target/release`, a folder that `cargo clean` empties. A build from source also never writes the login service: `setup` skips autostart, and `restart` refuses. Why: such a build once took over the login service, and the release install had to be repaired by hand. Tests: `setup_in_a_build_from_source_writes_no_login_service`, `a_build_from_source_refuses_a_restart_and_writes_no_login_service`. Tests: `a_build_from_source_never_updates_itself`, `only_a_release_build_updates_and_restarts_itself`, `the_release_job_marks_its_builds`.
+**Only a release build manages itself** (fixed on 2026-10-04). The release job compiles with `GNOMISH_RELEASE_BUILD=1` (`build_kind.rs`), and only such a build auto-updates and restarts itself for a new game (7.9) or new lore (11.4). A build from source logs one line instead. Why: on 2026-10-03 a build in `target/release` saw a newer addon, wrote the 0.5.1 release over itself, and pointed the login service at `target/release`, a folder that `cargo clean` empties. A build from source also never writes the login service: `setup` skips autostart, and `restart` refuses (16.1). Tests: `a_build_from_source_never_updates_itself`, `only_a_release_build_updates_and_restarts_itself`, `the_release_job_marks_its_builds`.
 
 - **The trigger is an addon on disk.** Each release gives the addon and the desktop app the same version. So a newer addon from the CurseForge app tells the desktop app that its own release is out. The bridge reads `## Version:` of `GnomishRelay/GnomishRelay.toc` and of `Timeways/Timeways.toc` in the `AddOns` folder, at start and then once a minute. It never writes either folder (11.3).
 - **Versions are semver.** A leading `v` goes: the Timeways packager writes the tag, `v0.1.0-rc.2`. A pre-release is older than its release: `0.1.0-rc.2` < `0.1.0`. A text that is not a version, for example `@project-version@` in a developer checkout, is unknown and starts nothing.
@@ -3951,9 +3951,37 @@ Steps 1 to 5 prove the channels. After those, the rest is normal Rust work.
 ## 16. Development environment
 
 - `dev gnomish-relay` opens tmux with nvim, the agent, and a terminal in this folder.
-- Link `addon/GnomishRelay` into `_classic_beta_/Interface/AddOns`. Then an edit plus `/reload` loads the new code, with no copy step. `scripts/dev-link.sh` does this, and also links each file of `addon/transport` into `addon/GnomishRelay`. Git ignores these links. The key addon and the slots are real folders in `AddOns`, never in the repo (7.3.2).
+- `cargo run -- dev` links `addon/GnomishRelay` into each served game, and runs the desktop app of this checkout (16.1). Then an edit plus `/reload` loads the new code, with no copy step. Git ignores the links of `addon/transport` in `addon/GnomishRelay`. The key addon and the slots are real folders in `AddOns`, never in the repo (7.3.2).
 - After each client patch, run the game self-test (14.3.1): `scripts/selftest-link.sh`, a login and a `/reload`, then `gnomish-relay selftest collect`. Commit the new fixture and vectors. `scripts/selftest-link.sh --remove` takes the self-test out of the game.
 - Run the bridge in the bottom-right pane.
+
+### 16.1 Dev mode
+
+`cargo run -- dev` runs the addon and the desktop app of this checkout on a machine that also has a release install. When it stops, the machine is as before. A release build refuses it.
+
+Why: a build from source once took over the login service, and the release install had to be repaired by hand. The old `scripts/dev-link.sh` also put a link over the CurseForge folder and never put it back.
+
+**Start.**
+
+1. A record that was left behind first gets its end (below).
+2. For each served game (7.9), dev mode notes what `AddOns/GnomishRelay` is now: a folder, a link with its target, or nothing.
+3. It writes the record `dev-mode.json` into the data folder before it changes anything. So a crash at any point leaves enough to undo it.
+4. It stops the running bridge. A stop by `SIGTERM` does not make systemd start it again (`Restart=on-failure`).
+5. For each game, it moves the folder to `Interface/GnomishRelay.dev-backup`, or removes the link. WoW reads only `Interface/AddOns`, so it never loads the backup. The move stays inside the game folder, so it is one rename.
+6. It links `AddOns/GnomishRelay` to `addon/GnomishRelay` of this checkout, and links each file of `addon/transport` into that folder.
+7. It runs `gnomish-relay run` of this build as a child process, until Ctrl-C or until the child stops.
+
+**End.** For each game, it removes the link and puts back what the record noted. It never deletes a real folder: when both a folder and its backup exist, it stops and says so. It deletes the record last. Then it starts the login service again if a bridge ran at the start. Each step checks the disk first, so the end can run again after a crash at any point.
+
+**A record that was left behind.** After a crash or a power cut, the next `cargo run -- dev` ends the old session first. A release bridge that finds a record at start ends it too, and logs one line. A bridge from source never ends it, because the child of dev mode is one.
+
+**A build from source never writes the login service.** `setup` skips autostart and says so. `restart` refuses and points at `dev`. Only a release build writes the systemd unit, the launchd agent, or the `Run` entry (11.3).
+
+**Known gaps.** The CurseForge app can update the addon while dev mode runs. It then writes through the link into the checkout, so close it first. A release bridge from before dev mode does not end a record that was left behind.
+
+**Tests** (`dev_mode.rs`): a round trip for each start state, a crash after each step of the start followed by an end, a second end, the refusal when a folder and its backup both exist, and a seeded test that runs random start states, crash points, and repeated ends for up to three games and checks that each game ends as it started. `dev_command.rs`: a release bridge ends a session that was left behind, and the child of dev mode and a release bridge next to a running session leave it. `cli.rs` runs the real program in a fake home: dev mode links the checkout, and a real `SIGINT` puts the release addon back; a second `dev` is refused. `setup_command.rs` and `service.rs` test that a build from source writes no login service.
+
+No fuzzing and no proof: dev mode reads no untrusted input. Its risk is a lost addon folder after a crash, and the seeded crash test covers that.
 - Aeneas and Charon are built in `~/verif`. `proofs/TOOLS` pins their commits, and CI builds the same commits with Nix.
 
 ## 17. Open questions

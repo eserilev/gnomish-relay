@@ -520,3 +520,154 @@ fn a_second_setup_keeps_the_wow_folder_of_the_config() {
         "{stdout}"
     );
 }
+
+#[test]
+fn dev_takes_only_the_end_flag() {
+    let out = gnomish_relay(&["dev", "--now"]);
+
+    assert!(!out.status.success());
+    let error = String::from_utf8(out.stderr).unwrap();
+    assert!(error.contains("usage: cargo run -- dev [--end]"), "{error}");
+}
+
+#[cfg(unix)]
+#[test]
+fn dev_end_with_no_session_says_so() {
+    let home = tempfile::tempdir().unwrap();
+
+    let out = in_home(home.path(), &["dev", "--end"]);
+
+    assert!(out.status.success(), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "Dev mode isn't on.\n");
+}
+
+/// A game with the addon as the `CurseForge` app installs it: a real folder.
+#[cfg(target_os = "linux")]
+fn game_with_release_addon(home: &std::path::Path) -> std::path::PathBuf {
+    let game = game_played(&home.join(".wine"), 60);
+    let addon = game.join("Interface/AddOns/GnomishRelay");
+    std::fs::create_dir_all(&addon).unwrap();
+    std::fs::write(addon.join("GnomishRelay.toc"), "release").unwrap();
+    setup_in(home, &[]);
+    addon
+}
+
+/// `dev` in the background, with its lines on a channel.
+#[cfg(target_os = "linux")]
+fn start_dev(home: &std::path::Path) -> (std::process::Child, std::sync::mpsc::Receiver<String>) {
+    use std::io::BufRead;
+    let mut child = Command::new(env!("CARGO_BIN_EXE_gnomish-relay"))
+        .arg("dev")
+        .env_clear()
+        .env("HOME", home)
+        .env("XDG_CONFIG_HOME", home.join("config"))
+        .env("XDG_DATA_HOME", home.join("data"))
+        .env("PATH", home.join("empty"))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .unwrap();
+    let (send, lines) = std::sync::mpsc::channel();
+    let out = std::io::BufReader::new(child.stdout.take().unwrap());
+    std::thread::spawn(move || {
+        for line in out.lines().map_while(Result::ok) {
+            let _ = send.send(line);
+        }
+    });
+    (child, lines)
+}
+
+/// Waits for a line that starts with `start`, for at most 60 seconds.
+#[cfg(target_os = "linux")]
+fn wait_for_line(lines: &std::sync::mpsc::Receiver<String>, start: &str) -> Vec<String> {
+    let mut seen = Vec::new();
+    while let Ok(line) = lines.recv_timeout(std::time::Duration::from_mins(1)) {
+        let found = line.starts_with(start);
+        seen.push(line);
+        if found {
+            return seen;
+        }
+    }
+    panic!("no line {start:?}: {seen:?}");
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn dev_links_the_checkout_and_ctrl_c_puts_the_release_addon_back() {
+    let home = tempfile::tempdir().unwrap();
+    let addon = game_with_release_addon(home.path());
+    let checkout = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../addon/GnomishRelay")
+        .canonicalize()
+        .unwrap();
+    let (mut dev, lines) = start_dev(home.path());
+
+    wait_for_line(&lines, "Press Ctrl-C");
+    let during = std::fs::read_link(&addon).unwrap();
+    let interrupted = Command::new("kill")
+        .args(["-INT", &dev.id().to_string()])
+        .status()
+        .unwrap();
+    let ended = wait_for_line(&lines, "Dev mode is off");
+    let status = dev.wait().unwrap();
+
+    assert!(interrupted.success());
+    assert_eq!(during, checkout);
+    assert!(status.success(), "{ended:?}");
+    assert!(
+        !std::fs::symlink_metadata(&addon)
+            .unwrap()
+            .file_type()
+            .is_symlink()
+    );
+    assert_eq!(
+        std::fs::read_to_string(addon.join("GnomishRelay.toc")).unwrap(),
+        "release"
+    );
+    assert!(
+        !addon
+            .parent()
+            .unwrap()
+            .parent()
+            .unwrap()
+            .join("GnomishRelay.dev-backup")
+            .exists()
+    );
+    assert!(
+        !home
+            .path()
+            .join("data/gnomish-relay/dev-mode.json")
+            .exists()
+    );
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn a_second_dev_while_one_runs_is_refused_and_changes_nothing() {
+    let home = tempfile::tempdir().unwrap();
+    let addon = game_with_release_addon(home.path());
+    let (mut first, lines) = start_dev(home.path());
+    wait_for_line(&lines, "Press Ctrl-C");
+
+    let second = in_home(home.path(), &["dev"]);
+    let end = in_home(home.path(), &["dev", "--end"]);
+    let still_linked = std::fs::symlink_metadata(&addon)
+        .unwrap()
+        .file_type()
+        .is_symlink();
+    Command::new("kill")
+        .args(["-INT", &first.id().to_string()])
+        .status()
+        .unwrap();
+    first.wait().unwrap();
+
+    assert!(!second.status.success());
+    assert!(
+        stderr(&second).contains("already on in another terminal"),
+        "{}",
+        stderr(&second)
+    );
+    assert!(!end.status.success());
+    assert!(still_linked);
+}

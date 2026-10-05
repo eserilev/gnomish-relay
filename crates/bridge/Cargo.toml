@@ -32,6 +32,8 @@ tempfile = "3"
 # Structured logs: a span for each message, and a JSON log file (SPEC.md 8.5).
 tracing = { version = "0.1", default-features = false, features = ["std"] }
 tracing-subscriber = { version = "0.3", default-features = false, features = ["std", "registry"] }
+# Ctrl-C ends dev mode and puts the release install back (SPEC.md 16.1).
+ctrlc = { version = "3.5.2", features = ["termination"] }
 
 [dev-dependencies]
 # Tests run the addon in a real Lua 5.1, the Lua version of WoW.

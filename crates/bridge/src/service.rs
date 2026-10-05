@@ -180,6 +180,53 @@ fn restart_as(dirs: &Dirs, exe: &Path, build: BuildKind) -> Result<()> {
     confirm_start(dirs, &log, &before)
 }
 
+/// What dev mode found to start at its end (SPEC.md 16.1).
+#[derive(Debug, PartialEq, Eq)]
+pub enum Installed {
+    Started,
+    NoService,
+}
+
+/// Starts the login service that the setup of a release wrote, with the program that it
+/// names. Dev mode calls this at its end, so it never writes the service with its own
+/// program.
+pub fn start_installed(dirs: &Dirs) -> Result<Installed> {
+    if let Some(wsl) = wsl::this() {
+        let distro = wsl_distro(&wsl)?;
+        let windows = windows_app()?;
+        command(
+            &windows.to_string_lossy(),
+            &[
+                wsl_launcher::RUN_COMMAND,
+                distro,
+                wsl_launcher::BACKGROUND_FLAG,
+            ],
+        )?;
+        return Ok(Installed::Started);
+    }
+    if cfg!(target_os = "linux") && systemd_dir(dirs).join(SYSTEMD_UNIT).is_file() {
+        command("systemctl", &["--user", "start", SYSTEMD_UNIT])?;
+        return Ok(Installed::Started);
+    }
+    let plist = launch_agents_dir(dirs).join(format!("{}.plist", install::LAUNCHD_LABEL));
+    if cfg!(target_os = "macos") && plist.is_file() {
+        let service = format!("{}/{}", launchd_domain()?, install::LAUNCHD_LABEL);
+        command("launchctl", &["kickstart", &service])?;
+        return Ok(Installed::Started);
+    }
+    let windows_exe = std::env::var_os("LOCALAPPDATA").map(|local| {
+        PathBuf::from(local)
+            .join("gnomish-relay")
+            .join("bin")
+            .join("gnomish-relay.exe")
+    });
+    if let Some(exe) = windows_exe.filter(|exe| cfg!(windows) && exe.is_file()) {
+        start_background(dirs, &exe)?;
+        return Ok(Installed::Started);
+    }
+    Ok(Installed::NoService)
+}
+
 /// A missing config already says what to do.
 fn with_fix_hint(error: anyhow::Error) -> anyhow::Error {
     if error.is::<config::SetupUnfinished>() {

@@ -34,6 +34,8 @@ pub mod config_text;
 pub mod connect_line;
 pub mod daily_usage;
 pub mod desktop;
+pub mod dev_command;
+pub mod dev_mode;
 pub mod dialog;
 pub mod dirs;
 pub mod download_failure;

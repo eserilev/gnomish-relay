@@ -32,7 +32,7 @@ impl StripKey {
     pub fn load(path: &Path) -> Result<StripKey> {
         let hex = std::fs::read_to_string(path).with_context(|| {
             format!(
-                "cannot read the strip key at {}. Run scripts/dev-link.sh",
+                "cannot read the strip key at {}. Run gnomish-relay setup",
                 path.display()
             )
         })?;

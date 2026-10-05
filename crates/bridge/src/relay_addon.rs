@@ -161,7 +161,7 @@ mod tests {
         );
     }
 
-    /// `scripts/dev-link.sh` links the repo into the game (SPEC.md 16).
+    /// Dev mode links the repo into the game (SPEC.md 16.1).
     #[cfg(unix)]
     #[test]
     fn a_linked_repository_counts_as_an_installed_addon() {

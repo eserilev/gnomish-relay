@@ -11,6 +11,7 @@ use bridge::check_agent;
 use bridge::command_sandbox;
 use bridge::config;
 use bridge::desktop::{self, Approvals, Prompt};
+use bridge::dev_command;
 use bridge::dirs::Dirs;
 #[cfg(unix)]
 use bridge::forward;
@@ -60,6 +61,7 @@ Notifications
   hooks status            Show whether notifications are on
 
 Developers
+  dev [--end]             Run this checkout in the game until Ctrl-C (build from source only)
   say <chat> <id> <text>  Send a reply to message <id> (see /relay diag)
   selftest collect [folder] [--out <repo>]
                           Copy the results of the self-test addon into the repo";
@@ -231,6 +233,7 @@ fn main() -> Result<()> {
         }
         ["rules", "remove", id] => remove_rule(&Dirs::from_env()?, id),
         ["say", chat, id, text] => say(&Dirs::from_env()?, chat, id, text),
+        ["dev", ref rest @ ..] => dev_command::dev(&Dirs::from_env()?, rest),
         ["selftest", "collect", ref rest @ ..] => {
             selftest::collect_command(&Dirs::from_env()?, rest)
         }

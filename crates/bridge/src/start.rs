@@ -12,6 +12,7 @@ use crate::background::Background;
 use crate::build_kind::BuildKind;
 use crate::config::{self, FullAuto, RelayConfig, StoryConfig};
 use crate::desktop::Prompt;
+use crate::dev_command;
 use crate::dirs::Dirs;
 use crate::folder_path::real_path;
 use crate::fs_safe::make_private_dir;
@@ -47,6 +48,9 @@ pub fn start(dirs: &Dirs) -> Result<()> {
     make_private_dir(&state)?;
     let _lock = lock::take(&state)?;
     logging::start(&state);
+    if let Some(line) = dev_command::end_left_behind(&state, BuildKind::THIS) {
+        println!("{line}");
+    }
     let paths = Paths {
         state,
         config: dirs.config.clone(),

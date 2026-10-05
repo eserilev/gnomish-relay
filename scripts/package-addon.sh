@@ -10,7 +10,7 @@ dir=$out/GnomishRelay
 
 rm -rf "$dir"
 mkdir -p "$dir"
-# -L copies the file behind a link, so the transport links of scripts/dev-link.sh come out
+# -L copies the file behind a link, so the transport links of dev mode come out
 # as real files. The transport goes last, so a stale link never wins.
 for file in "$root"/addon/GnomishRelay/* "$root"/addon/transport/*.lua; do
   name=$(basename "$file")
