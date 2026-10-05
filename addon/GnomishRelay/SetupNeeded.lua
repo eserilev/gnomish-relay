@@ -11,8 +11,11 @@ ns.SetupNeeded = SetupNeeded
 local WIDTH, HEIGHT = 540, 360
 local SHEET_INSET = 18
 local TEXT_WIDTH = WIDTH - 2 * SHEET_INSET - 32
-local INSTALL_WINDOWS = "irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1 | iex"
-local INSTALL_UNIX = "curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh | sh"
+-- No `|`: WoW reads it as an escape, and a doubled `||` can reach the clipboard. These
+-- forms run the same script as the README lines, with no pipe.
+local INSTALL_WINDOWS = "iex (irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1)"
+local INSTALL_UNIX =
+	'sh -c "$(curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh)"'
 
 -- The chat line, the heading, and the text of the window for each missing step.
 local STEPS = {

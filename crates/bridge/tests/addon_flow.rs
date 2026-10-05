@@ -2924,9 +2924,9 @@ fn a_fresh_install_with_no_desktop_app_shows_the_first_run_window_once() {
         game.printed()
     );
     let windows = text_of(&game, "GnomishRelaySetupCommand1:GetText()");
-    assert!(windows.ends_with("scripts/install.ps1 | iex"), "{windows}");
+    assert!(windows.starts_with("iex (irm "), "{windows}");
     let linux = text_of(&game, "GnomishRelaySetupCommand2:GetText()");
-    assert!(linux.ends_with("scripts/install.sh | sh"), "{linux}");
+    assert!(linux.starts_with("sh -c "), "{linux}");
 }
 
 /// True when a texture of the game has `value` in `field`: `atlas` or `file`.
@@ -2960,6 +2960,36 @@ fn without_the_parchment_atlas_the_first_run_window_draws_the_quest_background()
     assert!(!texture_drawn(&game, "atlas", "QuestBG-Parchment"));
 }
 
+/// WoW reads `|` as the start of an escape in what it shows. A doubled `||` shows one,
+/// but Ctrl+C can copy both, and `|| iex` in PowerShell 7 runs `iex` only on failure. So
+/// an install line holds no `|` at all, and what shows is what the player copies.
+#[test]
+fn no_install_line_holds_a_pipe() {
+    let game = start_with_no_key_addon();
+    let mac = Game::boot_with_key_addon(measured(), None, |wow| {
+        wow.set("mac", true).unwrap();
+    });
+
+    let lines = [
+        text_of(&game, "GnomishRelaySetupCommand1:GetText()"),
+        text_of(&game, "GnomishRelaySetupCommand2:GetText()"),
+        text_of(&mac, "GnomishRelaySetupCommand1:GetText()"),
+    ];
+
+    for line in &lines {
+        assert!(!line.contains('|'), "{line}");
+    }
+    assert_eq!(
+        lines[0],
+        "iex (irm https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.ps1)"
+    );
+    assert_eq!(
+        lines[1],
+        "sh -c \"$(curl -fsSL https://raw.githubusercontent.com/eserilev/gnomish-relay/main/scripts/install.sh)\""
+    );
+    assert_eq!(lines[2], lines[1]);
+}
+
 #[test]
 fn a_mac_gets_only_the_terminal_line() {
     let game = Game::boot_with_key_addon(measured(), None, |wow| {
@@ -2969,7 +2999,7 @@ fn a_mac_gets_only_the_terminal_line() {
     let first = text_of(&game, "GnomishRelaySetupCommand1:GetText()");
     let second = game.run("return GnomishRelaySetupCommand2 == nil");
 
-    assert!(first.starts_with("curl -fsSL "), "{first}");
+    assert!(first.starts_with("sh -c "), "{first}");
     assert_eq!(second.as_boolean(), Some(true));
 }
 
@@ -2985,7 +3015,7 @@ fn the_install_line_stays_the_same_when_the_player_types_in_it() {
         .to_string()
         .unwrap();
 
-    assert!(text.ends_with("scripts/install.ps1 | iex"), "{text}");
+    assert!(text.ends_with("scripts/install.ps1)"), "{text}");
 }
 
 #[test]
