@@ -47,9 +47,12 @@ function KeyHandoff.Take()
 end
 
 -- An older desktop app wrote the key addon for another WoW version (SPEC.md 7.9), so
--- WoW refuses it as out of date.
+-- WoW refuses it as out of date. TBC Anniversary says INTERFACE_VERSION, and Forever
+-- says INCOMPATIBLE (both measured by the self-test).
+local OUT_OF_DATE = { INTERFACE_VERSION = true, INCOMPATIBLE = true }
+
 function KeyHandoff.OutOfDate()
-	return KeyHandoff.problem == "INTERFACE_VERSION"
+	return OUT_OF_DATE[KeyHandoff.problem] == true
 end
 
 -- Nobody has tested LoadAddOn during the file load of another addon in the Forever
