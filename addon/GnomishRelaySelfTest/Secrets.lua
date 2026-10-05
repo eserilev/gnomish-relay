@@ -61,8 +61,14 @@ local function CombatLogRestricted()
 	return Reading(C_CombatLog.IsCombatLogRestricted)
 end
 
--- The event has HasRestrictions, so the register can fail.
+-- The event has HasRestrictions, so the register can fail. With a restricted combat log,
+-- Forever 1.60.1.70205 blocks it with the "blocked an action" popup, and pcall sees no
+-- error. So the self-test registers only an open combat log.
 local function CombatLogEvent()
+	local asked, restricted = pcall(C_CombatLog.IsCombatLogRestricted)
+	if not asked or restricted ~= false then
+		return Needs("an open combat log")
+	end
 	local ok, err = pcall(function()
 		CreateFrame("Frame"):RegisterEvent("COMBAT_LOG_EVENT_UNFILTERED")
 	end)

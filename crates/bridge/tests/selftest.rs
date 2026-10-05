@@ -280,6 +280,22 @@ fn after_a_reload_the_results_make_a_fixture_that_the_fake_game_can_read() {
     );
 }
 
+/// Forever 1.60.1.70205 blocks the register with a popup that pcall does not see.
+#[test]
+fn with_a_restricted_combat_log_the_run_registers_no_combat_log_event() {
+    let game = Game::start(None, 1_790_300_000);
+    game.lua
+        .load("C_CombatLog.IsCombatLogRestricted = function() return true end")
+        .exec()
+        .unwrap();
+
+    game.advance(RUN);
+
+    let parts = parts(&game.saved_variables());
+    let event = &parts.results["secrets"]["t8_combat_log_event"];
+    assert_eq!(event["status"], "needs an open combat log");
+}
+
 #[test]
 fn the_run_leaves_the_screenshot_format_as_it_found_it() {
     let game = Game::start(None, 1_790_300_000);
