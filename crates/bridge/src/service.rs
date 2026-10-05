@@ -5,6 +5,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
+use crate::build_kind::BuildKind;
 use crate::config;
 use crate::dirs::Dirs;
 use crate::fs_safe::{LogStart, make_private_dir, open_private_log, write_atomic, write_private};
@@ -159,10 +160,21 @@ enum BridgeLog {
 /// service. `exe` is the program to start: after an update, `current_exe` names the
 /// old file.
 pub fn restart(dirs: &Dirs, exe: &Path) -> Result<()> {
+    restart_as(dirs, exe, BuildKind::THIS)
+}
+
+/// A restart writes the login service with `exe`. From source, that is a folder in
+/// `target`, over a release install (SPEC.md 16.1).
+fn restart_as(dirs: &Dirs, exe: &Path, build: BuildKind) -> Result<()> {
     // A service restart succeeds even when the new bridge stops at once on a bad config.
     let config = config::load(&dirs.config, &dirs.home).map_err(with_fix_hint)?;
     // With no game, a new bridge ends at once, so the wait for its lock fails.
     config.game()?;
+    if !build.manages_itself() {
+        bail!(
+            "this is a build from source, so it doesn't restart the desktop app. To run it, use cargo run -- dev"
+        );
+    }
     let before = lock::status(&dirs.data)?;
     let log = restart_service(dirs, exe)?;
     confirm_start(dirs, &log, &before)
@@ -407,6 +419,28 @@ mod tests {
             config: root.join("config").join("gnomish-relay"),
             data: root.join("data"),
         }
+    }
+
+    #[test]
+    fn a_build_from_source_refuses_a_restart_and_writes_no_login_service() {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = dirs(root.path());
+        let wow = root.path().join("wow");
+        std::fs::create_dir_all(&dirs.config).unwrap();
+        crate::setup::write_config(
+            &dirs.config,
+            &format!("[wow]\npath = {:?}\n", wow.display().to_string()),
+            &dirs.home,
+        )
+        .unwrap();
+
+        let error = restart_as(&dirs, Path::new("/target/debug/x"), BuildKind::Source).unwrap_err();
+
+        assert!(
+            format!("{error:#}").contains("cargo run -- dev"),
+            "{error:#}"
+        );
+        assert!(!dirs.home.exists(), "nothing in the home folder");
     }
 
     #[test]

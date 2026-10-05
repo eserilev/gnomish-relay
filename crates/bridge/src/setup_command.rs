@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
+use crate::build_kind::BuildKind;
 use crate::check_agent;
 use crate::config::{self, Config, RelayConfig, with_tilde};
 use crate::config_text::RelayPart;
@@ -202,7 +203,13 @@ fn setup_relay(dirs: &Dirs, args: &SetupArgs, found: Found) -> Result<()> {
     let changed = product_files(dirs, found.addons.as_deref(), Product::Relay, args.keys)?;
     let config = setup_relay_config(dirs, found.wow, existing, &harnesses, args.roots)?;
     print_relay(dirs, &config);
-    autostart(dirs, found.wow, args.autostart, Product::Relay);
+    autostart(
+        dirs,
+        found.wow,
+        args.autostart,
+        Product::Relay,
+        BuildKind::THIS,
+    );
     // Setup changes no settings of an agent: they belong to the user (SPEC.md 10.5).
     println!("{}", hooks_install::SETUP_HINT);
     let (Some(changed), Some(addons)) = (changed, found.addons) else {
@@ -243,10 +250,23 @@ pub(crate) fn product_files(
     setup::install_files(&folders, product, keys).map(Some)
 }
 
+pub(crate) const SOURCE_AUTOSTART: &str = "Desktop app: not set to start at login, because this is a build from source. To run it, use cargo run -- dev";
+
 /// A failed autostart prints one line, and setup goes on (SPEC.md 11.3). A Timeways
 /// player gets no line when it works: the app is a detail of Timeways for them.
-pub(crate) fn autostart(dirs: &Dirs, wow: Option<&Path>, autostart: Autostart, product: Product) {
+pub(crate) fn autostart(
+    dirs: &Dirs,
+    wow: Option<&Path>,
+    autostart: Autostart,
+    product: Product,
+    build: BuildKind,
+) {
     if autostart == Autostart::Off {
+        return;
+    }
+    // The login service would point at `target`, over a release install (SPEC.md 16.1).
+    if !build.manages_itself() {
+        println!("{SOURCE_AUTOSTART}");
         return;
     }
     let start = match wow {
@@ -473,6 +493,27 @@ pub fn install_slots(dirs: &Dirs) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn setup_in_a_build_from_source_writes_no_login_service() {
+        let root = tempfile::tempdir().unwrap();
+        let dirs = Dirs {
+            home: root.path().join("home"),
+            config: root.path().join("config"),
+            data: root.path().join("data"),
+        };
+
+        autostart(
+            &dirs,
+            Some(root.path()),
+            Autostart::On,
+            Product::Relay,
+            BuildKind::Source,
+        );
+
+        assert!(!dirs.home.exists(), "no unit, agent, or start file");
+        assert!(!dirs.data.exists());
+    }
 
     #[test]
     fn setup_takes_the_folder_the_roots_and_the_flags_in_any_order() {

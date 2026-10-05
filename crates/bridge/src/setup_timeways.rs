@@ -6,6 +6,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 
+use crate::build_kind::BuildKind;
 use crate::config::Config;
 use crate::dirs::Dirs;
 use crate::install;
@@ -34,7 +35,13 @@ pub(crate) fn setup(dirs: &Dirs, args: &SetupArgs, found: Found) -> Result<()> {
         println!("{line}");
     }
     let install = install_story_program(dirs);
-    autostart(dirs, found.wow, args.autostart, Product::Timeways);
+    autostart(
+        dirs,
+        found.wow,
+        args.autostart,
+        Product::Timeways,
+        BuildKind::THIS,
+    );
     // The autostart already restarted the app, so only a setup without it restarts here.
     if install == StoryInstall::Done && args.autostart == Autostart::Off {
         restart_if_running(dirs);
