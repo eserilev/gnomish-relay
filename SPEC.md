@@ -1985,6 +1985,7 @@ The bridge and the Timeways story program talk in JSON lines: one JSON object on
 | `draft_asked` | `at`, `idea` | `idea` at most 255 bytes: the player's idea for a quest of their own |
 
 - `lore_asked`, `journal_asked`, `talk_asked`, and `draft_asked` are the lines with a reply.
+- The four lines with a reply also take an optional `dev` (`true` or `false`), and the bridge passes it on. Timeways marks the fake events of its dev mode with it, and the story program refuses a marked line outside dev mode (asked for by Timeways on 2026-10-06). So the mark only ever stops a line. Tests: `a_dev_mark_on_a_line_with_a_reply_goes_on_to_the_story_program`, `a_line_with_a_reply_and_no_dev_mark_goes_on_without_one`, `a_dev_mark_that_is_not_true_or_false_is_refused`.
 - Any other `type` is a game event with no reply, for example `zone_entered`, `npc_met`, `level_reached`, and `npc_defeated`. The story program checks its fields, and ignores a type that it does not know. So a new Timeways event needs no change in the bridge.
 
 The bridge drops and logs a line that fails a check. The bridge refuses the whole batch with an error reply, and sends none of its lines, in two cases:

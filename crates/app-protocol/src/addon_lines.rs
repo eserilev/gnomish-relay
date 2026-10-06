@@ -34,15 +34,35 @@ pub enum Known {
         question: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         target: Option<String>,
+        /// The fake events of the Timeways dev mode. The story program refuses a marked line
+        /// outside dev mode, so the mark only ever stops a line.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dev: Option<bool>,
     },
     JournalAsked {
         #[serde(default)]
         page: u32,
+        /// As for `lore_asked`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dev: Option<bool>,
     },
     /// The player talks to an NPC.
-    TalkAsked { at: u64, npc: String, text: String },
+    TalkAsked {
+        at: u64,
+        npc: String,
+        text: String,
+        /// As for `lore_asked`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dev: Option<bool>,
+    },
     /// The player asks for a quest of their own.
-    DraftAsked { at: u64, idea: String },
+    DraftAsked {
+        at: u64,
+        idea: String,
+        /// As for `lore_asked`.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        dev: Option<bool>,
+    },
 }
 
 const KNOWN: [&str; 5] = [
@@ -279,7 +299,7 @@ mod tests {
     fn the_known_lines_read_with_their_shapes() {
         assert_eq!(
             read_addon_line(r#"{"type":"journal_asked"}"#),
-            Ok(AddonLine::Known(Known::JournalAsked { page: 0 }))
+            Ok(AddonLine::Known(Known::JournalAsked { page: 0, dev: None }))
         );
         assert_eq!(
             forwarded(r#"{"type":"lore_asked","at":4,"question":"why?","target":"Hogger"}"#),
@@ -391,6 +411,55 @@ mod tests {
             "q".repeat(MAX_QUESTION + 1)
         );
         assert_eq!(read_addon_line(&long), Err(BadLine::Text));
+    }
+
+    /// The four lines with a reply, as the addon sends them.
+    const REPLY_LINES: [&str; 4] = [
+        r#"{"type":"lore_asked","at":1,"question":"why?"}"#,
+        r#"{"type":"journal_asked","page":2}"#,
+        r#"{"type":"talk_asked","at":1,"npc":"Hogger","text":"hi"}"#,
+        r#"{"type":"draft_asked","at":1,"idea":"a quest"}"#,
+    ];
+
+    /// `line` with `"dev": value` before its closing brace.
+    fn with_dev(line: &str, value: &str) -> String {
+        format!("{},\"dev\":{value}}}", &line[..line.len() - 1])
+    }
+
+    #[test]
+    fn a_line_with_a_reply_and_no_dev_mark_goes_on_without_one() {
+        for line in REPLY_LINES {
+            let out = forwarded(line);
+
+            assert_eq!(out.get("dev"), None, "{line}");
+        }
+    }
+
+    /// Timeways marks the fake events of its dev mode, so the story program can refuse
+    /// them outside dev mode.
+    #[test]
+    fn a_dev_mark_on_a_line_with_a_reply_goes_on_to_the_story_program() {
+        for line in REPLY_LINES {
+            for value in ["true", "false"] {
+                let marked = with_dev(line, value);
+
+                let out = forwarded(&marked);
+
+                assert_eq!(out["dev"].to_string(), value, "{marked}");
+                assert!(read_addon_line(&marked).unwrap().wants_reply());
+            }
+        }
+    }
+
+    #[test]
+    fn a_dev_mark_that_is_not_true_or_false_is_refused() {
+        for line in REPLY_LINES {
+            for value in [r#""yes""#, "1"] {
+                let marked = with_dev(line, value);
+
+                assert_eq!(read_addon_line(&marked), Err(BadLine::Shape), "{marked}");
+            }
+        }
     }
 
     fn talk(npc: &str, text: &str) -> String {
