@@ -24,6 +24,36 @@ fn size_of(path: &Path) -> u64 {
     fs::metadata(path).map_or(0, |m| m.len())
 }
 
+const SQLITE_MAGIC: &[u8; 16] = b"SQLite format 3\0";
+
+/// The pack format of `pack`: `PRAGMA user_version`, the big-endian `u32` at bytes 60 to
+/// 63 of the database header. `None` for another kind of file.
+pub fn pack_format(pack: &Path) -> Option<u32> {
+    let mut header = [0u8; 64];
+    fs::File::open(pack).ok()?.read_exact(&mut header).ok()?;
+    if &header[..16] != SQLITE_MAGIC {
+        return None;
+    }
+    Some(u32::from_be_bytes([
+        header[60], header[61], header[62], header[63],
+    ]))
+}
+
+/// The format that `timeways-pack format` builds. `None` for a pack program from before
+/// that command.
+pub fn built_format(pack_program: &Path) -> Option<u32> {
+    let out = Command::new(pack_program)
+        .arg("format")
+        .stdin(Stdio::null())
+        .stderr(Stdio::null())
+        .output()
+        .ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    String::from_utf8(out.stdout).ok()?.trim().parse().ok()
+}
+
 /// Downloads the dump into `dir` with `curl`, and calls `progress` with the bytes so far
 /// a few times a second. A download that fails leaves no dump.
 pub fn download_dump(url: &str, dir: &Path, mut progress: impl FnMut(u64)) -> Result<PathBuf> {

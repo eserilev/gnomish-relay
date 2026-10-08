@@ -15,6 +15,7 @@ use bridge::lore_job::{self, Finished, LoreJob, LoreParts, LoreState, REBUILD_FI
 use bridge::lore_pack::DUMP_FILE;
 
 const PACK_SCRIPT: &str = "#!/bin/sh\n\
+    [ \"$1\" = format ] && echo 5 && exit 0\n\
     [ \"$1\" = from-dump ] || exit 2\n\
     [ -e \"$3\" ] && exit 3\n\
     grep -q wowpedia \"$2\" || exit 4\n\
@@ -44,6 +45,15 @@ fn computer(root: &Path, dump: &str) -> LoreParts {
 fn old_pack(parts: &LoreParts) {
     fs::create_dir_all(parts.pack.parent().unwrap()).unwrap();
     fs::write(&parts.pack, "old lore").unwrap();
+}
+
+/// A pack with the database header of the pack format `format`, in `user_version`.
+fn pack_of_format(parts: &LoreParts, format: u32) {
+    let mut header = b"SQLite format 3\0".to_vec();
+    header.resize(100, 0);
+    header[60..64].copy_from_slice(&format.to_be_bytes());
+    fs::create_dir_all(parts.pack.parent().unwrap()).unwrap();
+    fs::write(&parts.pack, header).unwrap();
 }
 
 /// Ticks the job until a build ends, for at most 30 seconds.
@@ -182,4 +192,49 @@ fn a_built_lore_restarts_the_desktop_app_once_no_run_is_in_progress() {
     assert_eq!(while_busy, None);
     assert!(when_idle.unwrap().contains("the lore is ready"));
     assert_eq!(again, None);
+}
+
+/// After a Timeways update, the new story program refuses a pack of an older format
+/// (SPEC.md 11.4). The job builds a new one at the next start of the desktop app.
+#[test]
+fn a_pack_of_another_format_than_the_pack_program_builds_gets_rebuilt() {
+    let root = tempfile::tempdir().unwrap();
+    let parts = computer(root.path(), "wowpedia dump");
+    pack_of_format(&parts, 2);
+    let mut job = LoreJob::new(parts.clone());
+
+    let finished = finish(&mut job);
+
+    assert_eq!(finished, Finished::Built);
+    assert_eq!(fs::read_to_string(&parts.pack).unwrap(), "new lore");
+}
+
+#[test]
+fn a_pack_of_the_format_that_the_pack_program_builds_stays() {
+    let root = tempfile::tempdir().unwrap();
+    let parts = computer(root.path(), "wowpedia dump");
+    pack_of_format(&parts, 5);
+    let mut job = LoreJob::new(parts.clone());
+
+    assert_eq!(job.tick(Instant::now()), None);
+    std::thread::sleep(Duration::from_millis(100));
+
+    assert_eq!(job.tick(Instant::now()), None);
+    assert_eq!(read_state(&parts.data), None);
+}
+
+/// A pack program from before `format` exits with an error. The pack then stays.
+#[test]
+fn a_pack_program_that_does_not_know_its_format_leaves_the_pack() {
+    let root = tempfile::tempdir().unwrap();
+    let parts = computer(root.path(), "wowpedia dump");
+    bridge::fake_program::write(&parts.pack_program, "#!/bin/sh\nexit 2\n").unwrap();
+    pack_of_format(&parts, 2);
+    let mut job = LoreJob::new(parts.clone());
+
+    assert_eq!(job.tick(Instant::now()), None);
+    std::thread::sleep(Duration::from_millis(100));
+
+    assert_eq!(job.tick(Instant::now()), None);
+    assert_eq!(read_state(&parts.data), None);
 }

@@ -49,6 +49,18 @@ impl LoreParts {
     pub fn build_needed(&self) -> bool {
         !self.pack.is_file() || self.data.join(REBUILD_FILE).is_file()
     }
+
+    /// A pack of another format than the pack program builds: the story program of the
+    /// same release refuses it. It starts a process, so the job asks only once.
+    fn has_old_format(&self) -> bool {
+        match (
+            lore_pack::pack_format(&self.pack),
+            lore_pack::built_format(&self.pack_program),
+        ) {
+            (Some(found), Some(built)) => found != built,
+            _ => false,
+        }
+    }
 }
 
 /// The state that `status` shows.
@@ -177,6 +189,8 @@ pub enum Finished {
 /// At most one build at a time, off the main loop, and at most one try an hour.
 pub struct LoreJob {
     parts: LoreParts,
+    /// Checked once at the start. The desktop app restarts after each Timeways update.
+    old_format: bool,
     running: Option<JoinHandle<Result<Vec<String>>>>,
     last_try: Option<Instant>,
 }
@@ -184,6 +198,7 @@ pub struct LoreJob {
 impl LoreJob {
     pub fn new(parts: LoreParts) -> LoreJob {
         LoreJob {
+            old_format: parts.has_old_format(),
             parts,
             running: None,
             last_try: None,
@@ -202,7 +217,7 @@ impl LoreJob {
             || self
                 .last_try
                 .is_some_and(|last| now.duration_since(last) < TRY_AGAIN_AFTER);
-        if waiting || !self.parts.build_needed() {
+        if waiting || !(self.old_format || self.parts.build_needed()) {
             return None;
         }
         self.last_try = Some(now);
