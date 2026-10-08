@@ -206,13 +206,27 @@ impl Body {
 pub struct Answer {
     pub body: Body,
     pub narrator: Option<String>,
+    /// The model call of the narrator line, so Timeways can rate that line. Only with
+    /// `narrator`, and only on `events_seen`.
+    pub narrator_id: Option<u64>,
     pub notice: Option<String>,
 }
 
 /// The optional lines of an answer, beside its body.
 struct SideLines {
     narrator: Option<String>,
+    narrator_id: Option<u64>,
     notice: Option<String>,
+}
+
+impl SideLines {
+    fn of(narrator: Option<String>, notice: Option<String>) -> SideLines {
+        SideLines {
+            narrator,
+            narrator_id: None,
+            notice,
+        }
+    }
 }
 
 /// A narrator line or a notice over its limit loses only that line; the rest of the
@@ -260,6 +274,8 @@ enum Wire {
         id: RequestId,
         #[serde(default)]
         narrator: Option<String>,
+        #[serde(default)]
+        narrator_id: Option<u64>,
         #[serde(default)]
         notice: Option<String>,
     },
@@ -315,7 +331,7 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
             } => (
                 id,
                 Body::LoreAnswer { text, passages },
-                SideLines { narrator, notice },
+                SideLines::of(narrator, notice),
             ),
             Wire::TalkAnswer {
                 id,
@@ -326,7 +342,7 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
             } => (
                 id,
                 Body::TalkAnswer { npc, text },
-                SideLines { narrator, notice },
+                SideLines::of(narrator, notice),
             ),
             Wire::DraftAnswer {
                 id,
@@ -336,13 +352,22 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
             } => (
                 id,
                 Body::DraftAnswer { draft },
-                SideLines { narrator, notice },
+                SideLines::of(narrator, notice),
             ),
             Wire::EventsSeen {
                 id,
                 narrator,
+                narrator_id,
                 notice,
-            } => (id, Body::EventsSeen, SideLines { narrator, notice }),
+            } => (
+                id,
+                Body::EventsSeen,
+                SideLines {
+                    narrator,
+                    narrator_id,
+                    notice,
+                },
+            ),
         }
     };
     if !body_fits(&body) {
@@ -350,9 +375,12 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
     }
     let (narrator, narrator_check) = checked_side_line(side.narrator, MAX_COMPANION);
     let (notice, notice_check) = checked_side_line(side.notice, MAX_NOTICE);
+    // An id names a line, so it goes when its line goes.
+    let narrator_id = side.narrator_id.filter(|_| narrator.is_some());
     let answer = (bytes.len() <= MAX_ANSWER_LINE).then_some(Answer {
         body,
         narrator,
+        narrator_id,
         notice,
     });
     Ok(FromStory::Answer {
@@ -401,7 +429,7 @@ fn read_journal(value: Value) -> Result<(RequestId, Body, SideLines), BadLine> {
         pages,
         content,
     };
-    Ok((RequestId(id), body, SideLines { narrator, notice }))
+    Ok((RequestId(id), body, SideLines::of(narrator, notice)))
 }
 
 fn optional_string(value: Option<Value>) -> Result<Option<String>, BadLine> {
@@ -499,6 +527,8 @@ struct Reply<'a> {
     narrator: Option<String>,
     /// Only when set, so the reply to an old story program stays as it was.
     #[serde(skip_serializing_if = "Option::is_none")]
+    narrator_id: Option<u64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     notice: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     note: Option<&'a str>,
@@ -511,6 +541,7 @@ pub fn reply_text(answer: &Answer, note: Option<&str>) -> Option<String> {
     let reply = Reply {
         body: game_safe(&answer.body),
         narrator: answer.narrator.as_deref().map(game_text),
+        narrator_id: answer.narrator_id,
         notice: answer.notice.as_deref().map(game_text),
         note,
     };
@@ -628,6 +659,7 @@ mod tests {
                 passages,
             },
             narrator: None,
+            narrator_id: None,
             notice: None,
         }
     }
@@ -1051,6 +1083,62 @@ mod tests {
         assert!(answer_of(br#"{"type":"events_seen","id":5}"#).is_some());
     }
 
+    fn reply_of(line: &[u8]) -> Value {
+        let text = reply_text(&answer_of(line).unwrap(), None).unwrap();
+        serde_json::from_str(&text).unwrap()
+    }
+
+    /// Timeways rates a narrator line by the id of its model call.
+    #[test]
+    fn events_seen_passes_the_id_of_its_narrator_line_to_the_game() {
+        let line = br#"{"type":"events_seen","id":5,"narrator":"A wolf howls.","narrator_id":42}"#;
+
+        let answer = answer_of(line).unwrap();
+        let reply = reply_of(line);
+
+        assert_eq!(answer.narrator_id, Some(42));
+        assert_eq!(reply["narrator_id"], 42);
+        assert_eq!(reply["narrator"], "A wolf howls.");
+    }
+
+    #[test]
+    fn a_reply_with_no_narrator_id_stays_as_it_was() {
+        let reply = reply_of(br#"{"type":"events_seen","id":5,"narrator":"A wolf howls."}"#);
+
+        assert_eq!(reply.get("narrator_id"), None);
+    }
+
+    #[test]
+    fn a_narrator_id_without_its_narrator_line_goes_too() {
+        let long = "w".repeat(MAX_COMPANION + 1);
+        let dropped =
+            format!(r#"{{"type":"events_seen","id":5,"narrator":"{long}","narrator_id":42}}"#);
+        let lines = [
+            dropped.as_bytes(),
+            br#"{"type":"events_seen","id":5,"narrator_id":42}"#,
+            br#"{"type":"events_seen","id":5,"narrator":null,"narrator_id":42}"#,
+        ];
+
+        for line in lines {
+            assert_eq!(answer_of(line).unwrap().narrator_id, None);
+            assert_eq!(reply_of(line).get("narrator_id"), None);
+        }
+    }
+
+    #[test]
+    fn a_narrator_id_that_is_not_a_whole_number_or_on_another_answer_is_refused() {
+        let lines = [
+            r#"{"type":"events_seen","id":5,"narrator":"x","narrator_id":-1}"#,
+            r#"{"type":"events_seen","id":5,"narrator":"x","narrator_id":"42"}"#,
+            r#"{"type":"events_seen","id":5,"narrator":"x","narrator_id":1.5}"#,
+            r#"{"type":"talk_answer","id":5,"npc":"x","text":null,"narrator":"x","narrator_id":1}"#,
+        ];
+
+        for line in lines {
+            assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
+        }
+    }
+
     #[test]
     fn a_lore_answer_and_a_journal_take_a_narrator_too() {
         let lore = br#"{"type":"lore_answer","id":3,"text":null,"passages":[],"narrator":"Hm."}"#;
@@ -1078,6 +1166,7 @@ mod tests {
             Answer {
                 body: Body::EventsSeen,
                 narrator: None,
+                narrator_id: None,
                 notice: None,
             }
         );
@@ -1157,6 +1246,7 @@ mod tests {
         let answer = Answer {
             body: Body::EventsSeen,
             narrator: None,
+            narrator_id: None,
             notice: Some("Finish |cffff0000one first.".into()),
         };
         assert_eq!(
@@ -1294,6 +1384,7 @@ mod tests {
         let answer = Answer {
             body: Body::EventsSeen,
             narrator: Some("A wolf howls.".into()),
+            narrator_id: None,
             notice: None,
         };
         assert_eq!(

@@ -2014,7 +2014,7 @@ The bridge sends each batch as soon as the story program is ready. A batch that 
 | `journal` | `id`, `page`, `pages`, `narrator` (optional), `notice` (optional), and any other fields | `page` and `pages` are integers from 0 up, and `page` is below `pages` unless `pages` is 0. The other fields are bounded JSON (below). |
 | `talk_answer` | `id`, `npc`, `text` (a string, or `null` when no model answered), `narrator` (optional), `notice` (optional) | `npc` at most 64 bytes. `text` at most 1600 bytes (400 characters), on one line, with no control character. |
 | `draft_answer` | `id`, `draft` (an object, or `null` or missing when the story program makes no quest of the idea), `narrator` (optional), `notice` (optional) | The draft is `title`, `text`, and `steps` (a list of `goal` and `target`), with no other field. Limits below. |
-| `events_seen` | `id`, `narrator` (a string or `null`), `notice` (optional) | The answer to a batch of game events only |
+| `events_seen` | `id`, `narrator` (a string or `null`), `narrator_id` (optional), `notice` (optional) | The answer to a batch of game events only. `narrator_id` is a whole number: the model call of the narrator line, so Timeways can rate the line (asked for on 2026-10-07). The game reply gets it only with its `narrator`: when the narrator line is missing or too long, the id goes too. |
 | `model_call` | `call`, `prompt` | `prompt` at most 256 KiB. |
 
 **Model calls.** A `model_call` can come at any time, also when no batch waits. An example is the bard call for a saga after `events_seen`.
