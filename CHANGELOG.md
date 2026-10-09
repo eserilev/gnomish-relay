@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.5.2
+
+- Setup is faster with Timeways. The desktop app now downloads the lore in the
+  background, and `/lore` answers from what you've seen until it's ready.
+- `gnomish-relay status` shows whether the Timeways lore is ready.
+
+### Fixes
+
+- The install lines in the first-run window now copy correctly. Before, WoW could break
+  them when you copied them.
+- When your desktop app is too old for WoW: Forever, the game now tells you how to update
+  it. Before, this only worked in TBC Anniversary.
+
 ## 0.5.1
 
 - If you have both WoW: Forever and TBC Anniversary, Gnomish Relay now works in both at
