@@ -90,13 +90,15 @@ fn swap_and_run(dirs: &Dirs, record: &Record) -> Result<()> {
     for step in dev_mode::start_steps(record) {
         dev_mode::apply(&step, &checkout)?;
     }
+    // A Ctrl-C before the handler kills dev with the checkout still linked.
+    let stop = catch_ctrl_c()?;
     println!(
         "Dev mode is on. WoW loads the addon from {}",
         checkout.display()
     );
     println!("Type /reload in WoW. If WoW doesn't show your changes, restart it.");
     println!("Press Ctrl-C to stop dev mode and go back to your installed version.");
-    run_until_stopped()
+    run_until_stopped(&stop)
 }
 
 /// `addon/GnomishRelay` of the checkout that this build came from.
@@ -106,11 +108,15 @@ fn checkout_addon() -> Result<PathBuf> {
         .with_context(|| format!("cannot find {}", path.display()))
 }
 
-fn run_until_stopped() -> Result<()> {
+fn catch_ctrl_c() -> Result<Arc<AtomicBool>> {
     let stop = Arc::new(AtomicBool::new(false));
     let flag = Arc::clone(&stop);
     ctrlc::set_handler(move || flag.store(true, Ordering::SeqCst))
         .context("cannot catch Ctrl-C")?;
+    Ok(stop)
+}
+
+fn run_until_stopped(stop: &AtomicBool) -> Result<()> {
     let exe = std::env::current_exe()?;
     let mut child = Command::new(exe)
         .arg("run")

@@ -552,7 +552,7 @@ fn game_with_release_addon(home: &std::path::Path) -> std::path::PathBuf {
     addon
 }
 
-/// `dev` in the background, with its lines on a channel.
+/// `dev` in the background, with its lines on a channel. Stderr lines start with `stderr: `.
 #[cfg(target_os = "linux")]
 fn start_dev(home: &std::path::Path) -> (std::process::Child, std::sync::mpsc::Receiver<String>) {
     use std::io::BufRead;
@@ -565,14 +565,21 @@ fn start_dev(home: &std::path::Path) -> (std::process::Child, std::sync::mpsc::R
         .env("PATH", home.join("empty"))
         .stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::piped())
-        .stderr(std::process::Stdio::null())
+        .stderr(std::process::Stdio::piped())
         .spawn()
         .unwrap();
     let (send, lines) = std::sync::mpsc::channel();
     let out = std::io::BufReader::new(child.stdout.take().unwrap());
+    let err = std::io::BufReader::new(child.stderr.take().unwrap());
+    let send_err = send.clone();
     std::thread::spawn(move || {
         for line in out.lines().map_while(Result::ok) {
             let _ = send.send(line);
+        }
+    });
+    std::thread::spawn(move || {
+        for line in err.lines().map_while(Result::ok) {
+            let _ = send_err.send(format!("stderr: {line}"));
         }
     });
     (child, lines)
