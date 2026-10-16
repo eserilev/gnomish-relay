@@ -575,6 +575,15 @@ return {
 		["SimpleScriptRegionAPI:Show"] = {
 			Arguments = {},
 		},
+		["SimpleScriptRegionResizingAPI:SetAllPoints"] = {
+			CheckAllowInheritForbiddenLayoutAspects = true,
+			IsProtectedFunction = true,
+			SecretArguments = "AllowedWhenUntainted",
+			Arguments = {
+				{ Name = "relativeTo", Type = "ScriptRegion", Nilable = false },
+				{ Name = "doResize", Type = "bool", Nilable = false, Default = true },
+			},
+		},
 		["SimpleScriptRegionResizingAPI:SetPoint"] = {
 			CheckAllowInheritForbiddenLayoutAspects = true,
 			IsProtectedFunction = true,
