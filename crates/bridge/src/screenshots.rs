@@ -7,11 +7,11 @@ use std::path::{Path, PathBuf};
 use anyhow::{Result, bail};
 
 use crate::fs_safe::read_at_most;
-use crate::strip::{self, Image, MAX_SIDE};
+use crate::strip::{self, Image};
 
-/// The PNG of the largest image that the bridge decodes, with 16-bit RGBA and no
-/// compression, fits. Room for the chunks and the deflate blocks comes on top.
-const MAX_PNG: u64 = MAX_SIDE as u64 * MAX_SIDE as u64 * 8 + 1024 * 1024;
+/// The bridge reads the whole file before it decodes the top rows. A WoW screenshot of
+/// an 8K screen is about 50 MB.
+const MAX_PNG: u64 = 129 * 1024 * 1024;
 
 pub struct Watcher {
     dir: PathBuf,

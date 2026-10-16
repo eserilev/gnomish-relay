@@ -7,14 +7,21 @@ use protocol::frame::decode_frame;
 use crate::line;
 
 /// Checked in the PNG header, before the pixels are decoded (SPEC.md 6.2, rule 9).
-pub const MAX_SIDE: u32 = 4096;
+pub const MAX_WIDTH: u32 = 8192;
+/// Every reader looks only at the top-left corner: the grid, the line, and the line test
+/// end within 400 pixels. So only these rows are decoded, and a tall window costs no
+/// memory.
+const TOP_ROWS: u32 = 1024;
 const CELLS_PER_ROW: usize = 200;
 const MAX_ROWS: usize = 48;
 const CALIBRATION_ROWS: usize = 2;
 
+/// The top rows of a screenshot, with the size of the whole screenshot.
 pub struct Image {
     width: usize,
+    /// The rows in `rgb`.
     height: usize,
+    full_height: usize,
     rgb: Vec<u8>,
 }
 
@@ -23,40 +30,53 @@ impl Image {
         let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
         let header = decoder.read_header_info()?;
-        if header.width > MAX_SIDE || header.height > MAX_SIDE {
-            bail!(
-                "image is {}x{}, over the limit",
-                header.width,
-                header.height
-            );
+        let (width, full_height) = (header.width, header.height);
+        if width > MAX_WIDTH {
+            bail!("image is {width}x{full_height}, over the limit");
+        }
+        // The rows of an interlaced PNG come in passes, so the top rows are not first.
+        if header.interlaced {
+            bail!("screenshot is interlaced");
         }
         let mut reader = decoder.read_info()?;
-        let mut buf = vec![0; reader.output_buffer_size().unwrap_or(0)];
-        let info = reader.next_frame(&mut buf)?;
-        let channels = match info.color_type {
+        let channels = match reader.output_color_type().0 {
             png::ColorType::Rgb => 3,
             png::ColorType::Rgba => 4,
             other => bail!("screenshot has color type {other:?}"),
         };
-        let (width, height) = (info.width as usize, info.height as usize);
-        let pixels = buf
-            .get(..info.buffer_size())
-            .context("the PNG frame is larger than its buffer")?;
-        let rgb = pixels
-            .chunks_exact(channels)
-            .flat_map(|px| [px[0], px[1], px[2]])
-            .collect();
-        Ok(Image { width, height, rgb })
+        let height = full_height.min(TOP_ROWS);
+        let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+        for _ in 0..height {
+            let row = reader
+                .next_row()?
+                .context("the PNG ends before its last row")?;
+            rgb.extend(
+                row.data()
+                    .chunks_exact(channels)
+                    .flat_map(|px| [px[0], px[1], px[2]]),
+            );
+        }
+        Ok(Image {
+            width: width as usize,
+            height: height as usize,
+            full_height: full_height as usize,
+            rgb,
+        })
     }
 
-    /// Width and height in pixels.
+    /// Width and height of the whole screenshot, in pixels.
     pub fn size(&self) -> (usize, usize) {
-        (self.width, self.height)
+        (self.width, self.full_height)
     }
 
     /// `None` when `rgb` does not hold 3 bytes for each pixel.
     pub fn from_rgb(width: usize, height: usize, rgb: Vec<u8>) -> Option<Image> {
-        (rgb.len() == width * height * 3).then_some(Image { width, height, rgb })
+        (rgb.len() == width * height * 3).then_some(Image {
+            width,
+            height,
+            full_height: height,
+            rgb,
+        })
     }
 
     pub fn pixel(&self, x: usize, y: usize) -> Option<[u8; 3]> {
@@ -82,7 +102,12 @@ impl Image {
             let start = (row * self.width + x) * 3;
             rgb.extend_from_slice(&self.rgb[start..start + width * 3]);
         }
-        Image { width, height, rgb }
+        Image {
+            width,
+            height,
+            full_height: height,
+            rgb,
+        }
     }
 
     pub fn to_png(&self) -> Result<Vec<u8>> {

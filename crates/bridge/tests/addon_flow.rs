@@ -2755,6 +2755,40 @@ fn blocked_screenshots_show_one_line_and_mark_the_window() {
         .to_string()
         .unwrap();
     assert_eq!(problem, "blocked");
+    assert_eq!(
+        shot_failures(&game).first().map(String::as_str),
+        Some("failed")
+    );
+}
+
+/// Each failed shot stays in the saved variables, so a bug report can show why.
+fn shot_failures(game: &Game) -> Vec<String> {
+    let list: mlua::Table = game
+        .run("local ns = ... local out = {} for _, f in ipairs(ns.Saved().shotFailures or {}) do table.insert(out, f.why) end return out")
+        .as_table()
+        .unwrap()
+        .clone();
+    list.sequence_values::<String>()
+        .map(Result::unwrap)
+        .collect()
+}
+
+#[test]
+fn a_screenshot_that_never_saves_says_it_took_too_long_and_is_logged() {
+    let game = Game::start_with(|wow| wow.set("shotsLost", true).unwrap());
+    game.advance(30.0);
+
+    let slow = game
+        .printed()
+        .iter()
+        .filter(|l| *l == "Gnomish Relay: the game took too long to save a screenshot. Type /reload to try again.")
+        .count();
+    assert_eq!(slow, 1);
+    assert!(!game.printed().iter().any(|l| l.contains("disk space")));
+    assert_eq!(
+        shot_failures(&game).first().map(String::as_str),
+        Some("timeout")
+    );
 }
 
 const NO_APP_LINE: &str = "Gnomish Relay needs its desktop app. Get it at github.com/eserilev/gnomish-relay, then restart WoW.";

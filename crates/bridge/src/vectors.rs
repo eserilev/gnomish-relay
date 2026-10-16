@@ -16,7 +16,7 @@ use crate::strip::{Image, read_with};
 /// PUBLIC. It signs only the test strips of the self-test addon, never a message.
 pub const TEST_KEY: &[u8; 32] = b"gnomish-relay public test key 01";
 pub const MANIFEST: &str = "manifest.json";
-/// A PNG of 4096 by 4096 pixels (`strip::MAX_SIDE`) with no compression is below this.
+/// A test strip of the self-test addon is far below this.
 const MAX_PNG: u64 = 80 * 1024 * 1024;
 
 /// One strip that the self-test addon drew, as its results list it.

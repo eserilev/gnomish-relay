@@ -6,7 +6,7 @@
 mod common;
 
 use bridge::line::{self, Color, MODES, Mode};
-use bridge::strip::{Image, MAX_SIDE, read_with};
+use bridge::strip::{Image, MAX_WIDTH, read_with};
 use common::{HEIGHT, WIDTH, encode_png, scene, screenshot_png, strip_rows};
 use png::{BitDepth, ColorType};
 use protocol::frame::{decode_frame, encode_frame};
@@ -147,10 +147,29 @@ fn a_crop_right_of_the_image_is_empty() {
 }
 
 #[test]
-fn an_image_over_the_size_limit_is_refused_before_decoding() {
-    let data = vec![0; (MAX_SIDE as usize + 1) * 3];
-    let png_bytes = encode_png(MAX_SIDE + 1, 1, ColorType::Rgb, BitDepth::Eight, &data);
+fn an_image_over_the_width_limit_is_refused_before_decoding() {
+    let data = vec![0; (MAX_WIDTH as usize + 1) * 3];
+    let png_bytes = encode_png(MAX_WIDTH + 1, 1, ColorType::Rgb, BitDepth::Eight, &data);
     assert!(Image::from_png(&png_bytes).is_err());
+}
+
+/// A WoW window of 5112x2738 pixels, as one player has. Its screenshots were once over
+/// a limit of 4096 a side, so no strip got through.
+#[test]
+fn a_strip_in_a_screenshot_of_a_big_window_reads_back() {
+    let (width, height) = (5112, 2738);
+    let mut rgb = vec![70u8; width * height * 3];
+    let small = scene(&strip_rows(&frame(b"big window")), 3.0, 3.0);
+    for y in 0..HEIGHT as usize {
+        let row = &small[y * WIDTH as usize * 3..(y + 1) * WIDTH as usize * 3];
+        rgb[y * width * 3..y * width * 3 + row.len()].copy_from_slice(row);
+    }
+    let png_bytes = encode_png(5112, 2738, ColorType::Rgb, BitDepth::Eight, &rgb);
+
+    let image = Image::from_png(&png_bytes).unwrap();
+
+    assert_eq!(image.size(), (5112, 2738));
+    assert_eq!(payload_of(&png_bytes).unwrap(), b"big window");
 }
 
 /// A 1280x720 scene with the line of `frame` drawn at the corner, as a PNG.

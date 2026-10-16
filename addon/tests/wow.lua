@@ -34,6 +34,8 @@ local wow = {
 	disabled = {},
 	outOfDate = {},
 	shotsBlocked = false,
+	-- The game takes no picture and sends no event, as a save that never ends.
+	shotsLost = false,
 	-- Seconds from Screenshot() to its SCREENSHOT_* event.
 	shotDelay = fake.shot_delay,
 	-- How often "Screen captured" showed through ActionStatus.
@@ -815,6 +817,9 @@ local function Saved()
 end
 
 function Screenshot()
+	if wow.shotsLost then
+		return
+	end
 	if wow.shotsBlocked then
 		C_Timer.After(wow.shotDelay, function()
 			wow.Fire("SCREENSHOT_FAILED")

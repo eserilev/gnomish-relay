@@ -339,7 +339,8 @@ local function Draw(frameBytes)
 end
 
 -- The corner goes before the callback, so an error in the callback keeps no corner.
-local function Finish(ok)
+-- `why` says how a shot failed: "failed" from the game, "timeout", or "refused".
+local function Finish(ok, why)
 	local done = pending
 	pending = nil
 	shooting = false
@@ -349,7 +350,7 @@ local function Finish(ok)
 	backdrop:Hide()
 	Release(GetTime())
 	if done then
-		done(ok)
+		done(ok, why)
 	end
 end
 
@@ -357,7 +358,7 @@ function Strip.Busy()
 	return pending ~= nil
 end
 
--- Calls `done(ok)` once the screenshot has been taken or has failed. Returns false,
+-- Calls `done(ok, why)` once the screenshot has been taken or has failed. Returns false,
 -- and draws nothing, while another strip is in progress or another app holds the corner.
 function Strip.Show(frameBytes, done)
 	if pending or not Strip.TakeTurn() then
@@ -380,12 +381,12 @@ function Strip.Show(frameBytes, done)
 			backdrop:Hide()
 		end)
 		if not pcall(Screenshot) then
-			Finish(false)
+			Finish(false, "refused")
 		end
 	end)
 	C_Timer.After(SHOT_TIMEOUT, function()
 		if pending == done then
-			Finish(false)
+			Finish(false, "timeout")
 		end
 	end)
 	return true
@@ -430,6 +431,7 @@ events:RegisterEvent("SCREENSHOT_FAILED")
 events:SetScript("OnEvent", function(_, event)
 	if OurShot() then
 		HideStatus()
-		Finish(event == "SCREENSHOT_SUCCEEDED")
+		local ok = event == "SCREENSHOT_SUCCEEDED"
+		Finish(ok, not ok and "failed" or nil)
 	end
 end)

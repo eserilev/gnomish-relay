@@ -35,6 +35,34 @@ end
 
 local status = {}
 
+-- The chat line of each way a shot fails (Strip.lua). Only "failed" comes from the game
+-- itself, so only that line names the disk.
+local FAILURE_LINES = {
+	failed = ": can't take screenshots. Free up disk space and check the Screenshots folder, then type /reload.",
+	timeout = ": the game took too long to save a screenshot. Type /reload to try again.",
+	refused = ": the game refused to take a screenshot. Type /reload to try again.",
+}
+-- The saved variables keep the last failures, so a player can send them for a bug report.
+local MAX_FAILURES = 20
+
+-- Any addon can change the saved variables, so a wrong shape starts a new list.
+local function Failures()
+	local saved = ns.Saved()
+	if type(saved.shotFailures) ~= "table" then
+		saved.shotFailures = {}
+	end
+	return saved.shotFailures
+end
+
+local function Remember(why)
+	local failures = Failures()
+	table.insert(failures, { at = time(), why = why })
+	while #failures > MAX_FAILURES do
+		table.remove(failures, 1)
+	end
+	status.failedAt, status.failedWhy = time(), why
+end
+
 -- The first required function that the client does not have, or nil.
 function Health.Missing()
 	for _, item in ipairs(Health.Required()) do
@@ -44,15 +72,16 @@ function Health.Missing()
 	end
 end
 
-function Health.Shot(ok)
+function Health.Shot(ok, why)
 	if ok then
 		status.out, status.outAt = "shot", time()
-	elseif status.out ~= "fail" then
+		return
+	end
+	why = FAILURE_LINES[why] and why or "failed"
+	Remember(why)
+	if status.out ~= "fail" then
 		status.out = "fail"
-		print(
-			ns.App.title
-				.. ": can't take screenshots. Free up disk space and check the Screenshots folder, then type /reload."
-		)
+		print(ns.App.title .. FAILURE_LINES[why])
 	end
 end
 
@@ -104,11 +133,15 @@ local function Ago(at)
 end
 
 function Health.Line()
-	return string.format(
+	local line = string.format(
 		"%s: build %s, last screenshot %s, last slot %s",
 		ns.App.title,
 		Build(),
 		Ago(status.outAt),
 		Ago(status.inAt)
 	)
+	if status.failedAt then
+		line = line .. string.format(", last failed screenshot %s (%s)", Ago(status.failedAt), status.failedWhy)
+	end
+	return line
 end

@@ -25,12 +25,16 @@ use crate::wsl;
 
 /// In the data folder. The bridge writes the time of each strip that it takes.
 const LAST_STRIP_FILE: &str = "last-strip";
+/// The time and the reason of the last screenshot that the bridge could not read.
+const LAST_SKIP_FILE: &str = "last-skipped-screenshot";
 
 /// The lines of `gnomish-relay status`. `path` is the `PATH` for the sandbox probe.
 pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let mut lines = vec![bridge_line(&lock::status(places.data_dir))];
     lines.extend(wsl::this().map(|wsl| wsl::status_line(&wsl)));
-    lines.push(last_strip_line(last_strip(places.data_dir), now));
+    let strip = last_strip(places.data_dir);
+    lines.push(last_strip_line(strip, now));
+    lines.extend(last_skip_line(last_skip(places.data_dir), strip, now));
     lines.push(line_choice::status_line(places.data_dir));
     let config = match config::load(places.config_dir, places.home) {
         Ok(config) => config,
@@ -137,6 +141,32 @@ pub fn last_strip_line(last: Option<u32>, now: u32) -> String {
         "Last message from WoW: {} ago",
         duration_text(now.saturating_sub(last))
     )
+}
+
+pub fn mark_skip(data_dir: &Path, now: u32, reason: &str) -> Result<()> {
+    write_atomic_unsynced(
+        data_dir,
+        LAST_SKIP_FILE,
+        format!("{now}\n{reason}").as_bytes(),
+    )
+}
+
+pub fn last_skip(data_dir: &Path) -> Option<(u32, String)> {
+    let text = fs::read_to_string(data_dir.join(LAST_SKIP_FILE)).ok()?;
+    let (time, reason) = text.split_once('\n')?;
+    Some((time.trim().parse().ok()?, reason.trim().to_owned()))
+}
+
+/// A skip before the last good strip is old news, so it shows nothing.
+pub fn last_skip_line(skip: Option<(u32, String)>, strip: Option<u32>, now: u32) -> Option<String> {
+    let (at, reason) = skip?;
+    if strip.is_some_and(|strip| strip >= at) {
+        return None;
+    }
+    Some(format!(
+        "Couldn't read a screenshot {} ago: {reason}",
+        duration_text(now.saturating_sub(at))
+    ))
 }
 
 fn duration_text(seconds: u32) -> String {
@@ -254,6 +284,21 @@ mod tests {
             last_strip_line(Some(1000), 1000 + 3 * 86400),
             "Last message from WoW: 3 days ago"
         );
+    }
+
+    #[test]
+    fn a_skipped_screenshot_shows_until_a_strip_reads() {
+        let dir = tempfile::tempdir().unwrap();
+        assert_eq!(last_skip(dir.path()), None);
+
+        mark_skip(dir.path(), 1000, "image is 9000x2738, over the limit").unwrap();
+        let skip = last_skip(dir.path());
+
+        assert_eq!(
+            last_skip_line(skip.clone(), Some(900), 1120).as_deref(),
+            Some("Couldn't read a screenshot 2 min ago: image is 9000x2738, over the limit")
+        );
+        assert_eq!(last_skip_line(skip, Some(1000), 1120), None);
     }
 
     #[test]

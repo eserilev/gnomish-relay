@@ -375,6 +375,9 @@ impl Bridge {
                 Ok(None) => continue,
                 Err(e) => {
                     log(&format!("skipped {}: {e}", path.display()));
+                    if let Err(e) = status::mark_skip(&self.data, now(), &e.to_string()) {
+                        log(&format!("cannot write the last skipped screenshot: {e:#}"));
+                    }
                     continue;
                 }
             };

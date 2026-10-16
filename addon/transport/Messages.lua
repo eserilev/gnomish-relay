@@ -350,8 +350,8 @@ local function ShowFrame(frame, ids, controls, reporting, riders)
 		-- A hello that comes due during the shot stays due.
 		state.helloDue = false
 	end
-	ns.Strip.Show(frame, function(ok)
-		ns.Health.Shot(ok)
+	ns.Strip.Show(frame, function(ok, why)
+		ns.Health.Shot(ok, why)
 		if not ok then
 			state.helloDue = state.helloDue or reporting ~= nil
 			return
