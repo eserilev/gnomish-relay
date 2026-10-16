@@ -812,6 +812,7 @@ WoW saves a PNG in `_classic_beta_/Screenshots`. The bridge watches that folder,
 The spike proved this path (2026-09-23): the call takes under 1 ms, the file arrives after about 0.4 s, and every color is exact.
 
 - At login, the addon sets the `screenshotFormat` CVar to `png`.
+- For the frame of the picture, a flat gray backdrop (70, 70, 70) covers the screen under the strip, and hides 0.1 s after the call. A PNG of the game scene is up to 18 MB at 4K. A PNG of one flat color is some KB, and holds no picture of the game. Gray is no cell color, so the edge of the strip stays clear. A picture after the backdrop hid still reads: it is only a big file.
 - The addon hides the "Screen captured" text of its own screenshots through the `ActionStatus` frame. Screenshots of the user still show it.
 - The bridge ignores screenshots with no valid strip. Those are the screenshots of the user.
 - The first strip ever prints one line, once (the saved variables remember it): "<title>: the colored bar that flashes at the top left is how your messages reach the desktop app. That's normal."

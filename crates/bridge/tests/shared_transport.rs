@@ -293,6 +293,13 @@ impl Game {
         self.lua.globals().get(name).unwrap()
     }
 
+    /// Runs Lua with the `ns` of an addon as `ns`.
+    fn run_on(&self, ns: &Table, code: &str) {
+        let code = format!("local ns = ...\n{code}");
+        let f: Function = self.lua.load(code).into_function().unwrap();
+        f.call::<()>(ns.clone()).unwrap();
+    }
+
     /// Signs one record with the key of the addon and shows it as a strip.
     fn show(&self, ns: &Table, text: &str) {
         let show: Function = self
@@ -485,6 +492,38 @@ fn the_lua_strip_of_each_app_reads_back_in_rust_through_a_png() {
                 .unwrap_or_else(|| panic!("{} strip of {} bytes", names.addon, text.len()));
             assert_eq!(records[0].text, text.as_bytes());
         }
+    }
+}
+
+/// A PNG of the game scene is up to 18 MB at 4K. A flat screen under the strip is some KB.
+/// The flat screen blinks only for the frame of the picture, not until the shot event.
+#[test]
+fn each_shot_has_a_flat_backdrop_that_hides_before_the_shot_ends() {
+    for names in [RELAY, TIMEWAYS] {
+        let game = Game::new();
+        let ns = game.shared(&names);
+        let check = format!(
+            "local ns = ...
+             return {}Backdrop.shown, ns.Strip.Busy()",
+            names.strip
+        );
+        let state: Function = game.lua.load(check).into_function().unwrap();
+
+        game.run_on(
+            &ns,
+            "assert(ns.Strip.Show(ns.Codec.Frame(time(), 7, '', ns.key), function() end))",
+        );
+        game.advance(0.25);
+
+        let at_shot: Vec<bool> = game
+            .wow
+            .get::<Table>("backdropsOf")
+            .unwrap()
+            .get(names.strip)
+            .unwrap();
+        let (shown, busy): (bool, bool) = state.call(ns.clone()).unwrap();
+        assert_eq!(at_shot, [true], "{}", names.addon);
+        assert!(busy && !shown, "{}", names.addon);
     }
 }
 

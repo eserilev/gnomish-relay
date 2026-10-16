@@ -42,6 +42,8 @@ local wow = {
 	-- Every screenshot again, by the name of each strip frame in `strips` that it shows.
 	strips = { "GnomishRelayStrip" },
 	shotsOf = {},
+	-- For each shot of each strip frame, whether its backdrop showed in the picture.
+	backdropsOf = {},
 	-- The same screenshots as rectangles of physical pixels, for the line (SPEC.md 7.1.3).
 	picturesOf = {},
 	-- How often a strip frame showed while another one showed. Both sit in one corner.
@@ -785,9 +787,12 @@ local function Capture()
 	for _, frameName in ipairs(wow.strips) do
 		wow.shotsOf[frameName] = wow.shotsOf[frameName] or {}
 		wow.picturesOf[frameName] = wow.picturesOf[frameName] or {}
+		wow.backdropsOf[frameName] = wow.backdropsOf[frameName] or {}
 		if _G[frameName] and _G[frameName].shown then
+			local backdrop = _G[frameName .. "Backdrop"]
 			table.insert(wow.shotsOf[frameName], StripCells(frameName))
 			table.insert(wow.picturesOf[frameName], StripPicture(frameName))
+			table.insert(wow.backdropsOf[frameName], backdrop ~= nil and backdrop.shown == true)
 		end
 	end
 end

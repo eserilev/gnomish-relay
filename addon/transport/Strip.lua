@@ -16,6 +16,14 @@ ns.Strip = Strip
 
 local CELL = 3
 local SHOT_DELAY = 0.1
+-- A PNG of the game scene is up to 18 MB at 4K. A PNG of one flat color is some KB. So
+-- the screen under the strip is flat gray in the picture. Gray is no cell color, so the
+-- edge of the strip stays clear, and every decode test of the bridge reads on it.
+local BACKDROP_GRAY = 70 / 255
+-- The game takes the picture after the handler of the call (SPEC.md 7.1). Above 10 fps,
+-- that frame comes within this time. A later picture shows the scene: a big file, and
+-- the strip still reads.
+local BACKDROP_FOR = 0.1
 local SHOT_TIMEOUT = 10
 -- A new shape of the value needs a new name: an older copy of this file can run in
 -- another addon at the same time.
@@ -37,6 +45,7 @@ local TEST_ROW_STEP = 4
 local TESTS_PER_SESSION = 3
 
 local frame
+local backdrop
 local textures = {}
 local lineTextures = {}
 -- One pool of textures for the test line of each mode.
@@ -157,6 +166,12 @@ local function Build()
 	frame:SetPoint("TOPLEFT", UIParent, "TOPLEFT", 0, 0)
 	frame:SetSize(ns.Codec.CELLS_PER_ROW * CELL, ns.Codec.MAX_ROWS * CELL)
 	frame:Hide()
+	backdrop = CreateFrame("Frame", ns.App.strip .. "Backdrop", UIParent)
+	backdrop:SetFrameStrata("TOOLTIP")
+	backdrop:SetFrameLevel(9999)
+	backdrop:SetAllPoints(UIParent)
+	backdrop:CreateTexture(nil, "BACKGROUND"):SetColorTexture(BACKDROP_GRAY, BACKDROP_GRAY, BACKDROP_GRAY)
+	backdrop:Hide()
 end
 
 local function Texture(row, col)
@@ -331,6 +346,7 @@ local function Finish(ok)
 	turn = false
 	hideStatusUntil = GetTime() + 1
 	frame:Hide()
+	backdrop:Hide()
 	Release(GetTime())
 	if done then
 		done(ok)
@@ -359,6 +375,10 @@ function Strip.Show(frameBytes, done)
 		end
 		hideStatusUntil = GetTime() + SHOT_TIMEOUT
 		shooting = true
+		backdrop:Show()
+		C_Timer.After(BACKDROP_FOR, function()
+			backdrop:Hide()
+		end)
 		if not pcall(Screenshot) then
 			Finish(false)
 		end
