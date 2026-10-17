@@ -1,9 +1,9 @@
--- The documented WoW Classic: TBC Anniversary 2.5.6.69795 API that GnomishRelay uses.
+-- The documented WoW Classic: TBC Anniversary 2.5.6.70006 API that GnomishRelay uses.
 -- Written by scripts/wow-api.sh from Blizzard_APIDocumentationGenerated. Do not edit.
 -- A patch can change the arguments, returns, or secret flags and keep the name. The diff shows it.
 -- The scan does not know the type of each object, so methods has each widget type with a called name.
 return {
-	build = "2.5.6.69795",
+	build = "2.5.6.70006",
 	functions = {
 		["C_AddOns.DisableAddOn"] = {
 			Arguments = {

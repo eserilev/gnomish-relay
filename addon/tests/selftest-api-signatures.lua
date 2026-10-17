@@ -1,9 +1,9 @@
--- The documented WoW Forever 1.60.1.70205 API that GnomishRelaySelfTest, GnomishRelaySelfTest_Off, GnomishRelaySelfTest_Slot uses.
+-- The documented WoW Forever 1.60.1.70450 API that GnomishRelaySelfTest, GnomishRelaySelfTest_Off, GnomishRelaySelfTest_Slot uses.
 -- Written by scripts/wow-api.sh from Blizzard_APIDocumentationGenerated. Do not edit.
 -- A patch can change the arguments, returns, or secret flags and keep the name. The diff shows it.
 -- The scan does not know the type of each object, so methods has each widget type with a called name.
 return {
-	build = "1.60.1.70205",
+	build = "1.60.1.70450",
 	functions = {
 		["C_AddOns.DisableAddOn"] = {
 			SecretArguments = "AllowedWhenUntainted",
@@ -445,7 +445,8 @@ return {
 		},
 		["SimpleFrameAPI:SetFrameStrata"] = {
 			IsProtectedFunction = true,
-			SecretArguments = "NotAllowed",
+			SecretArguments = "AllowedWhenUntainted",
+			SecretArgumentsAddAspect = { Enum.SecretAspect.FrameStrata },
 			Arguments = {
 				{ Name = "strata", Type = "FrameStrata", Nilable = false },
 			},

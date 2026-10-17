@@ -1,7 +1,7 @@
--- The WoW Classic: TBC Anniversary 2.5.6.69795 API that GnomishRelay uses.
+-- The WoW Classic: TBC Anniversary 2.5.6.70006 API that GnomishRelay uses.
 -- Written by scripts/wow-api.sh. Do not edit.
 return {
-	build = "2.5.6.69795",
+	build = "2.5.6.70006",
 	globals = {
 		"ActionStatus",
 		"C_AddOns",

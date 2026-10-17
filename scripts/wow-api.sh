@@ -45,12 +45,12 @@ while [ $# -gt 0 ]; do
 done
 case $client in
   forever)
-    UI_COMMIT=e3ecc27b64d30fdc735a3f6579b866858f9f9df1 # forever, 1.60.1.70205
-    BIR_COMMIT=4149af6437af8631d045f3c6add51555fba3d784 # forever, 1.60.1.70009
+    UI_COMMIT=172a387e3ab85b26e6640d3058d5ec1e6ccd4c63 # forever, 1.60.1.70450
+    BIR_COMMIT=c5a49d394564f20c508c71014d6f60d9cd240c71 # forever, 1.60.1.70338
     branch=forever title="WoW Forever" suffix=""
     ;;
   anniversary)
-    UI_COMMIT=1463c686270b6c64e2c5c228f447c4597c0f8ba6 # classic_anniversary, 2.5.6.69795
+    UI_COMMIT=2cfec7c00f0f24762d5ca35a4beb1e93c0cde328 # classic_anniversary, 2.5.6.70006
     BIR_COMMIT=d6d4a8f445f198c5c73ff5f8f5002ad8f04451e4 # classic_anniversary, 2.5.6.68575
     branch=classic_anniversary title="WoW Classic: TBC Anniversary" suffix="-anniversary"
     ;;

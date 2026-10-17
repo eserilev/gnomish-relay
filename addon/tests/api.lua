@@ -1,7 +1,7 @@
--- The WoW Forever 1.60.1.70205 API that GnomishRelay uses.
+-- The WoW Forever 1.60.1.70450 API that GnomishRelay uses.
 -- Written by scripts/wow-api.sh. Do not edit.
 return {
-	build = "1.60.1.70205",
+	build = "1.60.1.70450",
 	globals = {
 		"ActionStatus",
 		"C_AddOns",
@@ -1646,6 +1646,7 @@ return {
 				"EndFocus",
 				"FocusJumpHint",
 				"FrameGlow",
+				"GetFocusFrameGlow",
 				"GetFocusFrameRoot",
 				"GetPortrait",
 				"GetTitleText",
