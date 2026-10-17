@@ -43,6 +43,17 @@ pub(crate) fn listed(names: &[u8], name: &[u8]) -> bool {
     contains(names, &needle)
 }
 
+/// `name` starts a name of the list, as `b"--to"` starts `--to-command`.
+pub(crate) fn starts_listed(names: &[u8], name: &[u8]) -> bool {
+    if name.len() >= names.len() {
+        return false;
+    }
+    let mut needle = Vec::new();
+    needle.push(SPACE);
+    push_bytes(&mut needle, name);
+    contains(names, &needle)
+}
+
 pub(crate) fn has_byte(bytes: &[u8], b: u8) -> bool {
     let mut found = false;
     let mut i = 0;
@@ -89,6 +100,15 @@ mod tests {
     #[test]
     fn a_name_as_long_as_the_list_is_not_listed() {
         assert!(!listed(b" a ", b" a "));
+    }
+
+    #[test]
+    fn starts_listed_matches_the_start_of_a_name() {
+        let names = b" --to-command --exec ";
+        assert!(starts_listed(names, b"--to"));
+        assert!(starts_listed(names, b"--exec"));
+        assert!(!starts_listed(names, b"command"));
+        assert!(!starts_listed(names, b"--execs"));
     }
 
     #[test]

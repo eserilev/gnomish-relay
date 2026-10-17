@@ -95,12 +95,14 @@ structure shell.Simple where
   link : shell.Link
 
 /-- [protocol::command_rules::Test]
-    Source: 'crates/protocol/src/command_rules.rs', lines 49:0-60:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 51:0-66:1 -/
 @[discriminant isize]
 inductive command_rules.Test where
 | Name : command_rules.Test
 | Versioned : command_rules.Test
 | Flag : command_rules.Test
+| Option : command_rules.Test
+| Prefix : command_rules.Test
 | Recursive : command_rules.Test
 | GitForce : command_rules.Test
 

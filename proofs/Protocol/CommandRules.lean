@@ -27,12 +27,17 @@ theorem head_runners_bytes :
 theorem never_always_bytes :
     bytes (Array.to_slice command_rules.NEVER_ALWAYS).val = ascii neverAlwaysNames := by
   unfold command_rules.NEVER_ALWAYS; rfl
+set_option maxRecDepth 10000 in
 theorem git_runs_bytes : bytes (Array.to_slice command_rules.GIT_RUNS).val = ascii gitRunFlags := by
   unfold command_rules.GIT_RUNS; rfl
 theorem git_force_bytes : bytes (Array.to_slice command_rules.GIT_FORCE).val = ascii gitForceFlags := by
   unfold command_rules.GIT_FORCE; rfl
 theorem find_runs_bytes : bytes (Array.to_slice command_rules.FIND_RUNS).val = ascii findRunFlags := by
   unfold command_rules.FIND_RUNS; rfl
+theorem dash_dash_bytes : bytes (Array.to_slice command_rules.DASH_DASH).val = ascii "--" := by
+  unfold command_rules.DASH_DASH; rfl
+theorem dash_o_bytes : bytes (Array.to_slice command_rules.DASH_O).val = ascii "-O" := by
+  unfold command_rules.DASH_O; rfl
 theorem rm_bytes : bytes (Array.to_slice command_rules.RM).val = ascii "rm" := by
   unfold command_rules.RM; rfl
 theorem git_bytes : bytes (Array.to_slice command_rules.GIT).val = ascii "git" := by
@@ -169,8 +174,7 @@ theorem name_of_spec (word : Slice U8) :
 theorem is_version_byte_spec (b : U8) :
     command_rules.is_version_byte b ⦃ r => r = versionByte b.bv ⦄ := by
   unfold command_rules.is_version_byte versionByte
-  have hv : b.bv.toNat = b.val := by simp
-  step* <;> simp only [hv] <;> simp_all <;> scalar_tac
+  step*
 
 theorem dropWhile_all_nil {α : Type} (p : α → Bool) (l : List α) (h : ∀ x ∈ l, p x = true) :
     l.dropWhile p = [] := by
@@ -235,7 +239,6 @@ theorem stem_len_loop_spec (nm : Slice U8) (k : Usize) (hk : k.val ≤ nm.val.le
     refine ⟨hk, hstem (fun _ => ?_)⟩
     simp only [hik, ← i1_post]
     exact hb
-  all_goals exact ⟨hk, hstem (fun h => absurd h (by scalar_tac))⟩
 
 @[step]
 theorem stem_len_spec (nm : Slice U8) :
@@ -433,11 +436,82 @@ theorem is_git_force_spec (word : Slice U8) :
   · rw [gitForce, hplus, hf, ← hb, ← b1_post, ← b2_post]
     simp [*]
 
+/-! ## Prefixes and long flags -/
+
+theorem prefix_bytes_iff (a b : List U8) : bytes a <+: bytes b ↔ a <+: b := by
+  rw [List.prefix_iff_eq_take, List.prefix_iff_eq_take]
+  have hl : (bytes a).length = a.length := by simp [bytes]
+  rw [hl, show (bytes b).take a.length = bytes (b.take a.length) by simp [bytes]]
+  exact Protocol.Seen.bytes_eq_iff a _
+
+@[step]
+theorem has_prefix_spec (word pre : Slice U8) :
+    command_rules.has_prefix word pre ⦃ r => (r = true ↔ pre.val <+: word.val) ⦄ := by
+  unfold command_rules.has_prefix
+  step*
+  · have hl : pre.len.val = pre.val.length := by simp
+    rw [r_post, List.prefix_iff_eq_take, List.drop_zero, hl, List.take_length]
+    exact eq_comm
+  · simp only [Bool.false_eq_true, false_iff]
+    intro h
+    have := h.length_le
+    scalar_tac
+
+theorem dash_dash_len : (Array.to_slice command_rules.DASH_DASH).val.length = 2 := by
+  unfold command_rules.DASH_DASH; rfl
+
+@[step]
+theorem starts_long_flag_spec (f names : Slice U8) (hroom : names.val.length < Usize.max) :
+    command_rules.starts_long_flag f names ⦃ r =>
+      (r = true ↔ 2 < (bytes f.val).length ∧ ascii "--" <+: bytes f.val ∧
+        (ch ' ' :: bytes f.val) <:+: bytes names.val) ⦄ := by
+  unfold command_rules.starts_long_flag
+  have hd := dash_dash_len
+  have hp : (Array.to_slice command_rules.DASH_DASH).val <+: f.val ↔ ascii "--" <+: bytes f.val := by
+    rw [← prefix_bytes_iff, dash_dash_bytes]
+  have hl : (bytes f.val).length = f.val.length := by simp [bytes]
+  step*
+  subst_vars
+  rw [r_post, Protocol.Search.starts_listed_bytes, hl]
+  have := b_post.mp rfl
+  simp only [hp] at this
+  constructor
+  · intro h; exact ⟨by scalar_tac, this, h⟩
+  · intro h; exact h.2.2
+
+/-- `is_option`, on bytes: the flag is listed, or starts a long flag of the list. -/
+def OptionB (names f : List Spec.Byte) : Prop :=
+  (ch ' ' :: f ++ [ch ' ']) <:+: names ∨
+    (2 < f.length ∧ ascii "--" <+: f ∧ (ch ' ' :: f) <:+: names)
+
+@[step]
+theorem is_option_spec (word names : Slice U8) (hroom : names.val.length < Usize.max) :
+    command_rules.is_option word names ⦃ r =>
+      (r = true ↔ OptionB (bytes names.val) (flag (bytes word.val))) ⦄ := by
+  unfold command_rules.is_option
+  step*
+  · simp only [true_iff, OptionB]
+    left
+    rw [← flag_post, ← Protocol.Search.listed_bytes]
+    exact b_post.mp (by assumption)
+  · have hb : ¬ (ch ' ' :: Spec.flag (bytes word.val) ++ [ch ' ']) <:+: bytes names.val := by
+      rw [← flag_post, ← Protocol.Search.listed_bytes]
+      intro h; exact (by assumption : ¬ b = true) (b_post.mpr h)
+    simp only [deref_val] at r_post
+    rw [r_post, OptionB, flag_post]
+    constructor
+    · exact Or.inr
+    · rintro (h | h)
+      · exact absurd h hb
+      · exact h
+
 /-- What `word_passes` checks, on bytes. -/
 def WordTest (test : command_rules.Test) (names w : List Spec.Byte) : Prop :=
   match test with
   | .Name => (ch ' ' :: progName w ++ [ch ' ']) <:+: names
   | .Versioned => VersionedB names (progName w)
+  | .Option => OptionB names (flag w)
+  | .Prefix => names <+: w
   | .Flag => (ch ' ' :: flag w ++ [ch ' ']) <:+: names
   | .Recursive => recursiveFlag w
   | .GitForce => gitForce w
@@ -452,6 +526,8 @@ theorem word_passes_spec (word : Slice U8) (test : command_rules.Test) (names : 
   · rw [r_post, Protocol.Search.listed_bytes]; simp only [deref_val]; rw [v_post1]; rfl
   · rw [r_post]; simp only [deref_val]; rw [v_post1]; rfl
   · rw [r_post, Protocol.Search.listed_bytes]; simp only [deref_val]; rw [v_post]; rfl
+  · exact r_post
+  · rw [r_post, ← prefix_bytes_iff names.val word.val]; rfl
   · exact r_post
   · exact r_post
 
@@ -545,6 +621,12 @@ theorem anyWord_name (L : String) (words : List (alloc.vec.Vec U8)) :
 theorem anyWord_versioned (L : String) (words : List (alloc.vec.Vec U8)) :
     AnyWord .Versioned (ascii L) words ↔ ∃ w ∈ strs words, versioned L (progName w) := Iff.rfl
 
+theorem anyWord_option (L : String) (words : List (alloc.vec.Vec U8)) :
+    AnyWord .Option (ascii L) words ↔ ∃ w ∈ strs words, option L (flag w) := Iff.rfl
+
+theorem anyWord_prefix (p : String) (words : List (alloc.vec.Vec U8)) :
+    AnyWord .Prefix (ascii p) words ↔ ∃ w ∈ strs words, ascii p <+: w := Iff.rfl
+
 theorem anyWord_flag (L : String) (words : List (alloc.vec.Vec U8)) :
     AnyWord .Flag (ascii L) words ↔ ∃ w ∈ strs words, listed L (flag w) := Iff.rfl
 
@@ -553,13 +635,22 @@ theorem headListed_iff (L : String) (words : List (alloc.vec.Vec U8)) :
       headListed L (strs words) := Iff.rfl
 
 @[step]
+theorem is_git_runner_spec (words : Slice (alloc.vec.Vec U8)) :
+    command_rules.is_git_runner words ⦃ r => (r = true ↔ gitRunner (strs words.val)) ⦄ := by
+  unfold command_rules.is_git_runner
+  step*
+  all_goals subst_vars
+  all_goals simp only [git_bytes, git_runs_bytes, dash_o_bytes, anyWord_option, anyWord_prefix] at *
+  all_goals grind [gitRunner, headIs]
+
+@[step]
 theorem is_runner_spec (words : Slice (alloc.vec.Vec U8)) :
     command_rules.is_runner words ⦃ r => (r = true ↔ runner (strs words.val)) ⦄ := by
   unfold command_rules.is_runner
   step*
   all_goals subst_vars
-  all_goals simp only [runners_bytes, versioned_runners_bytes, anyWord_versioned, head_runners_bytes, find_bytes, git_bytes, find_runs_bytes,
-    git_runs_bytes, anyWord_name, anyWord_flag, headListed_iff] at *
+  all_goals simp only [runners_bytes, versioned_runners_bytes, anyWord_versioned, head_runners_bytes, find_bytes, find_runs_bytes,
+    anyWord_name, anyWord_flag, headListed_iff] at *
   all_goals grind [runner, headIs]
 
 @[step]

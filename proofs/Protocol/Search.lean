@@ -144,6 +144,30 @@ theorem listed_bytes (names n : List U8) :
   rw [this]
   exact (infix_bytes_iff _ _).symm
 
+/-- The name with a space before it is in the list, so it starts a listed name. -/
+@[step]
+theorem starts_listed_spec (names n : Slice U8) (hroom : names.val.length < Usize.max) :
+    search.starts_listed names n ⦃ r => (r = true ↔ (search.SPACE :: n.val) <:+: names.val) ⦄ := by
+  unfold search.starts_listed
+  step*
+  · simp only [Bool.false_eq_true, false_iff]
+    intro h
+    have := h.length_le
+    simp at this
+    scalar_tac
+  rw [r_post]
+  simp only [alloc.vec.Vec.deref, needle1_post1, needle_post]
+  simp
+
+theorem starts_listed_bytes (names n : List U8) :
+    (search.SPACE :: n) <:+: names ↔ (ch ' ' :: bytes n) <:+: bytes names := by
+  have hs : search.SPACE.bv = ch ' ' := by
+    apply BitVec.eq_of_toNat_eq; simp [ch, space_val]
+  have : ch ' ' :: bytes n = bytes (search.SPACE :: n) := by
+    simp [bytes, hs]
+  rw [this]
+  exact (infix_bytes_iff _ _).symm
+
 @[step]
 theorem has_byte_spec (s : Slice U8) (b : U8) :
     search.has_byte s b ⦃ r => (r = true ↔ b ∈ s.val) ⦄ := by

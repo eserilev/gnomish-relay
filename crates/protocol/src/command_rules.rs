@@ -7,7 +7,7 @@
 
 use crate::action::{Cover, Policy, Verdict};
 use crate::ascii::{bytes_equal, push_range, to_lower};
-use crate::search::{equal_run, has_byte, listed};
+use crate::search::{equal_run, has_byte, listed, starts_listed};
 use crate::shell::{Link, Simple};
 
 // Each list has a space before and after every name (see `listed`).
@@ -31,8 +31,7 @@ const VERSIONED_RUNNERS: [u8; 36] = *b" python pypy perl ruby php lua node ";
 const HEAD_RUNNERS: [u8; 108] = *b" . source command builtin enable trap export declare typeset local readonly set unset shopt alias hash open ";
 const NEVER_ALWAYS: [u8; 19] = *b" chmod chown chgrp ";
 /// `git` flags and words that run a command, compared before any `=`.
-const GIT_RUNS: [u8; 75] =
-    *b" -c --config-env --exec-path --upload-pack --receive-pack --exec -x config ";
+const GIT_RUNS: [u8; 156] = *b" -c --config-env --exec-path --upload-pack --receive-pack --exec -x config submodule bisect filter-branch difftool mergetool --open-files-in-pager --extcmd ";
 const GIT_FORCE: [u8; 64] = *b" --force --force-with-lease --force-if-includes --hard --mirror ";
 const FIND_RUNS: [u8; 35] = *b" -exec -execdir -ok -okdir -delete ";
 const FOLDER_CHANGES: [u8; 15] = *b" cd pushd popd ";
@@ -41,6 +40,9 @@ const RM: [u8; 2] = *b"rm";
 const GIT: [u8; 3] = *b"git";
 const FIND: [u8; 4] = *b"find";
 const DOT_EXE: [u8; 4] = *b".exe";
+const DASH_DASH: [u8; 2] = *b"--";
+/// `git grep -O<pager>` runs the pager.
+const DASH_O: [u8; 2] = *b"-O";
 /// For the tests that need no list.
 const NO_LIST: [u8; 0] = [];
 
@@ -53,6 +55,10 @@ enum Test {
     Versioned,
     /// Its flag, the part before any `=`, is in the list.
     Flag,
+    /// Its flag is in the list, or starts a long flag of the list (see `starts_long_flag`).
+    Option,
+    /// It starts with `names`, which holds one prefix here, not a list.
+    Prefix,
     /// It is a flag with `r` or `R`, as in `rm -rf`.
     Recursive,
     /// It forces a `git` push or reset.
@@ -126,6 +132,20 @@ fn starts_with(word: &[u8], b: u8) -> bool {
     word.len() > 0 && word[0] == b
 }
 
+fn has_prefix(word: &[u8], prefix: &[u8]) -> bool {
+    prefix.len() <= word.len() && equal_run(word, 0, prefix, prefix.len())
+}
+
+/// GNU and `git` take the start of a long flag: `--upload` is `--upload-pack`.
+fn starts_long_flag(flag: &[u8], names: &[u8]) -> bool {
+    flag.len() > DASH_DASH.len() && has_prefix(flag, &DASH_DASH) && starts_listed(names, flag)
+}
+
+fn is_option(word: &[u8], names: &[u8]) -> bool {
+    let flag = flag_of(word);
+    listed(names, &flag) || starts_long_flag(&flag, names)
+}
+
 /// `-fu` is two short flags. `--force` is one long flag.
 fn is_short_flags(word: &[u8]) -> bool {
     starts_with(word, b'-') && !(word.len() > 1 && word[1] == b'-')
@@ -147,6 +167,8 @@ fn word_passes(word: &[u8], test: Test, names: &[u8]) -> bool {
         Test::Name => listed(names, &name_of(word)),
         Test::Versioned => is_versioned(&name_of(word), names),
         Test::Flag => listed(names, &flag_of(word)),
+        Test::Option => is_option(word, names),
+        Test::Prefix => has_prefix(word, names),
         Test::Recursive => is_recursive(word),
         Test::GitForce => is_git_force(word),
     }
@@ -176,13 +198,18 @@ fn head_assigns(words: &[Vec<u8>]) -> bool {
     words.len() > 0 && has_byte(&words[0], b'=')
 }
 
+fn is_git_runner(words: &[Vec<u8>]) -> bool {
+    head_is(words, &GIT)
+        && (any_word(words, Test::Option, &GIT_RUNS) || any_word(words, Test::Prefix, &DASH_O))
+}
+
 fn is_runner(words: &[Vec<u8>]) -> bool {
     any_word(words, Test::Name, &RUNNERS)
         || any_word(words, Test::Versioned, &VERSIONED_RUNNERS)
         || head_listed(words, &HEAD_RUNNERS)
         || head_assigns(words)
         || (head_is(words, &FIND) && any_word(words, Test::Flag, &FIND_RUNS))
-        || (head_is(words, &GIT) && any_word(words, Test::Flag, &GIT_RUNS))
+        || is_git_runner(words)
 }
 
 fn is_network(words: &[Vec<u8>]) -> bool {
@@ -395,6 +422,38 @@ mod tests {
         assert_eq!(verdict(&["/usr/bin/open", "-a", "Terminal"]), Verdict::Ask);
         assert_eq!(verdict(&["grep", "-rn", "open", "src"]), Verdict::Allow);
         assert_eq!(verdict(&["man", "open"]), Verdict::Allow);
+    }
+
+    #[test]
+    fn git_commands_that_run_a_program_are_runners() {
+        assert_eq!(verdict(&["git", "submodule", "foreach", "x"]), Verdict::Ask);
+        assert_eq!(verdict(&["git", "bisect", "run", "x"]), Verdict::Ask);
+        assert_eq!(
+            verdict(&["git", "filter-branch", "--tree-filter", "x"]),
+            Verdict::Ask
+        );
+        assert_eq!(verdict(&["git", "difftool", "-x", "x"]), Verdict::Ask);
+        assert_eq!(verdict(&["git", "mergetool"]), Verdict::Ask);
+        assert_eq!(
+            verdict(&["git", "grep", "--open-files-in-pager=x", "a"]),
+            Verdict::Ask
+        );
+        assert_eq!(verdict(&["git", "grep", "-Ox", "a"]), Verdict::Ask);
+        assert_eq!(verdict(&["git", "diff", "--extcmd=x"]), Verdict::Ask);
+    }
+
+    #[test]
+    fn a_start_of_a_long_git_flag_is_the_flag() {
+        assert_eq!(verdict(&["git", "fetch", "--upload=x"]), Verdict::Ask);
+        assert_eq!(verdict(&["git", "grep", "--open-files", "a"]), Verdict::Ask);
+        assert_eq!(verdict(&["git", "--exec-p=x", "status"]), Verdict::Ask);
+    }
+
+    #[test]
+    fn common_git_commands_are_not_runners() {
+        assert_eq!(verdict(&["git", "log", "--oneline"]), Verdict::Allow);
+        assert_eq!(verdict(&["git", "log", "--", "src"]), Verdict::Allow);
+        assert_eq!(verdict(&["git", "status"]), Verdict::Allow);
     }
 
     #[test]

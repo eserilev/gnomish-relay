@@ -82,9 +82,18 @@ def headRunnerNames : String :=
   " . source command builtin enable trap export declare typeset local readonly set unset shopt alias hash open "
 def versionedRunnerNames : String := " python pypy perl ruby php lua node "
 def neverAlwaysNames : String := " chmod chown chgrp "
-def gitRunFlags : String := " -c --config-env --exec-path --upload-pack --receive-pack --exec -x config "
+def gitRunFlags : String :=
+  " -c --config-env --exec-path --upload-pack --receive-pack --exec -x config submodule bisect filter-branch difftool mergetool --open-files-in-pager --extcmd "
 def gitForceFlags : String := " --force --force-with-lease --force-if-includes --hard --mirror "
 def findRunFlags : String := " -exec -execdir -ok -okdir -delete "
+
+/-- GNU and `git` take the start of a long flag: `--upload` is `--upload-pack`. A start
+that runs on past a name only matches more. -/
+def longStart (names : String) (f : List Byte) : Prop :=
+  2 < f.length ∧ ascii "--" <+: f ∧ (ch ' ' :: f) <:+: ascii names
+
+/-- A flag of the list, or the start of a long one. -/
+def option (names : String) (f : List Byte) : Prop := listed names f ∨ longStart names f
 
 /-- The words of a simple command, after quote removal. -/
 def words (s : shell.Simple) : List (List Byte) := strs s.words.val
@@ -109,13 +118,18 @@ def versionStem (n : List Byte) : List Byte := (n.reverse.dropWhile versionByte)
 def versioned (names : String) (n : List Byte) : Prop :=
   (versionStem n).length < n.length ∧ listed names (versionStem n)
 
+/-- `git` with a flag or a command that runs a program, such as `-c` or `submodule`.
+`git grep -O<pager>` runs the pager. -/
+def gitRunner (ws : List (List Byte)) : Prop :=
+  headIs "git" ws ∧ ((∃ w ∈ ws, option gitRunFlags (flag w)) ∨ ∃ w ∈ ws, ascii "-O" <+: w)
+
 /-- Commands that run other commands or code from their arguments. `open` counts only as
 the command name, so `man open` is not a runner. -/
 def runner (ws : List (List Byte)) : Prop :=
   anyName runnerNames ws ∨ (∃ w ∈ ws, versioned versionedRunnerNames (progName w)) ∨
     headListed headRunnerNames ws ∨ headAssigns ws ∨
     (headIs "find" ws ∧ ∃ w ∈ ws, listed findRunFlags (flag w)) ∨
-    (headIs "git" ws ∧ ∃ w ∈ ws, listed gitRunFlags (flag w))
+    gitRunner ws
 
 def network (ws : List (List Byte)) : Prop := anyName networkNames ws
 
