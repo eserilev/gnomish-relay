@@ -387,19 +387,20 @@ impl Bridge {
         }
     }
 
-    /// The files over the limit stay ready for the next step.
+    /// The newest files of all games go first, so a new strip waits for no old
+    /// screenshot. The files over the limit stay ready for the next step.
     fn take_screenshots(&mut self) {
         self.retry_deletes();
-        let mut left = MAX_READS_PER_STEP;
-        for i in 0..self.watchers.len() {
-            let ready = self.watchers[i].ready();
-            let now_read = ready.len().min(left);
-            // The newest files come first, but a chat needs its messages in their order.
-            for path in ready[..now_read].iter().rev() {
-                let read = self.take_screenshot(path);
-                self.watchers[i].after_read(path, read);
-            }
-            left -= now_read;
+        let mut ready = Vec::new();
+        for (i, watcher) in self.watchers.iter_mut().enumerate() {
+            ready.extend(watcher.ready().into_iter().map(|file| (i, file)));
+        }
+        ready.sort_by_key(|(_, file)| std::cmp::Reverse(file.modified));
+        ready.truncate(MAX_READS_PER_STEP);
+        // A chat needs its messages in their order, so the batch goes oldest first.
+        for (i, file) in ready.into_iter().rev() {
+            let read = self.take_screenshot(&file.path);
+            self.watchers[i].after_read(&file.path, read);
         }
     }
 

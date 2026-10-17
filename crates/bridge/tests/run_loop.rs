@@ -204,6 +204,61 @@ fn one_step_reads_at_most_16_screenshots_and_the_newest_first() {
     assert_eq!(left, [&strips[0]]);
 }
 
+/// The limit of 16 counts the screenshots of every game together, newest first.
+#[test]
+fn the_newest_screenshot_of_a_second_game_goes_before_old_ones_of_the_first() {
+    let f = folders();
+    let second = f.state.parent().unwrap().join("second");
+    let second_shots = second.join("Screenshots");
+    fs::create_dir_all(&second_shots).unwrap();
+    fs::create_dir_all(second.join("Interface/AddOns")).unwrap();
+    let game = |name: &str, root: &Path, shots: &Path, addons: &Path| GameFolders {
+        name: name.into(),
+        addons: addons.to_owned(),
+        screenshots: shots.to_owned(),
+        accounts: root.join("WTF/Account"),
+    };
+    let paths = Paths {
+        games: vec![
+            game(
+                "first",
+                f.state.parent().unwrap(),
+                &f.screenshots,
+                &f.addons,
+            ),
+            game(
+                "second",
+                &second,
+                &second_shots,
+                &second.join("Interface/AddOns"),
+            ),
+        ],
+        state: f.state.clone(),
+        config: f.state.join("config"),
+    };
+    let agents = [("claude".to_owned(), Arc::new(Echo) as Arc<dyn Agent>)].into();
+    let mut bridge = Bridge::new(paths, policy(), relay_keys(), agents).unwrap();
+    let start = std::time::SystemTime::now() - Duration::from_secs(100);
+    let write = |dir: &Path, id: u32| {
+        let path = dir.join(format!("WoWScrnShot_{id}.png"));
+        let png = screenshot_png(&strip_rows(&frame_with_id(KEY, id, "hi")));
+        fs::write(&path, png).unwrap();
+        let file = fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(start + Duration::from_secs(u64::from(id)))
+            .unwrap();
+        path
+    };
+    let old: Vec<_> = (0..16).map(|id| write(&f.screenshots, id)).collect();
+    let newest = write(&second_shots, 16);
+
+    bridge.step();
+    bridge.step();
+
+    assert!(!newest.exists());
+    let left: Vec<_> = old.iter().filter(|p| p.exists()).collect();
+    assert_eq!(left, [&old[0]]);
+}
+
 /// A read-only folder makes the delete fail, as a virus scanner that holds the file does.
 #[cfg(unix)]
 #[test]

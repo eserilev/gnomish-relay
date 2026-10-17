@@ -3,6 +3,7 @@
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::SystemTime;
 
 use anyhow::Result;
 
@@ -18,6 +19,13 @@ const MAX_READ_TRIES: u32 = 3;
 pub enum Read {
     Worked,
     Failed,
+}
+
+/// A file that is ready, with its time for the order of the reads.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Ready {
+    pub path: PathBuf,
+    pub modified: Option<SystemTime>,
 }
 
 pub struct Watcher {
@@ -38,9 +46,9 @@ impl Watcher {
         }
     }
 
-    /// PNG files with the same size as at the last scan, so WoW has finished them, the
-    /// newest first. A file stays ready until `after_read` marks it done.
-    pub fn ready(&mut self) -> Vec<PathBuf> {
+    /// PNG files with the same size as at the last scan, so WoW has finished them. A file
+    /// stays ready until `after_read` marks it done.
+    pub fn ready(&mut self) -> Vec<Ready> {
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return Vec::new();
         };
@@ -64,16 +72,15 @@ impl Watcher {
                 continue;
             }
             if self.sizes.insert(path.clone(), size) == Some(size) {
-                ready.push((meta.modified().ok(), path));
+                let modified = meta.modified().ok();
+                ready.push(Ready { path, modified });
             }
         }
-        // A new strip then waits for no old screenshot of the player.
-        ready.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
         // Forget deleted files, so the maps stay as small as the folder.
         self.done.retain(|p, _| present.contains(p));
         self.sizes.retain(|p, _| present.contains(p));
         self.failures.retain(|p, _| present.contains(p));
-        ready.into_iter().map(|(_, path)| path).collect()
+        ready
     }
 
     /// A file is done after a read that worked, or after `MAX_READ_TRIES` failed reads.
@@ -126,11 +133,17 @@ mod tests {
         assert!(watcher.ready().is_empty());
         fs::write(&shot, b"half and more").unwrap();
         assert!(watcher.ready().is_empty());
-        assert_eq!(watcher.ready(), [shot]);
+        assert_eq!(paths(watcher.ready()), [shot]);
+    }
+
+    fn paths(ready: Vec<Ready>) -> Vec<PathBuf> {
+        let mut paths: Vec<PathBuf> = ready.into_iter().map(|file| file.path).collect();
+        paths.sort();
+        paths
     }
 
     #[test]
-    fn the_newest_file_is_ready_first() {
+    fn a_ready_file_carries_its_time() {
         let dir = tempfile::tempdir().unwrap();
         let mut watcher = Watcher::new(dir.path());
         let old = dir.path().join("WoWScrnShot_b.png");
@@ -146,7 +159,11 @@ mod tests {
             .unwrap();
         watcher.ready();
 
-        assert_eq!(watcher.ready(), [new, old]);
+        let ready = watcher.ready();
+
+        let old_time = ready.iter().find(|file| file.path == old).unwrap().modified;
+        let new_time = ready.iter().find(|file| file.path == new).unwrap().modified;
+        assert!(old_time < new_time);
     }
 
     #[test]
@@ -156,8 +173,8 @@ mod tests {
         let shot = dir.path().join("WoWScrnShot_1.png");
         fs::write(&shot, b"whole").unwrap();
         watcher.ready();
-        assert_eq!(watcher.ready(), std::slice::from_ref(&shot));
-        assert_eq!(watcher.ready(), std::slice::from_ref(&shot));
+        assert_eq!(paths(watcher.ready()), std::slice::from_ref(&shot));
+        assert_eq!(paths(watcher.ready()), std::slice::from_ref(&shot));
 
         watcher.after_read(&shot, Read::Worked);
 
@@ -172,17 +189,17 @@ mod tests {
         fs::write(&shot, b"broken").unwrap();
         watcher.ready();
         for _ in 0..2 {
-            assert_eq!(watcher.ready(), std::slice::from_ref(&shot));
+            assert_eq!(paths(watcher.ready()), std::slice::from_ref(&shot));
             watcher.after_read(&shot, Read::Failed);
         }
-        assert_eq!(watcher.ready(), std::slice::from_ref(&shot));
+        assert_eq!(paths(watcher.ready()), std::slice::from_ref(&shot));
         watcher.after_read(&shot, Read::Failed);
         assert!(watcher.ready().is_empty());
 
         fs::write(&shot, b"whole at last").unwrap();
         watcher.ready();
 
-        assert_eq!(watcher.ready(), [shot]);
+        assert_eq!(paths(watcher.ready()), [shot]);
     }
 
     #[cfg(unix)]
