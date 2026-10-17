@@ -145,10 +145,40 @@ impl Watcher {
     }
 }
 
-/// WoW writes each saved variable as a table, so a file that WoW has finished ends with
-/// `}`. A file in the middle of the write does not, and the next step reads it again.
+/// WoW ends the file with a whole top-level statement: the `}` of a table, or a variable
+/// with a plain value, such as `TimewaysSettings = nil`. A nested `\t}` has an indent, so
+/// a file cut there in the middle of the write is not whole, and the next step reads it
+/// again.
 fn is_whole(text: &str) -> bool {
-    text.trim_end().ends_with('}')
+    let Some(last) = text.lines().map(str::trim_end).rfind(|l| !l.is_empty()) else {
+        return false;
+    };
+    if last == "}" {
+        return true;
+    }
+    let Some((name, value)) = last.split_once(" = ") else {
+        return false;
+    };
+    is_lua_name(name) && is_plain_value(value)
+}
+
+fn is_lua_name(name: &str) -> bool {
+    let starts_well = name.starts_with(|c: char| c.is_ascii_alphabetic() || c == '_');
+    starts_well && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+fn is_plain_value(value: &str) -> bool {
+    matches!(value, "nil" | "true" | "false")
+        || value.parse::<f64>().is_ok()
+        || is_whole_string(value)
+}
+
+fn is_whole_string(value: &str) -> bool {
+    let Some(inner) = value.strip_prefix('"').and_then(|v| v.strip_suffix('"')) else {
+        return false;
+    };
+    let escapes = inner.chars().rev().take_while(|c| *c == '\\').count();
+    escapes % 2 == 0
 }
 
 #[cfg(test)]
@@ -209,19 +239,19 @@ mod tests {
     fn a_file_is_read_again_only_after_it_changes() {
         let root = tempfile::tempdir().unwrap();
         let file = account_file(root.path());
-        fs::write(&file, "one = {}").unwrap();
+        fs::write(&file, "one = {\n}\n").unwrap();
         let mut watcher = Watcher::new(&game(root.path()), App::Relay);
-        assert_eq!(texts(watcher.changed()), ["one = {}"]);
+        assert_eq!(texts(watcher.changed()), ["one = {\n}\n"]);
         assert!(watcher.changed().is_empty());
         let later = SystemTime::now() + std::time::Duration::from_secs(5);
-        fs::write(&file, "two = {}").unwrap();
+        fs::write(&file, "two = {\n}\n").unwrap();
         fs::File::options()
             .write(true)
             .open(&file)
             .unwrap()
             .set_modified(later)
             .unwrap();
-        assert_eq!(texts(watcher.changed()), ["two = {}"]);
+        assert_eq!(texts(watcher.changed()), ["two = {\n}\n"]);
     }
 
     /// WoW can be in the middle of the write. The rest comes with no new time on a file
@@ -241,6 +271,36 @@ mod tests {
         set_time(&file, modified);
 
         assert_eq!(texts(watcher.changed()), [whole]);
+    }
+
+    /// `TimewaysSettings` exists only with ratings or AI on, so WoW writes it as nil.
+    #[test]
+    fn a_file_that_ends_with_a_nil_variable_is_whole() {
+        let text = "\r\nTimewaysDB = {\r\n\t[\"token\"] = \"k\",\r\n}\r\n\
+                    TimewaysPlayers = {\r\n}\r\nTimewaysSettings = nil\r\n";
+
+        assert!(is_whole(text));
+    }
+
+    #[test]
+    fn a_file_that_ends_with_a_plain_value_is_whole() {
+        for last in ["X = true", "X = false", "X = 12", "X = -1.5", "X = \"a b\""] {
+            assert!(is_whole(&format!("DB = {{\n}}\n{last}\n")), "{last}");
+        }
+    }
+
+    #[test]
+    fn a_write_cut_after_a_nested_table_or_in_a_value_is_not_whole() {
+        let cuts = [
+            "DB = {\n\t[\"chats\"] = {\n\t}",
+            "DB = {\n\t[\"token\"] = \"k",
+            "DB = {\n}\nX = ni",
+            "DB = {\n}\nX = \"open",
+            "",
+        ];
+        for cut in cuts {
+            assert!(!is_whole(cut), "{cut:?}");
+        }
     }
 
     fn set_time(file: &Path, modified: SystemTime) {
@@ -269,7 +329,7 @@ mod tests {
     #[test]
     fn a_changed_file_names_its_account_folder() {
         let root = tempfile::tempdir().unwrap();
-        fs::write(account_file(root.path()), "one = {}").unwrap();
+        fs::write(account_file(root.path()), "one = {\n}\n").unwrap();
 
         let files = Watcher::new(&game(root.path()), App::Relay).changed();
 
@@ -299,7 +359,7 @@ mod tests {
         let file = account_file(root.path());
         fs::write(
             &file,
-            b"DB = { [\"name\"] = \"\xff\", [\"frame\"] = \"6e52\" }",
+            b"DB = {\n[\"name\"] = \"\xff\", [\"frame\"] = \"6e52\"\n}\n",
         )
         .unwrap();
 
@@ -313,15 +373,15 @@ mod tests {
     fn each_app_watches_only_its_own_saved_variables_file() {
         let root = tempfile::tempdir().unwrap();
         let relay = account_file(root.path());
-        fs::write(&relay, "relay = {}").unwrap();
-        fs::write(relay.with_file_name("Timeways.lua"), "story = {}").unwrap();
+        fs::write(&relay, "relay = {\n}\n").unwrap();
+        fs::write(relay.with_file_name("Timeways.lua"), "story = {\n}\n").unwrap();
         assert_eq!(
             texts(Watcher::new(&game(root.path()), App::Relay).changed()),
-            ["relay = {}"]
+            ["relay = {\n}\n"]
         );
         assert_eq!(
             texts(Watcher::new(&game(root.path()), App::Timeways).changed()),
-            ["story = {}"]
+            ["story = {\n}\n"]
         );
     }
 
