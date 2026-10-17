@@ -145,6 +145,12 @@ impl Drop for Proxy {
         if let Some(thread) = self.thread.take() {
             let _ = thread.join();
         }
+        // A process that another thread forks keeps a copy of the listener until it runs
+        // exec, and a connection then still gets in. Without the file, none can.
+        #[cfg(unix)]
+        if let Wake::Unix(path) = &self.wake {
+            let _ = std::fs::remove_file(path);
+        }
     }
 }
 
@@ -704,6 +710,7 @@ mod tests {
         drop(proxy);
 
         assert!(back.ends_with("hello ping\n"), "{back}");
+        assert!(!path.exists());
         assert!(UnixStream::connect(&path).is_err());
     }
 
