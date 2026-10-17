@@ -5736,7 +5736,7 @@ def frame.is_fresh (frame_time : Std.U32) (now : Std.U32) : Result Bool := do
        ok (¬ b1)
 
 /-- [protocol::frame::check_frame]:
-    Source: 'crates/protocol/src/frame.rs', lines 186:0-197:1
+    Source: 'crates/protocol/src/frame.rs', lines 187:0-198:1
     Visibility: public -/
 def frame.check_frame
   (frame_time : Std.U32) (tag_ok : Bool) (now : Std.U32) :

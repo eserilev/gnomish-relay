@@ -178,11 +178,12 @@ pub fn is_fresh(frame_time: u32, now: u32) -> bool {
     !is_stale(frame_time, now) && !is_ahead(frame_time, now)
 }
 
-/// `tag_ok` comes from the bridge, which checks the HMAC over `signed_len` bytes.
+/// The bridge checks the tag first with `apps::route` (S29), so it passes `true`.
+/// `tag_ok` stays, because the locked S2 statement names it.
 ///
 /// # Errors
 ///
-/// `BadTag` for a bad HMAC, `Stale` or `Future` for a time outside the window.
+/// `BadTag` when `tag_ok` is false, `Stale` or `Future` for a time outside the window.
 pub fn check_frame(frame_time: u32, tag_ok: bool, now: u32) -> Result<(), Reject> {
     if !tag_ok {
         return Err(Reject::BadTag);

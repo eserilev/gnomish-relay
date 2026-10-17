@@ -120,7 +120,8 @@ def S11_fresh : Prop :=
   ∀ frameTime now : U32,
     frame.is_fresh frameTime now ⦃ b => (b = true ↔ fresh frameTime.val now.val) ⦄
 
-/-- **S2 + S11.** A frame passes only with a good tag and a fresh time. -/
+/-- **S2 + S11.** A frame passes only with a good tag and a fresh time. The bridge checks the
+tag first with `apps.route` (S29) and passes `true` here, so in the bridge only the time decides. -/
 def S2_S11_check : Prop :=
   ∀ (frameTime : U32) (tagOk : Bool) (now : U32),
     frame.check_frame frameTime tagOk now ⦃ r =>
