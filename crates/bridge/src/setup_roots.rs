@@ -12,12 +12,12 @@ use crate::folder_path::real_path;
 use crate::fs_safe::write_private;
 use crate::gate::Places;
 use crate::setup::Product;
-use crate::wide_roots::{WideRoot, wide_root};
+use crate::wide_roots::{Entry, WideRoot, wide_root};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Problem {
     Missing,
-    Wide(WideRoot),
+    Wide(WideRoot, Entry),
 }
 
 /// A root of the config, as the config writes it, that agents can't use now.
@@ -35,9 +35,10 @@ impl BadRoot {
                 "Can't find {root}. If it's on a drive that isn't connected, keep it. Remove \
                  it from the folders agents can work in? (y/n)"
             ),
-            Problem::Wide(wide) => format!(
-                "{root} is now {}, so agents can't work there, and the desktop app won't \
+            Problem::Wide(wide, entry) => format!(
+                "{root} {} {}, so agents can't work there, and the desktop app won't \
                  start. Remove it from the folders agents can work in? (y/n)",
+                entry.is(),
                 wide.text()
             ),
         }
@@ -109,7 +110,8 @@ fn problem_of(path: &Path, places: &Places) -> Option<Problem> {
         return Some(Problem::Missing);
     }
     let real = real_path(path).ok()?;
-    wide_root(&real, places).map(Problem::Wide)
+    let wide = wide_root(&real, places)?;
+    Some(Problem::Wide(wide, Entry::of(path)))
 }
 
 #[cfg(test)]
@@ -227,6 +229,26 @@ mod tests {
         assert_eq!(
             lines,
             ["Removed ~/Link from the folders agents can work in."]
+        );
+    }
+
+    #[test]
+    fn setup_says_is_and_not_is_now_for_a_root_that_is_no_link() {
+        let c = Computer::with_config(&TWO_ROOTS.replace("\"~/Drive\"", "\"~\""));
+        let mut questions = Vec::new();
+
+        ask_about_roots(&c.places(), Product::Relay, &mut |bad: &BadRoot| {
+            questions.push(bad.question());
+            false
+        })
+        .unwrap();
+
+        assert_eq!(
+            questions,
+            [
+                "~ is your whole home folder, so agents can't work there, and the desktop app \
+              won't start. Remove it from the folders agents can work in? (y/n)"
+            ]
         );
     }
 

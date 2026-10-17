@@ -37,6 +37,29 @@ impl WideRoot {
     }
 }
 
+/// Whether the entry of the config leads to another folder. Only then is it "now" wide.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Entry {
+    Plain,
+    Link,
+}
+
+impl Entry {
+    pub fn of(root: &Path) -> Entry {
+        match real_path(root) {
+            Ok(real) if real != root => Entry::Link,
+            _ => Entry::Plain,
+        }
+    }
+
+    pub fn is(self) -> &'static str {
+        match self {
+            Entry::Plain => "is",
+            Entry::Link => "is now",
+        }
+    }
+}
+
 /// `root` is a real path. A folder that does not resolve stays as it is.
 pub fn wide_root(root_path: &Path, places: &Places) -> Option<WideRoot> {
     if root_path.parent().is_none() {
@@ -76,8 +99,9 @@ fn holds_private(root: &Path, places: &Places) -> bool {
 /// The line of the log for a missing root that comes back as a wide one.
 pub fn wide_root_line(root: &Path, wide: WideRoot, home: &Path) -> String {
     format!(
-        "{} is now {}, so agents can't work there.",
+        "{} {} {}, so agents can't work there.",
         with_tilde(root, home),
+        Entry::of(root).is(),
         wide.text()
     )
 }
@@ -91,9 +115,10 @@ pub fn refuse_wide_roots(roots: &[PathBuf], places: &Places) -> Result<()> {
         };
         if let Some(wide) = wide_root(&real, places) {
             bail!(
-                "allowed_roots has {}, which is now {}. Agents can't work there. Run \
+                "allowed_roots has {}, which {} {}. Agents can't work there. Run \
                  gnomish-relay setup to remove it.",
                 with_tilde(root, places.home),
+                Entry::of(root).is(),
                 wide.text()
             );
         }
@@ -208,7 +233,7 @@ mod tests {
         assert!(
             error
                 .to_string()
-                .starts_with("allowed_roots has ~, which is now your whole home folder."),
+                .starts_with("allowed_roots has ~, which is your whole home folder."),
             "{error}"
         );
     }
