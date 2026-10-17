@@ -526,7 +526,7 @@ An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts i
 
 *The wall on Linux.* The agent process keeps most of its file access: it writes `~/.claude`, `~/.claude.json`, and `~/.codex`, and it resumes sessions ("Where the wall is"). Its network, processes, sockets, and the user's startup files change. `process.rs` starts the agent as:
 
-`bwrap --dev-bind / / --tmpfs /run --tmpfs /tmp --tmpfs /var/tmp --tmpfs /dev/shm <read-only Windows drives> <hidden paths> <binds back> <read-only startup files> <sockets covered> --unshare-net --unshare-pid --proc /proc --die-with-parent --new-session -- <gnomish-relay> --sandbox-forward <socket> <local ports> --exec <agent> <args>`
+`bwrap --dev-bind / / --tmpfs /run --tmpfs /tmp --tmpfs /var/tmp --tmpfs /dev/shm <read-only Windows drives> <binds back> <read-only startup files> <sockets covered> <hidden paths> <binds back into hidden paths> --unshare-net --unshare-pid --proc /proc --die-with-parent --new-session -- <gnomish-relay> --sandbox-forward <socket> <local ports> --exec <agent> <args>`
 
 - `--unshare-net` gives the tree only its own loopback. The forwarder listens on `127.0.0.1:3128` there and relays each connection to the agent proxy. The `--exec` form starts the agent with no shell, with its arguments unchanged (6.2 rule 11).
 - `--unshare-pid` with a new `/proc`. With the host `/proc`, the agent reads `/proc/<pid>/root` of any user process, and through it the session bus under `/run`. Then `systemd-run --user` starts code with the full network. A new `/proc` also stops `ptrace` and `pidfd_getfd` of host processes, which `ptrace_scope = 0` allows. Measured: `claude -p` and a nested `bwrap` both work with it.
@@ -534,7 +534,7 @@ An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts i
 - **The hidden paths** (fixed on 2026-10-16, after a review; the tests came first). The agent never reads or writes the config folder (the keys), the data folder (the desktop approvals, the "Always allow" rules, and the state), and the private files of the game (6.6.3): each key addon folder, the old `Key.lua` of Relay and Timeways, `WTF/Account`, and `Screenshots`. Without this, an agent could write an approval file and answer its own desktop request.
   - A folder gets an empty `--tmpfs`, and a file gets `--ro-bind /dev/null <file>`, as a socket does.
   - Only a path that exists gets a mount, at its real path. With `--dev-bind / /` a mount over a missing path makes a mount point on the real disk.
-  - The hidden paths come after the read-only Windows drives, because under WSL2 the game lies on `/mnt/c`.
+  - The hidden paths come after every other mount, and only the binds back into a hidden folder come after them. `bwrap` takes the source of a bind from the disk of the host, so a later bind of a folder at or above a hidden path shows the path again. Under WSL2 the game lies on `/mnt/c`, after the read-only drive, and a chat folder can be `.../_retail_` or `.../Interface/AddOns` above the hidden game paths. The fuzz target `agent_wall` checks that no bind at or above a hidden folder comes after its mount.
   - Then `<data>/sandbox` is bound back, writable. The command sandbox reads its walls file there, and the wrapper writes the names that it removed next to it ("A missing `commondir` is watched"). The agent proxy socket lies there too.
   - A startup file inside a hidden folder, for example `wsl-start.sh` in the config folder, gets no read-only bind: the bind would show it again.
   - The Timeways model calls hide the same paths.

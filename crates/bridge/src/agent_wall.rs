@@ -520,6 +520,13 @@ fn os(parts: &[&str]) -> Vec<OsString> {
     parts.iter().map(OsString::from).collect()
 }
 
+/// Strictly inside: a bind of the hidden folder itself would show all of it.
+fn in_hidden_folder(spec: &WallSpec, path: &Path) -> bool {
+    spec.hidden_folders
+        .iter()
+        .any(|h| path.starts_with(h) && path != h.as_path())
+}
+
 /// Strictly inside: a bind of all of `/tmp` would bring back every socket in it.
 fn in_private_folder(path: &Path) -> bool {
     PRIVATE_FOLDERS
@@ -527,10 +534,10 @@ fn in_private_folder(path: &Path) -> bool {
         .any(|f| path.starts_with(f) && path != Path::new(f))
 }
 
-/// The whole disk as it is, then the private folders, the read-only Windows drives, and
-/// the hidden paths, then the binds back, the socket of the proxy, the read-only startup
-/// files, and the covered sockets. The agent and its arguments come last, each one as it
-/// is: no shell.
+/// The whole disk as it is, then the private folders and the read-only Windows drives,
+/// then the binds back, the socket of the proxy, the read-only startup files, and the
+/// covered sockets. The hidden paths come last, with the binds back into them after
+/// them. The agent and its arguments come after all, each one as it is: no shell.
 pub fn wall_args(spec: &WallSpec, program: &Path, args: &[String]) -> Vec<OsString> {
     let mut out = os(&["--dev-bind", "/", "/"]);
     for folder in PRIVATE_FOLDERS {
@@ -539,19 +546,11 @@ pub fn wall_args(spec: &WallSpec, program: &Path, args: &[String]) -> Vec<OsStri
     for drive in &spec.windows_drives {
         out.extend(["--ro-bind".into(), drive.into(), drive.into()]);
     }
-    // Under WSL the game lies on a Windows drive, so its hidden paths come after the drive.
-    for folder in &spec.hidden_folders {
-        out.extend(["--tmpfs".into(), folder.into()]);
-    }
-    for file in &spec.hidden_files {
-        out.extend(["--ro-bind".into(), "/dev/null".into(), file.into()]);
-    }
-    let covered = |p: &&PathBuf| {
-        in_private_folder(p)
-            || spec.windows_drives.iter().any(|d| p.starts_with(d))
-            || spec.hidden_folders.iter().any(|h| p.starts_with(h))
-    };
-    for path in spec.binds.iter().filter(covered) {
+    let covered =
+        |p: &&PathBuf| in_private_folder(p) || spec.windows_drives.iter().any(|d| p.starts_with(d));
+    let (into_hidden, others): (Vec<&PathBuf>, Vec<&PathBuf>) =
+        spec.binds.iter().partition(|p| in_hidden_folder(spec, p));
+    for path in others.into_iter().filter(covered) {
         out.extend(["--bind".into(), path.into(), path.into()]);
     }
     out.extend([
@@ -564,6 +563,17 @@ pub fn wall_args(spec: &WallSpec, program: &Path, args: &[String]) -> Vec<OsStri
     }
     for path in &spec.sockets {
         out.extend(["--ro-bind".into(), "/dev/null".into(), path.into()]);
+    }
+    // `bwrap` takes the source of a bind from the disk of the host, so a bind of a folder
+    // above a hidden path after its mount would show the path again.
+    for folder in &spec.hidden_folders {
+        out.extend(["--tmpfs".into(), folder.into()]);
+    }
+    for file in &spec.hidden_files {
+        out.extend(["--ro-bind".into(), "/dev/null".into(), file.into()]);
+    }
+    for path in into_hidden {
+        out.extend(["--bind".into(), path.into(), path.into()]);
     }
     out.extend(os(&[
         "--unshare-net",
@@ -841,8 +851,6 @@ mod tests {
             .position(|w| w == ["--bind", sandbox, sandbox])
             .unwrap();
         assert!(hidden < back);
-        let socket = args.windows(3).position(|w| w[2] == INNER_SOCKET).unwrap();
-        assert!(hidden < socket);
     }
 
     #[test]
@@ -878,6 +886,46 @@ mod tests {
             .position(|w| w == ["--tmpfs", accounts])
             .unwrap();
         assert!(drive < hidden);
+    }
+
+    /// `bwrap` takes the source of a bind from the disk of the host, so a later bind of a
+    /// folder above a hidden path shows that path again.
+    #[test]
+    fn under_wsl_a_chat_folder_above_a_hidden_game_path_is_bound_before_the_hidden_mounts() {
+        let game = "/mnt/c/Program Files/World of Warcraft/_retail_";
+        let accounts = "/mnt/c/Program Files/World of Warcraft/_retail_/WTF/Account";
+        let key =
+            "/mnt/c/Program Files/World of Warcraft/_retail_/Interface/AddOns/GnomishRelay/Key.lua";
+        let sandbox = "/home/x/.local/share/gnomish-relay/sandbox/run-1";
+        let mut spec = spec();
+        spec.windows_drives = vec![PathBuf::from("/mnt/c")];
+        spec.binds = vec![PathBuf::from(game), PathBuf::from(sandbox)];
+        spec.hidden_folders = vec![
+            PathBuf::from(accounts),
+            PathBuf::from("/home/x/.local/share/gnomish-relay"),
+        ];
+        spec.hidden_files = vec![PathBuf::from(key)];
+
+        let args = strings(&wall_args(&spec, Path::new("/usr/bin/claude"), &[]));
+
+        let chat = args
+            .windows(3)
+            .position(|w| w == ["--bind", game, game])
+            .unwrap();
+        let hidden = args
+            .windows(2)
+            .position(|w| w == ["--tmpfs", accounts])
+            .unwrap();
+        let file = args
+            .windows(3)
+            .position(|w| w == ["--ro-bind", "/dev/null", key])
+            .unwrap();
+        let back = args
+            .windows(3)
+            .position(|w| w == ["--bind", sandbox, sandbox])
+            .unwrap();
+        assert!(chat < hidden && chat < file, "{args:?}");
+        assert!(hidden < back, "{args:?}");
     }
 
     #[test]

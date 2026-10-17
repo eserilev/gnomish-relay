@@ -9,6 +9,8 @@
 //! - Each private folder comes before every bind back into it.
 //! - The data folder is hidden, and its `sandbox` folder comes back after it. A hidden
 //!   file gets `/dev/null`.
+//! - No bind at or above a hidden folder comes after the mount of that folder: `bwrap`
+//!   takes the source of a bind from the host, so it would show the folder again.
 //! - Each startup file is bound read-only onto itself, and each socket is covered.
 //! - The agent and its arguments come last, each one as it is, after the forwarder.
 #![no_main]
@@ -73,12 +75,12 @@ fuzz_target!(|data: &[u8]| {
             PathBuf::from("/tmp/gnomish-relay-run-1"),
             PathBuf::from("/data/sandbox"),
         ],
-        hidden_folders: vec![PathBuf::from("/data")],
+        hidden_folders: vec![PathBuf::from("/data"), PathBuf::from("/mnt/c/game/WTF")],
         hidden_files: vec![PathBuf::from("/game/Key.lua")],
         read_only: vec![read_only.clone()],
         sockets: vec![socket.clone()],
         local_ports: vec![5432],
-        windows_drives: Vec::new(),
+        windows_drives: vec![PathBuf::from("/mnt/c")],
     };
 
     let (options, command) = read(&wall_args(
@@ -117,6 +119,17 @@ fuzz_target!(|data: &[u8]| {
     assert!(data < sandbox);
     let key = at(&options, &os(&["--ro-bind", "/dev/null", "/game/Key.lua"]));
     assert!(key.is_some());
+    for hidden in &spec.hidden_folders {
+        let mount = at(&options, &["--tmpfs".into(), hidden.into()]).unwrap();
+        for option in &options[mount..] {
+            let is_bind = option[0] == "--bind" || option[0] == "--ro-bind";
+            let above = is_bind && hidden.starts_with(std::path::Path::new(&option[2]));
+            assert!(
+                !above,
+                "a bind at or above {hidden:?} after its mount: {option:?}"
+            );
+        }
+    }
     let ro: Vec<OsString> = vec![
         "--ro-bind".into(),
         read_only.clone().into(),
