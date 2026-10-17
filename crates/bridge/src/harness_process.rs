@@ -184,7 +184,6 @@ fn spawn(start: &Start) -> Result<Child, String> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    process_group::own_group(&mut command);
     process_group::spawn(&mut command)
         .map_err(|e| format!("Cannot start {}: {e}", start.program.display()))
 }

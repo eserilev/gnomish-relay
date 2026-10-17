@@ -633,8 +633,6 @@ impl StoryProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        // The story program leads its own process group, so its end also stops its children.
-        process_group::own_group(&mut command);
         let mut child = process_group::spawn(&mut command)
             .map_err(|e| format!("cannot start {}: {e}", program.display()))?;
         let (Some(stdin), Some(stdout), Some(stderr_pipe)) =

@@ -166,7 +166,8 @@ struct Spawn<'a> {
 }
 
 /// Never through a shell (SPEC.md 6.2, rule 11), and with only the variables of the
-/// allowlist (rule 12). In a wall, `bwrap` starts the agent.
+/// allowlist (rule 12). In a wall, `bwrap` starts the agent. The agent leads its own
+/// process group, so a stop also ends the programs that it started (9.4).
 fn spawn(spawned: &Spawn, stdin: Stdio) -> Result<Child, String> {
     let (program, own_args) = spawned
         .command
@@ -274,7 +275,8 @@ pub struct Exchange {
 pub const OVER_LIMIT: &str = "The answer is over the size limit.";
 
 /// Runs `command` to its end: `input` goes to its stdin, and its stdout comes back. The
-/// command is killed at the timeout and at a stop. Its output closes at the limit.
+/// process group of the command is killed at the timeout and at a stop. Its output closes
+/// at the limit.
 pub fn exchange(
     mut command: Command,
     input: Vec<u8>,
@@ -467,5 +469,75 @@ mod tests {
     #[test]
     fn blank_lines_are_skipped_and_a_last_line_needs_no_newline() {
         assert_eq!(lines(b"\n  \nlast", 10), [Ok(b"last".to_vec())]);
+    }
+
+    /// A shell whose background child writes a beat every 100 ms.
+    #[cfg(unix)]
+    fn beating(beat: &Path) -> Vec<String> {
+        let script = format!(
+            "(while true; do echo x >> '{}'; sleep 0.1; done) & sleep 300",
+            beat.display()
+        );
+        vec!["/bin/sh".to_owned(), "-c".to_owned(), script]
+    }
+
+    /// The length of the beat file stays the same once its writer ended.
+    #[cfg(unix)]
+    fn beat_stops(beat: &Path) -> bool {
+        thread::sleep(Duration::from_millis(500));
+        let before = std::fs::read_to_string(beat).unwrap().len();
+        thread::sleep(Duration::from_millis(600));
+        before == std::fs::read_to_string(beat).unwrap().len()
+    }
+
+    #[cfg(unix)]
+    fn wait_for_file(path: &Path) {
+        let started = std::time::Instant::now();
+        while !path.exists() {
+            assert!(started.elapsed() < Duration::from_secs(10), "no beat");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_grandchild_of_a_stopped_agent_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let beat = dir.path().join("beat");
+        let agent = AgentProcess::start(&beating(&beat), &[], &[], "/").unwrap();
+        wait_for_file(&beat);
+
+        drop(agent);
+
+        assert!(beat_stops(&beat), "the grandchild still runs");
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_grandchild_of_a_stopped_exchange_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let beat = dir.path().join("beat");
+        let command = beating(&beat);
+        let mut shell = Command::new(&command[0]);
+        shell.args(&command[1..]);
+        let stop = StopSignal::default();
+        let limits = Exchange {
+            max_output: 1024,
+            timeout: Duration::from_mins(1),
+            stop: stop.clone(),
+        };
+        let watcher = {
+            let beat = beat.clone();
+            thread::spawn(move || {
+                wait_for_file(&beat);
+                stop.request();
+            })
+        };
+
+        let result = exchange(shell, Vec::new(), &limits);
+
+        watcher.join().unwrap();
+        assert_eq!(result, Err(crate::turn::STOPPED.to_owned()));
+        assert!(beat_stops(&beat), "the grandchild still runs");
     }
 }

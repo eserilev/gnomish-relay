@@ -1,22 +1,22 @@
-//! The children of the desktop app. A SIGTERM to the app, or a signal to a child that
-//! leads its own process group, never reaches them. So the app keeps a list of them, and
-//! `end_every_group` ends them at its exit (SPEC.md 9.4).
+//! The children of the desktop app. Each one leads its own process group, so a kill also
+//! ends the programs that it started (SPEC.md 9.4). A signal to the app never reaches
+//! them, so the app keeps a list of the groups, and `end_every_group` ends them at its exit.
 
 use std::collections::BTreeSet;
 use std::io;
 use std::process::{Child, Command, ExitStatus};
 use std::sync::{Mutex, MutexGuard, PoisonError};
 
-/// The children that run, and whether the app is closing.
+/// The groups that run, and whether the app is closing.
 #[derive(Default)]
 pub struct Groups {
-    /// The process ids of the children.
+    /// The process ids of the group leaders.
     leaders: BTreeSet<u32>,
     /// Set by `end_every_group`. After it, no new child starts.
     closing: bool,
 }
 
-/// The children of the desktop app.
+/// The groups of the desktop app.
 static GROUPS: Mutex<Groups> = Mutex::new(Groups {
     leaders: BTreeSet::new(),
     closing: false,
@@ -28,7 +28,7 @@ fn lock(groups: &Mutex<Groups>) -> MutexGuard<'_, Groups> {
     groups.lock().unwrap_or_else(PoisonError::into_inner)
 }
 
-/// Starts `command` and adds it to the list. End it with `end`.
+/// Starts `command` as the leader of a new process group. End it with `end`.
 pub fn spawn(command: &mut Command) -> io::Result<Child> {
     spawn_in(&GROUPS, command)
 }
@@ -39,12 +39,13 @@ fn spawn_in(groups: &Mutex<Groups>, command: &mut Command) -> io::Result<Child> 
     if groups.closing {
         return Err(io::Error::other(CLOSING));
     }
+    own_group(command);
     let child = command.spawn()?;
     groups.leaders.insert(child.id());
     Ok(child)
 }
 
-/// Kills `child` and its group, then reaps the child. The status of a child that exited
+/// Kills the group of `child`, then reaps the child. The status of a child that exited
 /// by itself stays its own.
 pub fn end(child: &mut Child) -> io::Result<ExitStatus> {
     end_in(&GROUPS, child)
@@ -58,7 +59,7 @@ fn end_in(groups: &Mutex<Groups>, child: &mut Child) -> io::Result<ExitStatus> {
     child.wait()
 }
 
-/// Kills every child that `spawn` started and `end` did not end yet. After it, `spawn`
+/// Kills every group that `spawn` started and `end` did not end yet. After it, `spawn`
 /// refuses.
 pub fn end_every_group() {
     end_every_group_in(&GROUPS);
@@ -98,27 +99,26 @@ pub fn has_exited(child: &mut Child) -> bool {
     !matches!(child.try_wait(), Ok(None))
 }
 
-/// The child leads a new process group, so `end` also kills the programs that it started.
 #[cfg(unix)]
-pub fn own_group(command: &mut Command) {
+fn own_group(command: &mut Command) {
     use std::os::unix::process::CommandExt;
     command.process_group(0);
 }
 
+// TODO: put the child in a Job object with KILL_ON_JOB_CLOSE when a crate gives one with
+// no `unsafe` in this workspace. Until then `kill_group` stops the tree with `taskkill /T`.
 #[cfg(not(unix))]
-pub fn own_group(_command: &mut Command) {}
+fn own_group(_command: &mut Command) {}
 
-/// Kills the child, and its group when it leads one. While the unreaped child lives, `id`
-/// names only it and its group.
+/// While a member of the group or its unreaped leader lives, `id` names only this group.
 #[cfg(unix)]
 fn kill_group(id: u32) {
-    use nix::sys::signal::{Signal, kill, killpg};
+    use nix::sys::signal::{Signal, killpg};
     use nix::unistd::Pid;
     let Ok(id) = i32::try_from(id) else {
         return;
     };
     let _ = killpg(Pid::from_raw(id), Signal::SIGKILL);
-    let _ = kill(Pid::from_raw(id), Signal::SIGKILL);
 }
 
 /// `taskkill /T` misses a grandchild whose parent already ended. Windows reuses no id
