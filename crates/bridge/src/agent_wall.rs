@@ -386,6 +386,7 @@ impl HiddenPaths {
 }
 
 /// The proxy of the agent, and the open folder of its socket.
+// The Proxy drops first, so it can still remove its socket through the open folder.
 type Listening = (Proxy, std::fs::File);
 
 /// The proxy of the agent on a Unix socket with a random name in `place`.
