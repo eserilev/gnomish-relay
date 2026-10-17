@@ -305,13 +305,13 @@ fn command_of(params: &Value) -> String {
 }
 
 /// The command of a tool input. A list of words gets the quotes of `sh`, so the
-/// classifier sees the same words that run.
+/// classifier sees the same words that run. A word that is not text gives `None`.
 fn command_line(input: &Value) -> Option<String> {
     match input.get("command")? {
         Value::String(line) => Some(line.clone()),
         Value::Array(words) => {
-            let words: Vec<&str> = words.iter().filter_map(Value::as_str).collect();
-            shlex::try_join(words).ok()
+            let words: Option<Vec<&str>> = words.iter().map(Value::as_str).collect();
+            shlex::try_join(words?).ok()
         }
         _ => None,
     }
@@ -678,5 +678,19 @@ mod tests {
         ));
         let no_kind = call(&json!({ "locations": [{ "path": "a.rs" }] }));
         assert!(matches!(no_kind, ToolCall::Unknown));
+    }
+
+    /// The agent runs every word, so a word with no text would run unseen.
+    #[test]
+    fn a_command_with_a_word_that_is_not_text_is_unknown() {
+        for words in [
+            json!(["ls", 5]),
+            json!(["rm", { "x": 1 }, "-rf"]),
+            json!(["ls", null]),
+        ] {
+            let run = call(&json!({ "kind": "execute", "rawInput": { "command": words } }));
+
+            assert!(matches!(run, ToolCall::Unknown), "{words}");
+        }
     }
 }
