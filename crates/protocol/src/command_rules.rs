@@ -22,10 +22,13 @@ const NETWORK: [u8; 91] =
     *b" curl wget nc ncat netcat socat ssh scp sftp rsync ftp tftp telnet aria2c lftp mosh rclone ";
 /// Commands that run other commands or code from their arguments. A wrapper such as
 /// `strace` is here, so that a rule for it cannot cover `strace rm -rf x`.
-const RUNNERS: [u8; 397] = *b" xargs env exec nohup time timeout nice ionice setsid stdbuf watch parallel flock script strace ltrace valgrind gdb unshare nsenter chroot taskset numactl firejail bwrap runuser sg tmux screen caffeinate wsl crontab systemd-run launchctl schtasks sh bash zsh dash ksh mksh fish csh tcsh ash busybox python python2 python3 node nodejs deno bun perl ruby php lua luajit awk gawk mawk nawk osascript ";
+const RUNNERS: [u8; 408] = *b" xargs env exec nohup time timeout nice ionice setsid stdbuf watch parallel flock script strace ltrace valgrind gdb unshare nsenter chroot taskset numactl firejail bwrap runuser sg tmux screen caffeinate wsl crontab systemd-run launchctl schtasks sh bash zsh dash ksh mksh fish csh tcsh ash busybox python python2 python3 pypy pypy3 node nodejs deno bun perl ruby php lua luajit awk gawk mawk nawk osascript ";
+/// Runners with a version after the name, such as `python3.12` or `node18`.
+const VERSIONED_RUNNERS: [u8; 36] = *b" python pypy perl ruby php lua node ";
 /// Runners that count only as the command name: `.` is also the current folder, and
-/// `set` or `local` are common words. Each changes how later commands run.
-const HEAD_RUNNERS: [u8; 103] = *b" . source command builtin enable trap export declare typeset local readonly set unset shopt alias hash ";
+/// `set` or `local` are common words. Each changes how later commands run. `open`
+/// runs a file, but `grep -rn open src` and `man open` only name it.
+const HEAD_RUNNERS: [u8; 108] = *b" . source command builtin enable trap export declare typeset local readonly set unset shopt alias hash open ";
 const NEVER_ALWAYS: [u8; 19] = *b" chmod chown chgrp ";
 /// `git` flags and words that run a command, compared before any `=`.
 const GIT_RUNS: [u8; 75] =
@@ -46,6 +49,8 @@ const NO_LIST: [u8; 0] = [];
 enum Test {
     /// Its name is in the list.
     Name,
+    /// Its name is in the list after its version comes off: `python3.12` is `python`.
+    Versioned,
     /// Its flag, the part before any `=`, is in the list.
     Flag,
     /// It is a flag with `r` or `R`, as in `rm -rf`.
@@ -83,6 +88,30 @@ pub(crate) fn name_of(word: &[u8]) -> Vec<u8> {
     without_exe(name)
 }
 
+fn is_version_byte(b: u8) -> bool {
+    (b'0' <= b && b <= b'9') || b == b'.'
+}
+
+/// The length of `name` before its last run of digits and dots: 6 for `python3.12`.
+fn stem_len(name: &[u8]) -> usize {
+    let mut k = name.len();
+    while k > 0 && is_version_byte(name[k - 1]) {
+        k -= 1;
+    }
+    k
+}
+
+/// A name with a version, such as `node18`, whose stem is in the list.
+fn is_versioned(name: &[u8], names: &[u8]) -> bool {
+    let k = stem_len(name);
+    if k == name.len() {
+        return false;
+    }
+    let mut stem = Vec::new();
+    push_range(&mut stem, name, 0, k);
+    listed(names, &stem)
+}
+
 fn flag_of(word: &[u8]) -> Vec<u8> {
     let mut flag = Vec::new();
     let mut i = 0;
@@ -116,6 +145,7 @@ fn is_git_force(word: &[u8]) -> bool {
 fn word_passes(word: &[u8], test: Test, names: &[u8]) -> bool {
     match test {
         Test::Name => listed(names, &name_of(word)),
+        Test::Versioned => is_versioned(&name_of(word), names),
         Test::Flag => listed(names, &flag_of(word)),
         Test::Recursive => is_recursive(word),
         Test::GitForce => is_git_force(word),
@@ -148,6 +178,7 @@ fn head_assigns(words: &[Vec<u8>]) -> bool {
 
 fn is_runner(words: &[Vec<u8>]) -> bool {
     any_word(words, Test::Name, &RUNNERS)
+        || any_word(words, Test::Versioned, &VERSIONED_RUNNERS)
         || head_listed(words, &HEAD_RUNNERS)
         || head_assigns(words)
         || (head_is(words, &FIND) && any_word(words, Test::Flag, &FIND_RUNS))
@@ -339,6 +370,31 @@ mod tests {
         assert_eq!(verdict(&["perl", "-e", "x"]), Verdict::Ask);
         assert_eq!(verdict(&[".", "x.sh"]), Verdict::Ask);
         assert_eq!(verdict(&["A=1", "cargo", "test"]), Verdict::Ask);
+    }
+
+    #[test]
+    fn pypy_and_versioned_interpreters_are_runners() {
+        assert_eq!(verdict(&["pypy3", "x.py"]), Verdict::Ask);
+        assert_eq!(verdict(&["python3.12", "-c", "x"]), Verdict::Ask);
+        assert_eq!(verdict(&["/usr/bin/node18", "x.js"]), Verdict::Ask);
+        assert_eq!(verdict(&["xargs", "lua5.4"]), Verdict::Ask);
+        assert_eq!(verdict(&["pypy3.10", "x.py"]), Verdict::Ask);
+        assert_eq!(verdict(&["python3", "-m", "pytest"]), Verdict::Ask);
+    }
+
+    #[test]
+    fn a_name_with_digits_but_no_listed_stem_is_not_a_runner() {
+        assert_eq!(verdict(&["ls", "3.12"]), Verdict::Allow);
+        assert_eq!(verdict(&["sha256sum", "x"]), Verdict::Allow);
+        assert_eq!(verdict(&["cat", "nodes2"]), Verdict::Allow);
+    }
+
+    #[test]
+    fn open_is_a_runner_only_as_the_command_name() {
+        assert_eq!(verdict(&["open", "x.command"]), Verdict::Ask);
+        assert_eq!(verdict(&["/usr/bin/open", "-a", "Terminal"]), Verdict::Ask);
+        assert_eq!(verdict(&["grep", "-rn", "open", "src"]), Verdict::Allow);
+        assert_eq!(verdict(&["man", "open"]), Verdict::Allow);
     }
 
     #[test]

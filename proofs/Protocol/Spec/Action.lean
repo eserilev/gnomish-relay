@@ -77,9 +77,10 @@ def shellNames : String := " sh bash zsh dash ksh mksh fish csh tcsh ash busybox
 def networkNames : String :=
   " curl wget nc ncat netcat socat ssh scp sftp rsync ftp tftp telnet aria2c lftp mosh rclone "
 def runnerNames : String :=
-  " xargs env exec nohup time timeout nice ionice setsid stdbuf watch parallel flock script strace ltrace valgrind gdb unshare nsenter chroot taskset numactl firejail bwrap runuser sg tmux screen caffeinate wsl crontab systemd-run launchctl schtasks sh bash zsh dash ksh mksh fish csh tcsh ash busybox python python2 python3 node nodejs deno bun perl ruby php lua luajit awk gawk mawk nawk osascript "
+  " xargs env exec nohup time timeout nice ionice setsid stdbuf watch parallel flock script strace ltrace valgrind gdb unshare nsenter chroot taskset numactl firejail bwrap runuser sg tmux screen caffeinate wsl crontab systemd-run launchctl schtasks sh bash zsh dash ksh mksh fish csh tcsh ash busybox python python2 python3 pypy pypy3 node nodejs deno bun perl ruby php lua luajit awk gawk mawk nawk osascript "
 def headRunnerNames : String :=
-  " . source command builtin enable trap export declare typeset local readonly set unset shopt alias hash "
+  " . source command builtin enable trap export declare typeset local readonly set unset shopt alias hash open "
+def versionedRunnerNames : String := " python pypy perl ruby php lua node "
 def neverAlwaysNames : String := " chmod chown chgrp "
 def gitRunFlags : String := " -c --config-env --exec-path --upload-pack --receive-pack --exec -x config "
 def gitForceFlags : String := " --force --force-with-lease --force-if-includes --hard --mirror "
@@ -98,9 +99,21 @@ def headListed (names : String) (ws : List (List Byte)) : Prop :=
 /-- `A=1 cmd` sets a variable, such as `LD_PRELOAD`, for `cmd`. -/
 def headAssigns (ws : List (List Byte)) : Prop := ∃ h, ws.head? = some h ∧ ch '=' ∈ h
 
-/-- Commands that run other commands or code from their arguments. -/
+/-- A digit or a dot, the bytes of a version such as `3.12`. -/
+def versionByte (b : Byte) : Bool := decide ((48 ≤ b.toNat ∧ b.toNat ≤ 57) ∨ b.toNat = 46)
+
+/-- A name without its last run of digits and dots: `python` for `python3.12`. -/
+def versionStem (n : List Byte) : List Byte := (n.reverse.dropWhile versionByte).reverse
+
+/-- A listed name with a version after it, such as `node18`. -/
+def versioned (names : String) (n : List Byte) : Prop :=
+  (versionStem n).length < n.length ∧ listed names (versionStem n)
+
+/-- Commands that run other commands or code from their arguments. `open` counts only as
+the command name, so `man open` is not a runner. -/
 def runner (ws : List (List Byte)) : Prop :=
-  anyName runnerNames ws ∨ headListed headRunnerNames ws ∨ headAssigns ws ∨
+  anyName runnerNames ws ∨ (∃ w ∈ ws, versioned versionedRunnerNames (progName w)) ∨
+    headListed headRunnerNames ws ∨ headAssigns ws ∨
     (headIs "find" ws ∧ ∃ w ∈ ws, listed findRunFlags (flag w)) ∨
     (headIs "git" ws ∧ ∃ w ∈ ws, listed gitRunFlags (flag w))
 

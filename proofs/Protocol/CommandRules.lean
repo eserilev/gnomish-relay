@@ -18,6 +18,9 @@ theorem network_bytes : bytes (Array.to_slice command_rules.NETWORK).val = ascii
 set_option maxRecDepth 10000 in
 theorem runners_bytes : bytes (Array.to_slice command_rules.RUNNERS).val = ascii runnerNames := by
   unfold command_rules.RUNNERS; rfl
+theorem versioned_runners_bytes :
+    bytes (Array.to_slice command_rules.VERSIONED_RUNNERS).val = ascii versionedRunnerNames := by
+  unfold command_rules.VERSIONED_RUNNERS; rfl
 theorem head_runners_bytes :
     bytes (Array.to_slice command_rules.HEAD_RUNNERS).val = ascii headRunnerNames := by
   unfold command_rules.HEAD_RUNNERS; rfl
@@ -159,6 +162,113 @@ theorem name_of_spec (word : Slice U8) :
   step with name_of_loop_spec word as ⟨acc, hacc, hlen⟩
   step*
   exact ⟨by rw [r_post1, hacc]; rfl, by omega⟩
+
+/-! ## Versions -/
+
+@[step]
+theorem is_version_byte_spec (b : U8) :
+    command_rules.is_version_byte b ⦃ r => r = versionByte b.bv ⦄ := by
+  unfold command_rules.is_version_byte versionByte
+  have hv : b.bv.toNat = b.val := by simp
+  step* <;> simp only [hv] <;> simp_all <;> scalar_tac
+
+theorem dropWhile_all_nil {α : Type} (p : α → Bool) (l : List α) (h : ∀ x ∈ l, p x = true) :
+    l.dropWhile p = [] := by
+  induction l with
+  | nil => rfl
+  | cons x xs ih =>
+    rw [List.dropWhile_cons_of_pos (h x List.mem_cons_self)]
+    exact ih (fun y hy => h y (List.mem_cons_of_mem _ hy))
+
+/-- The stem ends where the last run of version bytes starts. -/
+theorem stem_of_split (l : List Spec.Byte) (k : Nat) (hk : k ≤ l.length)
+    (hall : ∀ x ∈ l.drop k, versionByte x = true)
+    (hstop : ∀ h : 0 < k, versionByte (l[k - 1]'(by omega)) = false) :
+    versionStem l = l.take k := by
+  unfold versionStem
+  conv => lhs; rw [← List.take_append_drop k l]
+  rw [List.reverse_append, List.dropWhile_append,
+    dropWhile_all_nil _ _ (fun x hx => hall x (List.mem_reverse.mp hx))]
+  simp only [List.isEmpty_nil, if_true]
+  rcases Nat.eq_zero_or_pos k with rfl | hpos
+  · simp
+  · have hrev : (l.take k).reverse = l[k - 1] :: (l.take (k - 1)).reverse := by
+      conv => lhs; rw [show k = (k - 1) + 1 by omega, List.take_add_one,
+        List.getElem?_eq_getElem (by omega)]
+      simp
+    rw [hrev, List.dropWhile_cons_of_neg (by simp [hstop hpos]), ← hrev, List.reverse_reverse]
+
+theorem stem_len_loop_spec (nm : Slice U8) (k : Usize) (hk : k.val ≤ nm.val.length)
+    (hall : ∀ x ∈ nm.val.drop k.val, versionByte x.bv = true) :
+    command_rules.stem_len_loop nm k ⦃ r => r.val ≤ nm.val.length ∧
+      bytes (nm.val.take r.val) = versionStem (bytes nm.val) ⦄ := by
+  unfold command_rules.stem_len_loop
+  apply loop.spec_decr_nat (fun k => k.val)
+    (fun k => k.val ≤ nm.val.length ∧ ∀ x ∈ nm.val.drop k.val, versionByte x.bv = true)
+    _ _ _ _ ⟨hk, hall⟩
+  rintro k ⟨hk, hall⟩
+  unfold command_rules.stem_len_loop.body
+  have hstem : (∀ h : 0 < k.val, versionByte (nm.val[k.val - 1]'(by omega)).bv = false) →
+      bytes (nm.val.take k.val) = versionStem (bytes nm.val) := by
+    intro hstop
+    rw [stem_of_split (bytes nm.val) k.val (by simp [bytes]; omega)]
+    · simp [bytes]
+    · intro x hx
+      simp only [bytes, ← List.map_drop, List.mem_map] at hx
+      obtain ⟨y, hy, rfl⟩ := hx
+      exact hall y hy
+    · intro h
+      simp only [bytes, List.getElem_map]
+      exact hstop h
+  step*
+  · have hlt : i.val < nm.val.length := by scalar_tac
+    have hik : i.val + 1 = k.val := by scalar_tac
+    have hb : versionByte i1.bv = true := by rw [← b_post]; assumption
+    refine ⟨by scalar_tac, fun x hx => ?_, by scalar_tac⟩
+    rw [List.drop_eq_getElem_cons hlt, hik] at hx
+    rcases List.mem_cons.mp hx with rfl | hx
+    · rw [← i1_post]; exact hb
+    · exact hall x hx
+  · have hik : k.val - 1 = i.val := by scalar_tac
+    have hb : versionByte i1.bv = false := by
+      rw [← b_post]; simpa using (by assumption : ¬ b = true)
+    refine ⟨hk, hstem (fun _ => ?_)⟩
+    simp only [hik, ← i1_post]
+    exact hb
+  all_goals exact ⟨hk, hstem (fun h => absurd h (by scalar_tac))⟩
+
+@[step]
+theorem stem_len_spec (nm : Slice U8) :
+    command_rules.stem_len nm ⦃ r => r.val ≤ nm.val.length ∧
+      bytes (nm.val.take r.val) = versionStem (bytes nm.val) ⦄ := by
+  unfold command_rules.stem_len
+  exact stem_len_loop_spec nm _ (by simp) (by simp)
+
+/-- `is_versioned`, on bytes. -/
+def VersionedB (names n : List Spec.Byte) : Prop :=
+  (versionStem n).length < n.length ∧ (ch ' ' :: versionStem n ++ [ch ' ']) <:+: names
+
+@[step]
+theorem is_versioned_spec (nm names : Slice U8) (hroom : names.val.length < Usize.max) :
+    command_rules.is_versioned nm names ⦃ r =>
+      (r = true ↔ VersionedB (bytes names.val) (bytes nm.val)) ⦄ := by
+  unfold command_rules.is_versioned
+  step*
+  · simp only [Bool.false_eq_true, false_iff, VersionedB, not_and]
+    intro h
+    rw [← k_post2] at h
+    simp [bytes] at h
+    scalar_tac
+  · have hlen : (versionStem (bytes nm.val)).length = k.val := by
+      rw [← k_post2]; simp [bytes]; omega
+    rw [r_post, Protocol.Search.listed_bytes]
+    simp only [deref_val, stem_post, VersionedB, ← k_post2, List.nil_append, List.drop_zero,
+      Nat.sub_zero]
+    have hlt : k.val < nm.val.length := by scalar_tac
+    simp only [bytes, List.length_map, List.length_take] at hlen ⊢
+    constructor
+    · intro h; exact ⟨by omega, h⟩
+    · intro h; exact h.2
 
 theorem takeWhile_at {α : Type} (p : α → Bool) (w : List α) (i : Nat)
     (hall : ∀ x ∈ w.take i, p x = true) (hstop : ∀ h : i < w.length, p w[i] = false) :
@@ -327,6 +437,7 @@ theorem is_git_force_spec (word : Slice U8) :
 def WordTest (test : command_rules.Test) (names w : List Spec.Byte) : Prop :=
   match test with
   | .Name => (ch ' ' :: progName w ++ [ch ' ']) <:+: names
+  | .Versioned => VersionedB names (progName w)
   | .Flag => (ch ' ' :: flag w ++ [ch ' ']) <:+: names
   | .Recursive => recursiveFlag w
   | .GitForce => gitForce w
@@ -339,6 +450,7 @@ theorem word_passes_spec (word : Slice U8) (test : command_rules.Test) (names : 
   unfold command_rules.word_passes
   induction test <;> step*
   · rw [r_post, Protocol.Search.listed_bytes]; simp only [deref_val]; rw [v_post1]; rfl
+  · rw [r_post]; simp only [deref_val]; rw [v_post1]; rfl
   · rw [r_post, Protocol.Search.listed_bytes]; simp only [deref_val]; rw [v_post]; rfl
   · exact r_post
   · exact r_post
@@ -430,6 +542,9 @@ theorem head_assigns_spec (words : Slice (alloc.vec.Vec U8)) :
 theorem anyWord_name (L : String) (words : List (alloc.vec.Vec U8)) :
     AnyWord .Name (ascii L) words ↔ anyName L (strs words) := Iff.rfl
 
+theorem anyWord_versioned (L : String) (words : List (alloc.vec.Vec U8)) :
+    AnyWord .Versioned (ascii L) words ↔ ∃ w ∈ strs words, versioned L (progName w) := Iff.rfl
+
 theorem anyWord_flag (L : String) (words : List (alloc.vec.Vec U8)) :
     AnyWord .Flag (ascii L) words ↔ ∃ w ∈ strs words, listed L (flag w) := Iff.rfl
 
@@ -443,9 +558,9 @@ theorem is_runner_spec (words : Slice (alloc.vec.Vec U8)) :
   unfold command_rules.is_runner
   step*
   all_goals subst_vars
-  all_goals simp only [runners_bytes, head_runners_bytes, find_bytes, git_bytes, find_runs_bytes,
+  all_goals simp only [runners_bytes, versioned_runners_bytes, anyWord_versioned, head_runners_bytes, find_bytes, git_bytes, find_runs_bytes,
     git_runs_bytes, anyWord_name, anyWord_flag, headListed_iff] at *
-  all_goals simp_all [runner, headIs]
+  all_goals grind [runner, headIs]
 
 @[step]
 theorem is_network_spec (words : Slice (alloc.vec.Vec U8)) :
