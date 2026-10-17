@@ -41,11 +41,33 @@ theorem continues_at_spec (text : Slice U8) (j : Usize) :
     · rintro ⟨_, h⟩; exact h
 
 @[step]
+theorem second_byte_fits_spec (a b : U8) :
+    notice.second_byte_fits a b ⦃ r => (r = true ↔ secondFits a.bv b.bv) ⦄ := by
+  unfold notice.second_byte_fits secondFits
+  simp only [toNat_bv]
+  step*
+
+/-- The bytes at `i` and `i + 1` are there, and the second one fits the lead. -/
+def fitsAt (text : List U8) (i : Nat) : Prop :=
+  ∃ h : i + 1 < text.length, secondFits (text[i]'(by omega)).bv (text[i + 1]'h).bv
+
+@[step]
+theorem second_byte_fits_at_spec (text : Slice U8) (i : Usize) (hi : i.val < text.val.length)
+    (hlen : text.val.length ≤ 2 ^ 20) :
+    notice.second_byte_fits_at text i ⦃ r => (r = true ↔ fitsAt text.val i.val) ⦄ := by
+  unfold notice.second_byte_fits_at fitsAt
+  step*
+  · have e : (text.val)[i1.val]'(by scalar_tac) = (text.val)[i.val + 1]'(by scalar_tac) := by
+      simp [i1_post]
+    rw [r_post, i3_post, i4_post, e]
+    exact ⟨fun h => ⟨by scalar_tac, h⟩, fun ⟨_, h⟩ => h⟩
+
+@[step]
 theorem whole_at_spec (text : Slice U8) (i n : Usize) (hi : i.val < text.val.length)
     (hlen : text.val.length ≤ 2 ^ 20) :
     notice.whole_at text i n ⦃ r =>
-      (r = true ↔ 2 ≤ n.val ∧ contAt text.val (i.val + 1) ∧ (n.val < 3 ∨ contAt text.val (i.val + 2)) ∧
-        (n.val < 4 ∨ contAt text.val (i.val + 3))) ⦄ := by
+      (r = true ↔ 2 ≤ n.val ∧ contAt text.val (i.val + 1) ∧ fitsAt text.val i.val ∧
+        (n.val < 3 ∨ contAt text.val (i.val + 2)) ∧ (n.val < 4 ∨ contAt text.val (i.val + 3))) ⦄ := by
   unfold notice.whole_at
   step*
 
@@ -55,21 +77,51 @@ theorem in_range_spec (b low high : U8) :
   unfold notice.in_range
   step*
 
-def hiddenTwo (a b : Nat) : Prop := (a = 0xC2 ∧ b < 0xA0) ∨ (a = 0xD8 ∧ b = 0x9C)
+def hiddenTwo (a b : Nat) : Prop := (a = 0xC2 ∧ (b < 0xA0 ∨ b = 0xAD)) ∨ (a = 0xCD ∧ b = 0x8F) ∨
+  (a = 0xD8 ∧ b = 0x9C)
+
+def hiddenE1 (b c : Nat) : Prop := (b = 0x85 ∧ (c = 0x9F ∨ c = 0xA0)) ∨ (b = 0xA0 ∧ 0x8B ≤ c ∧ c ≤ 0x8F)
+
+def hiddenEF (b c : Nat) : Prop :=
+  (b = 0xB8 ∧ 0x80 ≤ c ∧ c ≤ 0x8F) ∨ (b = 0xBB ∧ c = 0xBF) ∨ (b = 0xBE ∧ c = 0xA0) ∨
+  (b = 0xBF ∧ 0xB9 ≤ c ∧ c ≤ 0xBB)
 
 def hiddenThree (a b c : Nat) : Prop :=
-  (a = 0xE1 ∧ b = 0xA0 ∧ c = 0x8E) ∨
+  (a = 0xE1 ∧ hiddenE1 b c) ∨
   (a = 0xE2 ∧ b = 0x80 ∧ 0x8B ≤ c ∧ c ≤ 0x8F) ∨
   (a = 0xE2 ∧ b = 0x80 ∧ 0xA8 ≤ c ∧ c ≤ 0xAE) ∨
   (a = 0xE2 ∧ b = 0x81 ∧ 0xA0 ≤ c ∧ c ≤ 0xAF) ∨
-  (a = 0xEF ∧ b = 0xBB ∧ c = 0xBF)
+  (a = 0xE3 ∧ b = 0x85 ∧ c = 0xA4) ∨
+  (a = 0xEF ∧ hiddenEF b c)
 
-def hiddenFour (a b c : Nat) : Prop := a = 0xF3 ∧ b = 0xA0 ∧ (c = 0x80 ∨ c = 0x81)
+def hiddenPlane14 (c d : Nat) : Prop :=
+  c = 0x80 ∨ c = 0x81 ∨ (0x84 ≤ c ∧ c ≤ 0x86) ∨ (c = 0x87 ∧ d ≤ 0xAF)
+
+def hiddenFour (a b c d : Nat) : Prop :=
+  (a = 0xF3 ∧ b = 0xA0 ∧ hiddenPlane14 c d) ∨ (a = 0xF0 ∧ b = 0x9D ∧ c = 0x85 ∧ 0xB3 ≤ d ∧ d ≤ 0xBA)
 
 @[step]
 theorem is_hidden_two_spec (a b : U8) :
     notice.is_hidden_two a b ⦃ r => (r = true ↔ hiddenTwo a.val b.val) ⦄ := by
   unfold notice.is_hidden_two hiddenTwo
+  step*
+
+@[step]
+theorem is_hidden_e1_spec (b c : U8) :
+    notice.is_hidden_e1 b c ⦃ r => (r = true ↔ hiddenE1 b.val c.val) ⦄ := by
+  unfold notice.is_hidden_e1 hiddenE1
+  step*
+
+@[step]
+theorem is_hidden_ef_spec (b c : U8) :
+    notice.is_hidden_ef b c ⦃ r => (r = true ↔ hiddenEF b.val c.val) ⦄ := by
+  unfold notice.is_hidden_ef hiddenEF
+  step*
+
+@[step]
+theorem is_hidden_plane_14_spec (c d : U8) :
+    notice.is_hidden_plane_14 c d ⦃ r => (r = true ↔ hiddenPlane14 c.val d.val) ⦄ := by
+  unfold notice.is_hidden_plane_14 hiddenPlane14
   step*
 
 @[step]
@@ -89,8 +141,8 @@ theorem is_hidden_three_spec (a b c : U8) :
   simp [show (226#u8 : U8).val = 226 from rfl]
 
 @[step]
-theorem is_hidden_four_spec (a b c : U8) :
-    notice.is_hidden_four a b c ⦃ r => (r = true ↔ hiddenFour a.val b.val c.val) ⦄ := by
+theorem is_hidden_four_spec (a b c d : U8) :
+    notice.is_hidden_four a b c d ⦃ r => (r = true ↔ hiddenFour a.val b.val c.val d.val) ⦄ := by
   unfold notice.is_hidden_four hiddenFour
   step*
 
@@ -126,11 +178,12 @@ theorem is_hidden_spec (text : Slice U8) (i n : Usize) (h2 : 2 ≤ n.val) (h4 : 
     exact Iff.rfl
   · have hn : n.val = 3 := by simp [*]
     rw [r_post, pieceAt, show ((3#usize : Usize)).val = 3 from rfl, piece3 _ _ (by omega)]
-    simp [hiddenChar, hiddenThree, bytes, *]
+    simp [hiddenChar, hiddenThree, hiddenE1, hiddenEF, bytes, and_or_left, or_assoc, *]
     exact Iff.rfl
   · have hn : n.val = 4 := by scalar_tac
     rw [r_post, pieceAt, hn, piece4 _ _ (by omega)]
-    simp [hiddenChar, hiddenFour, bytes, *]
+    simp [hiddenChar, hiddenFour, hiddenPlane14, bytes, and_or_left, or_assoc, *]
+    exact Iff.rfl
 
 @[step]
 theorem ascii_width_spec (b : U8) :
@@ -228,11 +281,12 @@ theorem contAt_cont (text : List U8) (j : Nat) (h : contAt text j) (hj : j < tex
   obtain ⟨_, hc⟩ := h; exact hc
 
 theorem piece_whole (text : List U8) (i n : Nat) (hi : i < text.length) (hn : seqLen (text[i]).val = n)
-    (h2 : 2 ≤ n) (hc1 : contAt text (i + 1)) (hc2 : n < 3 ∨ contAt text (i + 2))
+    (h2 : 2 ≤ n) (hc1 : contAt text (i + 1)) (hf : fitsAt text i) (hc2 : n < 3 ∨ contAt text (i + 2))
     (hc3 : n < 4 ∨ contAt text (i + 3)) :
     i + n ≤ text.length ∧ wholeChar (pieceAt text i n) := by
   have h4 := seqLen_le (text[i]).val
   obtain ⟨h1, hb1⟩ := hc1
+  obtain ⟨_, hfit⟩ := hf
   rcases (by omega : n = 2 ∨ n = 3 ∨ n = 4) with rfl | rfl | rfl
   · refine ⟨by omega, ?_⟩
     rw [pieceAt, piece2 _ _ (by omega)]
@@ -244,14 +298,14 @@ theorem piece_whole (text : List U8) (i n : Nat) (hi : i < text.length) (hn : se
     rw [pieceAt, piece3 _ _ (by omega)]
     have := seqLen_three _ hn
     simp only [bytes, List.map_cons, List.map_nil, wholeChar, toNat_bv]
-    exact ⟨this.1, this.2, hb1, hb2⟩
+    exact ⟨this.1, this.2, hb1, hb2, hfit⟩
   · obtain ⟨h2', hb2⟩ := hc2.resolve_left (by omega)
     obtain ⟨h3', hb3⟩ := hc3.resolve_left (by omega)
     refine ⟨by omega, ?_⟩
     rw [pieceAt, piece4 _ _ (by omega)]
     have := seqLen_four _ hn
     simp only [bytes, List.map_cons, List.map_nil, wholeChar, toNat_bv]
-    exact ⟨this.1, this.2, hb1, hb2, hb3⟩
+    exact ⟨this.1, this.2, hb1, hb2, hb3, hfit⟩
 
 theorem pieceAt_length (text : List U8) (i n : Nat) (h : i + n ≤ text.length) :
     (pieceAt text i n).length = n := by
@@ -280,9 +334,9 @@ theorem notice_text_loop_spec (text : Slice U8) (max : Usize) (out : alloc.vec.V
   all_goals try (have hi4 : i4.val ≤ 2 := by rw [i4_post]; split <;> omega)
   all_goals try (
     have hb : b = true := by assumption
-    obtain ⟨h2, hc1, hc2, hc3⟩ := b_post.mp hb
+    obtain ⟨h2, hc1, hf, hc2, hc3⟩ := b_post.mp hb
     obtain ⟨hin, hw⟩ := piece_whole text.val i.val n.val (by scalar_tac) (by simp [n_post, i2_post])
-      h2 hc1 hc2 hc3)
+      h2 hc1 hf hc2 hc3)
   all_goals try (
     have hn1 : n = 1#usize := by assumption
     have hascii : i2.val < 0x80 := ascii_of_seqLen_one _ (by rw [← n_post]; simp [hn1]))
@@ -352,11 +406,11 @@ theorem no_pipe (p : List Spec.Byte) (hv : visibleChar p) (hne : p ≠ [pipe]) :
     rcases hb with rfl | rfl <;> simp_all
   | [a, c, d], hw =>
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hb
-    obtain ⟨h1, _, ⟨h3, _⟩, ⟨h4, _⟩⟩ := hw
+    obtain ⟨h1, _, ⟨h3, _⟩, ⟨h4, _⟩, _⟩ := hw
     rcases hb with rfl | rfl | rfl <;> omega
   | [a, c, d, e], hw =>
     simp only [List.mem_cons, List.not_mem_nil, or_false] at hb
-    obtain ⟨h1, _, ⟨h3, _⟩, ⟨h4, _⟩, ⟨h5, _⟩⟩ := hw
+    obtain ⟨h1, _, ⟨h3, _⟩, ⟨h4, _⟩, ⟨h5, _⟩, _⟩ := hw
     rcases hb with rfl | rfl | rfl | rfl <;> omega
 
 theorem good_doubled (ps : List (List Spec.Byte)) (h : ∀ p ∈ ps, goodPiece p) : pipesDoubled ps.flatten := by

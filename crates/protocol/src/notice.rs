@@ -32,24 +32,58 @@ fn continues_at(text: &[u8], j: usize) -> bool {
     j < text.len() && is_continuation(text[j])
 }
 
-/// A sequence of 2 to 4 bytes from `i` that the text holds in full.
-fn whole_at(text: &[u8], i: usize, n: usize) -> bool {
-    n >= 2
-        && continues_at(text, i + 1)
-        && (n < 3 || continues_at(text, i + 2))
-        && (n < 4 || continues_at(text, i + 3))
-}
-
 fn in_range(b: u8, low: u8, high: u8) -> bool {
     low <= b && b <= high
 }
 
-/// C1 controls, U+0080 to U+009F, and the Arabic letter mark U+061C.
+/// After these leads, the second byte has a smaller range: the other bytes give an
+/// overlong form, a surrogate, or a code point past U+10FFFF.
+fn second_byte_fits(lead: u8, b1: u8) -> bool {
+    if lead == 0xE0 {
+        b1 >= 0xA0
+    } else if lead == 0xED {
+        b1 < 0xA0
+    } else if lead == 0xF0 {
+        b1 >= 0x90
+    } else if lead == 0xF4 {
+        b1 < 0x90
+    } else {
+        true
+    }
+}
+
+fn second_byte_fits_at(text: &[u8], i: usize) -> bool {
+    i + 1 < text.len() && second_byte_fits(text[i], text[i + 1])
+}
+
+/// A valid sequence of 2 to 4 bytes from `i` that the text holds in full.
+fn whole_at(text: &[u8], i: usize, n: usize) -> bool {
+    n >= 2
+        && continues_at(text, i + 1)
+        && second_byte_fits_at(text, i)
+        && (n < 3 || continues_at(text, i + 2))
+        && (n < 4 || continues_at(text, i + 3))
+}
+
+/// C1 controls U+0080 to U+009F, the soft hyphen U+00AD, the combining grapheme
+/// joiner U+034F, and the Arabic letter mark U+061C.
 fn is_hidden_two(b0: u8, b1: u8) -> bool {
     if b0 == 0xC2 {
-        b1 < 0xA0
+        b1 < 0xA0 || b1 == 0xAD
+    } else if b0 == 0xCD {
+        b1 == 0x8F
     } else {
         b0 == 0xD8 && b1 == 0x9C
+    }
+}
+
+/// In U+1000 to U+1FFF: the Hangul fillers U+115F and U+1160, and the Mongolian
+/// selectors and vowel separator U+180B to U+180F.
+fn is_hidden_e1(b1: u8, b2: u8) -> bool {
+    if b1 == 0x85 {
+        b2 == 0x9F || b2 == 0xA0
+    } else {
+        b1 == 0xA0 && in_range(b2, 0x8B, 0x8F)
     }
 }
 
@@ -62,20 +96,46 @@ fn is_hidden_punctuation(b1: u8, b2: u8) -> bool {
     }
 }
 
-/// Zero-width and bidi marks: U+180E, the ones of `is_hidden_punctuation`, and U+FEFF.
-fn is_hidden_three(b0: u8, b1: u8, b2: u8) -> bool {
-    if b0 == 0xE1 {
-        b1 == 0xA0 && b2 == 0x8E
-    } else if b0 == 0xE2 {
-        is_hidden_punctuation(b1, b2)
+/// In U+F000 to U+FFFF: the variation selectors U+FE00 to U+FE0F, U+FEFF, the
+/// half-width Hangul filler U+FFA0, and the interlinear marks U+FFF9 to U+FFFB.
+fn is_hidden_ef(b1: u8, b2: u8) -> bool {
+    if b1 == 0xB8 {
+        in_range(b2, 0x80, 0x8F)
+    } else if b1 == 0xBB {
+        b2 == 0xBF
+    } else if b1 == 0xBE {
+        b2 == 0xA0
     } else {
-        b0 == 0xEF && b1 == 0xBB && b2 == 0xBF
+        b1 == 0xBF && in_range(b2, 0xB9, 0xBB)
     }
 }
 
-/// Tag characters, U+E0000 to U+E007F: invisible, and a known way to hide a prompt.
-fn is_hidden_four(b0: u8, b1: u8, b2: u8) -> bool {
-    b0 == 0xF3 && b1 == 0xA0 && (b2 == 0x80 || b2 == 0x81)
+/// Zero-width, bidi, and filler marks of 3 bytes. U+3164 is the Hangul filler.
+fn is_hidden_three(b0: u8, b1: u8, b2: u8) -> bool {
+    if b0 == 0xE1 {
+        is_hidden_e1(b1, b2)
+    } else if b0 == 0xE2 {
+        is_hidden_punctuation(b1, b2)
+    } else if b0 == 0xE3 {
+        b1 == 0x85 && b2 == 0xA4
+    } else {
+        b0 == 0xEF && is_hidden_ef(b1, b2)
+    }
+}
+
+/// After F3 A0: the tags U+E0000 to U+E007F, a known way to hide a prompt, and the
+/// variation selectors U+E0100 to U+E01EF.
+fn is_hidden_plane_14(b2: u8, b3: u8) -> bool {
+    b2 == 0x80 || b2 == 0x81 || in_range(b2, 0x84, 0x86) || (b2 == 0x87 && b3 <= 0xAF)
+}
+
+/// The plane-14 marks, and the musical format marks U+1D173 to U+1D17A.
+fn is_hidden_four(b0: u8, b1: u8, b2: u8, b3: u8) -> bool {
+    if b0 == 0xF3 {
+        b1 == 0xA0 && is_hidden_plane_14(b2, b3)
+    } else {
+        b0 == 0xF0 && b1 == 0x9D && b2 == 0x85 && in_range(b3, 0xB3, 0xBA)
+    }
 }
 
 /// Takes a whole sequence of `n` bytes from `i`.
@@ -85,7 +145,7 @@ fn is_hidden(text: &[u8], i: usize, n: usize) -> bool {
     } else if n == 3 {
         is_hidden_three(text[i], text[i + 1], text[i + 2])
     } else {
-        is_hidden_four(text[i], text[i + 1], text[i + 2])
+        is_hidden_four(text[i], text[i + 1], text[i + 2], text[i + 3])
     }
 }
 
@@ -170,6 +230,32 @@ mod tests {
         let text =
             "a\u{202E}b\u{200B}c\u{2066}d\u{FEFF}e\u{061C}f\u{180E}g\u{0085}h\u{E0041}i\u{2028}j";
         assert_eq!(notice_text(text.as_bytes(), 600), b"abcdefghij");
+    }
+
+    #[test]
+    fn fillers_and_variation_selectors_go() {
+        let text = "a\u{00AD}b\u{034F}c\u{115F}d\u{1160}e\u{180B}f\u{180F}g\u{3164}h\u{FFA0}i\u{FE00}j\u{FE0F}k\u{FFF9}l\u{FFFB}m\u{E0100}n\u{E01EF}o\u{2029}p\u{1D173}q\u{1D17A}r";
+        assert_eq!(notice_text(text.as_bytes(), 600), b"abcdefghijklmnopqr");
+    }
+
+    #[test]
+    fn neighbors_of_hidden_characters_stay() {
+        let text = "\u{00AC}\u{034E}\u{180A}\u{3165}\u{FE10}\u{FFFC}\u{E01F0}\u{1D172}\u{1D17B}";
+        assert_eq!(notice_text(text.as_bytes(), 600), text.as_bytes());
+    }
+
+    #[test]
+    fn overlong_forms_surrogates_and_too_big_code_points_go() {
+        assert_eq!(notice_text(b"a\xE0\x80\xAFb", 600), b"ab");
+        assert_eq!(notice_text(b"a\xF0\x80\x80\xAFb", 600), b"ab");
+        assert_eq!(notice_text(b"a\xED\xA0\x80b", 600), b"ab");
+        assert_eq!(notice_text(b"a\xF4\x90\x80\x80b", 600), b"ab");
+    }
+
+    #[test]
+    fn the_edges_of_the_valid_ranges_stay() {
+        let text = "\u{0800}\u{D7FF}\u{E000}\u{10000}\u{10FFFF}";
+        assert_eq!(notice_text(text.as_bytes(), 600), text.as_bytes());
     }
 
     #[test]

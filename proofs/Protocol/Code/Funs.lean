@@ -9772,8 +9772,44 @@ def notice.continues_at
        notice.is_continuation i1
   else ok false
 
+/-- [protocol::notice::in_range]:
+    Source: 'crates/protocol/src/notice.rs', lines 35:0-37:1 -/
+def notice.in_range
+  (b : Std.U8) (low : Std.U8) (high : Std.U8) : Result Bool := do
+  if low <= b
+  then ok (b <= high)
+  else ok false
+
+/-- [protocol::notice::second_byte_fits]:
+    Source: 'crates/protocol/src/notice.rs', lines 41:0-53:1 -/
+def notice.second_byte_fits (lead : Std.U8) (b1 : Std.U8) : Result Bool := do
+  if lead = 224#u8
+  then ok (b1 >= 160#u8)
+  else
+    if lead = 237#u8
+    then ok (b1 < 160#u8)
+    else
+      if lead = 240#u8
+      then ok (b1 >= 144#u8)
+      else if lead = 244#u8
+           then ok (b1 < 144#u8)
+           else ok true
+
+/-- [protocol::notice::second_byte_fits_at]:
+    Source: 'crates/protocol/src/notice.rs', lines 55:0-57:1 -/
+def notice.second_byte_fits_at
+  (text : Slice Std.U8) (i : Std.Usize) : Result Bool := do
+  let i1 ← i + 1#usize
+  let i2 := Slice.len text
+  if i1 < i2
+  then
+    let i3 ← Slice.index_usize text i
+    let i4 ← Slice.index_usize text i1
+    notice.second_byte_fits i3 i4
+  else ok false
+
 /-- [protocol::notice::whole_at]:
-    Source: 'crates/protocol/src/notice.rs', lines 36:0-41:1 -/
+    Source: 'crates/protocol/src/notice.rs', lines 60:0-66:1 -/
 def notice.whole_at
   (text : Slice Std.U8) (i : Std.Usize) (n : Std.Usize) : Result Bool := do
   if n >= 2#usize
@@ -9782,44 +9818,56 @@ def notice.whole_at
     let b ← notice.continues_at text i1
     if b
     then
-      if n < 3#usize
+      let b1 ← notice.second_byte_fits_at text i
+      if b1
       then
-        if n < 4#usize
-        then ok true
-        else let i2 ← i + 3#usize
-             notice.continues_at text i2
-      else
-        let i2 ← i + 2#usize
-        let b1 ← notice.continues_at text i2
-        if b1
+        if n < 3#usize
         then
           if n < 4#usize
           then ok true
-          else let i3 ← i + 3#usize
-               notice.continues_at text i3
-        else ok false
+          else let i2 ← i + 3#usize
+               notice.continues_at text i2
+        else
+          let i2 ← i + 2#usize
+          let b2 ← notice.continues_at text i2
+          if b2
+          then
+            if n < 4#usize
+            then ok true
+            else let i3 ← i + 3#usize
+                 notice.continues_at text i3
+          else ok false
+      else ok false
     else ok false
   else ok false
 
-/-- [protocol::notice::in_range]:
-    Source: 'crates/protocol/src/notice.rs', lines 43:0-45:1 -/
-def notice.in_range
-  (b : Std.U8) (low : Std.U8) (high : Std.U8) : Result Bool := do
-  if low <= b
-  then ok (b <= high)
-  else ok false
-
 /-- [protocol::notice::is_hidden_two]:
-    Source: 'crates/protocol/src/notice.rs', lines 48:0-54:1 -/
+    Source: 'crates/protocol/src/notice.rs', lines 70:0-78:1 -/
 def notice.is_hidden_two (b0 : Std.U8) (b1 : Std.U8) : Result Bool := do
   if b0 = 194#u8
-  then ok (b1 < 160#u8)
-  else if b0 = 216#u8
-       then ok (b1 = 156#u8)
+  then if b1 < 160#u8
+       then ok true
+       else ok (b1 = 173#u8)
+  else
+    if b0 = 205#u8
+    then ok (b1 = 143#u8)
+    else if b0 = 216#u8
+         then ok (b1 = 156#u8)
+         else ok false
+
+/-- [protocol::notice::is_hidden_e1]:
+    Source: 'crates/protocol/src/notice.rs', lines 82:0-88:1 -/
+def notice.is_hidden_e1 (b1 : Std.U8) (b2 : Std.U8) : Result Bool := do
+  if b1 = 133#u8
+  then if b2 = 159#u8
+       then ok true
+       else ok (b2 = 160#u8)
+  else if b1 = 160#u8
+       then notice.in_range b2 139#u8 143#u8
        else ok false
 
 /-- [protocol::notice::is_hidden_punctuation]:
-    Source: 'crates/protocol/src/notice.rs', lines 57:0-63:1 -/
+    Source: 'crates/protocol/src/notice.rs', lines 91:0-97:1 -/
 def notice.is_hidden_punctuation
   (b1 : Std.U8) (b2 : Std.U8) : Result Bool := do
   if b1 = 128#u8
@@ -9832,39 +9880,75 @@ def notice.is_hidden_punctuation
        then notice.in_range b2 160#u8 175#u8
        else ok false
 
+/-- [protocol::notice::is_hidden_ef]:
+    Source: 'crates/protocol/src/notice.rs', lines 101:0-111:1 -/
+def notice.is_hidden_ef (b1 : Std.U8) (b2 : Std.U8) : Result Bool := do
+  if b1 = 184#u8
+  then notice.in_range b2 128#u8 143#u8
+  else
+    if b1 = 187#u8
+    then ok (b2 = 191#u8)
+    else
+      if b1 = 190#u8
+      then ok (b2 = 160#u8)
+      else if b1 = 191#u8
+           then notice.in_range b2 185#u8 187#u8
+           else ok false
+
 /-- [protocol::notice::is_hidden_three]:
-    Source: 'crates/protocol/src/notice.rs', lines 66:0-74:1 -/
+    Source: 'crates/protocol/src/notice.rs', lines 114:0-124:1 -/
 def notice.is_hidden_three
   (b0 : Std.U8) (b1 : Std.U8) (b2 : Std.U8) : Result Bool := do
   if b0 = 225#u8
-  then if b1 = 160#u8
-       then ok (b2 = 142#u8)
-       else ok false
+  then notice.is_hidden_e1 b1 b2
   else
     if b0 = 226#u8
     then notice.is_hidden_punctuation b1 b2
     else
-      if b0 = 239#u8
-      then if b1 = 187#u8
-           then ok (b2 = 191#u8)
+      if b0 = 227#u8
+      then if b1 = 133#u8
+           then ok (b2 = 164#u8)
            else ok false
-      else ok false
+      else if b0 = 239#u8
+           then notice.is_hidden_ef b1 b2
+           else ok false
+
+/-- [protocol::notice::is_hidden_plane_14]:
+    Source: 'crates/protocol/src/notice.rs', lines 128:0-130:1 -/
+def notice.is_hidden_plane_14 (b2 : Std.U8) (b3 : Std.U8) : Result Bool := do
+  if b2 = 128#u8
+  then ok true
+  else
+    if b2 = 129#u8
+    then ok true
+    else
+      let b ← notice.in_range b2 132#u8 134#u8
+      if b
+      then ok true
+      else if b2 = 135#u8
+           then ok (b3 <= 175#u8)
+           else ok false
 
 /-- [protocol::notice::is_hidden_four]:
-    Source: 'crates/protocol/src/notice.rs', lines 77:0-79:1 -/
+    Source: 'crates/protocol/src/notice.rs', lines 133:0-139:1 -/
 def notice.is_hidden_four
-  (b0 : Std.U8) (b1 : Std.U8) (b2 : Std.U8) : Result Bool := do
+  (b0 : Std.U8) (b1 : Std.U8) (b2 : Std.U8) (b3 : Std.U8) : Result Bool := do
   if b0 = 243#u8
-  then
-    if b1 = 160#u8
-    then if b2 = 128#u8
-         then ok true
-         else ok (b2 = 129#u8)
+  then if b1 = 160#u8
+       then notice.is_hidden_plane_14 b2 b3
+       else ok false
+  else
+    if b0 = 240#u8
+    then
+      if b1 = 157#u8
+      then if b2 = 133#u8
+           then notice.in_range b3 179#u8 186#u8
+           else ok false
+      else ok false
     else ok false
-  else ok false
 
 /-- [protocol::notice::is_hidden]:
-    Source: 'crates/protocol/src/notice.rs', lines 82:0-90:1 -/
+    Source: 'crates/protocol/src/notice.rs', lines 142:0-150:1 -/
 def notice.is_hidden
   (text : Slice Std.U8) (i : Std.Usize) (n : Std.Usize) : Result Bool := do
   if n = 2#usize
@@ -9888,17 +9972,19 @@ def notice.is_hidden
       let i3 ← Slice.index_usize text i2
       let i4 ← i + 2#usize
       let i5 ← Slice.index_usize text i4
-      notice.is_hidden_four i1 i3 i5
+      let i6 ← i + 3#usize
+      let i7 ← Slice.index_usize text i6
+      notice.is_hidden_four i1 i3 i5 i7
 
 /-- [protocol::notice::ascii_width]:
-    Source: 'crates/protocol/src/notice.rs', lines 93:0-95:1 -/
+    Source: 'crates/protocol/src/notice.rs', lines 153:0-155:1 -/
 def notice.ascii_width (b : Std.U8) : Result Std.Usize := do
   if b = 124#u8
   then ok 2#usize
   else ok 1#usize
 
 /-- [protocol::notice::push_ascii]:
-    Source: 'crates/protocol/src/notice.rs', lines 98:0-107:1 -/
+    Source: 'crates/protocol/src/notice.rs', lines 158:0-167:1 -/
 def notice.push_ascii
   (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
   Result (alloc.vec.Vec Std.U8)
@@ -9916,7 +10002,7 @@ def notice.push_ascii
       else alloc.vec.Vec.push out b
 
 /-- [protocol::notice::notice_text]: loop body 0:
-    Source: 'crates/protocol/src/notice.rs', lines 115:4-136:5
+    Source: 'crates/protocol/src/notice.rs', lines 175:4-196:5
     Visibility: public -/
 @[rust_loop_body]
 def notice.notice_text_loop.body
@@ -9965,7 +10051,7 @@ def notice.notice_text_loop.body
   else ok (done out)
 
 /-- [protocol::notice::notice_text]: loop 0:
-    Source: 'crates/protocol/src/notice.rs', lines 115:4-136:5
+    Source: 'crates/protocol/src/notice.rs', lines 175:4-196:5
     Visibility: public -/
 @[rust_loop]
 def notice.notice_text_loop
@@ -9978,7 +10064,7 @@ def notice.notice_text_loop
     (out, i)
 
 /-- [protocol::notice::notice_text]:
-    Source: 'crates/protocol/src/notice.rs', lines 112:0-138:1
+    Source: 'crates/protocol/src/notice.rs', lines 172:0-198:1
     Visibility: public -/
 @[reducible]
 def notice.notice_text
