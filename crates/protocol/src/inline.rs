@@ -576,6 +576,10 @@ mod tests {
         assert_eq!(html(&md), md);
     }
 
+    /// The coverage build runs these tests several times slower. A quadratic search
+    /// still takes far longer.
+    const FAST: std::time::Duration = std::time::Duration::from_secs(20);
+
     #[test]
     fn many_openers_with_no_closer_render_fast_and_as_text() {
         let mut md = b"*a _a [a ".repeat(30_000);
@@ -584,7 +588,7 @@ mod tests {
         let started = std::time::Instant::now();
         let out = html(&md);
 
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert!(started.elapsed() < FAST);
         assert_eq!(out, md);
     }
 
@@ -595,7 +599,7 @@ mod tests {
         let started = std::time::Instant::now();
         html(&md);
 
-        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert!(started.elapsed() < FAST);
     }
 
     #[test]
