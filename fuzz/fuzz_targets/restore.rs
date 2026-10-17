@@ -8,9 +8,22 @@ use mlua::{Lua, Table};
 use protocol::apps::App;
 use protocol::restore::{Chat, Entry, Role, prepare_restore, restore_body};
 
-const APPS: [(App, &str, &str); 2] = [
-    (App::Relay, "GnomishRelay_Restore", "Timeways_Restore"),
-    (App::Timeways, "Timeways_Restore", "GnomishRelay_Restore"),
+const APPS: [(App, &str, [&str; 2]); 3] = [
+    (
+        App::Relay,
+        "GnomishRelay_Restore",
+        ["Timeways_Restore", "GnomishWorkshop_Restore"],
+    ),
+    (
+        App::Timeways,
+        "Timeways_Restore",
+        ["GnomishRelay_Restore", "GnomishWorkshop_Restore"],
+    ),
+    (
+        App::Workshop,
+        "GnomishWorkshop_Restore",
+        ["GnomishRelay_Restore", "Timeways_Restore"],
+    ),
 ];
 
 fn bytes(value: mlua::String) -> Vec<u8> {
@@ -39,18 +52,20 @@ fuzz_target!(|data: &[u8]| {
     let token = part(0);
     let token = &token[..token.len().min(32)];
     let chats = prepare_restore(&chats);
-    for (app, own, other) in APPS {
-        check(app, own, other, token, &chats);
+    for (app, own, others) in APPS {
+        check(app, own, &others, token, &chats);
     }
 });
 
-fn check(app: App, own: &str, other: &str, token: &[u8], chats: &[Chat]) {
+fn check(app: App, own: &str, others: &[&str], token: &[u8], chats: &[Chat]) {
     let file = restore_body(app, token, chats);
     assert!(file.len() <= 512 * 1024, "S19");
 
     let lua = Lua::new();
     lua.load(&file[..]).exec().expect("the restore file loads");
-    assert!(lua.globals().get::<mlua::Value>(other).unwrap().is_nil());
+    for other in others {
+        assert!(lua.globals().get::<mlua::Value>(*other).unwrap().is_nil());
+    }
     let restore: Table = lua.globals().get(own).expect("one global table");
     assert_eq!(bytes(restore.get("token").unwrap()), token);
     let got: Table = restore.get("chats").unwrap();

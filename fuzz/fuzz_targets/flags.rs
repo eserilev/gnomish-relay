@@ -7,7 +7,7 @@
 use bridge::flags::{coding, transport};
 use bridge::versions::update_text;
 use libfuzzer_sys::fuzz_target;
-use protocol::apps::App;
+use protocol::apps::ALL_APPS;
 use protocol::version::{VersionFit, newest, oldest, version_fit};
 
 const CODING: [&str; 9] = [
@@ -20,7 +20,7 @@ fn is_coding(flag: &str) -> bool {
 }
 
 fn check_version(reported: u32) {
-    for app in [App::Relay, App::Timeways] {
+    for app in ALL_APPS {
         let fit = version_fit(app, reported);
         let in_range = oldest(app) <= reported && reported <= newest(app);
         assert_eq!(fit == VersionFit::Supported, in_range);

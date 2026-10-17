@@ -24,9 +24,22 @@ const NOTICE_KINDS: [(NoticeKind, &str); 3] = [
     (NoticeKind::Failed, "failed"),
 ];
 
-const APPS: [(App, &str, &str); 2] = [
-    (App::Relay, "GnomishRelay_Live", "Timeways_Live"),
-    (App::Timeways, "Timeways_Live", "GnomishRelay_Live"),
+const APPS: [(App, &str, [&str; 2]); 3] = [
+    (
+        App::Relay,
+        "GnomishRelay_Live",
+        ["Timeways_Live", "GnomishWorkshop_Live"],
+    ),
+    (
+        App::Timeways,
+        "Timeways_Live",
+        ["GnomishRelay_Live", "GnomishWorkshop_Live"],
+    ),
+    (
+        App::Workshop,
+        "GnomishWorkshop_Live",
+        ["GnomishRelay_Live", "Timeways_Live"],
+    ),
 ];
 
 fn bytes(value: mlua::String) -> Vec<u8> {
@@ -81,15 +94,15 @@ fuzz_target!(|data: &[u8]| {
         open: u32::MAX,
         list: prepare_notices(&list),
     };
-    for (app, own, other) in APPS {
-        check(app, own, other, &progress, &requests, &notices);
+    for (app, own, others) in APPS {
+        check(app, own, &others, &progress, &requests, &notices);
     }
 });
 
 fn check(
     app: App,
     own: &str,
-    other: &str,
+    others: &[&str],
     progress: &[Progress],
     requests: &[Request],
     notices: &Notices,
@@ -99,7 +112,9 @@ fn check(
 
     let lua = Lua::new();
     lua.load(&file[..]).exec().expect("the live file loads");
-    assert!(lua.globals().get::<mlua::Value>(other).unwrap().is_nil());
+    for other in others {
+        assert!(lua.globals().get::<mlua::Value>(*other).unwrap().is_nil());
+    }
     let live: Table = lua.globals().get(own).expect("one global table");
     let got: Table = live.get("progress").unwrap();
     assert_eq!(got.raw_len(), progress.len());
