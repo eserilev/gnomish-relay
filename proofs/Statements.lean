@@ -76,6 +76,11 @@ def C1 : Prop :=
     ⦃ r => ∃ out, r = some out ∧
       out.val = input.val ++ List.replicate (Protocol.Cell.padLength input.val.length) 0#u8 ⦄
 
+/-- **C1, decoder total.** `decode_cells` reads cells from an untrusted image. It never
+panics and always returns, for every input up to 1 MiB. -/
+def C1_decode_total : Prop :=
+  ∀ cells : Slice U8, cells.val.length ≤ 2 ^ 20 → cell.decode_cells cells ⦃ _ => True ⦄
+
 /-! ## Frames -/
 
 /-- **C2, encoder.** A payload that fits gives exactly the frame layout. -/
@@ -609,6 +614,8 @@ def S35_check_target : Prop :=
 /-! ## Checks: each proved theorem against its approved statement -/
 
 theorem check_C1 : C1 := fun input h => Protocol.Cell.cells_round_trip input h
+theorem check_C1_decode_total : C1_decode_total := fun cells _ =>
+  WP.spec_mono (Protocol.Cell.decode_cells_spec cells) (fun _ _ => trivial)
 theorem check_S11_fresh : S11_fresh := Protocol.Frame.is_fresh_spec
 theorem check_S2_S11_check : S2_S11_check := Protocol.Frame.check_frame_spec
 theorem check_S29_route : S29_route := Protocol.Apps.route_spec

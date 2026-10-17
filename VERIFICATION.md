@@ -25,7 +25,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 
 | # | Item | Rust | Statement | Status |
 |---|---|---|---|---|
-| 1 | C1: cell round trip | `cell` | `C1` | proved |
+| 1 | C1: cell round trip | `cell` | `C1`, `C1_decode_total` | proved |
 | 2 | S11: freshness | `frame::is_fresh` | `S11_fresh` | proved |
 | 3 | S2 + S11: frame check | `frame::check_frame` | `S2_S11_check` | proved |
 | 4 | S6: permission level and answers | `policy` | `S6_level`, `S6_answer` | proved |
