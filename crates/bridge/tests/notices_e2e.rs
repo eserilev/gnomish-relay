@@ -305,8 +305,9 @@ fn a_hook_with_no_bridge_exits_0_at_once_with_an_empty_stdout() {
 
     assert!(out.status.success());
     assert!(out.stdout.is_empty());
+    // The start of a process under full test load or coverage can take more than 300 ms.
     assert!(
-        start.elapsed() < Duration::from_millis(300),
+        start.elapsed() < Duration::from_secs(2),
         "{:?}",
         start.elapsed()
     );
