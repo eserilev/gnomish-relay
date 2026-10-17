@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
+use std::process::{Child, Stdio};
 use std::sync::mpsc::{Receiver, Sender, TryRecvError, channel};
 use std::sync::{Arc, Mutex};
 use std::thread;
@@ -22,6 +22,7 @@ use crate::agent_wall::AgentWall;
 use crate::config::{Kind, StoryConfig};
 use crate::model::{ModelCalls, ModelSpec};
 use crate::process::{self, RawLine, TooLong};
+use crate::process_group;
 use crate::run::log;
 use crate::story_sandbox::{self, Sandbox, Walls};
 use crate::timeways::StoryMessage;
@@ -632,13 +633,14 @@ impl StoryProcess {
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped());
-        own_process_group(&mut command);
-        let mut child = command
-            .spawn()
+        // The story program leads its own process group, so its end also stops its children.
+        process_group::own_group(&mut command);
+        let mut child = process_group::spawn(&mut command)
             .map_err(|e| format!("cannot start {}: {e}", program.display()))?;
         let (Some(stdin), Some(stdout), Some(stderr_pipe)) =
             (child.stdin.take(), child.stdout.take(), child.stderr.take())
         else {
+            let _ = process_group::end(&mut child);
             return Err("the story program has no pipes".into());
         };
         let stderr = Arc::new(Mutex::new(Vec::new()));
@@ -680,9 +682,7 @@ impl StoryProcess {
 
 impl Drop for StoryProcess {
     fn drop(&mut self) {
-        kill_group(self.child.id());
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = process_group::end(&mut self.child);
     }
 }
 
@@ -698,36 +698,6 @@ fn write_lines(mut stdin: std::process::ChildStdin) -> Sender<String> {
         }
     });
     tx
-}
-
-/// The story program leads its own process group, so a kill of the group also stops
-/// its children.
-#[cfg(unix)]
-fn own_process_group(command: &mut Command) {
-    use std::os::unix::process::CommandExt;
-    command.process_group(0);
-}
-
-#[cfg(not(unix))]
-fn own_process_group(_command: &mut Command) {}
-
-/// The group leader is not reaped yet, so its id cannot name another group.
-#[cfg(unix)]
-fn kill_group(pid: u32) {
-    let _ = quiet(Command::new("kill").args(["-KILL", "--", &format!("-{pid}")]));
-}
-
-#[cfg(windows)]
-fn kill_group(pid: u32) {
-    let _ = quiet(Command::new("taskkill").args(["/PID", &pid.to_string(), "/T", "/F"]));
-}
-
-fn quiet(command: &mut Command) -> std::io::Result<std::process::ExitStatus> {
-    command
-        .stdin(Stdio::null())
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
 }
 
 #[cfg(test)]

@@ -14,6 +14,7 @@ use serde_json::Value;
 
 use crate::agent::StopSignal;
 use crate::agent_wall::RunWall;
+use crate::process_group;
 use crate::program::find_program;
 
 /// A tool call with a large diff fits in far less.
@@ -66,8 +67,7 @@ pub struct AgentProcess {
 
 impl Drop for AgentProcess {
     fn drop(&mut self) {
-        let _ = self.child.kill();
-        let _ = self.child.wait();
+        let _ = process_group::end(&mut self.child);
     }
 }
 
@@ -191,9 +191,7 @@ fn spawn(spawned: &Spawn, stdin: Stdio) -> Result<Child, String> {
     // Tells a hook of the agent that this run comes from the bridge (SPEC.md 10).
     child.env("GNOMISH_RELAY_JOB", "1");
     child.envs(spawned.vars.iter().map(|(name, value)| (name, value)));
-    child
-        .spawn()
-        .map_err(|e| format!("Cannot start {program}: {e}"))
+    process_group::spawn(&mut child).map_err(|e| format!("Cannot start {program}: {e}"))
 }
 
 /// A command with only the variables of the allowlist, plus the ones in `env`
@@ -250,17 +248,14 @@ pub fn output(
         let _ = tx.send(bytes);
     });
     let started = std::time::Instant::now();
-    let status = loop {
-        match child.try_wait() {
-            Ok(Some(status)) => break status,
-            Ok(None) if started.elapsed() < timeout => thread::sleep(OUTPUT_POLL),
-            Ok(None) | Err(_) => {
-                let _ = child.kill();
-                let _ = child.wait();
-                return Err(crate::turn::TIMED_OUT.into());
-            }
+    while !process_group::has_exited(&mut child) {
+        if started.elapsed() >= timeout {
+            let _ = process_group::end(&mut child);
+            return Err(crate::turn::TIMED_OUT.into());
         }
-    };
+        thread::sleep(OUTPUT_POLL);
+    }
+    let status = process_group::end(&mut child).map_err(|e| e.to_string())?;
     let bytes = rx.recv_timeout(STDERR_WAIT).unwrap_or_default();
     Ok(Output {
         success: status.success(),
@@ -289,12 +284,11 @@ pub fn exchange(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    let mut child = command.spawn().map_err(|e| format!("Cannot start: {e}"))?;
+    let mut child = process_group::spawn(&mut command).map_err(|e| format!("Cannot start: {e}"))?;
     let (Some(mut stdin), Some(stdout), Some(stderr_pipe)) =
         (child.stdin.take(), child.stdout.take(), child.stderr.take())
     else {
-        let _ = child.kill();
-        let _ = child.wait();
+        let _ = process_group::end(&mut child);
         return Err("The command has no pipes.".into());
     };
     // A thread writes, so a command that reads its input late never blocks the bridge.
@@ -338,8 +332,8 @@ fn read_at_most(output: impl Read + Send + 'static, max: usize) -> Receiver<RawL
 fn wait_for_exit(child: &mut Child, limits: &Exchange) -> Result<std::process::ExitStatus, String> {
     let started = std::time::Instant::now();
     let failed = loop {
-        if let Ok(Some(status)) = child.try_wait() {
-            return Ok(status);
+        if process_group::has_exited(child) {
+            return process_group::end(child).map_err(|e| e.to_string());
         }
         if limits.stop.requested() {
             break crate::turn::STOPPED;
@@ -349,8 +343,7 @@ fn wait_for_exit(child: &mut Child, limits: &Exchange) -> Result<std::process::E
         }
         thread::sleep(OUTPUT_POLL);
     };
-    let _ = child.kill();
-    let _ = child.wait();
+    let _ = process_group::end(child);
     Err(failed.to_owned())
 }
 

@@ -2,8 +2,10 @@
 //! agents, then the run loop.
 
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 
 use crate::agent;
 use crate::app_files::private_game_paths;
@@ -84,7 +86,43 @@ pub fn start(dirs: &Dirs) -> Result<()> {
         .as_deref()
         .map(|wow| GameWatch::new(wow, served_games(wow)));
     let background = Background::new(auto_update, game_watch, lore);
-    run(paths, relay, keys, story, background)
+    let stop = stop_on_signal()?;
+    run(paths, relay, keys, story, background, &stop)
+}
+
+/// Ctrl-C, SIGTERM, and SIGHUP set the flag, and `run` then ends every child and returns.
+fn stop_on_signal() -> Result<Arc<AtomicBool>> {
+    let stop = Arc::new(AtomicBool::new(false));
+    let flag = Arc::clone(&stop);
+    let signals = AtomicUsize::new(0);
+    ctrlc::set_handler(move || match on_signal(&signals) {
+        OnSignal::Stop => flag.store(true, Ordering::SeqCst),
+        OnSignal::ExitNow => {
+            crate::process_group::end_every_group();
+            std::process::exit(EXIT_ON_SIGNAL);
+        }
+    })
+    .context("cannot catch the stop signals")?;
+    Ok(stop)
+}
+
+/// The exit status of a shell for Ctrl-C: 128 plus SIGINT.
+const EXIT_ON_SIGNAL: i32 = 130;
+
+#[derive(Debug, PartialEq, Eq)]
+enum OnSignal {
+    Stop,
+    ExitNow,
+}
+
+/// The first signal asks the main loop to stop. A second one ends the app at once, also
+/// when the loop hangs.
+fn on_signal(signals: &AtomicUsize) -> OnSignal {
+    if signals.fetch_add(1, Ordering::SeqCst) == 0 {
+        OnSignal::Stop
+    } else {
+        OnSignal::ExitNow
+    }
 }
 
 /// The private files of every served game: no agent and no command reads them.
@@ -234,6 +272,15 @@ mod tests {
 
     const CONFIG: &str = "allowed_roots = [\"~/Code\"]\ndefault_agent = \"echo\"\n\
         [wow]\npath = \"~/wow\"\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n";
+
+    #[test]
+    fn the_first_signal_stops_the_loop_and_a_second_one_exits_at_once() {
+        let signals = AtomicUsize::new(0);
+
+        assert_eq!(on_signal(&signals), OnSignal::Stop);
+        assert_eq!(on_signal(&signals), OnSignal::ExitNow);
+        assert_eq!(on_signal(&signals), OnSignal::ExitNow);
+    }
 
     #[test]
     fn a_relay_start_writes_the_key_addon_and_no_relay_addon_and_keeps_the_policy_of_the_config() {

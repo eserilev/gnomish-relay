@@ -35,9 +35,12 @@ tracing-subscriber = { version = "0.3", default-features = false, features = ["s
 # Ctrl-C ends dev mode and puts the release install back (SPEC.md 16.1).
 ctrlc = { version = "3.5.2", features = ["termination"] }
 
-# `O_NOFOLLOW` and `O_NONBLOCK` for the reads of `fs_safe` (SPEC.md 6.2, rule 7). Std has no names for them.
 [target.'cfg(unix)'.dependencies]
+# `O_NOFOLLOW` and `O_NONBLOCK` for the reads of `fs_safe` (SPEC.md 6.2, rule 7). Std has no names for them.
 libc = "0.2"
+# `killpg` with no `unsafe`, so a stop ends the whole process group of a child (SPEC.md 9.4).
+# `libc::killpg` needs `unsafe`, which every crate forbids.
+nix = { version = "0.31", default-features = false, features = ["process", "signal"] }
 
 [dev-dependencies]
 # Tests run the addon in a real Lua 5.1, the Lua version of WoW.

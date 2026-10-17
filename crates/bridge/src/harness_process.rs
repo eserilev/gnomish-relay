@@ -13,6 +13,7 @@ use std::time::{Duration, Instant};
 use crate::agent::StopSignal;
 use crate::harness_output::{Lines, Tail};
 use crate::process::allowlisted;
+use crate::process_group;
 use crate::turn::{STOPPED, TIMED_OUT};
 
 const POLL: Duration = Duration::from_millis(100);
@@ -105,7 +106,7 @@ pub fn run(
         if reading.open == 0 {
             break;
         }
-        exited = exited || matches!(child.try_wait(), Ok(Some(_)));
+        exited = exited || process_group::has_exited(&mut child);
         // Only a quiet output ends the wait: chunks in the channel still count.
         if exited && last_chunk.elapsed() >= PIPE_GRACE {
             break;
@@ -183,13 +184,8 @@ fn spawn(start: &Start) -> Result<Child, String> {
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
-    #[cfg(unix)]
-    {
-        use std::os::unix::process::CommandExt;
-        command.process_group(0);
-    }
-    command
-        .spawn()
+    process_group::own_group(&mut command);
+    process_group::spawn(&mut command)
         .map_err(|e| format!("Cannot start {}: {e}", start.program.display()))
 }
 
@@ -230,8 +226,9 @@ fn boxed(pipe: impl Read + Send + 'static) -> Box<dyn Read + Send> {
 
 fn wait(child: &mut Child, deadline: Instant, stop: &StopSignal) -> Result<i32, String> {
     loop {
-        if let Ok(Some(status)) = child.try_wait() {
-            kill_group(child);
+        // The end also kills the programs that the harness left behind.
+        if process_group::has_exited(child) {
+            let status = process_group::end(child).map_err(|e| e.to_string())?;
             return Ok(exit_code(status));
         }
         if stop.requested() {
@@ -245,25 +242,9 @@ fn wait(child: &mut Child, deadline: Instant, stop: &StopSignal) -> Result<i32, 
 }
 
 fn killed(child: &mut Child, why: &str) -> String {
-    kill_group(child);
-    let _ = child.kill();
-    let _ = child.wait();
+    let _ = process_group::end(child);
     why.to_owned()
 }
-
-/// Ends the programs that the harness left behind, also after the harness exited.
-#[cfg(unix)]
-fn kill_group(child: &Child) {
-    let group = format!("-{}", child.id());
-    let _ = std::process::Command::new("kill")
-        .args(["-KILL", "--", &group])
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status();
-}
-
-#[cfg(not(unix))]
-fn kill_group(_child: &Child) {}
 
 #[cfg(unix)]
 fn exit_code(status: std::process::ExitStatus) -> i32 {
@@ -277,4 +258,59 @@ fn exit_code(status: std::process::ExitStatus) -> i32 {
 #[cfg(not(unix))]
 fn exit_code(status: std::process::ExitStatus) -> i32 {
     status.code().unwrap_or(1)
+}
+
+#[cfg(all(test, unix))]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    fn wait_for_file(path: &Path) {
+        let started = Instant::now();
+        while !path.exists() {
+            assert!(started.elapsed() < Duration::from_secs(10), "no beat");
+            thread::sleep(Duration::from_millis(20));
+        }
+    }
+
+    #[test]
+    fn a_grandchild_of_a_stopped_run_ends() {
+        let dir = tempfile::tempdir().unwrap();
+        let beat = dir.path().join("beat");
+        let script = format!(
+            "(while true; do echo x >> '{}'; sleep 0.1; done) & sleep 300",
+            beat.display()
+        );
+        let start = Start {
+            program: PathBuf::from("/bin/sh"),
+            args: vec!["-c".into(), script.into()],
+            env: Vec::new(),
+            vars: Vec::new(),
+            cwd: dir.path().to_owned(),
+            stdin: Vec::new(),
+        };
+        let limits = Limits {
+            timeout: Duration::from_mins(1),
+            max_output: 1024,
+            keep: 1024,
+        };
+        let stop = StopSignal::default();
+        let watcher = {
+            let (beat, stop) = (beat.clone(), stop.clone());
+            thread::spawn(move || {
+                wait_for_file(&beat);
+                stop.request();
+            })
+        };
+
+        let result = run(&start, &limits, &stop, &|_| {});
+
+        watcher.join().unwrap();
+        assert_eq!(result.err().as_deref(), Some(STOPPED));
+        thread::sleep(Duration::from_millis(500));
+        let before = std::fs::read_to_string(&beat).unwrap().len();
+        thread::sleep(Duration::from_millis(600));
+        let after = std::fs::read_to_string(&beat).unwrap().len();
+        assert_eq!(before, after, "the grandchild still runs");
+    }
 }

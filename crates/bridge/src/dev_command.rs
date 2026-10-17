@@ -136,8 +136,11 @@ fn run_until_stopped(stop: &AtomicBool) -> Result<()> {
     }
 }
 
-/// Ctrl-C reaches the child too. A child that is still there after a wait gets killed.
+/// A Ctrl-C in the terminal reaches the child too, but a SIGTERM to dev does not. So dev
+/// sends one: the child then ends its agents. A child that is still there after a wait
+/// gets killed.
 fn stop_child(child: &mut Child) -> Result<()> {
+    ask_to_stop(child);
     let start = Instant::now();
     while start.elapsed() < STOP_WAIT {
         if child.try_wait()?.is_some() {
@@ -149,6 +152,20 @@ fn stop_child(child: &mut Child) -> Result<()> {
     child.wait()?;
     Ok(())
 }
+
+#[cfg(unix)]
+fn ask_to_stop(child: &Child) {
+    use nix::sys::signal::{Signal, kill};
+    use nix::unistd::Pid;
+    if let Ok(id) = i32::try_from(child.id()) {
+        let _ = kill(Pid::from_raw(id), Signal::SIGTERM);
+    }
+}
+
+// Windows has no SIGTERM, so the kill after the wait ends the child. Its agents then
+// end only when they see their input close.
+#[cfg(not(unix))]
+fn ask_to_stop(_child: &Child) {}
 
 fn end(dirs: &Dirs) -> Result<()> {
     let Some(record) = dev_mode::end(&dirs.data)? else {

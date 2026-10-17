@@ -94,6 +94,7 @@ pub mod new_folder;
 pub mod ollama_install;
 pub mod pipe;
 pub mod process;
+pub mod process_group;
 pub mod program;
 pub mod proxy;
 pub mod public_ip;

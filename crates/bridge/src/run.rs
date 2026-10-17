@@ -3,6 +3,7 @@
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{Receiver, Sender, channel};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
@@ -1654,6 +1655,7 @@ pub fn run(
     keys: KeySet,
     story: Option<StorySpec>,
     background: Background,
+    stop: &AtomicBool,
 ) -> Result<()> {
     for game in &paths.games {
         log(&format!("watching {}", game.screenshots.display()));
@@ -1677,10 +1679,14 @@ pub fn run(
         bridge = bridge.with_story(spec);
     }
     bridge.background = background;
-    loop {
+    while !stop.load(Ordering::SeqCst) {
         bridge.step();
         thread::sleep(TICK);
     }
+    log("stopping: a signal asked the desktop app to stop");
+    // A SIGTERM reaches only the desktop app, so its children end here.
+    crate::process_group::end_every_group();
+    Ok(())
 }
 
 #[cfg(test)]
