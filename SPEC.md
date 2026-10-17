@@ -1407,7 +1407,7 @@ Planned, not built: a crate `agents/` for the `Agent` trait and the backends of 
 
 ### 8.2 Bridge main loop
 
-1. Watch the Screenshots folder for a new file. A file is ready when its size is the same at two scans. It counts as read only after a read that worked. A failed read, for example of a file that WoW still writes, is tried again in the next steps, at most 3 times, and again after the size of the file changes. Why: before 2026-10-17, a file counted as read before the read, so a strip whose first read failed never ran. One step reads at most 16 files, the newest first, and the rest wait for the next steps. So a start that finds thousands of screenshots keeps each step short, and a new strip waits for no old screenshot.
+1. Watch the Screenshots folder for a new file. A file is ready when its size is the same at two scans. It counts as read only after a read that worked. A failed read, for example of a file that WoW still writes, is tried again in the next steps, at most 3 times, and again after the size of the file changes. Why: before 2026-10-17, a file counted as read before the read, so a strip whose first read failed never ran. One step picks at most 16 files, the newest first, and reads them oldest first, so two messages of one chat keep their order. The rest wait for the next steps. So a start that finds thousands of screenshots keeps each step short, and a new strip waits for no old screenshot.
 2. If a new strip is visible, decode it, check the MAC, and drop duplicates.
 3. Apply the policy (6.2). If a record fails the policy, publish an error reply for it.
 4. Put the record in the FIFO queue of its chat.

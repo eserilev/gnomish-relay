@@ -394,7 +394,8 @@ impl Bridge {
         for i in 0..self.watchers.len() {
             let ready = self.watchers[i].ready();
             let now_read = ready.len().min(left);
-            for path in &ready[..now_read] {
+            // The newest files come first, but a chat needs its messages in their order.
+            for path in ready[..now_read].iter().rev() {
                 let read = self.take_screenshot(path);
                 self.watchers[i].after_read(path, read);
             }

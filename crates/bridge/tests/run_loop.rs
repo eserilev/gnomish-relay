@@ -225,6 +225,38 @@ fn a_strip_whose_delete_failed_is_deleted_in_a_later_step_and_runs_once() {
     assert_eq!(slot_body(&f.addons).matches("echo: once").count(), 1);
 }
 
+/// The newest strips go first into a step, but in the step they keep the order of the chat.
+#[test]
+fn two_strips_of_one_chat_in_one_step_run_in_their_order() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let start = std::time::SystemTime::now() - Duration::from_secs(10);
+    for (n, text) in ["first", "second"].into_iter().enumerate() {
+        let path = f.screenshots.join(format!("WoWScrnShot_{n}.png"));
+        let id = u32::try_from(n).unwrap() + 1;
+        fs::write(
+            &path,
+            screenshot_png(&strip_rows(&frame_with_id(KEY, id, text))),
+        )
+        .unwrap();
+        let file = fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(start + Duration::from_secs(u64::from(id)))
+            .unwrap();
+    }
+
+    let both = common::step_until_within(&mut bridge, Duration::from_secs(20), || {
+        let body = slot_body(&f.addons);
+        body.contains("echo: first") && body.contains("echo: second")
+    });
+
+    assert!(both, "{}", slot_body(&f.addons));
+    let body = slot_body(&f.addons);
+    assert!(
+        body.find("echo: first") < body.find("echo: second"),
+        "{body}"
+    );
+}
+
 #[test]
 fn a_taken_strip_is_the_last_strip_of_the_status() {
     let f = folders();
