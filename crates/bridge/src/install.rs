@@ -10,7 +10,7 @@ use std::time::{Duration, Instant};
 use anyhow::{Context, Result, bail};
 use protocol::apps::App;
 
-use crate::app_files::{key_addon_name, key_global};
+use crate::app_files::{app_title, key_addon_name, key_global};
 use crate::config::{Found, Kind};
 use crate::folder_walk::{Limits, is_repo, subfolders};
 use crate::fs_safe::{check_real_dir, make_private_dir, write_atomic_unsynced, write_private};
@@ -230,10 +230,7 @@ pub fn key_addon_lua(app: App, key_hex: &str) -> Result<String> {
 
 /// Load on demand, so the key loads only when its app asks for it (SPEC.md 7.3.2).
 pub fn key_addon_toc(app: App) -> String {
-    let title = match app {
-        App::Relay => "Gnomish Relay",
-        App::Timeways => "Timeways",
-    };
+    let title = app_title(app);
     format!(
         "## Interface: {TOC_INTERFACE}\n## Title: |cff808080{title} key (leave on)|r\n\
          ## Notes: Made by the desktop app for this computer. Don't share it.\n\

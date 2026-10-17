@@ -129,15 +129,14 @@ def S2_S11_check : Prop :=
 /-! ## Apps -/
 
 /-- **S29.** A strip goes to the one app whose key verifies its tag. No key gives
-`BadTag`, and both keys give `Ambiguous`. The two tag checks are inputs, so S29 proves
+`BadTag`, and two or more keys give `Ambiguous`. The tag checks are inputs, so S29 proves
 the choice, not the cryptography: `verify_tag` stays opaque, as in S2. -/
 def S29_route : Prop :=
-  ∀ relayOk timewaysOk : Bool,
-    apps.route relayOk timewaysOk ⦃ r => match relayOk, timewaysOk with
-      | true, false => r = .Ok .Relay
-      | false, true => r = .Ok .Timeways
-      | false, false => r = .Err .BadTag
-      | true, true => r = .Err .Ambiguous ⦄
+  ∀ checks : Slice apps.TagCheck,
+    apps.route checks ⦃ r => match verifiedApps checks.val with
+      | [] => r = .Err .BadTag
+      | [app] => r = .Ok app
+      | _ :: _ :: _ => r = .Err .Ambiguous ⦄
 
 /-- **S30.** For every app and every version, `version_fit` never fails. It gives
 `Supported` exactly when the version is in the range of the app, `TooOld` exactly below

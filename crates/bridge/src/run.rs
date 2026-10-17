@@ -240,7 +240,7 @@ impl Bridge {
     }
 
     fn with_lanes(paths: Paths, keys: KeySet, relay: Option<RelayLane>) -> Result<Bridge> {
-        let timeways = if keys.has_timeways() {
+        let timeways = if keys.has(App::Timeways) {
             Some(TimewaysLane::open(&paths)?)
         } else {
             None
@@ -487,7 +487,7 @@ fn rejected_text(reason: &Rejected) -> &'static str {
     match reason {
         Rejected::NotAFrame => "the screenshot holds no readable message",
         Rejected::BadTag => "your game and the desktop app don't match",
-        Rejected::Ambiguous => "both keys match it",
+        Rejected::Ambiguous => "two keys match it",
         Rejected::OtherApp => "it came from the wrong addon",
         Rejected::Stale => "it's more than 5 minutes old",
         Rejected::Future => "its time is in the future",

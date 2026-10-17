@@ -173,7 +173,7 @@ fn both_setups_on_one_computer_give_two_keys_and_both_products() {
     assert!(
         KeySet::load(&computer.folders.config)
             .unwrap()
-            .has_timeways()
+            .has(App::Timeways)
     );
     assert!(config.relay.is_some());
     assert!(matches!(

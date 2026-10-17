@@ -141,7 +141,7 @@ fn bridge_with(w: &World, output: Option<&str>, ci: CiChecks) -> Bridge {
         hold: Arc::clone(&w.hold),
     };
     let agents = [("claude".to_owned(), Arc::new(editor) as Arc<dyn Agent>)].into();
-    let keys = KeySet::new(StripKey::from_hex(&hex(KEY)).unwrap(), None).unwrap();
+    let keys = KeySet::new(vec![(App::Relay, StripKey::from_hex(&hex(KEY)).unwrap())]).unwrap();
     Bridge::new(paths, policy, keys, agents)
         .unwrap()
         .with_git(GitHost::with_config(UserConfig::Skip).unwrap(), ci)

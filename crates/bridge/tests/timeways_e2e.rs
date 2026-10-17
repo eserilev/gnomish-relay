@@ -256,7 +256,11 @@ fn start_bridge(machine: &Machine, spec: StorySpec) -> Bridge {
         state: machine.game.state.clone(),
         config: machine.game.config.clone(),
     };
-    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let keys = KeySet::new(vec![
+        (App::Relay, key(RELAY_KEY)),
+        (App::Timeways, key(TIMEWAYS_KEY)),
+    ])
+    .unwrap();
     let home = machine.home().to_string_lossy().as_bytes().to_vec();
     let policy = Policy {
         folders: Folders {

@@ -6,13 +6,23 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use hmac::{Hmac, Mac};
-use protocol::apps::{App, Unrouted, route};
+use protocol::apps::{App, TagCheck, Unrouted, route};
 use protocol::frame::{Reject, check_frame, decode_frame, signed_len};
 use protocol::record::{Record, parse_records};
 use sha2::Sha256;
 
+use crate::app_files::app_title;
+
 pub const RELAY_KEY_FILE: &str = "strip.key";
 pub const TIMEWAYS_KEY_FILE: &str = "timeways.key";
+
+/// The key file of `app` in the config folder.
+pub fn key_file(app: App) -> &'static str {
+    match app {
+        App::Relay => RELAY_KEY_FILE,
+        App::Timeways => TIMEWAYS_KEY_FILE,
+    }
+}
 
 pub struct StripKey(Vec<u8>);
 
@@ -67,51 +77,77 @@ impl StripKey {
     }
 }
 
-/// The key of each app. Named fields, not a list, so an index can never swap the apps
-/// (SPEC.md 9.7, decision 2). With no Timeways key, no strip goes to Timeways.
+/// The key of each app, paired with its app, so an index can never swap the apps
+/// (SPEC.md 9.7, decision 2). An app with no key gets no strip.
 pub struct KeySet {
-    relay: StripKey,
-    timeways: Option<StripKey>,
+    keys: Vec<(App, StripKey)>,
 }
 
 impl KeySet {
     /// Equal keys would make every strip `Ambiguous`, so they stop the bridge.
-    pub fn new(relay: StripKey, timeways: Option<StripKey>) -> Result<KeySet> {
-        if timeways.as_ref().is_some_and(|t| t.0 == relay.0) {
-            bail!(
-                "{TIMEWAYS_KEY_FILE} is the same as {RELAY_KEY_FILE}. Make a new key for Timeways"
-            );
+    pub fn new(keys: Vec<(App, StripKey)>) -> Result<KeySet> {
+        for (i, (app, key)) in keys.iter().enumerate() {
+            for (other_app, other_key) in &keys[i + 1..] {
+                refuse_a_second_key(*app, *other_app)?;
+                refuse_equal_keys(*app, key, *other_app, other_key)?;
+            }
         }
-        Ok(KeySet { relay, timeways })
+        Ok(KeySet { keys })
     }
 
     /// `strip.key`, and `timeways.key` if it exists, from the config folder.
     pub fn load(config_dir: &Path) -> Result<KeySet> {
-        let relay = StripKey::load(&config_dir.join(RELAY_KEY_FILE))?;
-        let timeways = StripKey::load_if_present(&config_dir.join(TIMEWAYS_KEY_FILE))?;
-        KeySet::new(relay, timeways)
+        let mut keys = vec![(
+            App::Relay,
+            StripKey::load(&config_dir.join(RELAY_KEY_FILE))?,
+        )];
+        if let Some(key) = StripKey::load_if_present(&config_dir.join(TIMEWAYS_KEY_FILE))? {
+            keys.push((App::Timeways, key));
+        }
+        KeySet::new(keys)
     }
 
-    pub fn has_timeways(&self) -> bool {
-        self.timeways.is_some()
+    pub fn has(&self, app: App) -> bool {
+        self.keys.iter().any(|(key_app, _)| *key_app == app)
     }
 
-    fn route(&self, signed: &[u8], tag: &[u8]) -> Result<App, Unrouted> {
-        let relay_ok = self.relay.verify(signed, tag);
-        let timeways_ok = self
-            .timeways
-            .as_ref()
-            .is_some_and(|key| key.verify(signed, tag));
-        route(relay_ok, timeways_ok)
+    /// Every key, also after a match: `route` needs every result to see a second match.
+    fn tag_checks(&self, signed: &[u8], tag: &[u8]) -> Vec<TagCheck> {
+        self.keys
+            .iter()
+            .map(|(app, key)| TagCheck {
+                app: *app,
+                tag_ok: key.verify(signed, tag),
+            })
+            .collect()
     }
+}
+
+fn refuse_a_second_key(app: App, other_app: App) -> Result<()> {
+    if app == other_app {
+        bail!("{} has two keys", app_title(app));
+    }
+    Ok(())
+}
+
+fn refuse_equal_keys(app: App, key: &StripKey, other_app: App, other_key: &StripKey) -> Result<()> {
+    if key.0 == other_key.0 {
+        bail!(
+            "{} is the same as {}. Make a new key for {}",
+            key_file(other_app),
+            key_file(app),
+            app_title(other_app)
+        );
+    }
+    Ok(())
 }
 
 #[derive(Debug, PartialEq, Eq)]
 pub enum Rejected {
     NotAFrame,
     BadTag,
-    /// Both keys verify the tag. `KeySet::new` refuses equal keys, so only a chance
-    /// match of two 8-byte tags gets here.
+    /// Two or more keys verify the tag. `KeySet::new` refuses equal keys, so only a
+    /// chance match of two 8-byte tags gets here.
     Ambiguous,
     /// A frame in the saved variables of one app that the key of another app signed.
     OtherApp,
@@ -125,8 +161,8 @@ pub fn receive(bytes: &[u8], keys: &KeySet, now: u32) -> Result<(App, Vec<Record
     let Ok(frame) = decode_frame(bytes) else {
         return Err(Rejected::NotAFrame);
     };
-    let routed = keys.route(&bytes[..signed_len(&frame)], &frame.tag);
-    let app = match routed {
+    let checks = keys.tag_checks(&bytes[..signed_len(&frame)], &frame.tag);
+    let app = match route(&checks) {
         Ok(app) => app,
         Err(Unrouted::BadTag) => return Err(Rejected::BadTag),
         Err(Unrouted::Ambiguous) => return Err(Rejected::Ambiguous),
@@ -175,11 +211,11 @@ mod tests {
     }
 
     fn relay_only() -> KeySet {
-        KeySet::new(key("ab"), None).unwrap()
+        KeySet::new(vec![(App::Relay, key("ab"))]).unwrap()
     }
 
     fn both() -> KeySet {
-        KeySet::new(key("ab"), Some(key("cd"))).unwrap()
+        KeySet::new(vec![(App::Relay, key("ab")), (App::Timeways, key("cd"))]).unwrap()
     }
 
     fn signed(time: u32, payload: &[u8], key: &StripKey) -> Vec<u8> {
@@ -234,7 +270,8 @@ mod tests {
 
     #[test]
     fn swapped_keys_swap_the_apps() {
-        let swapped = KeySet::new(key("cd"), Some(key("ab"))).unwrap();
+        let swapped =
+            KeySet::new(vec![(App::Relay, key("cd")), (App::Timeways, key("ab"))]).unwrap();
         assert_eq!(
             app_of(&signed(NOW, RECORD, &key("ab")), &swapped),
             Ok(App::Timeways)
@@ -254,8 +291,7 @@ mod tests {
     #[test]
     fn a_frame_that_both_keys_verify_is_ambiguous() {
         let equal = KeySet {
-            relay: key("ab"),
-            timeways: Some(key("ab")),
+            keys: vec![(App::Relay, key("ab")), (App::Timeways, key("ab"))],
         };
         let wire = signed(NOW, RECORD, &key("ab"));
         assert_eq!(app_of(&wire, &equal), Err(Rejected::Ambiguous));
@@ -263,8 +299,27 @@ mod tests {
 
     #[test]
     fn equal_keys_stop_the_bridge() {
-        let error = KeySet::new(key("ab"), Some(key("ab"))).err().unwrap();
+        let error = KeySet::new(vec![(App::Relay, key("ab")), (App::Timeways, key("ab"))])
+            .err()
+            .unwrap();
         assert!(error.to_string().contains("timeways.key is the same"));
+    }
+
+    #[test]
+    fn two_keys_for_one_app_stop_the_bridge() {
+        let error = KeySet::new(vec![(App::Timeways, key("ab")), (App::Timeways, key("cd"))])
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("Timeways has two keys"));
+    }
+
+    #[test]
+    fn the_order_of_the_keys_does_not_change_the_app() {
+        let keys = KeySet::new(vec![(App::Timeways, key("cd")), (App::Relay, key("ab"))]).unwrap();
+        assert_eq!(
+            app_of(&signed(NOW, RECORD, &key("cd")), &keys),
+            Ok(App::Timeways)
+        );
     }
 
     #[test]
@@ -327,7 +382,7 @@ mod tests {
     #[test]
     fn no_timeways_key_file_means_no_timeways_key() {
         let dir = config_with(&[(RELAY_KEY_FILE, "ab".repeat(32))]);
-        assert!(!KeySet::load(dir.path()).unwrap().has_timeways());
+        assert!(!KeySet::load(dir.path()).unwrap().has(App::Timeways));
     }
 
     #[test]
@@ -336,7 +391,9 @@ mod tests {
             (RELAY_KEY_FILE, "ab".repeat(32)),
             (TIMEWAYS_KEY_FILE, "cd".repeat(32)),
         ]);
-        assert!(KeySet::load(dir.path()).unwrap().has_timeways());
+        let keys = KeySet::load(dir.path()).unwrap();
+        assert!(keys.has(App::Relay));
+        assert!(keys.has(App::Timeways));
     }
 
     #[test]

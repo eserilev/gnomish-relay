@@ -7,6 +7,14 @@ use protocol::apps::App;
 
 use crate::install::KEY_FILE;
 
+/// The name of the app that a player reads.
+pub fn app_title(app: App) -> &'static str {
+    match app {
+        App::Relay => "Gnomish Relay",
+        App::Timeways => "Timeways",
+    }
+}
+
 /// The folder name of the addon. WoW names the saved variables file after it.
 pub fn addon_name(app: App) -> &'static str {
     match app {

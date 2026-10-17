@@ -7,13 +7,80 @@ open Aeneas Aeneas.Std Result protocol Protocol.Spec Protocol.Ascii
 
 namespace Protocol.Apps
 
-theorem route_spec (relayOk timewaysOk : Bool) :
-    apps.route relayOk timewaysOk ⦃ r => match relayOk, timewaysOk with
-      | true, false => r = .Ok .Relay
-      | false, true => r = .Ok .Timeways
-      | false, false => r = .Err .BadTag
-      | true, true => r = .Err .Ambiguous ⦄ := by
-  induction relayOk <;> induction timewaysOk <;> simp [apps.route]
+theorem verifiedApps_take_succ (checks : List apps.TagCheck) (i : Nat) (hi : i < checks.length) :
+    verifiedApps (checks.take (i + 1)) =
+      verifiedApps (checks.take i) ++ (if checks[i].tag_ok then [checks[i].app] else []) := by
+  rw [List.take_add_one, List.getElem?_eq_getElem hi]
+  unfold verifiedApps
+  rw [List.filterMap_append]
+  by_cases hb : checks[i].tag_ok = true <;> simp [hb]
+
+def RouteInv (checks : Slice apps.TagCheck) (st : Usize × Option apps.App × Usize) : Prop :=
+  st.2.2.val ≤ checks.val.length ∧ st.1.val ≤ st.2.2.val ∧
+  st.1.val = (verifiedApps (checks.val.take st.2.2.val)).length ∧
+  st.2.1 = (verifiedApps (checks.val.take st.2.2.val)).getLast?
+
+theorem route_loop_spec (checks : Slice apps.TagCheck) (verified : Usize) (found : Option apps.App)
+    (i : Usize) (hinv : RouteInv checks (verified, found, i)) :
+    apps.route_loop checks verified found i ⦃ r =>
+      r.1.val = (verifiedApps checks.val).length ∧ r.2 = (verifiedApps checks.val).getLast? ⦄ := by
+  unfold apps.route_loop
+  apply loop.spec_decr_nat (fun st => checks.val.length - st.2.2.val) (RouteInv checks)
+    _ _ _ _ hinv
+  rintro ⟨verified, found, i⟩ ⟨hi, hle, hcount, hfound⟩
+  simp only at hi hle hcount hfound
+  unfold apps.route_loop.body
+  step*
+  · have hlt : i.val < checks.val.length := by scalar_tac
+    have hstep := verifiedApps_take_succ checks.val i.val hlt
+    rw [← tc_post] at hstep
+    by_cases hok : tc.tag_ok = true
+    · -- The key of this app verifies the tag.
+      simp only [hok, if_true]
+      rw [if_pos hok] at hstep
+      step*
+      refine ⟨⟨by scalar_tac, by scalar_tac, ?_, ?_⟩, by scalar_tac⟩
+      · simp only [i2_post, hstep, List.length_append, ← hcount, x_post,
+          List.length_singleton]
+      · simp [i2_post, hstep]
+    · -- It does not.
+      simp only [hok, if_false, Bool.false_eq_true]
+      rw [if_neg hok, List.append_nil] at hstep
+      step*
+      refine ⟨⟨by scalar_tac, by scalar_tac, ?_, ?_⟩, by scalar_tac⟩
+      · simp only [i2_post, hstep, hcount]
+      · simp only [i2_post, hstep, hfound]
+  · -- Checked every key.
+    have hn : i.val = checks.val.length := by scalar_tac
+    rw [hn, List.take_length] at hcount hfound
+    exact ⟨hcount, hfound⟩
+
+/-- **S29.** -/
+theorem route_spec (checks : Slice apps.TagCheck) :
+    apps.route checks ⦃ r => match verifiedApps checks.val with
+      | [] => r = .Err .BadTag
+      | [app] => r = .Ok app
+      | _ :: _ :: _ => r = .Err .Ambiguous ⦄ := by
+  unfold apps.route
+  step with route_loop_spec checks 0#usize none 0#usize (by simp [RouteInv, verifiedApps])
+    as ⟨verified, found, hcount, hfound⟩
+  unfold apps.verdict
+  rcases h : verifiedApps checks.val with _ | ⟨app, _ | ⟨other, rest⟩⟩
+  · -- No key verifies the tag.
+    rw [h] at hfound
+    simp [hfound]
+  · -- One key verifies the tag.
+    rw [h] at hcount hfound
+    have hone : verified = 1#usize := UScalar.eq_of_val_eq (by simpa using hcount)
+    simp [hfound, hone]
+  · -- Two or more keys verify the tag.
+    rw [h] at hcount hfound
+    have hne : verified ≠ 1#usize := by
+      intro hone
+      simp [hone] at hcount
+    obtain ⟨last, hlast⟩ : ∃ last, found = some last :=
+      Option.isSome_iff_exists.mp (by rw [hfound]; simp)
+    simp [hlast, hne]
 
 /-- A fixed name goes out as its bytes. -/
 theorem push_name_spec {n : Usize} (out : alloc.vec.Vec U8) (arr : Std.Array U8 n) (s : String)

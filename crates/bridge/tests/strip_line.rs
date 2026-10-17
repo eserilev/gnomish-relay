@@ -158,7 +158,7 @@ fn image_of(picture: &[Rect]) -> Image {
 }
 
 fn records_of(image: &Image, now: u32) -> Vec<Record> {
-    let keys = KeySet::new(StripKey::from_hex(&hex(KEY)).unwrap(), None).unwrap();
+    let keys = KeySet::new(vec![(App::Relay, StripKey::from_hex(&hex(KEY)).unwrap())]).unwrap();
     let bytes = read_with(image, |bytes| receive(bytes, &keys, now).is_ok()).unwrap();
     receive(&bytes, &keys, now).unwrap().1
 }

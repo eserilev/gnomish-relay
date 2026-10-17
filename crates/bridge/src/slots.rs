@@ -10,7 +10,7 @@ use protocol::live::{live_body, no_notices};
 use protocol::restore::restore_body;
 use protocol::slot::{Reply, SLOT_WINDOW, SLOTS, prepare_replies, slot_body};
 
-use crate::app_files::addon_name;
+use crate::app_files::{addon_name, app_title};
 use crate::fs_safe::{check_real_dir, write_atomic_if_changed, write_atomic_unsynced};
 use crate::wow_client::TOC_INTERFACE;
 
@@ -61,10 +61,7 @@ pub fn slot_name(app: App, n: usize) -> String {
 /// game shows all 1000 slots.
 fn toc(app: App, n: usize) -> String {
     let addon = addon_name(app);
-    let title = match app {
-        App::Relay => "Gnomish Relay",
-        App::Timeways => "Timeways",
-    };
+    let title = app_title(app);
     format!(
         "## Interface: {TOC_INTERFACE}\n## Title: |cff808080{title} reply slot {n:04} (leave on)|r\n\
          ## LoadOnDemand: 1\n## Dependencies: {addon}\n\n{BODY_FILE}\n{RESTORE_FILE}\n{LIVE_FILE}\n"

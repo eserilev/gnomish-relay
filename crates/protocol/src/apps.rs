@@ -11,12 +11,19 @@ pub enum App {
     Timeways,
 }
 
+/// The result of the tag check under the key of one app.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct TagCheck {
+    pub app: App,
+    pub tag_ok: bool,
+}
+
 /// Why a strip goes to no app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Unrouted {
     /// No key verifies the tag.
     BadTag,
-    /// Both keys verify the tag. Only equal keys do that, and the bridge refuses them.
+    /// Two or more keys verify the tag. Only equal keys do that, and the bridge refuses them.
     Ambiguous,
 }
 
@@ -25,18 +32,31 @@ pub enum Unrouted {
 ///
 /// # Errors
 ///
-/// `BadTag` when no key verifies the tag, `Ambiguous` when both do.
-pub fn route(relay_tag_ok: bool, timeways_tag_ok: bool) -> Result<App, Unrouted> {
-    if relay_tag_ok {
-        if timeways_tag_ok {
-            return Err(Unrouted::Ambiguous);
+/// `BadTag` when no key verifies the tag, `Ambiguous` when two or more do.
+pub fn route(checks: &[TagCheck]) -> Result<App, Unrouted> {
+    let mut verified: usize = 0;
+    let mut found = None;
+    let mut i = 0;
+    while i < checks.len() {
+        if checks[i].tag_ok {
+            verified += 1;
+            found = Some(checks[i].app);
         }
-        return Ok(App::Relay);
+        i += 1;
     }
-    if timeways_tag_ok {
-        return Ok(App::Timeways);
+    verdict(verified, found)
+}
+
+/// `found` is the last app that verified, of `verified` apps.
+fn verdict(verified: usize, found: Option<App>) -> Result<App, Unrouted> {
+    let Some(app) = found else {
+        return Err(Unrouted::BadTag);
+    };
+    if verified == 1 {
+        Ok(app)
+    } else {
+        Err(Unrouted::Ambiguous)
     }
-    Err(Unrouted::BadTag)
 }
 
 const RELAY_SLOT_DATA: [u8; 21] = *b"GnomishRelay_SlotData";
@@ -80,24 +100,43 @@ mod tests {
         out
     }
 
+    fn check(app: App, tag_ok: bool) -> TagCheck {
+        TagCheck { app, tag_ok }
+    }
+
     #[test]
     fn a_strip_that_only_the_relay_key_verifies_goes_to_the_relay() {
-        assert_eq!(route(true, false), Ok(App::Relay));
+        let checks = [check(App::Relay, true), check(App::Timeways, false)];
+        assert_eq!(route(&checks), Ok(App::Relay));
     }
 
     #[test]
     fn a_strip_that_only_the_timeways_key_verifies_goes_to_timeways() {
-        assert_eq!(route(false, true), Ok(App::Timeways));
+        let checks = [check(App::Relay, false), check(App::Timeways, true)];
+        assert_eq!(route(&checks), Ok(App::Timeways));
     }
 
     #[test]
     fn a_strip_that_no_key_verifies_has_a_bad_tag() {
-        assert_eq!(route(false, false), Err(Unrouted::BadTag));
+        let checks = [check(App::Relay, false), check(App::Timeways, false)];
+        assert_eq!(route(&checks), Err(Unrouted::BadTag));
+    }
+
+    #[test]
+    fn a_strip_with_no_keys_has_a_bad_tag() {
+        assert_eq!(route(&[]), Err(Unrouted::BadTag));
     }
 
     #[test]
     fn a_strip_that_both_keys_verify_is_ambiguous() {
-        assert_eq!(route(true, true), Err(Unrouted::Ambiguous));
+        let checks = [check(App::Relay, true), check(App::Timeways, true)];
+        assert_eq!(route(&checks), Err(Unrouted::Ambiguous));
+    }
+
+    #[test]
+    fn the_order_of_the_checks_does_not_change_the_app() {
+        let checks = [check(App::Timeways, true), check(App::Relay, false)];
+        assert_eq!(route(&checks), Ok(App::Timeways));
     }
 
     #[test]

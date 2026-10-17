@@ -76,7 +76,11 @@ fn key(bytes: &[u8]) -> StripKey {
 }
 
 fn both_keys() -> KeySet {
-    KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap()
+    KeySet::new(vec![
+        (App::Relay, key(RELAY_KEY)),
+        (App::Timeways, key(TIMEWAYS_KEY)),
+    ])
+    .unwrap()
 }
 
 fn bridge(f: &Dirs, keys: KeySet, runs: &Arc<Counting>) -> Bridge {
@@ -190,7 +194,7 @@ fn a_relay_key_strip_never_reaches_the_timeways_lane() {
 fn no_timeways_key_means_no_timeways_lane_and_no_change_in_behavior() {
     let f = folders(true);
     let runs = runs();
-    let keys = KeySet::new(key(RELAY_KEY), None).unwrap();
+    let keys = KeySet::new(vec![(App::Relay, key(RELAY_KEY))]).unwrap();
     let mut bridge = bridge(&f, keys, &runs);
     let story = show_strip(
         &f,
@@ -445,7 +449,7 @@ fn the_story_program_never_sees_a_relay_message() {
 fn with_no_timeways_key_the_story_program_never_starts() {
     let f = folders(true);
     let runs = runs();
-    let keys = KeySet::new(key(RELAY_KEY), None).unwrap();
+    let keys = KeySet::new(vec![(App::Relay, key(RELAY_KEY))]).unwrap();
     let mut bridge = bridge(&f, keys, &runs).with_story(echo_story(&f));
     show_strip(
         &f,

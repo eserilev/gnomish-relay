@@ -406,7 +406,7 @@ fn key(bytes: &[u8]) -> StripKey {
 
 /// The strip goes through a PNG as WoW writes it, then the bridge reader and `receive`.
 fn receive_png(rows: &[Vec<u8>], key_bytes: &[u8], now: u32) -> Option<Vec<Record>> {
-    let keys = KeySet::new(key(key_bytes), None).ok()?;
+    let keys = KeySet::new(vec![(App::Relay, key(key_bytes))]).ok()?;
     let image = Image::from_png(&screenshot_png(rows)).ok()?;
     let bytes = read_with(&image, |bytes| receive(bytes, &keys, now).is_ok())?;
     receive(&bytes, &keys, now).ok().map(|(_, records)| records)
@@ -738,7 +738,11 @@ fn a_lua_timeways_strip_comes_back_as_the_fixed_reply_in_a_timeways_slot() {
     let (_root, paths) = bridge_folders();
     let addons = paths.games[0].addons.clone();
     let screenshot = paths.games[0].screenshots.join("WoWScrnShot_1.png");
-    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let keys = KeySet::new(vec![
+        (App::Relay, key(RELAY_KEY)),
+        (App::Timeways, key(TIMEWAYS_KEY)),
+    ])
+    .unwrap();
     let policy = bridge::config::Policy {
         folders: bridge::relay::Folders {
             roots: vec![b"/home/x".to_vec()],
@@ -796,7 +800,11 @@ fn a_lua_timeways_strip_comes_back_from_the_fake_story_program_through_the_slot_
         model: bridge::model::ModelSpec::none(),
         wall: bridge::agent_wall::AgentWall::none(),
     };
-    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let keys = KeySet::new(vec![
+        (App::Relay, key(RELAY_KEY)),
+        (App::Timeways, key(TIMEWAYS_KEY)),
+    ])
+    .unwrap();
     let policy = bridge::config::Policy {
         folders: bridge::relay::Folders {
             roots: vec![b"/home/x".to_vec()],
@@ -960,7 +968,11 @@ fn after_a_reload_the_outbox_frame_of_the_test_addon_verifies_as_timeways_and_it
     let timeways = game.timeways();
     let outbox: Table = game.timeways_db().get("outbox").unwrap();
     let frame: String = outbox.get::<Table>(1).unwrap().get("frame").unwrap();
-    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let keys = KeySet::new(vec![
+        (App::Relay, key(RELAY_KEY)),
+        (App::Timeways, key(TIMEWAYS_KEY)),
+    ])
+    .unwrap();
     let (app, records) = receive(&unhex(&frame), &keys, game.now()).unwrap();
     answer_story(&game, id, "answer");
     game.advance(6.0);
@@ -984,7 +996,11 @@ fn after_a_reload_the_test_addon_shows_the_stored_frame_of_an_open_message_as_it
 
     let sent: Table = game.timeways_db().get("sent").unwrap();
     let frame: String = sent.get::<Table>(1).unwrap().get("frame").unwrap();
-    let keys = KeySet::new(key(RELAY_KEY), Some(key(TIMEWAYS_KEY))).unwrap();
+    let keys = KeySet::new(vec![
+        (App::Relay, key(RELAY_KEY)),
+        (App::Timeways, key(TIMEWAYS_KEY)),
+    ])
+    .unwrap();
     let (_, stored) = receive(&unhex(&frame), &keys, game.now()).unwrap();
     let first = game.strips(&TIMEWAYS).remove(0);
     assert_eq!(first.len(), 1);

@@ -69,7 +69,7 @@ fn bridge(g: &TwoGames) -> Bridge {
         state: g.state.clone(),
         config: g.state.join("config"),
     };
-    let keys = KeySet::new(StripKey::from_hex(&hex(KEY)).unwrap(), None).unwrap();
+    let keys = KeySet::new(vec![(App::Relay, StripKey::from_hex(&hex(KEY)).unwrap())]).unwrap();
     let agents = [("claude".to_owned(), Arc::new(Echo) as Arc<dyn Agent>)].into();
     Bridge::new(paths, policy, keys, agents).unwrap()
 }

@@ -103,7 +103,7 @@ fn bridge_in(f: &Dirs, policy: Policy, agent: Arc<dyn Agent>) -> Bridge {
 }
 
 fn relay_keys() -> KeySet {
-    KeySet::new(StripKey::from_hex(&hex(KEY)).unwrap(), None).unwrap()
+    KeySet::new(vec![(App::Relay, StripKey::from_hex(&hex(KEY)).unwrap())]).unwrap()
 }
 
 fn frame(key: &[u8], text: &str) -> Vec<u8> {

@@ -281,7 +281,7 @@ impl Desktop {
             agents: [("claude".to_owned(), Permission::AutoEdit)].into(),
             default_agent: "claude".into(),
         };
-        let keys = KeySet::new(StripKey::from_hex(&hex(KEY)).unwrap(), None).unwrap();
+        let keys = KeySet::new(vec![(App::Relay, StripKey::from_hex(&hex(KEY)).unwrap())]).unwrap();
         let agents = [("claude".to_owned(), Arc::new(Echo) as _)].into();
         let bridge = Bridge::new(paths, policy, keys, agents).unwrap();
         Desktop {

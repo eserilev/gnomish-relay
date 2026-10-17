@@ -33,14 +33,18 @@ fuzz_target!(|data: &[u8]| {
     let signed = signed_len(&frame);
     let tag = signer.tag(&again[..signed]);
     again[signed..].copy_from_slice(&tag);
-    let keys = KeySet::new(key(RELAY), Some(key(TIMEWAYS))).expect("two different keys");
+    let keys = KeySet::new(vec![
+        (App::Relay, key(RELAY)),
+        (App::Timeways, key(TIMEWAYS)),
+    ])
+    .expect("two different keys");
     match (receive(&again, &keys, frame.time), expected) {
         (Ok((app, _)), Some(signed_by)) => assert_eq!(app, signed_by),
         (Err(Rejected::BadRecords), Some(_)) => {}
         (Err(Rejected::BadTag), None) => {}
         (result, expected) => panic!("{expected:?} gave {:?}", result.map(|(app, _)| app)),
     }
-    let relay_only = KeySet::new(key(RELAY), None).expect("one key");
+    let relay_only = KeySet::new(vec![(App::Relay, key(RELAY))]).expect("one key");
     if let Ok((app, _)) = receive(&again, &relay_only, frame.time) {
         assert_eq!(app, App::Relay, "no Timeways key, no Timeways strip");
     }

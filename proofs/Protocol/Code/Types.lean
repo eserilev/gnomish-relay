@@ -152,8 +152,15 @@ inductive apps.App where
 | Relay : apps.App
 | Timeways : apps.App
 
+/-- [protocol::apps::TagCheck]
+    Source: 'crates/protocol/src/apps.rs', lines 16:0-19:1
+    Visibility: public -/
+structure apps.TagCheck where
+  app : apps.App
+  tag_ok : Bool
+
 /-- [protocol::apps::Unrouted]
-    Source: 'crates/protocol/src/apps.rs', lines 16:0-21:1
+    Source: 'crates/protocol/src/apps.rs', lines 23:0-28:1
     Visibility: public -/
 @[discriminant isize]
 inductive apps.Unrouted where
