@@ -12,6 +12,7 @@ use crate::check_agent;
 use crate::config::{self, Config, RelayConfig, with_tilde};
 use crate::config_text::RelayPart;
 use crate::dirs::Dirs;
+use crate::folder_path::real_path;
 use crate::game_choice;
 use crate::gate::Places;
 use crate::hooks_install;
@@ -23,6 +24,7 @@ use crate::setup::{self, KeyChoice, Product};
 use crate::setup_roots::{self, BadRoot};
 use crate::setup_timeways;
 use crate::status::{self, SandboxFound};
+use crate::wide_roots::wide_root;
 use crate::wsl;
 
 /// Reads one answer in a terminal. With no terminal, or an empty answer, the default.
@@ -57,9 +59,10 @@ pub(crate) fn read_answer(prompt: &str) -> Result<Option<String>> {
 
 /// The roots of `--roots`, else the folders of code projects that setup finds. Setup
 /// asks no folder question: the game adds a folder with a click on the desktop (SPEC.md 9.12).
-fn choose_roots(home: &Path, given: Option<&str>) -> Result<Vec<String>> {
+fn choose_roots(dirs: &Dirs, given: Option<&str>) -> Result<Vec<String>> {
+    let home = &dirs.home;
     match given {
-        Some(list) => roots_in(list, home),
+        Some(list) => roots_in(list, dirs),
         None => Ok(install::suggest_roots(home)
             .iter()
             .map(|p| with_tilde(p, home))
@@ -79,8 +82,9 @@ fn roots_line(roots: &[PathBuf], home: &Path) -> String {
     )
 }
 
-/// Each root must be a folder that exists.
-fn roots_in(answer: &str, home: &Path) -> Result<Vec<String>> {
+/// Each root must be a folder that exists, and none can be too wide (SPEC.md 12).
+fn roots_in(answer: &str, dirs: &Dirs) -> Result<Vec<String>> {
+    let home = &dirs.home;
     let roots: Vec<String> = answer
         .split(',')
         .map(str::trim)
@@ -92,9 +96,24 @@ fn roots_in(answer: &str, home: &Path) -> Result<Vec<String>> {
             "setup needs the folders that agents can work in. Run gnomish-relay setup --roots ~/code"
         );
     }
+    let places = Places {
+        config_dir: &dirs.config,
+        data_dir: &dirs.data,
+        home,
+    };
     for root in &roots {
-        if !config::expand(root, home)?.is_dir() {
+        let path = config::expand(root, home)?;
+        if !path.is_dir() {
             bail!("{root} isn't a folder");
+        }
+        let wide = real_path(&path)
+            .ok()
+            .and_then(|real| wide_root(&real, &places));
+        if let Some(wide) = wide {
+            bail!(
+                "{root} is {}, and agents can't work there. Pick a project folder.",
+                wide.text()
+            );
         }
     }
     Ok(roots)
@@ -430,7 +449,7 @@ fn setup_relay_config(
     let lacks_relay = existing.is_none_or(|(_, c)| c.relay.is_none());
     let agents = install::find_agents(&path_var);
     let roots = if lacks_relay {
-        Some(choose_roots(&dirs.home, roots_given)?)
+        Some(choose_roots(dirs, roots_given)?)
     } else {
         None
     };
@@ -478,7 +497,7 @@ fn has_no_roots(config: &Config) -> bool {
 /// An older setup found no code folder, so setup looks again. A config that can't
 /// change keeps its empty roots: the game still adds folders one by one.
 fn fill_empty_roots(dirs: &Dirs, config: Config, roots_given: Option<&str>) -> Result<Config> {
-    let roots = choose_roots(&dirs.home, roots_given)?;
+    let roots = choose_roots(dirs, roots_given)?;
     if roots.is_empty() {
         return Ok(config);
     }
@@ -721,14 +740,21 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(home.path().join("code/app/.git")).unwrap();
 
-        assert_eq!(choose_roots(home.path(), None).unwrap(), ["~/code"]);
+        assert_eq!(
+            choose_roots(&dirs_in(home.path()), None).unwrap(),
+            ["~/code"]
+        );
     }
 
     #[test]
     fn setup_with_no_code_folder_takes_no_root() {
         let home = tempfile::tempdir().unwrap();
 
-        assert!(choose_roots(home.path(), None).unwrap().is_empty());
+        assert!(
+            choose_roots(&dirs_in(home.path()), None)
+                .unwrap()
+                .is_empty()
+        );
     }
 
     #[test]
@@ -746,17 +772,38 @@ mod tests {
         );
     }
 
+    fn dirs_in(home: &Path) -> Dirs {
+        Dirs {
+            home: home.to_owned(),
+            config: home.join("config"),
+            data: home.join("data"),
+        }
+    }
+
+    #[test]
+    fn a_root_of_the_answer_that_is_too_wide_is_refused_before_setup_writes() {
+        let home = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(home.path().join("code")).unwrap();
+
+        let error = roots_in("~/code, ~", &dirs_in(home.path())).unwrap_err();
+
+        assert_eq!(
+            error.to_string(),
+            "~ is your whole home folder, and agents can't work there. Pick a project folder."
+        );
+    }
+
     #[test]
     fn the_roots_are_the_folders_of_the_answer_and_each_one_exists() {
         let home = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(home.path().join("code")).unwrap();
         std::fs::create_dir_all(home.path().join("work")).unwrap();
 
-        let roots = roots_in(" ~/code, ,~/work ", home.path()).unwrap();
+        let roots = roots_in(" ~/code, ,~/work ", &dirs_in(home.path())).unwrap();
 
         assert_eq!(roots, ["~/code", "~/work"]);
-        assert!(roots_in(" , ", home.path()).is_err());
-        let missing = roots_in("~/none", home.path()).unwrap_err();
+        assert!(roots_in(" , ", &dirs_in(home.path())).is_err());
+        let missing = roots_in("~/none", &dirs_in(home.path())).unwrap_err();
         assert!(
             missing.to_string().contains("~/none isn't a folder"),
             "{missing}"
