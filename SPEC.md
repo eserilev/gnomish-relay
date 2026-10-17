@@ -1131,6 +1131,7 @@ The rendered text goes into the normal `text` field, so S9, S18, and S20 do not 
 - Inline marks become WoW color codes: bold `ffd100`, italic `c0c8ff`, both `ffe680`, inline code `b8e0b8`, and link text `69b4ff`. A link shows only its text: WoW cannot open a browser.
 - Only the renderer writes `|c` and `|r` codes. Colors never nest, and each one closes in its own field.
 - A mark with no closing mark is text. So are `*` between spaces and `_` inside a word.
+- The search for a closing mark, a closing run of backticks, a `]`, or a `)` reads at most 4096 bytes. A closer further away is text. So the render takes linear time, also on hostile text with many openers and no closer.
 - The output is at most 16 times the input plus 4 bytes (S25). A bold text with many `*_*_` switches costs 12 bytes per input byte, so a bound of 10 is false.
 
 **Blocks of the bridge** (9.11). The bridge puts its own blocks right after the marker and the usage line `u`, before the renderer blocks, so a cut of a long reply never takes them. Their kinds are upper-case letters, which the renderer never writes. The renderer drops every `\n` and `US` of the agent, so no agent text can make one. Each field loses its control characters, and every `|` is doubled (S10). These blocks go only into the body, never into the restore history (7.6). There, an error with blocks is its plain text with no marker, because the addon shows a restored error as plain text.

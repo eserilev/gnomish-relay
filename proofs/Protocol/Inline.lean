@@ -377,19 +377,30 @@ theorem run_len_spec (md : Slice U8) (i stop : Usize) (b : U8) (hi : i.val ≤ s
   step*
   exact ⟨by omega, fun h h1 h2 => by have := hj3 h h1 h2; omega⟩
 
+/-- The limit of a search: never past `stop`, and past `start` when `len` is not 0. -/
+@[step]
+theorem ahead_spec (start len stop : Usize) :
+    inline.ahead start len stop ⦃ r => r.val ≤ stop.val ∧
+      (start.val ≤ stop.val → start.val ≤ r.val) ∧
+      (start.val < stop.val → 0 < len.val → start.val < r.val) ⦄ := by
+  unfold inline.ahead
+  step*
+  all_goals scalar_tac
+
 @[step]
 theorem find_tick_run_spec (md : Slice U8) (start stop n : Usize) (hs : start.val ≤ stop.val)
     (hstop : stop.val ≤ md.val.length) :
     inline.find_tick_run md start stop n ⦃ r =>
       r.val = stop.val ∨ (start.val ≤ r.val ∧ r.val < stop.val ∧ r.val + n.val ≤ stop.val) ⦄ := by
   unfold inline.find_tick_run inline.find_tick_run_loop
-  apply loop.spec_decr_nat (fun j => stop.val - j.val) (fun j => start.val ≤ j.val ∧ j.val ≤ stop.val)
-    _ _ _ _ ⟨le_refl _, hs⟩
+  step with ahead_spec as ⟨limit, hl1, hl2, _⟩
+  apply loop.spec_decr_nat (fun j => limit.val - j.val)
+    (fun j => start.val ≤ j.val ∧ j.val ≤ limit.val)
+    _ _ _ _ ⟨le_refl _, hl2 hs⟩
   rintro j ⟨hsj, hj⟩
   unfold inline.find_tick_run_loop.body
-  step*
-  by_cases h : len = 0#usize <;> simp only [h, if_true, if_false] <;> step*
-  scalar_tac
+  step_ite
+  all_goals scalar_tac
 
 @[step]
 theorem find_byte_spec (md : Slice U8) (start stop : Usize) (b : U8)
@@ -404,6 +415,15 @@ theorem find_byte_spec (md : Slice U8) (start stop : Usize) (b : U8)
   unfold inline.find_byte_loop.body
   step*
 
+/-- The next `b` in a window: `stop`, or a place at or after `start`. -/
+@[step]
+theorem find_byte_near_spec (md : Slice U8) (start stop : Usize) (b : U8)
+    (hstop : stop.val ≤ md.val.length) :
+    inline.find_byte_near md start stop b ⦃ r =>
+      r.val ≤ stop.val ∧ (r.val < stop.val → start.val ≤ r.val) ⦄ := by
+  unfold inline.find_byte_near
+  step*
+
 @[step]
 theorem has_closer_spec (md : Slice U8) (start stop i n : Usize) (hmd : md.val.length ≤ 2 ^ 20)
     (hi : i.val < md.val.length) (hn : i.val + n.val ≤ stop.val) (hstop : stop.val ≤ md.val.length) :
@@ -411,9 +431,9 @@ theorem has_closer_spec (md : Slice U8) (start stop i n : Usize) (hmd : md.val.l
   have husize : 2 ^ 32 - 1 ≤ Usize.max := by scalar_tac
   unfold inline.has_closer inline.has_closer_loop
   step*
-  apply loop.spec_decr_nat (fun j => stop.val - j.val) (fun j => j.val ≤ stop.val)
-    _ _ _ _ (by scalar_tac)
-  intro j hj
+  apply loop.spec_decr_nat (fun j => limit.val - j.val)
+    (fun j => i1.val ≤ j.val ∧ j.val ≤ limit.val) _ _ _ _ (by scalar_tac)
+  rintro j ⟨hj1, hj2⟩
   unfold inline.has_closer_loop.body
   step*
 
@@ -492,7 +512,7 @@ theorem emphasis_spec (out : alloc.vec.Vec U8) (md : Slice U8) (start stop i : U
       Emitted (isHtml escape) s res.1.2 (res.1.1.val - i.val) out res.2 ⦄ := by
   unfold inline.emphasis
   step*
-  all_goals have hn : 1 ≤ n.val := n_post3 (i2_post2 (by omega) hi i1_post.symm)
+  all_goals have hn : 1 ≤ n.val := n_post3 (i3_post2 (by omega) (i1_post3 hi (by scalar_tac)) i2_post.symm)
   · refine ⟨by omega, by omega, ?_⟩
     obtain ⟨w1, h1, l1, t1⟩ := out1_post1
     obtain ⟨w2, h2, l2, t2⟩ := out2_post1

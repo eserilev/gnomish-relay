@@ -6301,21 +6301,26 @@ def inline.AMP : Array Std.U8 5#usize :=
 @[global_simps, irreducible]
 def inline.TAB : Array Std.U8 4#usize := Array.repeat 4#usize 32#u8
 
+/-- [protocol::inline::MAX_SEARCH]
+    Source: 'crates/protocol/src/inline.rs', lines 40:0-40:35
+    Visibility: public -/
+@[global_simps, irreducible] def inline.MAX_SEARCH : Std.Usize := 4096#usize
+
 /-- [protocol::inline::PLAIN]
-    Source: 'crates/protocol/src/inline.rs', lines 40:0-43:2 -/
+    Source: 'crates/protocol/src/inline.rs', lines 42:0-45:2 -/
 @[global_simps, irreducible]
 def inline.PLAIN : inline.Style :=
   { bold := inline.Mark.Off, italic := inline.Mark.Off }
 
 /-- [protocol::inline::is_space]:
-    Source: 'crates/protocol/src/inline.rs', lines 45:0-47:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 47:0-49:1 -/
 def inline.is_space (b : Std.U8) : Result Bool := do
   if b = 32#u8
   then ok true
   else ok (b = 9#u8)
 
 /-- [protocol::inline::is_alnum]:
-    Source: 'crates/protocol/src/inline.rs', lines 49:0-51:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 51:0-53:1 -/
 def inline.is_alnum (b : Std.U8) : Result Bool := do
   if 97#u8 <= b
   then
@@ -6345,7 +6350,7 @@ def inline.is_alnum (b : Std.U8) : Result Bool := do
          else ok false
 
 /-- [protocol::inline::is_punct]:
-    Source: 'crates/protocol/src/inline.rs', lines 53:0-55:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 55:0-57:1 -/
 def inline.is_punct (b : Std.U8) : Result Bool := do
   if 33#u8 <= b
   then
@@ -6356,14 +6361,14 @@ def inline.is_punct (b : Std.U8) : Result Bool := do
   else ok false
 
 /-- [protocol::inline::is_control]:
-    Source: 'crates/protocol/src/inline.rs', lines 57:0-59:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 59:0-61:1 -/
 def inline.is_control (b : Std.U8) : Result Bool := do
   if b < 32#u8
   then ok true
   else ok (b = 127#u8)
 
 /-- [protocol::inline::push_html]:
-    Source: 'crates/protocol/src/inline.rs', lines 69:0-79:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 71:0-81:1 -/
 def inline.push_html
   (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
   Result (alloc.vec.Vec Std.U8)
@@ -6382,7 +6387,7 @@ def inline.push_html
       else alloc.vec.Vec.push out b
 
 /-- [protocol::inline::push_visible]:
-    Source: 'crates/protocol/src/inline.rs', lines 61:0-67:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 63:0-69:1 -/
 def inline.push_visible
   (out : alloc.vec.Vec Std.U8) (b : Std.U8) (escape : inline.Escape) :
   Result (alloc.vec.Vec Std.U8)
@@ -6394,7 +6399,7 @@ def inline.push_visible
   else alloc.vec.Vec.push out b
 
 /-- [protocol::inline::push_text_byte]:
-    Source: 'crates/protocol/src/inline.rs', lines 82:0-91:1
+    Source: 'crates/protocol/src/inline.rs', lines 84:0-93:1
     Visibility: public -/
 def inline.push_text_byte
   (out : alloc.vec.Vec Std.U8) (b : Std.U8) (escape : inline.Escape) :
@@ -6414,7 +6419,7 @@ def inline.push_text_byte
       else inline.push_visible out b escape
 
 /-- [protocol::inline::push_code_byte]:
-    Source: 'crates/protocol/src/inline.rs', lines 94:0-100:1
+    Source: 'crates/protocol/src/inline.rs', lines 96:0-102:1
     Visibility: public -/
 def inline.push_code_byte
   (out : alloc.vec.Vec Std.U8) (b : Std.U8) :
@@ -6426,7 +6431,7 @@ def inline.push_code_byte
   else inline.push_text_byte out b inline.Escape.Wow
 
 /-- [protocol::inline::push_text_range]: loop body 0:
-    Source: 'crates/protocol/src/inline.rs', lines 104:4-107:5 -/
+    Source: 'crates/protocol/src/inline.rs', lines 106:4-109:5 -/
 @[rust_loop_body]
 def inline.push_text_range_loop.body
   (md : Slice Std.U8) («end» : Std.Usize) (escape : inline.Escape)
@@ -6443,7 +6448,7 @@ def inline.push_text_range_loop.body
   else ok (done out)
 
 /-- [protocol::inline::push_text_range]: loop 0:
-    Source: 'crates/protocol/src/inline.rs', lines 104:4-107:5 -/
+    Source: 'crates/protocol/src/inline.rs', lines 106:4-109:5 -/
 @[rust_loop]
 def inline.push_text_range_loop
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
@@ -6456,7 +6461,7 @@ def inline.push_text_range_loop
     (out, i)
 
 /-- [protocol::inline::push_text_range]:
-    Source: 'crates/protocol/src/inline.rs', lines 102:0-108:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 104:0-110:1 -/
 @[reducible]
 def inline.push_text_range
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)
@@ -6466,7 +6471,7 @@ def inline.push_text_range
   inline.push_text_range_loop out md «end» escape start
 
 /-- [protocol::inline::open_color]:
-    Source: 'crates/protocol/src/inline.rs', lines 110:0-117:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 112:0-119:1 -/
 def inline.open_color
   (out : alloc.vec.Vec Std.U8) (style : inline.Style) :
   Result (alloc.vec.Vec Std.U8)
@@ -6488,7 +6493,7 @@ def inline.open_color
       ascii.push_bytes out s
 
 /-- [protocol::inline::close_color]:
-    Source: 'crates/protocol/src/inline.rs', lines 119:0-123:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 121:0-125:1 -/
 def inline.close_color
   (out : alloc.vec.Vec Std.U8) (style : inline.Style) :
   Result (alloc.vec.Vec Std.U8)
@@ -6506,7 +6511,7 @@ def inline.close_color
     else ok out
 
 /-- [protocol::inline::run_len]: loop body 0:
-    Source: 'crates/protocol/src/inline.rs', lines 128:4-130:5 -/
+    Source: 'crates/protocol/src/inline.rs', lines 130:4-132:5 -/
 @[rust_loop_body]
 def inline.run_len_loop.body
   (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
@@ -6522,7 +6527,7 @@ def inline.run_len_loop.body
   else ok (done j)
 
 /-- [protocol::inline::run_len]: loop 0:
-    Source: 'crates/protocol/src/inline.rs', lines 128:4-130:5 -/
+    Source: 'crates/protocol/src/inline.rs', lines 130:4-132:5 -/
 @[rust_loop]
 def inline.run_len_loop
   (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
@@ -6533,7 +6538,7 @@ def inline.run_len_loop
     j
 
 /-- [protocol::inline::run_len]:
-    Source: 'crates/protocol/src/inline.rs', lines 126:0-132:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 128:0-134:1 -/
 def inline.run_len
   (md : Slice Std.U8) (i : Std.Usize) («end» : Std.Usize) (b : Std.U8) :
   Result Std.Usize
@@ -6541,18 +6546,53 @@ def inline.run_len
   let j ← inline.run_len_loop md «end» b i
   j - i
 
+/-- [protocol::inline::ahead]:
+    Source: 'crates/protocol/src/inline.rs', lines 137:0-143:1 -/
+def inline.ahead
+  («from» : Std.Usize) (len : Std.Usize) («end» : Std.Usize) :
+  Result Std.Usize
+  := do
+  if «from» < «end»
+  then
+    let i ← «end» - «from»
+    if i > len
+    then «from» + len
+    else ok «end»
+  else ok «end»
+
+/-- [protocol::inline::byte_at]:
+    Source: 'crates/protocol/src/inline.rs', lines 230:0-232:1 -/
+def inline.byte_at
+  (md : Slice Std.U8) («end» : Std.Usize) (i : Std.Usize) :
+  Result Std.U8
+  := do
+  if i < «end»
+  then Slice.index_usize md i
+  else ok 32#u8
+
 /-- [protocol::inline::find_tick_run]: loop body 0:
-    Source: 'crates/protocol/src/inline.rs', lines 137:4-145:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 150:4-159:1 -/
 @[rust_loop_body]
 def inline.find_tick_run_loop.body
-  (md : Slice Std.U8) («end» : Std.Usize) (n : Std.Usize) (j : Std.Usize) :
+  (md : Slice Std.U8) («end» : Std.Usize) (n : Std.Usize) (limit : Std.Usize)
+  (j : Std.Usize) :
   Result (ControlFlow Std.Usize Std.Usize)
   := do
-  if j < «end»
+  if j < limit
   then
-    let len ← inline.run_len md j «end» 96#u8
+    let len ← inline.run_len md j limit 96#u8
     if len = n
-    then ok (done j)
+    then
+      let i ← j + len
+      let i1 ← inline.byte_at md «end» i
+      if i1 != 96#u8
+      then ok (done j)
+      else
+        let len1 ← if len = 0#usize
+                     then ok 1#usize
+                     else ok len
+        let j1 ← j + len1
+        ok (cont j1)
     else
       let len1 ← if len = 0#usize
                    then ok 1#usize
@@ -6562,28 +6602,29 @@ def inline.find_tick_run_loop.body
   else ok (done «end»)
 
 /-- [protocol::inline::find_tick_run]: loop 0:
-    Source: 'crates/protocol/src/inline.rs', lines 137:4-145:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 150:4-159:1 -/
 @[rust_loop]
 def inline.find_tick_run_loop
-  (md : Slice Std.U8) («end» : Std.Usize) (n : Std.Usize) (j : Std.Usize) :
+  (md : Slice Std.U8) («end» : Std.Usize) (n : Std.Usize) (limit : Std.Usize)
+  (j : Std.Usize) :
   Result Std.Usize
   := do
   loop
-    (fun j1 => inline.find_tick_run_loop.body md «end» n j1)
+    (fun j1 => inline.find_tick_run_loop.body md «end» n limit j1)
     j
 
 /-- [protocol::inline::find_tick_run]:
-    Source: 'crates/protocol/src/inline.rs', lines 135:0-145:1 -/
-@[reducible]
+    Source: 'crates/protocol/src/inline.rs', lines 147:0-159:1 -/
 def inline.find_tick_run
   (md : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize)
   (n : Std.Usize) :
   Result Std.Usize
   := do
-  inline.find_tick_run_loop md «end» n «from»
+  let limit ← inline.ahead «from» inline.MAX_SEARCH «end»
+  inline.find_tick_run_loop md «end» n limit «from»
 
 /-- [protocol::inline::find_byte]: loop body 0:
-    Source: 'crates/protocol/src/inline.rs', lines 150:4-152:5 -/
+    Source: 'crates/protocol/src/inline.rs', lines 164:4-166:5 -/
 @[rust_loop_body]
 def inline.find_byte_loop.body
   (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
@@ -6599,7 +6640,7 @@ def inline.find_byte_loop.body
   else ok (done j)
 
 /-- [protocol::inline::find_byte]: loop 0:
-    Source: 'crates/protocol/src/inline.rs', lines 150:4-152:5 -/
+    Source: 'crates/protocol/src/inline.rs', lines 164:4-166:5 -/
 @[rust_loop]
 def inline.find_byte_loop
   (md : Slice Std.U8) («end» : Std.Usize) (b : Std.U8) (j : Std.Usize) :
@@ -6610,7 +6651,7 @@ def inline.find_byte_loop
     j
 
 /-- [protocol::inline::find_byte]:
-    Source: 'crates/protocol/src/inline.rs', lines 148:0-154:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 162:0-168:1 -/
 @[reducible]
 def inline.find_byte
   (md : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize) (b : Std.U8)
@@ -6619,15 +6660,28 @@ def inline.find_byte
   := do
   inline.find_byte_loop md «end» b «from»
 
+/-- [protocol::inline::find_byte_near]:
+    Source: 'crates/protocol/src/inline.rs', lines 171:0-175:1 -/
+def inline.find_byte_near
+  (md : Slice Std.U8) («from» : Std.Usize) («end» : Std.Usize) (b : Std.U8)
+  :
+  Result Std.Usize
+  := do
+  let limit ← inline.ahead «from» inline.MAX_SEARCH «end»
+  let j ← inline.find_byte md «from» limit b
+  if j < limit
+  then ok j
+  else ok «end»
+
 /-- [protocol::inline::flip]:
-    Source: 'crates/protocol/src/inline.rs', lines 156:0-161:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 177:0-182:1 -/
 def inline.flip (mark : inline.Mark) : Result inline.Mark := do
   match mark with
   | inline.Mark.Off => ok inline.Mark.On
   | inline.Mark.On => ok inline.Mark.Off
 
 /-- [protocol::inline::toggled]:
-    Source: 'crates/protocol/src/inline.rs', lines 164:0-181:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 185:0-202:1 -/
 def inline.toggled
   (style : inline.Style) (n : Std.Usize) : Result inline.Style := do
   if n = 1#usize
@@ -6643,7 +6697,7 @@ def inline.toggled
       ok { bold := m, italic := m1 }
 
 /-- [protocol::inline::opens]:
-    Source: 'crates/protocol/src/inline.rs', lines 184:0-192:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 205:0-213:1 -/
 def inline.opens (style : inline.Style) (n : Std.Usize) : Result Bool := do
   if n = 1#usize
   then inline.Mark.Insts.CoreCmpPartialEqMark.eq style.italic inline.Mark.Off
@@ -6659,7 +6713,7 @@ def inline.opens (style : inline.Style) (n : Std.Usize) : Result Bool := do
       else ok false
 
 /-- [protocol::inline::closes]:
-    Source: 'crates/protocol/src/inline.rs', lines 195:0-203:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 216:0-224:1 -/
 def inline.closes (style : inline.Style) (n : Std.Usize) : Result Bool := do
   if n = 1#usize
   then inline.Mark.Insts.CoreCmpPartialEqMark.eq style.italic inline.Mark.On
@@ -6675,7 +6729,7 @@ def inline.closes (style : inline.Style) (n : Std.Usize) : Result Bool := do
       else ok false
 
 /-- [protocol::inline::byte_before]:
-    Source: 'crates/protocol/src/inline.rs', lines 205:0-207:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 226:0-228:1 -/
 def inline.byte_before
   (md : Slice Std.U8) (start : Std.Usize) (i : Std.Usize) : Result Std.U8 := do
   if i > start
@@ -6683,18 +6737,8 @@ def inline.byte_before
        Slice.index_usize md i1
   else ok 32#u8
 
-/-- [protocol::inline::byte_at]:
-    Source: 'crates/protocol/src/inline.rs', lines 209:0-211:1 -/
-def inline.byte_at
-  (md : Slice Std.U8) («end» : Std.Usize) (i : Std.Usize) :
-  Result Std.U8
-  := do
-  if i < «end»
-  then Slice.index_usize md i
-  else ok 32#u8
-
 /-- [protocol::inline::can_open]:
-    Source: 'crates/protocol/src/inline.rs', lines 214:0-218:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 235:0-239:1 -/
 def inline.can_open
   (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (i : Std.Usize)
   (n : Std.Usize) :
@@ -6715,7 +6759,7 @@ def inline.can_open
   else ok (¬ word)
 
 /-- [protocol::inline::can_close]:
-    Source: 'crates/protocol/src/inline.rs', lines 220:0-223:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 241:0-244:1 -/
 def inline.can_close
   (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (i : Std.Usize)
   (n : Std.Usize) :
@@ -6737,17 +6781,18 @@ def inline.can_close
   else ok (¬ word)
 
 /-- [protocol::inline::has_closer]: loop body 0:
-    Source: 'crates/protocol/src/inline.rs', lines 230:4-237:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 252:4-259:1 -/
 @[rust_loop_body]
 def inline.has_closer_loop.body
   (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (n : Std.Usize)
-  (d : Std.U8) (j : Std.Usize) :
+  (d : Std.U8) (limit : Std.Usize) (j : Std.Usize) :
   Result (ControlFlow Std.Usize Bool)
   := do
-  if j < «end»
+  if j < limit
   then
-    let i ← inline.run_len md j «end» d
-    if i >= n
+    let i ← inline.ahead j n «end»
+    let i1 ← inline.run_len md j i d
+    if i1 >= n
     then
       let b ← inline.can_close md start «end» j n
       if b
@@ -6759,30 +6804,31 @@ def inline.has_closer_loop.body
   else ok (done false)
 
 /-- [protocol::inline::has_closer]: loop 0:
-    Source: 'crates/protocol/src/inline.rs', lines 230:4-237:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 252:4-259:1 -/
 @[rust_loop]
 def inline.has_closer_loop
   (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (n : Std.Usize)
-  (d : Std.U8) (j : Std.Usize) :
+  (d : Std.U8) (limit : Std.Usize) (j : Std.Usize) :
   Result Bool
   := do
   loop
-    (fun j1 => inline.has_closer_loop.body md start «end» n d j1)
+    (fun j1 => inline.has_closer_loop.body md start «end» n d limit j1)
     j
 
 /-- [protocol::inline::has_closer]:
-    Source: 'crates/protocol/src/inline.rs', lines 227:0-237:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 248:0-259:1 -/
 def inline.has_closer
   (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (i : Std.Usize)
   (n : Std.Usize) :
   Result Bool
   := do
   let d ← Slice.index_usize md i
-  let j ← i + n
-  inline.has_closer_loop md start «end» n d j
+  let i1 ← i + n
+  let limit ← inline.ahead i1 inline.MAX_SEARCH «end»
+  inline.has_closer_loop md start «end» n d limit i1
 
 /-- [protocol::inline::toggles]:
-    Source: 'crates/protocol/src/inline.rs', lines 239:0-247:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 261:0-269:1 -/
 def inline.toggles
   (md : Slice Std.U8) (start : Std.Usize) («end» : Std.Usize) (i : Std.Usize)
   (n : Std.Usize) (style : inline.Style) :
@@ -6802,14 +6848,14 @@ def inline.toggles
     else ok false
 
 /-- [protocol::inline::min3]:
-    Source: 'crates/protocol/src/inline.rs', lines 249:0-251:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 271:0-273:1 -/
 def inline.min3 (n : Std.Usize) : Result Std.Usize := do
   if n > 3#usize
   then ok 3#usize
   else ok n
 
 /-- [protocol::inline::emphasis]:
-    Source: 'crates/protocol/src/inline.rs', lines 254:0-272:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 276:0-294:1 -/
 def inline.emphasis
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
   (span : (Std.Usize × Std.Usize)) (i : Std.Usize) (style : inline.Style)
@@ -6817,24 +6863,25 @@ def inline.emphasis
   Result ((Std.Usize × inline.Style) × (alloc.vec.Vec Std.U8))
   := do
   let (start, «end») := span
-  let i1 ← Slice.index_usize md i
-  let i2 ← inline.run_len md i «end» i1
-  let n ← inline.min3 i2
+  let i1 ← inline.ahead i 3#usize «end»
+  let i2 ← Slice.index_usize md i
+  let i3 ← inline.run_len md i i1 i2
+  let n ← inline.min3 i3
   let b ← inline.toggles md start «end» i n style
   if b
   then
     let next ← inline.toggled style n
     let out1 ← inline.close_color out style
     let out2 ← inline.open_color out1 next
-    let i3 ← i + n
-    ok ((i3, next), out2)
+    let i4 ← i + n
+    ok ((i4, next), out2)
   else
-    let i3 ← i + n
-    let out1 ← inline.push_text_range out md i i3 escape
-    ok ((i3, style), out1)
+    let i4 ← i + n
+    let out1 ← inline.push_text_range out md i i4 escape
+    ok ((i4, style), out1)
 
 /-- [protocol::inline::push_colored]:
-    Source: 'crates/protocol/src/inline.rs', lines 275:0-288:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 297:0-310:1 -/
 def inline.push_colored
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
   (range : (Std.Usize × Std.Usize)) (color : Array Std.U8 10#usize)
@@ -6851,7 +6898,7 @@ def inline.push_colored
   inline.open_color out4 style
 
 /-- [protocol::inline::code_span]:
-    Source: 'crates/protocol/src/inline.rs', lines 291:0-307:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 313:0-329:1 -/
 def inline.code_span
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
   (i : Std.Usize) (style : inline.Style) (escape : inline.Escape) :
@@ -6870,14 +6917,14 @@ def inline.code_span
     ok (i2, out1)
 
 /-- [protocol::inline::link]:
-    Source: 'crates/protocol/src/inline.rs', lines 310:0-321:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 332:0-343:1 -/
 def inline.link
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
   (i : Std.Usize) (style : inline.Style) (escape : inline.Escape) :
   Result (Std.Usize × (alloc.vec.Vec Std.U8))
   := do
   let i1 ← i + 1#usize
-  let close ← inline.find_byte md i1 «end» 93#u8
+  let close ← inline.find_byte_near md i1 «end» 93#u8
   let target ← close + 1#usize
   let «open» ←
     if target < «end»
@@ -6885,7 +6932,7 @@ def inline.link
          let i2 ← Slice.index_usize md target
          ok (i2 = 40#u8)
     else ok false
-  let paren ← inline.find_byte md target «end» 41#u8
+  let paren ← inline.find_byte_near md target «end» 41#u8
   if «open»
   then
     if paren = «end»
@@ -6900,7 +6947,7 @@ def inline.link
        ok (i1, out1)
 
 /-- [protocol::inline::escaped]:
-    Source: 'crates/protocol/src/inline.rs', lines 324:0-331:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 346:0-353:1 -/
 def inline.escaped
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) («end» : Std.Usize)
   (i : Std.Usize) (escape : inline.Escape) :
@@ -6923,7 +6970,7 @@ def inline.escaped
        ok (i1, out1)
 
 /-- [protocol::inline::step]:
-    Source: 'crates/protocol/src/inline.rs', lines 333:0-355:1 -/
+    Source: 'crates/protocol/src/inline.rs', lines 355:0-377:1 -/
 def inline.step
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8)
   (span : (Std.Usize × Std.Usize)) (i : Std.Usize) (style : inline.Style)
@@ -6958,7 +7005,7 @@ def inline.step
             ok ((i1, style), out1)
 
 /-- [protocol::inline::push_inline]: loop body 0:
-    Source: 'crates/protocol/src/inline.rs', lines 362:4-366:5
+    Source: 'crates/protocol/src/inline.rs', lines 384:4-388:5
     Visibility: public -/
 @[rust_loop_body]
 def inline.push_inline_loop.body
@@ -6976,7 +7023,7 @@ def inline.push_inline_loop.body
   else ok (done (out, style))
 
 /-- [protocol::inline::push_inline]: loop 0:
-    Source: 'crates/protocol/src/inline.rs', lines 362:4-366:5
+    Source: 'crates/protocol/src/inline.rs', lines 384:4-388:5
     Visibility: public -/
 @[rust_loop]
 def inline.push_inline_loop
@@ -6991,7 +7038,7 @@ def inline.push_inline_loop
     (out, style, i)
 
 /-- [protocol::inline::push_inline]:
-    Source: 'crates/protocol/src/inline.rs', lines 359:0-368:1
+    Source: 'crates/protocol/src/inline.rs', lines 381:0-390:1
     Visibility: public -/
 def inline.push_inline
   (out : alloc.vec.Vec Std.U8) (md : Slice Std.U8) (start : Std.Usize)

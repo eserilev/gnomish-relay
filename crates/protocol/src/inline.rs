@@ -36,6 +36,8 @@ const LT: [u8; 4] = *b"&lt;";
 const GT: [u8; 4] = *b"&gt;";
 const AMP: [u8; 5] = *b"&amp;";
 const TAB: [u8; 4] = *b"    ";
+/// A search for a closer reads at most this many bytes, so hostile text renders in linear time.
+pub const MAX_SEARCH: usize = 4096;
 
 const PLAIN: Style = Style {
     bold: Mark::Off,
@@ -131,12 +133,24 @@ fn run_len(md: &[u8], i: usize, end: usize, b: u8) -> usize {
     j - i
 }
 
-/// The start of the next run of exactly `n` backticks, or `end` if none.
+/// `from + len`, or `end` when that comes first.
+fn ahead(from: usize, len: usize, end: usize) -> usize {
+    if from < end && end - from > len {
+        from + len
+    } else {
+        end
+    }
+}
+
+/// The start of the next run of exactly `n` backticks in the `MAX_SEARCH` bytes from
+/// `from`, or `end` if none.
 fn find_tick_run(md: &[u8], from: usize, end: usize, n: usize) -> usize {
+    let limit = ahead(from, MAX_SEARCH, end);
     let mut j = from;
-    while j < end {
-        let len = run_len(md, j, end, b'`');
-        if len == n {
+    while j < limit {
+        let len = run_len(md, j, limit, b'`');
+        // A run that the limit cuts is longer than it looks.
+        if len == n && byte_at(md, end, j + len) != b'`' {
             return j;
         }
         j += if len == 0 { 1 } else { len };
@@ -151,6 +165,13 @@ pub(crate) fn find_byte(md: &[u8], from: usize, end: usize, b: u8) -> usize {
         j += 1;
     }
     j
+}
+
+/// The next `b` in the `MAX_SEARCH` bytes from `from`, or `end` if none.
+fn find_byte_near(md: &[u8], from: usize, end: usize, b: u8) -> usize {
+    let limit = ahead(from, MAX_SEARCH, end);
+    let j = find_byte(md, from, limit, b);
+    if j < limit { j } else { end }
 }
 
 fn flip(mark: Mark) -> Mark {
@@ -222,13 +243,14 @@ fn can_close(md: &[u8], start: usize, end: usize, i: usize, n: usize) -> bool {
     !is_space(byte_before(md, start, i)) && !word
 }
 
-/// A later run of `n` delimiters that can close the run at `i`. An opener with
-/// none is text.
+/// A run of `n` delimiters in the `MAX_SEARCH` bytes after the run at `i` that can
+/// close it. An opener with none is text.
 fn has_closer(md: &[u8], start: usize, end: usize, i: usize, n: usize) -> bool {
     let d = md[i];
+    let limit = ahead(i + n, MAX_SEARCH, end);
     let mut j = i + n;
-    while j < end {
-        if run_len(md, j, end, d) >= n && can_close(md, start, end, j, n) {
+    while j < limit {
+        if run_len(md, j, ahead(j, n, end), d) >= n && can_close(md, start, end, j, n) {
             return true;
         }
         j += 1;
@@ -260,7 +282,7 @@ fn emphasis(
     escape: Escape,
 ) -> (usize, Style) {
     let (start, end) = span;
-    let n = min3(run_len(md, i, end, md[i]));
+    let n = min3(run_len(md, i, ahead(i, 3, end), md[i]));
     if !toggles(md, start, end, i, n, style) {
         push_text_range(out, md, i, i + n, escape);
         return (i + n, style);
@@ -308,10 +330,10 @@ fn code_span(
 
 /// `[text](target)` shows its text. WoW cannot open a browser, so the target goes.
 fn link(out: &mut Vec<u8>, md: &[u8], end: usize, i: usize, style: Style, escape: Escape) -> usize {
-    let close = find_byte(md, i + 1, end, b']');
+    let close = find_byte_near(md, i + 1, end, b']');
     let target = close + 1;
     let open = target < end && md[target] == b'(';
-    let paren = find_byte(md, target, end, b')');
+    let paren = find_byte_near(md, target, end, b')');
     if !open || paren == end {
         push_text_byte(out, b'[', escape);
         return i + 1;
@@ -519,6 +541,61 @@ mod tests {
         push_code_byte(&mut out, b'|');
         push_code_byte(&mut out, b'<');
         assert_eq!(out, b"    ||<");
+    }
+
+    #[test]
+    fn a_closer_past_the_search_limit_is_text() {
+        let gap = vec![b'a'; MAX_SEARCH];
+        let near = [b"*", &gap[..MAX_SEARCH - 1], b"*"].concat();
+        let far = [b"*", &gap[..], b"*"].concat();
+
+        assert_eq!(
+            html(&near),
+            [&ITALIC[..], &gap[..MAX_SEARCH - 1], &RESET].concat()
+        );
+        assert_eq!(html(&far), far);
+    }
+
+    #[test]
+    fn a_code_span_or_link_past_the_search_limit_is_text() {
+        let gap = vec![b'a'; MAX_SEARCH];
+        let tick = [b"`", &gap[..], b"`"].concat();
+        let link = [b"[", &gap[..], b"](x)"].concat();
+        let target = [b"[a](", &gap[..], b")"].concat();
+
+        assert_eq!(html(&tick), tick);
+        assert_eq!(html(&link), link);
+        assert_eq!(html(&target), target);
+    }
+
+    #[test]
+    fn a_tick_run_cut_by_the_search_limit_is_not_a_closer() {
+        let gap = vec![b'a'; MAX_SEARCH - 1];
+        let md = [b"`", &gap[..], b"``"].concat();
+
+        assert_eq!(html(&md), md);
+    }
+
+    #[test]
+    fn many_openers_with_no_closer_render_fast_and_as_text() {
+        let mut md = b"*a _a [a ".repeat(30_000);
+        md.extend_from_slice(&b"`".repeat(100_000));
+
+        let started = std::time::Instant::now();
+        let out = html(&md);
+
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert_eq!(out, md);
+    }
+
+    #[test]
+    fn a_long_run_of_stars_renders_fast() {
+        let md = [&b"a "[..], &b"*".repeat(200_000)].concat();
+
+        let started = std::time::Instant::now();
+        html(&md);
+
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
     }
 
     #[test]
