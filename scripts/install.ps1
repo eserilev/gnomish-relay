@@ -29,6 +29,13 @@ if ($want -ne $have) { throw "the download does not match its SHA-256 sum" }
 
 $bin = Join-Path $env:LOCALAPPDATA "gnomish-relay\bin"
 New-Item -ItemType Directory -Force -Path $bin | Out-Null
+# Windows refuses to replace a running program. `/T` also stops the agents of the app.
+# Setup starts the app again.
+$exe = Join-Path $bin "gnomish-relay.exe"
+foreach ($running in @(Get-Process -Name gnomish-relay -ErrorAction SilentlyContinue | Where-Object { $_.Path -eq $exe })) {
+    & taskkill.exe /PID $running.Id /T /F | Out-Null
+    $running.WaitForExit(10000) | Out-Null
+}
 Expand-Archive "$tmp\$name" -DestinationPath $bin -Force
 Remove-Item -Recurse -Force $tmp
 

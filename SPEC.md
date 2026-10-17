@@ -2967,7 +2967,7 @@ The manifest:
 
 **The config.** After the programs, setup sets `program` and `lore_pack` in `[story]`, also before the pack exists,, with `~/` for a path in the home folder. It replaces the lines of both keys, also the commented ones of 12, and keeps every other line. A config with no `[story]` gets one at its end. As in 11.3, setup checks the new text with the config loader before it writes.
 
-**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. `install.sh` runs inside a `main` function that its last line calls, so a partial download under `curl | sh` runs nothing. `--no-autostart` turns it off. With no argument, they set up only Gnomish Relay. `install.ps1` sets up the desktop app in WSL2 only with `-Wsl` or `--wsl` (11.5).
+**The installers.** `install.sh` and `install.ps1` pass their arguments to setup, and always add `--autostart`. Windows refuses to replace a running program, so `install.ps1` first stops the desktop app of its bin folder with `taskkill /T`. Setup starts it again. `install.sh` runs inside a `main` function that its last line calls, so a partial download under `curl | sh` runs nothing. `--no-autostart` turns it off. With no argument, they set up only Gnomish Relay. `install.ps1` sets up the desktop app in WSL2 only with `-Wsl` or `--wsl` (11.5).
 
 Timeways players see short lines, in the Timeways README and in its setup window in the game. Each line fetches a small script from the GitHub Pages of the Timeways repo (its `docs` folder). That script runs the installer of this repo with `--timeways`, so this repo keeps the only copy of the install steps.
 
