@@ -459,7 +459,7 @@ impl Bridge {
             }
             // TODO: a lane when Gnomish Workshop gets one. Only a test key routes here yet.
             (App::Workshop, _, _) => {
-                log("got a message for Gnomish Workshop, which this desktop app can't run yet");
+                log(&format!("got a message: {}", app_off_reason(app)));
                 return StripOutcome::AppOff(app);
             }
         }
@@ -490,7 +490,7 @@ fn kept_reason(outcome: &StripOutcome) -> Option<&'static str> {
 fn app_off_reason(app: App) -> &'static str {
     match app {
         App::Relay | App::Timeways => "its app is off in config.toml",
-        App::Workshop => "Gnomish Workshop has no lane yet",
+        App::Workshop => "this desktop app can't run Gnomish Workshop yet",
     }
 }
 
@@ -1695,7 +1695,10 @@ mod tests {
 
         assert_eq!(relay, Some("its app is off in config.toml"));
         assert_eq!(timeways, Some("its app is off in config.toml"));
-        assert_eq!(workshop, Some("Gnomish Workshop has no lane yet"));
+        assert_eq!(
+            workshop,
+            Some("this desktop app can't run Gnomish Workshop yet")
+        );
     }
 
     #[test]
