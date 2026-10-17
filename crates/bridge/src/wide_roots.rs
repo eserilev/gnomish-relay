@@ -57,15 +57,18 @@ pub fn wide_root_line(root: &Path, wide: WideRoot, home: &Path) -> String {
     )
 }
 
-/// `roots` are the real paths of the config, as `path_bytes` gives them.
-pub fn refuse_wide_roots(roots: &[Vec<u8>], places: &Places) -> Result<()> {
+/// `roots` are the roots of the config as it names them, so the line names the entry
+/// and not the folder that a link leads to.
+pub fn refuse_wide_roots(roots: &[PathBuf], places: &Places) -> Result<()> {
     for root in roots {
-        let root = PathBuf::from(String::from_utf8_lossy(root).into_owned());
-        if let Some(wide) = wide_root(&root, places) {
+        let Ok(real) = real_path(root) else {
+            continue;
+        };
+        if let Some(wide) = wide_root(&real, places) {
             bail!(
-                "allowed_roots has {}, which is {}. Agents can't work there. Remove it \
+                "allowed_roots has {}, which is now {}. Agents can't work there. Remove it \
                  from allowed_roots in config.toml, then run gnomish-relay restart.",
-                with_tilde(&root, places.home),
+                with_tilde(root, places.home),
                 wide.text()
             );
         }
@@ -136,14 +139,14 @@ mod tests {
     #[test]
     fn a_config_with_the_home_folder_as_a_root_is_refused_and_names_it() {
         let c = computer();
-        let roots = [path_bytes(&c.home.join("Code")), path_bytes(&c.home)];
+        let roots = [c.home.join("Code"), c.home.clone()];
 
         let error = refuse_wide_roots(&roots, &c.places()).unwrap_err();
 
         assert!(
             error
                 .to_string()
-                .starts_with("allowed_roots has ~, which is your whole home folder."),
+                .starts_with("allowed_roots has ~, which is now your whole home folder."),
             "{error}"
         );
     }
@@ -152,6 +155,6 @@ mod tests {
     fn a_config_with_project_roots_is_fine() {
         let c = computer();
 
-        assert!(refuse_wide_roots(&[path_bytes(&c.home.join("Code"))], &c.places()).is_ok());
+        assert!(refuse_wide_roots(&[c.home.join("Code")], &c.places()).is_ok());
     }
 }

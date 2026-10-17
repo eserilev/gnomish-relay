@@ -60,7 +60,7 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let Some(relay) = &config.relay else {
         return lines;
     };
-    if let Err(e) = refuse_wide_roots(&relay.policy.folders.roots, places) {
+    if let Err(e) = refuse_wide_roots(&relay.root_paths, places) {
         lines.push(format!("Config: has an error. {e:#}"));
     }
     let gate = Gate::new(relay, places, Prompt::Off);

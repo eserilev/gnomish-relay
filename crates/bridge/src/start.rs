@@ -174,7 +174,7 @@ pub fn start_relay(
         home: &dirs.home,
     };
     // A link in the place of a root can make it any folder (SPEC.md 12).
-    refuse_wide_roots(&relay.policy.folders.roots, &places)?;
+    refuse_wide_roots(&relay.root_paths, &places)?;
     for root in &relay.missing_roots {
         crate::run::log(&missing_root_line(root, &dirs.home));
     }
@@ -348,9 +348,11 @@ mod tests {
             .err()
             .unwrap();
 
-        assert!(
-            error.to_string().contains("your whole home folder"),
-            "{error}"
+        assert_eq!(
+            error.to_string(),
+            "allowed_roots has ~/Code, which is now your whole home folder. Agents can't \
+             work there. Remove it from allowed_roots in config.toml, then run \
+             gnomish-relay restart."
         );
     }
 

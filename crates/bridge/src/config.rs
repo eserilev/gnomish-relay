@@ -174,6 +174,9 @@ pub struct RelayConfig {
     pub agent_network: AgentNetwork,
     /// `[git] ci_checks`: the CI checks of a chat branch through `gh` (SPEC.md 9.11).
     pub ci_checks: CiChecks,
+    /// The roots that exist at load, as the config names them with `~` expanded. The
+    /// check of wide roots names a root so (SPEC.md 12).
+    pub root_paths: Vec<PathBuf>,
     /// The roots that don't exist at load, as the config names them with `~` expanded.
     /// The bridge skips them: one can be on a drive that isn't connected (SPEC.md 12).
     pub missing_roots: Vec<PathBuf>,
@@ -825,7 +828,11 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
     let Some(allowed_roots) = file.allowed_roots.as_ref() else {
         return no_relay_keys(&file).map(|()| None);
     };
-    let (roots, missing_roots) = present_and_missing_roots(allowed_roots, home)?;
+    let (root_paths, missing_roots) = present_and_missing_roots(allowed_roots, home)?;
+    let roots = root_paths
+        .iter()
+        .map(|path| real_folder_of(path))
+        .collect::<Result<Vec<_>>>()?;
     offline_default_folder(
         file.default_cwd.as_deref(),
         allowed_roots,
@@ -897,26 +904,34 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         local_ports,
         agent_network,
         ci_checks: ci_checks(file.git.as_ref()),
+        root_paths,
         missing_roots,
     }))
 }
 
-/// The real path of each root that exists, and the path of each one that doesn't.
+/// The path of each root that exists, and of each one that doesn't.
 fn present_and_missing_roots(
     allowed_roots: &[String],
     home: &Path,
-) -> Result<(Vec<Vec<u8>>, Vec<PathBuf>)> {
+) -> Result<(Vec<PathBuf>, Vec<PathBuf>)> {
     let mut present = Vec::new();
     let mut missing = Vec::new();
     for root in allowed_roots {
         let path = expand(root, home)?;
-        match path.canonicalize() {
-            Ok(real) => present.push(path_bytes(&real)),
-            Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing.push(path),
-            Err(e) => bail!("allowed root {}: {e}", path.display()),
+        match path.try_exists() {
+            Ok(true) => present.push(path),
+            Ok(false) => missing.push(path),
+            Err(e) => bail!("can't open the folder {root} in allowed_roots: {e}"),
         }
     }
     Ok((present, missing))
+}
+
+fn real_folder_of(path: &Path) -> Result<Vec<u8>> {
+    let real = path
+        .canonicalize()
+        .with_context(|| format!("the folder {} in allowed_roots is gone", path.display()))?;
+    Ok(path_bytes(&real))
 }
 
 /// `check_agent` passed, so the preset exists.
