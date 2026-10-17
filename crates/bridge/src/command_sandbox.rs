@@ -260,6 +260,7 @@ pub struct RunWalls {
 impl Drop for RunWalls {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.file);
+        remove_run_folder(&self.file);
     }
 }
 
@@ -325,6 +326,11 @@ impl RunWalls {
             self.holder = Some(start_holder(&self.walls)?);
         }
         Ok(())
+    }
+
+    /// Holds the walls file and the record of the sweeps, and nothing of another run.
+    pub fn folder(&self) -> &Path {
+        self.file.parent().unwrap_or(&self.file)
     }
 
     /// The wrapper ran at least once in this run.
@@ -971,6 +977,7 @@ impl GitCheck {
     pub fn notice(&self) -> Option<String> {
         sweep(&self.watched, &self.record);
         let mut lines = take_record(&self.record);
+        remove_run_folder(&self.record);
         lines.extend(self.made_notice());
         (!lines.is_empty()).then(|| lines.join(" "))
     }
@@ -1089,16 +1096,29 @@ fn check_empty(file: PathBuf) -> Result<PathBuf, String> {
     Ok(file)
 }
 
+/// Each run has a folder of its own, named after its temp folder. The agent wall binds
+/// back only this folder (SPEC.md 6.6.4).
 fn write_walls(place: &Path, walls: &Walls) -> Result<PathBuf, String> {
     let name = walls
         .temp
         .file_name()
-        .map(|n| format!("{}.json", n.to_string_lossy()))
         .ok_or("The temp folder has no name.")?;
+    let folder = place.join(name);
+    crate::fs_safe::make_private_dir(&folder)
+        .map_err(|e| format!("No folder for the walls of the run: {e:#}"))?;
     let text = serde_json::to_string(walls)
         .map_err(|e| format!("The sandbox needs paths in UTF-8: {e}"))?;
-    crate::fs_safe::write_private(place, &name, &text).map_err(|e| format!("{e:#}"))?;
-    Ok(place.join(name))
+    crate::fs_safe::write_private(&folder, WALLS_FILE, &text).map_err(|e| format!("{e:#}"))?;
+    Ok(folder.join(WALLS_FILE))
+}
+
+const WALLS_FILE: &str = "walls.json";
+
+/// The record goes after the run, so the folder of the run goes when both are gone.
+fn remove_run_folder(walls_file: &Path) {
+    if let Some(folder) = walls_file.parent() {
+        let _ = std::fs::remove_dir(folder);
+    }
 }
 
 /// They hold the sockets of the ssh agent and the desktop, and the temp files of other
@@ -1789,6 +1809,25 @@ mod tests {
             let empty = run.join().unwrap().unwrap();
             assert_eq!(std::fs::read(empty).unwrap(), b"");
         }
+    }
+
+    /// The agent wall binds back only the folder of its own run, so an agent sees no
+    /// walls file and no record of another run.
+    #[test]
+    fn each_run_has_its_own_folder_for_its_walls_and_its_record() {
+        let h = folders();
+
+        let first = run_walls(&h, &h.chat).unwrap();
+        let second = run_walls(&h, &h.chat).unwrap();
+
+        let sandbox = h.data.join("sandbox");
+        assert_eq!(first.folder().parent(), Some(sandbox.as_path()));
+        assert_ne!(first.folder(), second.folder());
+        assert_eq!(first.file.parent(), Some(first.folder()));
+        assert_eq!(first.git.record.parent(), Some(first.folder()));
+        let folder = first.folder().to_owned();
+        drop(first);
+        assert!(!folder.exists());
     }
 
     #[test]

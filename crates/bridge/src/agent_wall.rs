@@ -314,7 +314,8 @@ impl AgentWall {
     }
 
     /// The proxy and the walls of one agent process. `binds` are the folders that the
-    /// agent writes, such as the chat folder and the temp folder of the run. `None` on a
+    /// agent writes, such as the chat folder, the temp folder of the run, and the folder
+    /// of its walls under `<data>/sandbox`. `None` on a
     /// computer with no wall.
     pub fn prepare(&self, binds: &[&Path], tag: &str) -> Result<Option<RunWall>, String> {
         let Sandbox::Bwrap(bwrap) = &self.tool else {
@@ -333,9 +334,7 @@ impl AgentWall {
         let hidden = HiddenPaths::of(&self.hidden);
         let read_only = existing.into_iter().filter(|p| !hidden.holds(p)).collect();
         // The hidden folders are real paths, so each bind is one too.
-        let mut all_binds: Vec<PathBuf> = binds.iter().map(|b| real_or_same(b)).collect();
-        // The command sandbox reads its walls there and writes the removed names there.
-        all_binds.push(real_or_same(&place));
+        let all_binds: Vec<PathBuf> = binds.iter().map(|b| real_or_same(b)).collect();
         let spec = WallSpec {
             bwrap: bwrap.clone(),
             forwarder: self.wrapper.clone(),
@@ -955,7 +954,7 @@ mod tests {
 
     #[cfg(target_os = "linux")]
     #[test]
-    fn prepare_hides_the_data_and_config_folders_and_binds_the_sandbox_folder_back() {
+    fn prepare_hides_the_data_and_config_folders_and_binds_back_no_folder_of_its_own() {
         let root = tempfile::tempdir().unwrap();
         let root = root.path().canonicalize().unwrap();
         let (data, config) = (root.join("data"), root.join("config"));
@@ -974,7 +973,7 @@ mod tests {
         let run = wall.prepare(&[], "test").unwrap().unwrap();
 
         assert_eq!(run.spec.hidden_folders, [config, data.clone()]);
-        assert_eq!(run.spec.binds, [data.join("sandbox")]);
+        assert!(run.spec.binds.is_empty(), "{:?}", run.spec.binds);
     }
 
     /// The hidden folders are real paths, so a bind through a link must be one too, or

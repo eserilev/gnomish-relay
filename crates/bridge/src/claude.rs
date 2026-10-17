@@ -188,10 +188,12 @@ impl ClaudeAgent {
         }
     }
 
-    /// The agent wall binds the chat folder and the temp folder of the command sandbox.
+    /// The agent wall binds the chat folder, and the temp folder and the walls folder of
+    /// the command sandbox.
     fn agent_wall(&self, job: &Job, walls: Option<&RunWalls>) -> Result<Option<RunWall>, String> {
         let mut binds = vec![Path::new(&job.cwd)];
         binds.extend(walls.map(|w| w.walls.temp.as_path()));
+        binds.extend(walls.map(RunWalls::folder));
         self.wall
             .prepare(&binds, &format!("agent of chat {}", job.chat))
     }

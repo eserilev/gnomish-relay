@@ -420,7 +420,7 @@ fn the_codex_hooks_and_rules_and_a_moved_claude_config_cannot_change() {
 }
 
 /// The data folder holds the desktop approvals, and the config folder the keys. The agent
-/// reaches neither, but its commands still find their walls in `<data>/sandbox`.
+/// reaches neither, and in `<data>/sandbox` it sees only the folder of its own run.
 #[test]
 fn an_agent_cannot_write_an_approval_file() {
     let Some(tool) = bwrap() else { return };
@@ -430,7 +430,9 @@ fn an_agent_cannot_write_an_approval_file() {
     fs::write(config.join("strip.key"), "secret").unwrap();
     fs::create_dir_all(m.data.join("approvals")).unwrap();
     let approval = m.data.join("approvals/x.json");
-    let walls = m.data.join("sandbox/walls.json");
+    let walls = m.data.join("sandbox/other-run/walls.json");
+    fs::create_dir_all(m.data.join("sandbox/other-run")).unwrap();
+    fs::write(&walls, "secret").unwrap();
     let agent = claude(
         &m,
         wall(&m, tool, settings(&[])).hiding(std::slice::from_ref(&config)),
@@ -440,7 +442,7 @@ fn an_agent_cannot_write_an_approval_file() {
         &m,
         &*agent,
         &format!(
-            "write={} read={} write={}",
+            "write={} read={} read={}",
             approval.display(),
             config.join("strip.key").display(),
             walls.display()
@@ -448,7 +450,7 @@ fn an_agent_cannot_write_an_approval_file() {
     );
 
     assert!(
-        reply.starts_with("write=fail read=fail write=ok"),
+        reply.starts_with("write=fail read=fail read=fail"),
         "{reply}"
     );
     assert!(!approval.exists());
