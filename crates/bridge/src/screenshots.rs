@@ -38,8 +38,8 @@ impl Watcher {
         }
     }
 
-    /// PNG files with the same size as at the last scan, so WoW has finished them. A file
-    /// stays ready until `after_read` marks it done.
+    /// PNG files with the same size as at the last scan, so WoW has finished them, the
+    /// newest first. A file stays ready until `after_read` marks it done.
     pub fn ready(&mut self) -> Vec<PathBuf> {
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return Vec::new();
@@ -56,21 +56,24 @@ impl Watcher {
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
-            let Ok(size) = entry.metadata().map(|m| m.len()) else {
+            let Ok(meta) = entry.metadata() else {
                 continue;
             };
+            let size = meta.len();
             if !is_png || !kind.is_file() || self.done.get(&path) == Some(&size) {
                 continue;
             }
             if self.sizes.insert(path.clone(), size) == Some(size) {
-                ready.push(path);
+                ready.push((meta.modified().ok(), path));
             }
         }
+        // A new strip then waits for no old screenshot of the player.
+        ready.sort_by_key(|(modified, _)| std::cmp::Reverse(*modified));
         // Forget deleted files, so the maps stay as small as the folder.
         self.done.retain(|p, _| present.contains(p));
         self.sizes.retain(|p, _| present.contains(p));
         self.failures.retain(|p, _| present.contains(p));
-        ready
+        ready.into_iter().map(|(_, path)| path).collect()
     }
 
     /// A file is done after a read that worked, or after `MAX_READ_TRIES` failed reads.
@@ -124,6 +127,26 @@ mod tests {
         fs::write(&shot, b"half and more").unwrap();
         assert!(watcher.ready().is_empty());
         assert_eq!(watcher.ready(), [shot]);
+    }
+
+    #[test]
+    fn the_newest_file_is_ready_first() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut watcher = Watcher::new(dir.path());
+        let old = dir.path().join("WoWScrnShot_b.png");
+        let new = dir.path().join("WoWScrnShot_a.png");
+        fs::write(&old, b"old").unwrap();
+        fs::write(&new, b"new").unwrap();
+        let earlier = std::time::SystemTime::now() - std::time::Duration::from_mins(1);
+        fs::File::options()
+            .write(true)
+            .open(&old)
+            .unwrap()
+            .set_modified(earlier)
+            .unwrap();
+        watcher.ready();
+
+        assert_eq!(watcher.ready(), [new, old]);
     }
 
     #[test]

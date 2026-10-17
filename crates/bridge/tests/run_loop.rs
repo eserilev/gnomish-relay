@@ -180,6 +180,30 @@ fn a_strip_whose_first_read_failed_is_read_again_once_it_is_whole() {
         .contains("echo: late bytes")));
 }
 
+/// A start can find thousands of screenshots, and one step must stay short.
+#[test]
+fn one_step_reads_at_most_16_screenshots_and_the_newest_first() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let start = std::time::SystemTime::now() - Duration::from_secs(100);
+    let mut strips = Vec::new();
+    for id in 0..17 {
+        let path = f.screenshots.join(format!("WoWScrnShot_{id}.png"));
+        let png = screenshot_png(&strip_rows(&frame_with_id(KEY, id, "hi")));
+        fs::write(&path, png).unwrap();
+        let file = fs::File::options().write(true).open(&path).unwrap();
+        file.set_modified(start + Duration::from_secs(u64::from(id)))
+            .unwrap();
+        strips.push(path);
+    }
+
+    bridge.step();
+    bridge.step();
+
+    let left: Vec<_> = strips.iter().filter(|p| p.exists()).collect();
+    assert_eq!(left, [&strips[0]]);
+}
+
 #[test]
 fn a_taken_strip_is_the_last_strip_of_the_status() {
     let f = folders();

@@ -69,6 +69,9 @@ const TICK: Duration = Duration::from_millis(250);
 const HEARTBEAT: Duration = Duration::from_mins(1);
 /// A flood of spool files then costs at most one live file for each 3 seconds (SPEC.md 10.2).
 const NOTICE_GAP: Duration = Duration::from_secs(3);
+/// A normal screenshot costs its top 32 rows, and a strip about 1024. So one step stays
+/// short also when a start finds thousands of screenshots.
+const MAX_READS_PER_STEP: usize = 16;
 /// The folder of the Timeways state, inside the data folder (SPEC.md 9.7, decision 4).
 pub const TIMEWAYS_DIR: &str = "timeways";
 
@@ -365,12 +368,17 @@ impl Bridge {
         }
     }
 
+    /// The files over the limit stay ready for the next step.
     fn take_screenshots(&mut self) {
+        let mut left = MAX_READS_PER_STEP;
         for i in 0..self.watchers.len() {
-            for path in self.watchers[i].ready() {
-                let read = self.take_screenshot(&path);
-                self.watchers[i].after_read(&path, read);
+            let ready = self.watchers[i].ready();
+            let now_read = ready.len().min(left);
+            for path in &ready[..now_read] {
+                let read = self.take_screenshot(path);
+                self.watchers[i].after_read(path, read);
             }
+            left -= now_read;
         }
     }
 
