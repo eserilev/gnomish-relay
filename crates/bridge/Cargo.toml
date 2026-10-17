@@ -5,6 +5,8 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 description = "The Gnomish Relay bridge: agents on one side, WoW on the other."
+# The crate has fake agents as binaries too, so `cargo run` needs a name.
+default-run = "gnomish-relay"
 
 [[bin]]
 name = "gnomish-relay"
