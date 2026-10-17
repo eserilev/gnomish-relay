@@ -17,7 +17,8 @@ const MAX_DEPTH: usize = 4;
 const MAX_KEYS: usize = 64;
 const MAX_NAME: usize = 128;
 const MAX_REALM: usize = 64;
-const MAX_CHARACTER: usize = 48;
+/// The whole name of WoW Forever, "First Surname": 12 letters each, 2 bytes for an accent.
+const MAX_CHARACTER: usize = 64;
 const MAX_QUESTION: usize = 1024;
 const MAX_NPC: usize = 64;
 const MAX_TALK: usize = 255;
@@ -585,14 +586,21 @@ mod tests {
     }
 
     #[test]
-    fn a_realm_of_64_bytes_and_a_name_of_48_bytes_pass_and_one_more_refuses_the_batch() {
-        let longest = character(&"r".repeat(64), &"é".repeat(24));
+    fn a_realm_of_64_bytes_and_a_name_of_64_bytes_pass_and_one_more_refuses_the_batch() {
+        let longest = character(&"r".repeat(64), &"é".repeat(32));
         assert!(batch(&[&longest, EVENT]).is_ok());
 
         let realm = character(&"r".repeat(65), "Anduin");
-        let name = character("Stormrage", &format!("{}n", "é".repeat(24)));
+        let name = character("Stormrage", &format!("{}n", "é".repeat(32)));
         assert_eq!(batch(&[&realm, EVENT]), Err(Refused::Character));
         assert_eq!(batch(&[&name, EVENT]), Err(Refused::Character));
+    }
+
+    /// WoW Forever names a character "First Surname", with 12 letters in each part.
+    #[test]
+    fn a_full_name_of_wow_forever_with_accents_passes() {
+        let full = format!("{} {}", "é".repeat(12), "ö".repeat(12));
+        assert!(batch(&[&character("Classic Beta PvP 2", &full), EVENT]).is_ok());
     }
 
     #[test]

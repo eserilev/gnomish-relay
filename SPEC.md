@@ -1985,7 +1985,7 @@ The bridge and the Timeways story program talk in JSON lines: one JSON object on
 
 | `type` | Fields | Checks |
 |---|---|---|
-| `character_entered` | `realm`, `name` | `realm` at most 64 bytes, `name` at most 48 bytes |
+| `character_entered` | `realm`, `name` | `realm` at most 64 bytes, `name` at most 64 bytes (the whole name of WoW Forever, "First Surname") |
 | `lore_asked` | `at`, `question`, `target` (optional) | `question` at most 1 KiB, `target` at most 128 bytes |
 | `journal_asked` | `page` (optional, default 0) | |
 | `talk_asked` | `at`, `npc`, `text` | `npc` 1 to 64 bytes, `text` at most 255 bytes |
