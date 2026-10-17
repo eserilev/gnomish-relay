@@ -16,7 +16,7 @@ use crate::config_text::{self, RelayPart};
 use crate::fs_safe::{make_private_dir, write_private};
 use crate::install::{self, Installed};
 use crate::model_setup::FoundModel;
-use crate::receive::{KeySet, RELAY_KEY_FILE, StripKey, TIMEWAYS_KEY_FILE, key_file};
+use crate::receive::{KeySet, StripKey, TIMEWAYS_KEY_FILE, key_file};
 use crate::run::now;
 use crate::slots::{self, Files};
 
@@ -77,20 +77,21 @@ fn read_key(dir: &Path, file: &str) -> Option<String> {
 pub struct Keys {
     /// The key of the product in hex.
     pub hex: String,
-    /// The bad key files that setup replaced with a new key.
-    pub replaced: Vec<PathBuf>,
+    /// The apps whose bad key file setup replaced with a new key.
+    pub replaced: Vec<App>,
 }
 
-/// Reads the key in `file`, or makes one. A new key is never one of `others`, because
-/// the bridge refuses equal keys (SPEC.md 9.7, decision 1). Adds a bad file that it
-/// replaces to `replaced`.
+/// Reads the key of `app`, or makes one. A new key is never one of `others`, because
+/// the bridge refuses equal keys (SPEC.md 9.7, decision 1). Adds `app` to `replaced`
+/// when its file was bad.
 fn key(
     dir: &Path,
-    file: &str,
+    app: App,
     choice: KeyChoice,
     others: &[String],
-    replaced: &mut Vec<PathBuf>,
+    replaced: &mut Vec<App>,
 ) -> Result<String> {
+    let file = key_file(app);
     let found = read_key_file(dir, file);
     if choice == KeyChoice::Keep
         && let KeyFile::Good(hex) = found
@@ -103,7 +104,7 @@ fn key(
     }
     write_private(dir, file, &hex)?;
     if matches!(found, KeyFile::Bad) {
-        replaced.push(dir.join(file));
+        replaced.push(app);
     }
     Ok(hex)
 }
@@ -124,8 +125,8 @@ pub struct Changed {
     pub key_addon: Installed,
     /// WoW finds a new slot folder only at launch.
     pub new_slots: bool,
-    /// The bad key files that setup replaced with a new key.
-    pub replaced_keys: Vec<PathBuf>,
+    /// The apps whose bad key file setup replaced with a new key.
+    pub replaced_keys: Vec<App>,
 }
 
 /// The key of `product` in hex. Every setup also makes `strip.key` when it is missing,
@@ -137,19 +138,13 @@ pub fn make_keys(dir: &Path, product: Product, keys: KeyChoice) -> Result<Keys> 
     if app != App::Relay {
         key(
             dir,
-            RELAY_KEY_FILE,
+            App::Relay,
             KeyChoice::Keep,
             &other_keys(dir, App::Relay),
             &mut replaced,
         )?;
     }
-    let hex = key(
-        dir,
-        key_file(app),
-        keys,
-        &other_keys(dir, app),
-        &mut replaced,
-    )?;
+    let hex = key(dir, app, keys, &other_keys(dir, app), &mut replaced)?;
     // Equal keys stop setup here, as they stop the bridge.
     KeySet::load(dir)?;
     Ok(Keys { hex, replaced })
@@ -406,6 +401,7 @@ pub fn level_line(relay: &config::RelayConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::receive::RELAY_KEY_FILE;
 
     #[test]
     fn a_key_file_of_the_wrong_size_gets_a_new_key_and_says_so() {
@@ -419,7 +415,7 @@ mod tests {
             fs::read_to_string(dir.path().join(RELAY_KEY_FILE)).unwrap(),
             keys.hex
         );
-        assert_eq!(keys.replaced, [dir.path().join(RELAY_KEY_FILE)]);
+        assert_eq!(keys.replaced, [App::Relay]);
     }
 
     #[test]
@@ -431,7 +427,17 @@ mod tests {
         let keys = make_keys(dir.path(), Product::Timeways, KeyChoice::Keep).unwrap();
 
         assert_eq!(keys.hex.len(), 64);
-        assert_eq!(keys.replaced, [dir.path().join(TIMEWAYS_KEY_FILE)]);
+        assert_eq!(keys.replaced, [App::Timeways]);
+    }
+
+    #[test]
+    fn a_timeways_setup_also_replaces_a_damaged_relay_key() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(RELAY_KEY_FILE), "abcd").unwrap();
+
+        let keys = make_keys(dir.path(), Product::Timeways, KeyChoice::Keep).unwrap();
+
+        assert_eq!(keys.replaced, [App::Relay]);
     }
 
     #[test]

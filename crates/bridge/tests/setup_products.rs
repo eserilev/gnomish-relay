@@ -231,7 +231,7 @@ fn setup_replaces_a_damaged_key_and_says_so() {
 
     let out = home.setup(&[]);
 
-    assert!(out.contains("Made a new key"), "{out}");
+    assert!(out.contains("Your key file was damaged"), "{out}");
     assert_eq!(fs::read_to_string(&key).unwrap().len(), 64);
 }
 

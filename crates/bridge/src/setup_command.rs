@@ -5,6 +5,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
+use protocol::apps::App;
 
 use crate::build_kind::BuildKind;
 use crate::check_agent;
@@ -298,7 +299,7 @@ pub(crate) fn product_files(
 ) -> Result<Option<setup::Changed>> {
     let Some(addons) = addons else {
         let keys = setup::make_keys(&dirs.config, product, keys)?;
-        print_replaced_keys(&keys.replaced);
+        print_replaced_keys(&keys.replaced, product);
         return Ok(None);
     };
     let folders = setup::Folders {
@@ -306,21 +307,27 @@ pub(crate) fn product_files(
         addons: addons.to_owned(),
     };
     let changed = setup::install_files(&folders, product, keys)?;
-    print_replaced_keys(&changed.replaced_keys);
+    print_replaced_keys(&changed.replaced_keys, product);
     Ok(Some(changed))
 }
 
-fn print_replaced_keys(files: &[PathBuf]) {
-    for file in files {
-        println!("{}", replaced_key_line(file));
+fn print_replaced_keys(apps: &[App], product: Product) {
+    for app in apps {
+        println!("{}", replaced_key_line(*app, product));
     }
 }
 
-fn replaced_key_line(file: &Path) -> String {
-    format!(
-        "Made a new key: the old one in {} was damaged.",
-        file.display()
-    )
+const REPLACED_KEY: &str = "Your key file was damaged, so setup made a new one.";
+const REPLACED_RELAY_KEY: &str = "Your key file was damaged, so setup made a new one. \
+                                  Run gnomish-relay setup, then type /reload in WoW.";
+
+/// `setup --timeways` also makes the relay key, but writes only the Timeways key addon.
+fn replaced_key_line(app: App, product: Product) -> &'static str {
+    if app == App::Relay && product == Product::Timeways {
+        REPLACED_RELAY_KEY
+    } else {
+        REPLACED_KEY
+    }
 }
 
 pub(crate) const SOURCE_AUTOSTART: &str = "Desktop app: not set to start at login, because this is a build from source. To run it, use cargo run -- dev";
@@ -646,12 +653,15 @@ mod tests {
     }
 
     #[test]
-    fn the_line_for_a_replaced_key_names_the_file() {
-        let line = replaced_key_line(Path::new("/cfg/strip.key"));
-
+    fn a_relay_key_that_timeways_setup_replaced_needs_the_relay_setup() {
         assert_eq!(
-            line,
-            "Made a new key: the old one in /cfg/strip.key was damaged."
+            replaced_key_line(App::Relay, Product::Timeways),
+            REPLACED_RELAY_KEY
+        );
+        assert_eq!(replaced_key_line(App::Relay, Product::Relay), REPLACED_KEY);
+        assert_eq!(
+            replaced_key_line(App::Timeways, Product::Timeways),
+            REPLACED_KEY
         );
     }
 
