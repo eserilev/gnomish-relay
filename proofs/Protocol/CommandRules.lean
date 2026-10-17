@@ -38,6 +38,21 @@ theorem dash_dash_bytes : bytes (Array.to_slice command_rules.DASH_DASH).val = a
   unfold command_rules.DASH_DASH; rfl
 theorem dash_o_bytes : bytes (Array.to_slice command_rules.DASH_O).val = ascii "-O" := by
   unfold command_rules.DASH_O; rfl
+theorem dash_tt_bytes : bytes (Array.to_slice command_rules.DASH_TT).val = ascii "-TT" := by
+  unfold command_rules.DASH_TT; rfl
+set_option maxRecDepth 10000 in
+theorem tar_runs_bytes : bytes (Array.to_slice command_rules.TAR_RUNS).val = ascii tarRunFlags := by
+  unfold command_rules.TAR_RUNS; rfl
+theorem zip_runs_bytes : bytes (Array.to_slice command_rules.ZIP_RUNS).val = ascii zipRunFlags := by
+  unfold command_rules.ZIP_RUNS; rfl
+theorem sort_runs_bytes : bytes (Array.to_slice command_rules.SORT_RUNS).val = ascii sortRunFlags := by
+  unfold command_rules.SORT_RUNS; rfl
+theorem tar_bytes : bytes (Array.to_slice command_rules.TAR).val = ascii "tar" := by
+  unfold command_rules.TAR; rfl
+theorem zip_bytes : bytes (Array.to_slice command_rules.ZIP).val = ascii "zip" := by
+  unfold command_rules.ZIP; rfl
+theorem sort_bytes : bytes (Array.to_slice command_rules.SORT).val = ascii "sort" := by
+  unfold command_rules.SORT; rfl
 theorem rm_bytes : bytes (Array.to_slice command_rules.RM).val = ascii "rm" := by
   unfold command_rules.RM; rfl
 theorem git_bytes : bytes (Array.to_slice command_rules.GIT).val = ascii "git" := by
@@ -407,6 +422,52 @@ theorem is_recursive_spec (word : Slice U8) :
   · rw [recursiveFlag, hhead, ← b_post]
     simp [*]
 
+theorem big_i_ch : ch 'I' = (73#u8 : U8).bv := by decide
+theorem big_f_ch : ch 'F' = (70#u8 : U8).bv := by decide
+
+@[step]
+theorem has_tar_program_flag_spec (word : Slice U8) :
+    command_rules.has_tar_program_flag word ⦃ r =>
+      (r = true ↔ ch 'I' ∈ bytes word.val ∨ ch 'F' ∈ bytes word.val) ⦄ := by
+  unfold command_rules.has_tar_program_flag
+  rw [big_i_ch, big_f_ch, mem_bytes, mem_bytes]
+  step*
+
+@[step]
+theorem is_tar_program_spec (word : Slice U8) :
+    command_rules.is_tar_program word ⦃ r => (r = true ↔ tarProgram (bytes word.val)) ⦄ := by
+  unfold command_rules.is_tar_program tarProgram
+  step*
+
+theorem strs_get1 (l : List (alloc.vec.Vec U8)) (h : 1 < l.length) :
+    (strs l)[1]? = some (bytes l[1].val) := by
+  simp [strs, List.getElem?_eq_getElem h]
+
+theorem strs_get1_none (l : List (alloc.vec.Vec U8)) (h : ¬ 1 < l.length) : (strs l)[1]? = none := by
+  simp [strs]; omega
+
+@[step]
+theorem is_old_tar_program_spec (words : Slice (alloc.vec.Vec U8)) :
+    command_rules.is_old_tar_program words ⦃ r => (r = true ↔ oldTarProgram (strs words.val)) ⦄ := by
+  unfold command_rules.is_old_tar_program oldTarProgram
+  have hdash : ∀ w : List U8, (bytes w).head? = some (ch '-') ↔ w.head? = some 45#u8 := by
+    intro w; rw [dash_ch, head_bv]
+  step*
+  · simp only [Bool.false_eq_true, false_iff, not_exists, not_and]
+    intro a ha hne
+    rw [strs_get1 _ (by scalar_tac), Option.some.injEq] at ha
+    subst ha
+    apply absurd _ hne
+    rw [hdash, ← v_post]
+    exact b_post.mp (by assumption)
+  · rw [r_post, strs_get1 _ (by scalar_tac)]
+    simp only [deref_val, Option.some.injEq, exists_eq_left', ← v_post]
+    constructor
+    · intro h; exact ⟨fun h' => (by assumption : ¬ b = true) (b_post.mpr ((hdash _).mp h')), h⟩
+    · intro h; exact h.2
+  · rw [strs_get1_none _ (by scalar_tac)]
+    simp
+
 @[simp, scalar_tac_simps]
 theorem git_force_len : (Array.to_slice command_rules.GIT_FORCE).val.length = 64 := by
   unfold command_rules.GIT_FORCE; rfl
@@ -512,6 +573,7 @@ def WordTest (test : command_rules.Test) (names w : List Spec.Byte) : Prop :=
   | .Versioned => VersionedB names (progName w)
   | .Option => OptionB names (flag w)
   | .Prefix => names <+: w
+  | .TarProgram => tarProgram w
   | .Flag => (ch ' ' :: flag w ++ [ch ' ']) <:+: names
   | .Recursive => recursiveFlag w
   | .GitForce => gitForce w
@@ -528,6 +590,7 @@ theorem word_passes_spec (word : Slice U8) (test : command_rules.Test) (names : 
   · rw [r_post, Protocol.Search.listed_bytes]; simp only [deref_val]; rw [v_post]; rfl
   · exact r_post
   · rw [r_post, ← prefix_bytes_iff names.val word.val]; rfl
+  · exact r_post
   · exact r_post
   · exact r_post
 
@@ -627,6 +690,9 @@ theorem anyWord_option (L : String) (words : List (alloc.vec.Vec U8)) :
 theorem anyWord_prefix (p : String) (words : List (alloc.vec.Vec U8)) :
     AnyWord .Prefix (ascii p) words ↔ ∃ w ∈ strs words, ascii p <+: w := Iff.rfl
 
+theorem anyWord_tar_program (names : List Spec.Byte) (words : List (alloc.vec.Vec U8)) :
+    AnyWord .TarProgram names words ↔ ∃ w ∈ strs words, tarProgram w := Iff.rfl
+
 theorem anyWord_flag (L : String) (words : List (alloc.vec.Vec U8)) :
     AnyWord .Flag (ascii L) words ↔ ∃ w ∈ strs words, listed L (flag w) := Iff.rfl
 
@@ -642,6 +708,33 @@ theorem is_git_runner_spec (words : Slice (alloc.vec.Vec U8)) :
   all_goals subst_vars
   all_goals simp only [git_bytes, git_runs_bytes, dash_o_bytes, anyWord_option, anyWord_prefix] at *
   all_goals grind [gitRunner, headIs]
+
+@[step]
+theorem is_tar_runner_spec (words : Slice (alloc.vec.Vec U8)) :
+    command_rules.is_tar_runner words ⦃ r => (r = true ↔ tarRunner (strs words.val)) ⦄ := by
+  unfold command_rules.is_tar_runner
+  step*
+  all_goals subst_vars
+  all_goals simp only [tar_bytes, tar_runs_bytes, anyWord_option, anyWord_tar_program] at *
+  all_goals grind [tarRunner, headIs]
+
+@[step]
+theorem is_zip_runner_spec (words : Slice (alloc.vec.Vec U8)) :
+    command_rules.is_zip_runner words ⦃ r => (r = true ↔ zipRunner (strs words.val)) ⦄ := by
+  unfold command_rules.is_zip_runner
+  step*
+  all_goals subst_vars
+  all_goals simp only [zip_bytes, zip_runs_bytes, dash_tt_bytes, anyWord_option, anyWord_prefix] at *
+  all_goals grind [zipRunner, headIs]
+
+@[step]
+theorem is_sort_runner_spec (words : Slice (alloc.vec.Vec U8)) :
+    command_rules.is_sort_runner words ⦃ r => (r = true ↔ sortRunner (strs words.val)) ⦄ := by
+  unfold command_rules.is_sort_runner
+  step*
+  all_goals subst_vars
+  all_goals simp only [sort_bytes, sort_runs_bytes, anyWord_option] at *
+  all_goals grind [sortRunner, headIs]
 
 @[step]
 theorem is_runner_spec (words : Slice (alloc.vec.Vec U8)) :

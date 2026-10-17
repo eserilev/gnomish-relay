@@ -1305,7 +1305,7 @@ def action.redirects_verdict
     0#usize
 
 /-- [protocol::command_rules::rule_matches]: loop body 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 241:4-244:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 285:4-288:5 -/
 @[rust_loop_body]
 def command_rules.rule_matches_loop.body
   (rule : Slice (alloc.vec.Vec Std.U8)) (words : Slice (alloc.vec.Vec Std.U8))
@@ -1328,7 +1328,7 @@ def command_rules.rule_matches_loop.body
   else ok (done false)
 
 /-- [protocol::command_rules::rule_matches]: loop 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 241:4-244:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 285:4-288:5 -/
 @[rust_loop]
 def command_rules.rule_matches_loop
   (rule : Slice (alloc.vec.Vec Std.U8)) (words : Slice (alloc.vec.Vec Std.U8))
@@ -1341,7 +1341,7 @@ def command_rules.rule_matches_loop
     (same, k)
 
 /-- [protocol::command_rules::rule_matches]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 235:0-246:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 279:0-290:1 -/
 def command_rules.rule_matches
   (rule : Slice (alloc.vec.Vec Std.U8)) (words : Slice (alloc.vec.Vec Std.U8))
   :
@@ -1358,7 +1358,7 @@ def command_rules.rule_matches
     else command_rules.rule_matches_loop rule words true 0#usize
 
 /-- [protocol::command_rules::matches_any]: loop body 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 251:4-254:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 295:4-298:5 -/
 @[rust_loop_body]
 def command_rules.matches_any_loop.body
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
@@ -1379,7 +1379,7 @@ def command_rules.matches_any_loop.body
     else ok (done false)
 
 /-- [protocol::command_rules::matches_any]: loop 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 251:4-254:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 295:4-298:5 -/
 @[rust_loop]
 def command_rules.matches_any_loop
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
@@ -1392,7 +1392,7 @@ def command_rules.matches_any_loop
     (found, i)
 
 /-- [protocol::command_rules::matches_any]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 248:0-256:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 292:0-300:1 -/
 @[reducible]
 def command_rules.matches_any
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8)))
@@ -1402,7 +1402,7 @@ def command_rules.matches_any
   command_rules.matches_any_loop rules words false 0#usize
 
 /-- [protocol::command_rules::is_covered]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 258:0-265:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 302:0-309:1 -/
 def command_rules.is_covered
   (words : Slice (alloc.vec.Vec Std.U8)) (policy : action.Policy)
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
@@ -1493,8 +1493,17 @@ def search.listed
     let s := alloc.vec.Vec.deref needle2
     search.contains names s
 
+/-- [protocol::command_rules::has_tar_program_flag]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 176:0-178:1 -/
+def command_rules.has_tar_program_flag
+  (word : Slice Std.U8) : Result Bool := do
+  let b ← search.has_byte word 73#u8
+  if b
+  then ok true
+  else search.has_byte word 70#u8
+
 /-- [protocol::command_rules::starts_with]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 131:0-133:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 142:0-144:1 -/
 def command_rules.starts_with
   (word : Slice Std.U8) (b : Std.U8) : Result Bool := do
   let i := Slice.len word
@@ -1504,7 +1513,7 @@ def command_rules.starts_with
   else ok false
 
 /-- [protocol::command_rules::is_short_flags]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 150:0-152:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 161:0-163:1 -/
 def command_rules.is_short_flags (word : Slice Std.U8) : Result Bool := do
   let b ← command_rules.starts_with word 45#u8
   if b
@@ -1519,8 +1528,16 @@ def command_rules.is_short_flags (word : Slice Std.U8) : Result Bool := do
     ok (¬ b1)
   else ok false
 
+/-- [protocol::command_rules::is_tar_program]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 180:0-182:1 -/
+def command_rules.is_tar_program (word : Slice Std.U8) : Result Bool := do
+  let b ← command_rules.is_short_flags word
+  if b
+  then command_rules.has_tar_program_flag word
+  else ok false
+
 /-- [protocol::command_rules::flag_of]: loop body 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 124:4-127:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 135:4-138:5 -/
 @[rust_loop_body]
 def command_rules.flag_of_loop.body
   (word : Slice Std.U8) (flag : alloc.vec.Vec Std.U8) (i : Std.Usize) :
@@ -1540,7 +1557,7 @@ def command_rules.flag_of_loop.body
   else ok (done flag)
 
 /-- [protocol::command_rules::flag_of]: loop 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 124:4-127:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 135:4-138:5 -/
 @[rust_loop]
 def command_rules.flag_of_loop
   (word : Slice Std.U8) (flag : alloc.vec.Vec Std.U8) (i : Std.Usize) :
@@ -1551,7 +1568,7 @@ def command_rules.flag_of_loop
     (flag, i)
 
 /-- [protocol::command_rules::flag_of]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 121:0-129:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 132:0-140:1 -/
 @[reducible]
 def command_rules.flag_of
   (word : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
@@ -1572,7 +1589,7 @@ def command_rules.GIT_FORCE : Array Std.U8 64#usize :=
     ]
 
 /-- [protocol::command_rules::is_git_force]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 159:0-163:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 170:0-174:1 -/
 def command_rules.is_git_force (word : Slice Std.U8) : Result Bool := do
   let s ← lift (Array.to_slice command_rules.GIT_FORCE)
   let v ← command_rules.flag_of word
@@ -1591,7 +1608,7 @@ def command_rules.is_git_force (word : Slice Std.U8) : Result Bool := do
       else ok false
 
 /-- [protocol::command_rules::is_recursive]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 154:0-156:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 165:0-167:1 -/
 def command_rules.is_recursive (word : Slice Std.U8) : Result Bool := do
   let b ← command_rules.starts_with word 45#u8
   if b
@@ -1617,7 +1634,7 @@ def search.starts_listed
     search.contains names s
 
 /-- [protocol::command_rules::has_prefix]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 135:0-137:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 146:0-148:1 -/
 def command_rules.has_prefix
   (word : Slice Std.U8) («prefix» : Slice Std.U8) : Result Bool := do
   let i := Slice.len «prefix»
@@ -1629,13 +1646,13 @@ def command_rules.has_prefix
   else ok false
 
 /-- [protocol::command_rules::DASH_DASH]
-    Source: 'crates/protocol/src/command_rules.rs', lines 43:0-43:34 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 50:0-50:34 -/
 @[global_simps, irreducible]
 def command_rules.DASH_DASH : Array Std.U8 2#usize :=
   Array.repeat 2#usize 45#u8
 
 /-- [protocol::command_rules::starts_long_flag]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 140:0-142:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 151:0-153:1 -/
 def command_rules.starts_long_flag
   (flag : Slice Std.U8) (names : Slice Std.U8) : Result Bool := do
   let i := Slice.len flag
@@ -1651,7 +1668,7 @@ def command_rules.starts_long_flag
   else ok false
 
 /-- [protocol::command_rules::is_option]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 144:0-147:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 155:0-158:1 -/
 def command_rules.is_option
   (word : Slice Std.U8) (names : Slice Std.U8) : Result Bool := do
   let flag ← command_rules.flag_of word
@@ -1664,7 +1681,7 @@ def command_rules.is_option
     command_rules.starts_long_flag s1 names
 
 /-- [protocol::command_rules::is_version_byte]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 97:0-99:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 108:0-110:1 -/
 def command_rules.is_version_byte (b : Std.U8) : Result Bool := do
   if 48#u8 <= b
   then if b <= 57#u8
@@ -1673,7 +1690,7 @@ def command_rules.is_version_byte (b : Std.U8) : Result Bool := do
   else ok (b = 46#u8)
 
 /-- [protocol::command_rules::stem_len]: loop body 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 104:4-106:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 115:4-117:5 -/
 @[rust_loop_body]
 def command_rules.stem_len_loop.body
   («name» : Slice Std.U8) (k : Std.Usize) :
@@ -1690,7 +1707,7 @@ def command_rules.stem_len_loop.body
   else ok (done k)
 
 /-- [protocol::command_rules::stem_len]: loop 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 104:4-106:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 115:4-117:5 -/
 @[rust_loop]
 def command_rules.stem_len_loop
   («name» : Slice Std.U8) (k : Std.Usize) : Result Std.Usize := do
@@ -1699,13 +1716,13 @@ def command_rules.stem_len_loop
     k
 
 /-- [protocol::command_rules::stem_len]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 102:0-108:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 113:0-119:1 -/
 def command_rules.stem_len («name» : Slice Std.U8) : Result Std.Usize := do
   let k := Slice.len «name»
   command_rules.stem_len_loop «name» k
 
 /-- [protocol::command_rules::is_versioned]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 111:0-119:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 122:0-130:1 -/
 def command_rules.is_versioned
   («name» : Slice Std.U8) (names : Slice Std.U8) : Result Bool := do
   let k ← command_rules.stem_len «name»
@@ -1718,13 +1735,13 @@ def command_rules.is_versioned
     search.listed names s
 
 /-- [protocol::command_rules::DOT_EXE]
-    Source: 'crates/protocol/src/command_rules.rs', lines 42:0-42:34 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 49:0-49:34 -/
 @[global_simps, irreducible]
 def command_rules.DOT_EXE : Array Std.U8 4#usize :=
   Array.make 4#usize [ 46#u8, 101#u8, 120#u8, 101#u8 ]
 
 /-- [protocol::command_rules::without_exe]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 77:0-85:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 88:0-96:1 -/
 def command_rules.without_exe
   («name» : alloc.vec.Vec Std.U8) : Result (alloc.vec.Vec Std.U8) := do
   let n := alloc.vec.Vec.len «name»
@@ -1751,7 +1768,7 @@ def command_rules.without_exe
     else ok «name»
 
 /-- [protocol::command_rules::name_step]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 69:0-75:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 80:0-86:1 -/
 def command_rules.name_step
   («name» : alloc.vec.Vec Std.U8) (b : Std.U8) :
   Result (alloc.vec.Vec Std.U8)
@@ -1765,7 +1782,7 @@ def command_rules.name_step
          alloc.vec.Vec.push «name» i
 
 /-- [protocol::command_rules::name_of]: loop body 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 90:4-93:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 101:4-104:5 -/
 @[rust_loop_body]
 def command_rules.name_of_loop.body
   (word : Slice Std.U8) («name» : alloc.vec.Vec Std.U8) (i : Std.Usize) :
@@ -1782,7 +1799,7 @@ def command_rules.name_of_loop.body
   else ok (done «name»)
 
 /-- [protocol::command_rules::name_of]: loop 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 90:4-93:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 101:4-104:5 -/
 @[rust_loop]
 def command_rules.name_of_loop
   (word : Slice Std.U8) («name» : alloc.vec.Vec Std.U8) (i : Std.Usize) :
@@ -1793,7 +1810,7 @@ def command_rules.name_of_loop
     («name», i)
 
 /-- [protocol::command_rules::name_of]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 87:0-95:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 98:0-106:1 -/
 def command_rules.name_of
   (word : Slice Std.U8) : Result (alloc.vec.Vec Std.U8) := do
   let «name» ←
@@ -1801,7 +1818,7 @@ def command_rules.name_of
   command_rules.without_exe «name»
 
 /-- [protocol::command_rules::word_passes]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 165:0-175:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 189:0-200:1 -/
 def command_rules.word_passes
   (word : Slice Std.U8) (test : command_rules.Test) (names : Slice Std.U8) :
   Result Bool
@@ -1823,9 +1840,10 @@ def command_rules.word_passes
   | command_rules.Test.Prefix => command_rules.has_prefix word names
   | command_rules.Test.Recursive => command_rules.is_recursive word
   | command_rules.Test.GitForce => command_rules.is_git_force word
+  | command_rules.Test.TarProgram => command_rules.is_tar_program word
 
 /-- [protocol::command_rules::any_word]: loop body 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 180:4-183:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 205:4-208:5 -/
 @[rust_loop_body]
 def command_rules.any_word_loop.body
   (words : Slice (alloc.vec.Vec Std.U8)) (test : command_rules.Test)
@@ -1846,7 +1864,7 @@ def command_rules.any_word_loop.body
     else ok (done false)
 
 /-- [protocol::command_rules::any_word]: loop 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 180:4-183:5 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 205:4-208:5 -/
 @[rust_loop]
 def command_rules.any_word_loop
   (words : Slice (alloc.vec.Vec Std.U8)) (test : command_rules.Test)
@@ -1859,7 +1877,7 @@ def command_rules.any_word_loop
     (found, i)
 
 /-- [protocol::command_rules::any_word]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 177:0-185:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 202:0-210:1 -/
 @[reducible]
 def command_rules.any_word
   (words : Slice (alloc.vec.Vec Std.U8)) (test : command_rules.Test)
@@ -1898,7 +1916,7 @@ def command_rules.DESKTOP_NAMES : Array Std.U8 84#usize :=
     ]
 
 /-- [protocol::command_rules::is_desktop]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 228:0-231:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 272:0-275:1 -/
 def command_rules.is_desktop (simple : shell.Simple) : Result Bool := do
   let s := alloc.vec.Vec.deref simple.words
   let s1 ← lift (Array.to_slice command_rules.DESKTOP_NAMES)
@@ -1933,14 +1951,14 @@ def command_rules.NETWORK : Array Std.U8 91#usize :=
     ]
 
 /-- [protocol::command_rules::is_network]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 215:0-217:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 259:0-261:1 -/
 def command_rules.is_network
   (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
   let s ← lift (Array.to_slice command_rules.NETWORK)
   command_rules.any_word words command_rules.Test.Name s
 
 /-- [protocol::command_rules::head_is]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 187:0-189:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 212:0-214:1 -/
 def command_rules.head_is
   (words : Slice (alloc.vec.Vec Std.U8)) («name» : Slice Std.U8) :
   Result Bool
@@ -1955,14 +1973,147 @@ def command_rules.head_is
     ascii.bytes_equal s1 «name»
   else ok false
 
+/-- [protocol::command_rules::SORT]
+    Source: 'crates/protocol/src/command_rules.rs', lines 48:0-48:31 -/
+@[global_simps, irreducible]
+def command_rules.SORT : Array Std.U8 4#usize :=
+  Array.make 4#usize [ 115#u8, 111#u8, 114#u8, 116#u8 ]
+
+/-- [protocol::command_rules::SORT_RUNS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 39:0-39:53 -/
+@[global_simps, irreducible]
+def command_rules.SORT_RUNS : Array Std.U8 20#usize :=
+  Array.make 20#usize [
+    32#u8, 45#u8, 45#u8, 99#u8, 111#u8, 109#u8, 112#u8, 114#u8, 101#u8, 115#u8,
+    115#u8, 45#u8, 112#u8, 114#u8, 111#u8, 103#u8, 114#u8, 97#u8, 109#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::is_sort_runner]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 243:0-245:1 -/
+def command_rules.is_sort_runner
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let s ← lift (Array.to_slice command_rules.SORT)
+  let b ← command_rules.head_is words s
+  if b
+  then
+    let s1 ← lift (Array.to_slice command_rules.SORT_RUNS)
+    command_rules.any_word words command_rules.Test.Option s1
+  else ok false
+
+/-- [protocol::command_rules::DASH_TT]
+    Source: 'crates/protocol/src/command_rules.rs', lines 54:0-54:33 -/
+@[global_simps, irreducible]
+def command_rules.DASH_TT : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 45#u8, 84#u8, 84#u8 ]
+
+/-- [protocol::command_rules::ZIP]
+    Source: 'crates/protocol/src/command_rules.rs', lines 47:0-47:29 -/
+@[global_simps, irreducible]
+def command_rules.ZIP : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 122#u8, 105#u8, 112#u8 ]
+
+/-- [protocol::command_rules::ZIP_RUNS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 38:0-38:53 -/
+@[global_simps, irreducible]
+def command_rules.ZIP_RUNS : Array Std.U8 21#usize :=
+  Array.make 21#usize [
+    32#u8, 45#u8, 84#u8, 84#u8, 32#u8, 45#u8, 45#u8, 117#u8, 110#u8, 122#u8,
+    105#u8, 112#u8, 45#u8, 99#u8, 111#u8, 109#u8, 109#u8, 97#u8, 110#u8,
+    100#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::is_zip_runner]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 238:0-241:1 -/
+def command_rules.is_zip_runner
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let s ← lift (Array.to_slice command_rules.ZIP)
+  let b ← command_rules.head_is words s
+  if b
+  then
+    let s1 ← lift (Array.to_slice command_rules.ZIP_RUNS)
+    let b1 ← command_rules.any_word words command_rules.Test.Option s1
+    if b1
+    then ok true
+    else
+      let s2 ← lift (Array.to_slice command_rules.DASH_TT)
+      command_rules.any_word words command_rules.Test.Prefix s2
+  else ok false
+
+/-- [protocol::command_rules::is_old_tar_program]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 185:0-187:1 -/
+def command_rules.is_old_tar_program
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let i := Slice.len words
+  if i > 1#usize
+  then
+    let v ← Slice.index_usize words 1#usize
+    let s := alloc.vec.Vec.deref v
+    let b ← command_rules.starts_with s 45#u8
+    if b
+    then ok false
+    else let s1 := alloc.vec.Vec.deref v
+         command_rules.has_tar_program_flag s1
+  else ok false
+
+/-- [protocol::command_rules::NO_LIST]
+    Source: 'crates/protocol/src/command_rules.rs', lines 56:0-56:28 -/
+@[global_simps, irreducible]
+def command_rules.NO_LIST : Array Std.U8 0#usize := Std.Array.empty Std.U8
+
+/-- [protocol::command_rules::TAR]
+    Source: 'crates/protocol/src/command_rules.rs', lines 46:0-46:29 -/
+@[global_simps, irreducible]
+def command_rules.TAR : Array Std.U8 3#usize :=
+  Array.make 3#usize [ 116#u8, 97#u8, 114#u8 ]
+
+/-- [protocol::command_rules::TAR_RUNS]
+    Source: 'crates/protocol/src/command_rules.rs', lines 37:0-37:158 -/
+@[global_simps, irreducible]
+def command_rules.TAR_RUNS : Array Std.U8 125#usize :=
+  Array.make 125#usize [
+    32#u8, 45#u8, 45#u8, 116#u8, 111#u8, 45#u8, 99#u8, 111#u8, 109#u8, 109#u8,
+    97#u8, 110#u8, 100#u8, 32#u8, 45#u8, 45#u8, 117#u8, 115#u8, 101#u8, 45#u8,
+    99#u8, 111#u8, 109#u8, 112#u8, 114#u8, 101#u8, 115#u8, 115#u8, 45#u8,
+    112#u8, 114#u8, 111#u8, 103#u8, 114#u8, 97#u8, 109#u8, 32#u8, 45#u8, 73#u8,
+    32#u8, 45#u8, 45#u8, 99#u8, 104#u8, 101#u8, 99#u8, 107#u8, 112#u8, 111#u8,
+    105#u8, 110#u8, 116#u8, 45#u8, 97#u8, 99#u8, 116#u8, 105#u8, 111#u8,
+    110#u8, 32#u8, 45#u8, 45#u8, 105#u8, 110#u8, 102#u8, 111#u8, 45#u8, 115#u8,
+    99#u8, 114#u8, 105#u8, 112#u8, 116#u8, 32#u8, 45#u8, 45#u8, 110#u8, 101#u8,
+    119#u8, 45#u8, 118#u8, 111#u8, 108#u8, 117#u8, 109#u8, 101#u8, 45#u8,
+    115#u8, 99#u8, 114#u8, 105#u8, 112#u8, 116#u8, 32#u8, 45#u8, 70#u8, 32#u8,
+    45#u8, 45#u8, 114#u8, 115#u8, 104#u8, 45#u8, 99#u8, 111#u8, 109#u8, 109#u8,
+    97#u8, 110#u8, 100#u8, 32#u8, 45#u8, 45#u8, 114#u8, 109#u8, 116#u8, 45#u8,
+    99#u8, 111#u8, 109#u8, 109#u8, 97#u8, 110#u8, 100#u8, 32#u8
+    ]
+
+/-- [protocol::command_rules::is_tar_runner]:
+    Source: 'crates/protocol/src/command_rules.rs', lines 231:0-236:1 -/
+def command_rules.is_tar_runner
+  (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
+  let s ← lift (Array.to_slice command_rules.TAR)
+  let b ← command_rules.head_is words s
+  if b
+  then
+    let s1 ← lift (Array.to_slice command_rules.TAR_RUNS)
+    let b1 ← command_rules.any_word words command_rules.Test.Option s1
+    if b1
+    then ok true
+    else
+      let s2 ← lift (Array.to_slice command_rules.NO_LIST)
+      let b2 ← command_rules.any_word words command_rules.Test.TarProgram s2
+      if b2
+      then ok true
+      else command_rules.is_old_tar_program words
+  else ok false
+
 /-- [protocol::command_rules::DASH_O]
-    Source: 'crates/protocol/src/command_rules.rs', lines 45:0-45:31 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 52:0-52:31 -/
 @[global_simps, irreducible]
 def command_rules.DASH_O : Array Std.U8 2#usize :=
   Array.make 2#usize [ 45#u8, 79#u8 ]
 
 /-- [protocol::command_rules::GIT]
-    Source: 'crates/protocol/src/command_rules.rs', lines 40:0-40:29 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 44:0-44:29 -/
 @[global_simps, irreducible]
 def command_rules.GIT : Array Std.U8 3#usize :=
   Array.make 3#usize [ 103#u8, 105#u8, 116#u8 ]
@@ -1992,7 +2143,7 @@ def command_rules.GIT_RUNS : Array Std.U8 156#usize :=
     ]
 
 /-- [protocol::command_rules::is_git_runner]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 201:0-204:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 226:0-229:1 -/
 def command_rules.is_git_runner
   (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
   let s ← lift (Array.to_slice command_rules.GIT)
@@ -2009,7 +2160,7 @@ def command_rules.is_git_runner
   else ok false
 
 /-- [protocol::command_rules::head_assigns]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 197:0-199:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 222:0-224:1 -/
 def command_rules.head_assigns
   (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
   let i := Slice.len words
@@ -2021,7 +2172,7 @@ def command_rules.head_assigns
   else ok false
 
 /-- [protocol::command_rules::head_listed]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 191:0-193:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 216:0-218:1 -/
 def command_rules.head_listed
   (words : Slice (alloc.vec.Vec Std.U8)) (names : Slice Std.U8) :
   Result Bool
@@ -2037,13 +2188,13 @@ def command_rules.head_listed
   else ok false
 
 /-- [protocol::command_rules::FIND]
-    Source: 'crates/protocol/src/command_rules.rs', lines 41:0-41:31 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 45:0-45:31 -/
 @[global_simps, irreducible]
 def command_rules.FIND : Array Std.U8 4#usize :=
   Array.make 4#usize [ 102#u8, 105#u8, 110#u8, 100#u8 ]
 
 /-- [protocol::command_rules::FIND_RUNS]
-    Source: 'crates/protocol/src/command_rules.rs', lines 36:0-36:68 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 40:0-40:68 -/
 @[global_simps, irreducible]
 def command_rules.FIND_RUNS : Array Std.U8 35#usize :=
   Array.make 35#usize [
@@ -2135,7 +2286,7 @@ def command_rules.RUNNERS : Array Std.U8 408#usize :=
     ]
 
 /-- [protocol::command_rules::is_runner]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 206:0-213:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 247:0-257:1 -/
 def command_rules.is_runner
   (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
   let s ← lift (Array.to_slice command_rules.RUNNERS)
@@ -2165,16 +2316,35 @@ def command_rules.is_runner
             let b5 ← command_rules.any_word words command_rules.Test.Flag s4
             if b5
             then ok true
-            else command_rules.is_git_runner words
-          else command_rules.is_git_runner words
-
-/-- [protocol::command_rules::NO_LIST]
-    Source: 'crates/protocol/src/command_rules.rs', lines 47:0-47:28 -/
-@[global_simps, irreducible]
-def command_rules.NO_LIST : Array Std.U8 0#usize := Std.Array.empty Std.U8
+            else
+              let b6 ← command_rules.is_git_runner words
+              if b6
+              then ok true
+              else
+                let b7 ← command_rules.is_tar_runner words
+                if b7
+                then ok true
+                else
+                  let b8 ← command_rules.is_zip_runner words
+                  if b8
+                  then ok true
+                  else command_rules.is_sort_runner words
+          else
+            let b5 ← command_rules.is_git_runner words
+            if b5
+            then ok true
+            else
+              let b6 ← command_rules.is_tar_runner words
+              if b6
+              then ok true
+              else
+                let b7 ← command_rules.is_zip_runner words
+                if b7
+                then ok true
+                else command_rules.is_sort_runner words
 
 /-- [protocol::command_rules::RM]
-    Source: 'crates/protocol/src/command_rules.rs', lines 39:0-39:27 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 43:0-43:27 -/
 @[global_simps, irreducible]
 def command_rules.RM : Array Std.U8 2#usize :=
   Array.make 2#usize [ 114#u8, 109#u8 ]
@@ -2189,7 +2359,7 @@ def command_rules.NEVER_ALWAYS : Array Std.U8 19#usize :=
     ]
 
 /-- [protocol::command_rules::is_capped]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 220:0-226:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 264:0-270:1 -/
 def command_rules.is_capped
   (words : Slice (alloc.vec.Vec Std.U8)) : Result Bool := do
   let b ← command_rules.is_runner words
@@ -2232,7 +2402,7 @@ def command_rules.is_capped
           else ok false
 
 /-- [protocol::command_rules::simple_verdict]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 267:0-284:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 311:0-328:1 -/
 def command_rules.simple_verdict
   (simple : shell.Simple) (policy : action.Policy)
   (rules : Slice (alloc.vec.Vec (alloc.vec.Vec Std.U8))) (cover : action.Cover)
@@ -2351,7 +2521,7 @@ def action.has_relative_target
   action.has_relative_target_loop redirects false 0#usize
 
 /-- [protocol::command_rules::FOLDER_CHANGES]
-    Source: 'crates/protocol/src/command_rules.rs', lines 37:0-37:53 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 41:0-41:53 -/
 @[global_simps, irreducible]
 def command_rules.FOLDER_CHANGES : Array Std.U8 15#usize :=
   Array.make 15#usize [
@@ -2360,7 +2530,7 @@ def command_rules.FOLDER_CHANGES : Array Std.U8 15#usize :=
     ]
 
 /-- [protocol::command_rules::changes_folder]: loop body 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 290:11-291:63 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 334:11-335:63 -/
 @[rust_loop_body]
 def command_rules.changes_folder_loop.body
   (simples : Slice shell.Simple) (found : Bool) (i : Std.Usize) :
@@ -2381,7 +2551,7 @@ def command_rules.changes_folder_loop.body
     else ok (done false)
 
 /-- [protocol::command_rules::changes_folder]: loop 0:
-    Source: 'crates/protocol/src/command_rules.rs', lines 290:11-291:63 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 334:11-335:63 -/
 @[rust_loop]
 def command_rules.changes_folder_loop
   (simples : Slice shell.Simple) (found : Bool) (i : Std.Usize) :
@@ -2393,7 +2563,7 @@ def command_rules.changes_folder_loop
     (found, i)
 
 /-- [protocol::command_rules::changes_folder]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 287:0-295:1 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 331:0-339:1 -/
 @[reducible]
 def command_rules.changes_folder
   (simples : Slice shell.Simple) : Result Bool := do
@@ -4538,14 +4708,14 @@ def cell.decode_cells
   else ok none
 
 /-- [protocol::command_rules::{impl core::clone::Clone for protocol::command_rules::Test}::clone]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 50:9-50:14
+    Source: 'crates/protocol/src/command_rules.rs', lines 59:9-59:14
     Visibility: public -/
 def command_rules.Test.Insts.CoreCloneClone.clone
   (self : command_rules.Test) : Result command_rules.Test := do
   ok self
 
 /-- Trait implementation: [protocol::command_rules::{impl core::clone::Clone for protocol::command_rules::Test}]
-    Source: 'crates/protocol/src/command_rules.rs', lines 50:9-50:14 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 59:9-59:14 -/
 @[reducible]
 def command_rules.Test.Insts.CoreCloneClone : core.clone.Clone
   command_rules.Test := {
@@ -4553,7 +4723,7 @@ def command_rules.Test.Insts.CoreCloneClone : core.clone.Clone
 }
 
 /-- Trait implementation: [protocol::command_rules::{impl core::marker::Copy for protocol::command_rules::Test}]
-    Source: 'crates/protocol/src/command_rules.rs', lines 50:16-50:20 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 59:16-59:20 -/
 @[reducible]
 def command_rules.Test.Insts.CoreMarkerCopy : core.marker.Copy
   command_rules.Test := {
@@ -4561,14 +4731,14 @@ def command_rules.Test.Insts.CoreMarkerCopy : core.marker.Copy
 }
 
 /-- Trait implementation: [protocol::command_rules::{impl core::marker::StructuralPartialEq for protocol::command_rules::Test}]
-    Source: 'crates/protocol/src/command_rules.rs', lines 50:22-50:31 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 59:22-59:31 -/
 @[reducible]
 def command_rules.Test.Insts.CoreMarkerStructuralPartialEq :
   core.marker.StructuralPartialEq command_rules.Test := {
 }
 
 /-- [protocol::command_rules::{impl core::cmp::PartialEq<protocol::command_rules::Test> for protocol::command_rules::Test}::eq]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 50:22-50:31
+    Source: 'crates/protocol/src/command_rules.rs', lines 59:22-59:31
     Visibility: public -/
 def command_rules.Test.Insts.CoreCmpPartialEqTest.eq
   (self : command_rules.Test) (other : command_rules.Test) : Result Bool := do
@@ -4577,7 +4747,7 @@ def command_rules.Test.Insts.CoreCmpPartialEqTest.eq
   ok (self1 = other1)
 
 /-- Trait implementation: [protocol::command_rules::{impl core::cmp::PartialEq<protocol::command_rules::Test> for protocol::command_rules::Test}]
-    Source: 'crates/protocol/src/command_rules.rs', lines 50:22-50:31 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 59:22-59:31 -/
 @[reducible]
 impl_def command_rules.Test.Insts.CoreCmpPartialEqTest : core.cmp.PartialEq
   command_rules.Test command_rules.Test := {
@@ -4587,14 +4757,14 @@ impl_def command_rules.Test.Insts.CoreCmpPartialEqTest : core.cmp.PartialEq
 }
 
 /-- [protocol::command_rules::{impl core::cmp::Eq for protocol::command_rules::Test}::assert_fields_are_eq]:
-    Source: 'crates/protocol/src/command_rules.rs', lines 50:33-50:35
+    Source: 'crates/protocol/src/command_rules.rs', lines 59:33-59:35
     Visibility: public -/
 def command_rules.Test.Insts.CoreCmpEq.assert_fields_are_eq
   (self : command_rules.Test) : Result Unit := do
   ok ()
 
 /-- Trait implementation: [protocol::command_rules::{impl core::cmp::Eq for protocol::command_rules::Test}]
-    Source: 'crates/protocol/src/command_rules.rs', lines 50:33-50:35 -/
+    Source: 'crates/protocol/src/command_rules.rs', lines 59:33-59:35 -/
 @[reducible]
 def command_rules.Test.Insts.CoreCmpEq : core.cmp.Eq command_rules.Test := {
   partialEqInst := command_rules.Test.Insts.CoreCmpPartialEqTest

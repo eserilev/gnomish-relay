@@ -85,6 +85,10 @@ def neverAlwaysNames : String := " chmod chown chgrp "
 def gitRunFlags : String :=
   " -c --config-env --exec-path --upload-pack --receive-pack --exec -x config submodule bisect filter-branch difftool mergetool --open-files-in-pager --extcmd "
 def gitForceFlags : String := " --force --force-with-lease --force-if-includes --hard --mirror "
+def tarRunFlags : String :=
+  " --to-command --use-compress-program -I --checkpoint-action --info-script --new-volume-script -F --rsh-command --rmt-command "
+def zipRunFlags : String := " -TT --unzip-command "
+def sortRunFlags : String := " --compress-program "
 def findRunFlags : String := " -exec -execdir -ok -okdir -delete "
 
 /-- GNU and `git` take the start of a long flag: `--upload` is `--upload-pack`. A start
@@ -123,21 +127,40 @@ def versioned (names : String) (n : List Byte) : Prop :=
 def gitRunner (ws : List (List Byte)) : Prop :=
   headIs "git" ws ∧ ((∃ w ∈ ws, option gitRunFlags (flag w)) ∨ ∃ w ∈ ws, ascii "-O" <+: w)
 
+/-- Short flags, such as `-fu`, not a long flag such as `--force`. -/
+def shortFlags (w : List Byte) : Prop := w.head? = some (ch '-') ∧ (w.drop 1).head? ≠ some (ch '-')
+
+/-- Short `tar` flags with `I` or `F`, which take a program, as in `-cIzstd`. -/
+def tarProgram (w : List Byte) : Prop := shortFlags w ∧ (ch 'I' ∈ w ∨ ch 'F' ∈ w)
+
+/-- Old `tar` takes its flags with no dash in the first argument: `tar cIf zstd a.tar x`. -/
+def oldTarProgram (ws : List (List Byte)) : Prop :=
+  ∃ a, ws[1]? = some a ∧ a.head? ≠ some (ch '-') ∧ (ch 'I' ∈ a ∨ ch 'F' ∈ a)
+
+/-- `tar` with a flag that takes a program to run. -/
+def tarRunner (ws : List (List Byte)) : Prop :=
+  headIs "tar" ws ∧ ((∃ w ∈ ws, option tarRunFlags (flag w)) ∨ (∃ w ∈ ws, tarProgram w) ∨
+    oldTarProgram ws)
+
+/-- `zip` with a program to test the archive. `-TTcmd` holds it in the same word. -/
+def zipRunner (ws : List (List Byte)) : Prop :=
+  headIs "zip" ws ∧ ((∃ w ∈ ws, option zipRunFlags (flag w)) ∨ ∃ w ∈ ws, ascii "-TT" <+: w)
+
+def sortRunner (ws : List (List Byte)) : Prop :=
+  headIs "sort" ws ∧ ∃ w ∈ ws, option sortRunFlags (flag w)
+
 /-- Commands that run other commands or code from their arguments. `open` counts only as
 the command name, so `man open` is not a runner. -/
 def runner (ws : List (List Byte)) : Prop :=
   anyName runnerNames ws ∨ (∃ w ∈ ws, versioned versionedRunnerNames (progName w)) ∨
     headListed headRunnerNames ws ∨ headAssigns ws ∨
     (headIs "find" ws ∧ ∃ w ∈ ws, listed findRunFlags (flag w)) ∨
-    gitRunner ws
+    gitRunner ws ∨ tarRunner ws ∨ zipRunner ws ∨ sortRunner ws
 
 def network (ws : List (List Byte)) : Prop := anyName networkNames ws
 
 /-- A flag with `r` or `R`, as in `rm -rf`. -/
 def recursiveFlag (w : List Byte) : Prop := w.head? = some (ch '-') ∧ (ch 'r' ∈ w ∨ ch 'R' ∈ w)
-
-/-- Short flags, such as `-fu`, not a long flag such as `--force`. -/
-def shortFlags (w : List Byte) : Prop := w.head? = some (ch '-') ∧ (w.drop 1).head? ≠ some (ch '-')
 
 /-- A word that forces a `git` push or reset. `+main` forces a push. -/
 def gitForce (w : List Byte) : Prop :=

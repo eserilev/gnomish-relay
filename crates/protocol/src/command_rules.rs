@@ -33,16 +33,25 @@ const NEVER_ALWAYS: [u8; 19] = *b" chmod chown chgrp ";
 /// `git` flags and words that run a command, compared before any `=`.
 const GIT_RUNS: [u8; 156] = *b" -c --config-env --exec-path --upload-pack --receive-pack --exec -x config submodule bisect filter-branch difftool mergetool --open-files-in-pager --extcmd ";
 const GIT_FORCE: [u8; 64] = *b" --force --force-with-lease --force-if-includes --hard --mirror ";
+/// `tar` flags that take a program to run.
+const TAR_RUNS: [u8; 125] = *b" --to-command --use-compress-program -I --checkpoint-action --info-script --new-volume-script -F --rsh-command --rmt-command ";
+const ZIP_RUNS: [u8; 21] = *b" -TT --unzip-command ";
+const SORT_RUNS: [u8; 20] = *b" --compress-program ";
 const FIND_RUNS: [u8; 35] = *b" -exec -execdir -ok -okdir -delete ";
 const FOLDER_CHANGES: [u8; 15] = *b" cd pushd popd ";
 
 const RM: [u8; 2] = *b"rm";
 const GIT: [u8; 3] = *b"git";
 const FIND: [u8; 4] = *b"find";
+const TAR: [u8; 3] = *b"tar";
+const ZIP: [u8; 3] = *b"zip";
+const SORT: [u8; 4] = *b"sort";
 const DOT_EXE: [u8; 4] = *b".exe";
 const DASH_DASH: [u8; 2] = *b"--";
 /// `git grep -O<pager>` runs the pager.
 const DASH_O: [u8; 2] = *b"-O";
+/// `zip -TTcmd` takes its program in the same word.
+const DASH_TT: [u8; 3] = *b"-TT";
 /// For the tests that need no list.
 const NO_LIST: [u8; 0] = [];
 
@@ -63,6 +72,8 @@ enum Test {
     Recursive,
     /// It forces a `git` push or reset.
     GitForce,
+    /// Short `tar` flags with `I` or `F`, which take a program: `-cIzstd`.
+    TarProgram,
 }
 
 /// A `/` or `\` starts the name over.
@@ -162,6 +173,19 @@ fn is_git_force(word: &[u8]) -> bool {
         || (is_short_flags(word) && has_byte(word, b'f'))
 }
 
+fn has_tar_program_flag(word: &[u8]) -> bool {
+    has_byte(word, b'I') || has_byte(word, b'F')
+}
+
+fn is_tar_program(word: &[u8]) -> bool {
+    is_short_flags(word) && has_tar_program_flag(word)
+}
+
+/// Old `tar` takes its flags with no dash in the first argument: `tar cIf zstd a.tar x`.
+fn is_old_tar_program(words: &[Vec<u8>]) -> bool {
+    words.len() > 1 && !starts_with(&words[1], b'-') && has_tar_program_flag(&words[1])
+}
+
 fn word_passes(word: &[u8], test: Test, names: &[u8]) -> bool {
     match test {
         Test::Name => listed(names, &name_of(word)),
@@ -171,6 +195,7 @@ fn word_passes(word: &[u8], test: Test, names: &[u8]) -> bool {
         Test::Prefix => has_prefix(word, names),
         Test::Recursive => is_recursive(word),
         Test::GitForce => is_git_force(word),
+        Test::TarProgram => is_tar_program(word),
     }
 }
 
@@ -203,6 +228,22 @@ fn is_git_runner(words: &[Vec<u8>]) -> bool {
         && (any_word(words, Test::Option, &GIT_RUNS) || any_word(words, Test::Prefix, &DASH_O))
 }
 
+fn is_tar_runner(words: &[Vec<u8>]) -> bool {
+    head_is(words, &TAR)
+        && (any_word(words, Test::Option, &TAR_RUNS)
+            || any_word(words, Test::TarProgram, &NO_LIST)
+            || is_old_tar_program(words))
+}
+
+fn is_zip_runner(words: &[Vec<u8>]) -> bool {
+    head_is(words, &ZIP)
+        && (any_word(words, Test::Option, &ZIP_RUNS) || any_word(words, Test::Prefix, &DASH_TT))
+}
+
+fn is_sort_runner(words: &[Vec<u8>]) -> bool {
+    head_is(words, &SORT) && any_word(words, Test::Option, &SORT_RUNS)
+}
+
 fn is_runner(words: &[Vec<u8>]) -> bool {
     any_word(words, Test::Name, &RUNNERS)
         || any_word(words, Test::Versioned, &VERSIONED_RUNNERS)
@@ -210,6 +251,9 @@ fn is_runner(words: &[Vec<u8>]) -> bool {
         || head_assigns(words)
         || (head_is(words, &FIND) && any_word(words, Test::Flag, &FIND_RUNS))
         || is_git_runner(words)
+        || is_tar_runner(words)
+        || is_zip_runner(words)
+        || is_sort_runner(words)
 }
 
 fn is_network(words: &[Vec<u8>]) -> bool {
@@ -454,6 +498,88 @@ mod tests {
         assert_eq!(verdict(&["git", "log", "--oneline"]), Verdict::Allow);
         assert_eq!(verdict(&["git", "log", "--", "src"]), Verdict::Allow);
         assert_eq!(verdict(&["git", "status"]), Verdict::Allow);
+    }
+
+    #[test]
+    fn tar_zip_and_sort_flags_that_run_a_program_are_runners() {
+        assert_eq!(
+            verdict(&["tar", "-xf", "a.tar", "--to-command=sh"]),
+            Verdict::Ask
+        );
+        assert_eq!(
+            verdict(&["tar", "--use-compress-program", "x", "-cf", "a"]),
+            Verdict::Ask
+        );
+        assert_eq!(verdict(&["tar", "-I", "x", "-cf", "a"]), Verdict::Ask);
+        assert_eq!(
+            verdict(&["tar", "--checkpoint-action=exec=x", "-cf", "a"]),
+            Verdict::Ask
+        );
+        assert_eq!(
+            verdict(&["tar", "--info-script=x", "-cf", "a"]),
+            Verdict::Ask
+        );
+        assert_eq!(
+            verdict(&["tar", "--new-volume-script=x", "-cf", "a"]),
+            Verdict::Ask
+        );
+        assert_eq!(verdict(&["tar", "-F", "x", "-cf", "a"]), Verdict::Ask);
+        assert_eq!(
+            verdict(&["tar", "--rsh-command=x", "-cf", "h:a"]),
+            Verdict::Ask
+        );
+        assert_eq!(
+            verdict(&["tar", "--rmt-command=x", "-cf", "h:a"]),
+            Verdict::Ask
+        );
+        assert_eq!(
+            verdict(&["zip", "-T", "-TT", "x", "a.zip", "b"]),
+            Verdict::Ask
+        );
+        assert_eq!(
+            verdict(&["zip", "--unzip-command=x", "a.zip", "b"]),
+            Verdict::Ask
+        );
+        assert_eq!(verdict(&["zip", "-TTx", "a.zip", "b"]), Verdict::Ask);
+        assert_eq!(
+            verdict(&["sort", "--compress-program=x", "a"]),
+            Verdict::Ask
+        );
+    }
+
+    #[test]
+    fn a_start_of_a_long_flag_is_the_flag() {
+        assert_eq!(
+            verdict(&["tar", "-xf", "a.tar", "--to-com=sh"]),
+            Verdict::Ask
+        );
+        assert_eq!(verdict(&["sort", "--compress-prog=x", "a"]), Verdict::Ask);
+        assert_eq!(verdict(&["zip", "--unzip=x", "a.zip", "b"]), Verdict::Ask);
+    }
+
+    #[test]
+    fn short_tar_flags_with_a_program_are_runners() {
+        assert_eq!(verdict(&["tar", "-cIzstd", "-f", "a", "x"]), Verdict::Ask);
+        assert_eq!(verdict(&["tar", "-Fscript", "-cf", "a", "x"]), Verdict::Ask);
+        assert_eq!(verdict(&["tar", "cIf", "zstd", "a", "x"]), Verdict::Ask);
+        assert_eq!(verdict(&["tar", "xFf", "x", "a"]), Verdict::Ask);
+    }
+
+    #[test]
+    fn common_tar_and_sort_commands_are_not_runners() {
+        assert_eq!(verdict(&["tar", "-xzf", "a.tgz"]), Verdict::Allow);
+        assert_eq!(verdict(&["tar", "xzf", "a.tgz"]), Verdict::Allow);
+        assert_eq!(
+            verdict(&["tar", "-czf", "Final.tgz", "Img"]),
+            Verdict::Allow
+        );
+        assert_eq!(
+            verdict(&["tar", "--exclude=Foo", "-czf", "a.tgz", "x"]),
+            Verdict::Allow
+        );
+        assert_eq!(verdict(&["sort", "-k2", "a"]), Verdict::Allow);
+        assert_eq!(verdict(&["sort", "--check", "a"]), Verdict::Allow);
+        assert_eq!(verdict(&["zip", "-r", "a.zip", "x"]), Verdict::Allow);
     }
 
     #[test]
