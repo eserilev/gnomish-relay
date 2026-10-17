@@ -23,7 +23,7 @@ fn secret_patterns(deny: &[Vec<u8>]) -> Vec<Vec<String>> {
         .map(|pattern| parts(pattern.as_bytes()))
         .collect();
     for folder in deny {
-        let all = parts(folder);
+        let all = parts(after_last_colon(folder));
         let start = all.len().saturating_sub(2);
         patterns.push(all[start..].to_vec());
     }
@@ -38,6 +38,12 @@ fn word_names_any(word: &[u8], patterns: &[Vec<String>]) -> bool {
             let parts = parts(piece);
             patterns.iter().any(|pattern| pattern_in(pattern, &parts))
         })
+}
+
+/// `word_names_any` cuts each word at `:`, so a part such as `C:` never matches. The
+/// drive and a `\\?\` prefix go with it.
+fn after_last_colon(folder: &[u8]) -> &[u8] {
+    folder.rsplit(|b| *b == b':').next().unwrap_or(folder)
 }
 
 /// The named parts of a path in lower case, with no empty part and no `.`.
@@ -115,6 +121,27 @@ mod tests {
     fn a_virtual_environment_named_env_counts_as_a_secret() {
         assert!(named("python -m venv .env"));
         assert!(named("ls .env/bin"));
+    }
+
+    fn named_with_deny(raw: &str, deny: &[u8]) -> bool {
+        names_secret(&split(raw.as_bytes()).unwrap(), &[deny.to_vec()])
+    }
+
+    /// Unquoted, bash reads each `\` as an escape, so only a quoted path keeps its parts.
+    #[test]
+    fn a_quoted_windows_path_names_the_config_folder() {
+        let deny = br"\\?\C:\Users\x\.config\gnomish-relay";
+        let raw = r"cat '\\?\C:\Users\x\.config\gnomish-relay\strip.key'";
+
+        assert!(named_with_deny(raw, deny));
+    }
+
+    #[test]
+    fn a_deny_folder_next_to_the_drive_names_a_secret() {
+        for deny in [&br"/C:/secrets"[..], br"\\?\C:\secrets"] {
+            assert!(named_with_deny(r"cat 'C:\secrets\key'", deny));
+            assert!(named_with_deny("cat C:/secrets/key", deny));
+        }
     }
 
     /// The classifier treats `.env.*` as a secret, so a template is one too.
