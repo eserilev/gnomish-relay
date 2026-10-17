@@ -56,8 +56,7 @@ impl Watcher {
     }
 
     /// PNG files with the same size and time as at the last scan, so WoW has finished
-    /// them. A file
-    /// stays ready until `after_read` marks it done.
+    /// them. A file stays ready until `after_read` marks it done.
     pub fn ready(&mut self) -> Vec<Ready> {
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return Vec::new();
