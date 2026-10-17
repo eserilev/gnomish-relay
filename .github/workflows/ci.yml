@@ -67,9 +67,10 @@ jobs:
           components: rustfmt, clippy, llvm-tools-preview
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       # Nextest runs the tests of all binaries side by side, and cargo test runs one binary at a time.
+      # Each tool has a pinned version, so a new release cannot break CI without a commit.
       - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2
         with:
-          tool: cargo-nextest,cargo-llvm-cov
+          tool: cargo-nextest@0.9.146,cargo-llvm-cov@0.9.1
       - run: cargo fmt --check
       # A stale Cargo.lock fails here, and not later in the release build.
       - run: cargo clippy --all-targets --locked -- -D warnings
@@ -101,9 +102,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5
+      # Each tool has a pinned version, so a new release cannot break CI without a commit.
       - uses: taiki-e/install-action@7623a79cdfecb99d681017af368ca353d9f49bb5 # v2
         with:
-          tool: cargo-deny,cargo-audit,stylua,selene
+          tool: cargo-deny@0.20.2,cargo-audit@0.22.2,stylua@2.6.0,selene@0.31.0
       - run: cargo deny check
       - run: cargo audit
       - run: stylua --check addon
