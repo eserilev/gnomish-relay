@@ -320,6 +320,51 @@ def TextInv (text : Slice U8) (max : Nat) (st : alloc.vec.Vec U8 × Usize) : Pro
   st.2.val ≤ text.val.length ∧ st.1.val.length ≤ max ∧ st.1.val.length ≤ 2 * st.2.val ∧
     Good (bytes st.1.val)
 
+/-! Each branch of the loop body ends in one of these steps. A small lemma for each one
+keeps the loop proof under the heartbeat limit when the Aeneas tactics run interpreted, as
+in CI. -/
+
+theorem skip_next (text : Slice U8) (m : Nat) (o : alloc.vec.Vec U8) (i j : Usize)
+    (hmax : o.val.length ≤ m) (hdouble : o.val.length ≤ 2 * i.val) (hgood : Good (bytes o.val))
+    (hij : i.val < j.val) (hj : j.val ≤ text.val.length) :
+    TextInv text m (o, j) ∧ text.val.length - j.val < text.val.length - i.val := by
+  dsimp only [TextInv]
+  exact ⟨⟨hj, hmax, by omega, hgood⟩, by omega⟩
+
+theorem ascii_next (text : Slice U8) (m : Nat) (o out1 : alloc.vec.Vec U8) (i j : Usize) (b : U8)
+    (hdouble : o.val.length ≤ 2 * i.val) (hgood : Good (bytes o.val)) (hi : i.val < text.val.length)
+    (hb : b.val < 0x80) (hbytes : bytes out1.val = bytes o.val ++ asciiPiece b.bv)
+    (hlen1 : out1.val.length ≤ m) (hgrow : out1.val.length ≤ o.val.length + 2)
+    (hj : j.val = i.val + 1) :
+    TextInv text m (out1, j) ∧ text.val.length - j.val < text.val.length - i.val := by
+  dsimp only [TextInv]
+  refine ⟨⟨by omega, hlen1, by omega, ?_⟩, by omega⟩
+  rw [hbytes]
+  exact good_append _ _ hgood (asciiPiece_good _ (by rw [toNat_bv]; exact hb))
+
+theorem whole_piece (text : List U8) (i n : Nat) (hi : i < text.length)
+    (hn : seqLen (text[i]).val = n)
+    (h : 2 ≤ n ∧ contAt text (i + 1) ∧ fitsAt text i ∧ (n < 3 ∨ contAt text (i + 2)) ∧
+      (n < 4 ∨ contAt text (i + 3))) :
+    i + n ≤ text.length ∧ wholeChar (pieceAt text i n) :=
+  piece_whole text i n hi hn h.1 h.2.1 h.2.2.1 h.2.2.2.1 h.2.2.2.2
+
+theorem multi_next (text : Slice U8) (m : Nat) (o out1 : alloc.vec.Vec U8) (i j n : Usize)
+    (hdouble : o.val.length ≤ 2 * i.val) (hgood : Good (bytes o.val))
+    (hw : i.val + n.val ≤ text.val.length ∧ wholeChar (pieceAt text.val i.val n.val))
+    (h2 : 2 ≤ n.val) (hh : ¬ hiddenChar (pieceAt text.val i.val n.val))
+    (hout : out1.val = o.val ++ List.take n.val (List.drop i.val text.val))
+    (hroom : o.val.length + n.val ≤ m) (hj : j.val = i.val + n.val) :
+    TextInv text m (out1, j) ∧ text.val.length - j.val < text.val.length - i.val := by
+  have hp : goodPiece (pieceAt text.val i.val n.val) :=
+    multi_good _ hw.2 (by rw [pieceAt_length _ _ _ hw.1]; exact h2) hh
+  have hlen1 : out1.val.length = o.val.length + n.val := by
+    rw [hout, List.length_append, List.length_take, List.length_drop]; omega
+  dsimp only [TextInv]
+  refine ⟨⟨by omega, by omega, by omega, ?_⟩, by omega⟩
+  rw [hout, bytes, List.map_append]
+  exact good_append _ _ hgood hp
+
 theorem notice_text_loop_spec (text : Slice U8) (max : Usize) (out : alloc.vec.Vec U8) (i : Usize)
     (hlen : text.val.length ≤ 2 ^ 20) (hinv : TextInv text max.val (out, i)) :
     notice.notice_text_loop text max out i ⦃ r => r.val.length ≤ max.val ∧ Good (bytes r.val) ⦄ := by
@@ -330,30 +375,42 @@ theorem notice_text_loop_spec (text : Slice U8) (max : Usize) (out : alloc.vec.V
   simp only at hi hmax hdouble hgood
   unfold notice.notice_text_loop.body
   step*
-  all_goals try (have hn4 : n.val ≤ 4 := by rw [n_post]; exact seqLen_le _)
-  all_goals try (have hi4 : i4.val ≤ 2 := by rw [i4_post]; split <;> omega)
-  all_goals try (
-    have hb : b = true := by assumption
-    obtain ⟨h2, hc1, hf, hc2, hc3⟩ := b_post.mp hb
-    obtain ⟨hin, hw⟩ := piece_whole text.val i.val n.val (by scalar_tac) (by simp [n_post, i2_post])
-      h2 hc1 hf hc2 hc3)
-  all_goals try (
-    have hn1 : n = 1#usize := by assumption
-    have hascii : i2.val < 0x80 := ascii_of_seqLen_one _ (by rw [← n_post]; simp [hn1]))
-  all_goals first
-    | scalar_tac
-    | (refine ⟨⟨by scalar_tac, by scalar_tac, by scalar_tac, hgood⟩, by scalar_tac⟩)
-    | (refine ⟨⟨by scalar_tac, by scalar_tac, by scalar_tac, ?_⟩, by scalar_tac⟩
-       rw [out1_post1]
-       exact good_append _ _ hgood (asciiPiece_good _ (by rw [toNat_bv]; exact hascii)))
-    | skip
-  have hhid : ¬ hiddenChar (pieceAt text.val i.val n.val) := by rw [← b1_post]; assumption
-  have hlen1 : out1.val.length ≤ 2 * i5.val := by simp [out1_post]; scalar_tac
-  refine ⟨⟨by scalar_tac, by simp [out1_post]; scalar_tac, hlen1, ?_⟩, by scalar_tac⟩
-  have hp : goodPiece (pieceAt text.val i.val n.val) :=
-    multi_good _ hw (by rw [pieceAt_length _ _ _ hin]; exact h2) hhid
-  rw [out1_post, show i5.val - i.val = n.val by scalar_tac, bytes, List.map_append]
-  exact good_append _ _ hgood hp
+  -- The goals come in the order of the body: the ASCII branch, then the hidden piece,
+  -- the visible piece, and the broken sequence.
+  · have : i4.val ≤ 2 := by rw [i4_post]; split <;> omega
+    scalar_tac
+  · have hn1 : n = 1#usize := by assumption
+    refine ascii_next text max.val o out1 i i6 i2 hdouble hgood (by scalar_tac)
+      (ascii_of_seqLen_one _ (by rw [← n_post]; simp [hn1])) out1_post1
+      (by rw [out1_post2, ← i4_post]; scalar_tac) (by rw [out1_post2]; split <;> omega) i6_post
+  · exact skip_next text max.val o i _ hmax hdouble hgood (by scalar_tac) (by scalar_tac)
+  · rw [n_post]; exact seqLen_le _
+  · exact (whole_piece text.val i.val n.val (by scalar_tac) (by simp [n_post, i2_post])
+      (b_post.mp (by assumption))).1
+  · have : n.val ≤ 4 := by rw [n_post]; exact seqLen_le _
+    scalar_tac
+  · have hw := whole_piece text.val i.val n.val (by scalar_tac) (by simp [n_post, i2_post])
+      (b_post.mp (by assumption))
+    have h2 := (b_post.mp (by assumption)).1
+    exact skip_next text max.val o i _ hmax hdouble hgood (by scalar_tac) (by scalar_tac)
+  · have : n.val ≤ 4 := by rw [n_post]; exact seqLen_le _
+    scalar_tac
+  · have : n.val ≤ 4 := by rw [n_post]; exact seqLen_le _
+    scalar_tac
+  · have hw := whole_piece text.val i.val n.val (by scalar_tac) (by simp [n_post, i2_post])
+      (b_post.mp (by assumption))
+    scalar_tac
+  · have : n.val ≤ 4 := by rw [n_post]; exact seqLen_le _
+    scalar_tac
+  · have hw := whole_piece text.val i.val n.val (by scalar_tac) (by simp [n_post, i2_post])
+      (b_post.mp (by assumption))
+    have h2 := (b_post.mp (by assumption)).1
+    have hnot : ¬ b1 = true := by assumption
+    exact multi_next text max.val o out1 i i5 n hdouble hgood hw h2
+      (fun h => hnot (b1_post.mpr h))
+      (by rw [out1_post, show i5.val - i.val = n.val by scalar_tac]) (by scalar_tac) i5_post
+  · exact skip_next text max.val o i _ hmax hdouble hgood (by scalar_tac) (by scalar_tac)
+  · exact skip_next text max.val o i _ hmax hdouble hgood (by scalar_tac) (by scalar_tac)
 
 /-! ## From pieces to the three properties -/
 
