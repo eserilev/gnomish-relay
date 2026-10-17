@@ -419,7 +419,7 @@ impl Relay {
     }
 
     /// `token` is the token in the saved variables file that changed.
-    pub fn reset_window(&mut self, token: Option<&str>) {
+    pub fn reset_window(&mut self, token: &str) {
         self.lane.reset_window(token);
     }
 
@@ -1724,7 +1724,7 @@ mod tests {
     fn a_reload_starts_the_slot_window_at_one() {
         let mut relay = relay();
         relay.on_frame(&[record("relay", 0, "h;next=57", "")], NOW);
-        relay.reset_window(Some("tok"));
+        relay.reset_window("tok");
         assert_eq!(relay.next_slot(), 1);
     }
 

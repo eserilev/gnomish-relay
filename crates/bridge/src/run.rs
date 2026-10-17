@@ -702,11 +702,11 @@ impl RelayLane {
     /// A changed file means a `/reload`: the outbox frames get the same checks as a strip.
     fn take_saved_variables(&mut self, keys: &KeySet) {
         for file in self.files.changed_saved() {
-            let token = saved::saved_token(&file.text);
-            self.relay.reset_window(token.as_deref());
             self.files.changed = true;
-            if let Some(token) = &token {
-                self.take_saved_token(&file.account, token);
+            // A file with no token names no game, so it moves no window.
+            if let Some(token) = saved::saved_token(&file.text) {
+                self.relay.reset_window(&token);
+                self.take_saved_token(&file.account, &token);
             }
             for (tag, records) in outbox_records(App::Relay, &file.text, keys) {
                 self.take_records(tag, &records, "outbox");
@@ -1508,8 +1508,9 @@ impl TimewaysLane {
 
     fn take_saved_variables(&mut self, keys: &KeySet) {
         for file in self.files.changed_saved() {
-            let token = saved::saved_token(&file.text);
-            self.timeways.reset_window(token.as_deref());
+            if let Some(token) = saved::saved_token(&file.text) {
+                self.timeways.reset_window(&token);
+            }
             self.files.changed = true;
             for (_, records) in outbox_records(App::Timeways, &file.text, keys) {
                 self.take_records(&records, "outbox");

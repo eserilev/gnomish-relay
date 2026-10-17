@@ -731,6 +731,27 @@ fn two_accounts_that_play_at_once_both_get_their_replies_in_their_windows() {
     assert!(both_replies(&f, 1));
 }
 
+/// A file with no token names no game, so it says nothing about the slots of a game.
+#[test]
+fn a_saved_variables_file_with_no_token_moves_no_window() {
+    let (f, mut bridge) = two_accounts_with_replies();
+    let dir = f.accounts.join("ACCOUNT3/SavedVariables");
+    fs::create_dir_all(&dir).unwrap();
+    fs::write(dir.join("GnomishRelay.lua"), "GnomishRelayDB = {\n}\n").unwrap();
+    bridge.step();
+
+    fs::write(
+        f.screenshots.join("WoWScrnShot_9.png"),
+        account_strip("two", "c2", 9, "", "after"),
+    )
+    .unwrap();
+
+    let in_its_window = common::step_until_within(&mut bridge, Duration::from_secs(20), || {
+        slot_file(&f.addons, 31, BODY_FILE).contains("echo: after")
+    });
+    assert!(in_its_window);
+}
+
 #[test]
 fn a_wipe_in_one_account_restores_its_chats_and_retires_only_its_old_token() {
     let (f, mut bridge) = two_accounts_with_replies();

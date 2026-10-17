@@ -208,13 +208,8 @@ impl Lane {
     }
 
     /// A `/reload` frees every slot of that game, so its next body starts at slot 1
-    /// (SPEC.md 7.3). With no token, the file names no game, so every window starts there.
-    pub fn reset_window(&mut self, token: Option<&str>) {
-        let Some(token) = token else {
-            self.first_window = 1;
-            self.windows.iter_mut().for_each(|w| w.next = 1);
-            return;
-        };
+    /// (SPEC.md 7.3).
+    pub fn reset_window(&mut self, token: &str) {
         self.move_window(token, 1);
     }
 
@@ -462,20 +457,9 @@ mod tests {
         report(&mut lane, "one", "next=50");
         report(&mut lane, "two", "next=3");
 
-        lane.reset_window(Some("one"));
+        lane.reset_window("one");
 
         assert_eq!(lane.next_slots(), [1, 3]);
-    }
-
-    #[test]
-    fn a_saved_file_with_no_token_moves_every_window_to_the_first_slot() {
-        let mut lane = Lane::new(App::Relay);
-        report(&mut lane, "one", "next=50");
-        report(&mut lane, "two", "next=3");
-
-        lane.reset_window(None);
-
-        assert_eq!(lane.next_slots(), [1, 1]);
     }
 
     #[test]

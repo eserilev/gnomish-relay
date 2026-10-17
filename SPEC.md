@@ -1065,7 +1065,7 @@ Each file gets a sync and an atomic rename. The bridge skips a file that already
 
 - The addon reports `next` in every strip. Near the end of the window with no strip to send, it sends a hello with `next`.
 - At a hello, or when the saved variables file changes (a `/reload`), the bridge starts the window at the reported slot, or at slot 1.
-- Each token has its own window: two WoW accounts on one computer can play at once (7.6), and each game loads slots from its own place. The bridge keeps the windows of the 3 tokens with the newest reports, and each publish writes all of them. A strip, or a changed saved variables file, moves only the window of its token. A file with no token moves every window to slot 1.
+- Each token has its own window: two WoW accounts on one computer can play at once (7.6), and each game loads slots from its own place. The bridge keeps the windows of the 3 tokens with the newest reports, and each publish writes all of them. A strip, or a changed saved variables file, moves only the window of its token. A file with no token names no game, so it moves no window.
 - A slot outside the window holds an older body. The addon never loads past the window of its last strip. In a long fight, the polls stop there and go on after the hello at the end of the fight.
 - A slot of an earlier UI session can still hold an older body, with an old live file, restore bundle, `working` records, and clock. So the addon skips a body whose `now` is older than the `now` of the last body that it applied.
 - A skipped body loses no reply. Every record stays in the body until a `read` flag names it, so a later poll gets it. The model (14.2) checks this.

@@ -67,7 +67,7 @@ impl Timeways {
     }
 
     /// `token` is the token in the saved variables file that changed.
-    pub fn reset_window(&mut self, token: Option<&str>) {
+    pub fn reset_window(&mut self, token: &str) {
         self.lane.reset_window(token);
     }
 
