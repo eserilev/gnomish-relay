@@ -83,7 +83,9 @@ impl StorySpec {
             sandbox: story_sandbox::detect(),
             timeout: config.timeout,
             model: config.model.clone(),
-            wall: AgentWall::detect(data, config.agent_network, &[]).for_agent(Kind::Claude, &[]),
+            wall: AgentWall::detect(data, config.agent_network, &[])
+                .hiding(&[config_dir.to_owned()])
+                .for_agent(Kind::Claude, &[]),
         }))
     }
 }

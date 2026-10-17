@@ -190,6 +190,9 @@ pub struct AgentWall {
     pub agent_dirs: AgentDirs,
     /// The socket of the proxy lies here, so S31 hides it from every command.
     pub data_dir: PathBuf,
+    /// The folders and files that the agent never reads or writes: the data folder, the
+    /// config folder, and the private files of the game.
+    pub hidden: Vec<PathBuf>,
     pub proxy: ProxySettings,
     /// Under WSL, the Windows drives. The agent writes none of them (SPEC.md 11.5).
     pub windows_drives: Vec<PathBuf>,
@@ -211,6 +214,7 @@ impl AgentWall {
             wrapper,
             home,
             agent_dirs,
+            hidden: vec![data_dir.clone()],
             data_dir,
             proxy,
             windows_drives: Vec::new(),
@@ -249,6 +253,13 @@ impl AgentWall {
     }
 
     /// No wall and no notice, as for a check with no model call.
+    /// The data folder holds the desktop approvals, so `new` hides it already.
+    #[must_use]
+    pub fn hiding(mut self, paths: &[PathBuf]) -> AgentWall {
+        self.hidden.extend(paths.iter().cloned());
+        self
+    }
+
     pub fn none() -> AgentWall {
         let wall = AgentWall::new(
             Sandbox::None,
@@ -318,14 +329,19 @@ impl AgentWall {
             .as_deref()
             .map(|home| startup_paths(home, &self.agent_dirs))
             .unwrap_or_default();
-        let (read_only, missing) = startup.into_iter().partition(|p| p.exists());
+        let (existing, missing): (Vec<PathBuf>, _) = startup.into_iter().partition(|p| p.exists());
+        let hidden = HiddenPaths::of(&self.hidden);
+        let read_only = existing.into_iter().filter(|p| !hidden.holds(p)).collect();
         let mut all_binds: Vec<PathBuf> = binds.iter().map(|b| b.to_path_buf()).collect();
-        all_binds.push(self.data_dir.clone());
+        // The command sandbox reads its walls there and writes the removed names there.
+        all_binds.push(place.canonicalize().unwrap_or(place));
         let spec = WallSpec {
             bwrap: bwrap.clone(),
             forwarder: self.wrapper.clone(),
             socket: socket.clone(),
             binds: all_binds,
+            hidden_folders: hidden.folders,
+            hidden_files: hidden.files,
             read_only,
             sockets: self.home.as_deref().map(scan_sockets).unwrap_or_default(),
             local_ports: self.proxy.local_ports.to_vec(),
@@ -339,6 +355,29 @@ impl AgentWall {
             proxy: Some(proxy),
             _folder: folder,
         }))
+    }
+}
+
+/// The hidden paths that exist, at their real paths. A mount over a missing path would
+/// make a mount point on the real disk.
+struct HiddenPaths {
+    folders: Vec<PathBuf>,
+    files: Vec<PathBuf>,
+}
+
+impl HiddenPaths {
+    fn of(paths: &[PathBuf]) -> HiddenPaths {
+        let mut real: Vec<PathBuf> = paths.iter().filter_map(|p| p.canonicalize().ok()).collect();
+        real.sort();
+        real.dedup();
+        let (folders, files) = real.into_iter().partition(|p| p.is_dir());
+        HiddenPaths { folders, files }
+    }
+
+    /// A read-only bind of a startup file inside a hidden path would show it again.
+    fn holds(&self, path: &Path) -> bool {
+        let real = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+        self.folders.iter().any(|f| real.starts_with(f)) || self.files.contains(&real)
     }
 }
 
@@ -462,8 +501,12 @@ pub struct WallSpec {
     pub forwarder: PathBuf,
     /// The socket of the proxy, outside the wall.
     pub socket: PathBuf,
-    /// Folders that the agent writes, bound back when a private folder covers them.
+    /// Folders that the agent writes, bound back when a private or hidden folder covers them.
     pub binds: Vec<PathBuf>,
+    /// Each one gets an empty folder. Each one exists.
+    pub hidden_folders: Vec<PathBuf>,
+    /// Each one gets an empty file. Each one exists.
+    pub hidden_files: Vec<PathBuf>,
     /// Startup files that exist.
     pub read_only: Vec<PathBuf>,
     /// Socket files of the home folder, each covered with `/dev/null`.
@@ -484,9 +527,10 @@ fn in_private_folder(path: &Path) -> bool {
         .any(|f| path.starts_with(f) && path != Path::new(f))
 }
 
-/// The whole disk as it is, then the private folders and the read-only Windows drives,
-/// then the binds back, the socket of the proxy, the read-only startup files, and the
-/// covered sockets. The agent and its arguments come last, each one as it is: no shell.
+/// The whole disk as it is, then the private folders, the read-only Windows drives, and
+/// the hidden paths, then the binds back, the socket of the proxy, the read-only startup
+/// files, and the covered sockets. The agent and its arguments come last, each one as it
+/// is: no shell.
 pub fn wall_args(spec: &WallSpec, program: &Path, args: &[String]) -> Vec<OsString> {
     let mut out = os(&["--dev-bind", "/", "/"]);
     for folder in PRIVATE_FOLDERS {
@@ -495,8 +539,18 @@ pub fn wall_args(spec: &WallSpec, program: &Path, args: &[String]) -> Vec<OsStri
     for drive in &spec.windows_drives {
         out.extend(["--ro-bind".into(), drive.into(), drive.into()]);
     }
-    let covered =
-        |p: &&PathBuf| in_private_folder(p) || spec.windows_drives.iter().any(|d| p.starts_with(d));
+    // Under WSL the game lies on a Windows drive, so its hidden paths come after the drive.
+    for folder in &spec.hidden_folders {
+        out.extend(["--tmpfs".into(), folder.into()]);
+    }
+    for file in &spec.hidden_files {
+        out.extend(["--ro-bind".into(), "/dev/null".into(), file.into()]);
+    }
+    let covered = |p: &&PathBuf| {
+        in_private_folder(p)
+            || spec.windows_drives.iter().any(|d| p.starts_with(d))
+            || spec.hidden_folders.iter().any(|h| p.starts_with(h))
+    };
     for path in spec.binds.iter().filter(covered) {
         out.extend(["--bind".into(), path.into(), path.into()]);
     }
@@ -651,6 +705,8 @@ mod tests {
                 PathBuf::from("/home/x/Code/app"),
                 PathBuf::from("/tmp/gnomish-relay-run-1"),
             ],
+            hidden_folders: Vec::new(),
+            hidden_files: Vec::new(),
             read_only: vec![PathBuf::from("/home/x/.bashrc")],
             sockets: vec![PathBuf::from("/home/x/.docker/desktop/docker.sock")],
             local_ports: vec![5432],
@@ -745,6 +801,141 @@ mod tests {
                 .any(|w| w == ["--ro-bind", "/mnt/d", "/mnt/d"])
         );
         assert!(!args.contains(&"/home/x/Code/app".to_owned()));
+    }
+
+    #[test]
+    fn the_agent_wall_hides_the_config_and_data_folders() {
+        let mut spec = spec();
+        spec.hidden_folders = vec![
+            PathBuf::from("/home/x/.config/gnomish-relay"),
+            PathBuf::from("/home/x/.local/share/gnomish-relay"),
+        ];
+
+        let args = strings(&wall_args(&spec, Path::new("/usr/bin/claude"), &[]));
+
+        for folder in &spec.hidden_folders {
+            let folder = folder.to_string_lossy();
+            assert!(
+                args.windows(2).any(|w| w == ["--tmpfs", &*folder]),
+                "{folder}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_agent_wall_binds_the_sandbox_folder_back() {
+        let data = "/home/x/.local/share/gnomish-relay";
+        let sandbox = "/home/x/.local/share/gnomish-relay/sandbox";
+        let mut spec = spec();
+        spec.hidden_folders = vec![PathBuf::from(data)];
+        spec.binds.push(PathBuf::from(sandbox));
+
+        let args = strings(&wall_args(&spec, Path::new("/usr/bin/claude"), &[]));
+
+        let hidden = args
+            .windows(2)
+            .position(|w| w == ["--tmpfs", data])
+            .unwrap();
+        let back = args
+            .windows(3)
+            .position(|w| w == ["--bind", sandbox, sandbox])
+            .unwrap();
+        assert!(hidden < back);
+        let socket = args.windows(3).position(|w| w[2] == INNER_SOCKET).unwrap();
+        assert!(hidden < socket);
+    }
+
+    #[test]
+    fn files_get_dev_null_not_tmpfs() {
+        let key = "/home/x/wow/Interface/AddOns/GnomishRelay/Key.lua";
+        let mut spec = spec();
+        spec.hidden_files = vec![PathBuf::from(key)];
+
+        let args = strings(&wall_args(&spec, Path::new("/usr/bin/claude"), &[]));
+
+        assert!(
+            args.windows(3)
+                .any(|w| w == ["--ro-bind", "/dev/null", key])
+        );
+        assert!(!args.windows(2).any(|w| w == ["--tmpfs", key]));
+    }
+
+    #[test]
+    fn under_wsl_the_hidden_game_paths_come_after_the_windows_drive() {
+        let accounts = "/mnt/c/Program Files/World of Warcraft/_classic_/WTF/Account";
+        let mut spec = spec();
+        spec.windows_drives = vec![PathBuf::from("/mnt/c")];
+        spec.hidden_folders = vec![PathBuf::from(accounts)];
+
+        let args = strings(&wall_args(&spec, Path::new("/usr/bin/claude"), &[]));
+
+        let drive = args
+            .windows(3)
+            .position(|w| w == ["--ro-bind", "/mnt/c", "/mnt/c"])
+            .unwrap();
+        let hidden = args
+            .windows(2)
+            .position(|w| w == ["--tmpfs", accounts])
+            .unwrap();
+        assert!(drive < hidden);
+    }
+
+    #[test]
+    fn a_missing_key_addon_makes_no_mount_point() {
+        let game = tempfile::tempdir().unwrap();
+        let addons = game.path().join("Interface/AddOns");
+        std::fs::create_dir_all(addons.join("GnomishRelay_Key")).unwrap();
+        std::fs::create_dir_all(addons.join("GnomishRelay")).unwrap();
+        std::fs::write(addons.join("GnomishRelay/Key.lua"), "old key").unwrap();
+        let paths = crate::app_files::private_game_paths(
+            &addons,
+            &game.path().join("WTF/Account"),
+            &game.path().join("Screenshots"),
+        );
+
+        let hidden = HiddenPaths::of(&paths);
+
+        let addons = addons.canonicalize().unwrap();
+        assert_eq!(hidden.folders, [addons.join("GnomishRelay_Key")]);
+        assert_eq!(hidden.files, [addons.join("GnomishRelay/Key.lua")]);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prepare_hides_the_data_and_config_folders_and_binds_the_sandbox_folder_back() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        let (data, config) = (root.join("data"), root.join("config"));
+        std::fs::create_dir_all(&data).unwrap();
+        std::fs::create_dir_all(&config).unwrap();
+        let wall = AgentWall::new(
+            Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")),
+            PathBuf::new(),
+            None,
+            AgentDirs::default(),
+            data.clone(),
+            ProxySettings::public(),
+        )
+        .hiding(&[config.clone(), root.join("missing")]);
+
+        let run = wall.prepare(&[], "test").unwrap().unwrap();
+
+        assert_eq!(run.spec.hidden_folders, [config, data.clone()]);
+        assert_eq!(run.spec.binds, [data.join("sandbox")]);
+    }
+
+    #[test]
+    fn a_startup_file_inside_a_hidden_folder_is_not_bound_back() {
+        let home = tempfile::tempdir().unwrap();
+        let config = home.path().join(".config/gnomish-relay");
+        std::fs::create_dir_all(&config).unwrap();
+        std::fs::write(config.join("wsl-start.sh"), "start").unwrap();
+        std::fs::write(home.path().join(".bashrc"), "rc").unwrap();
+
+        let hidden = HiddenPaths::of(std::slice::from_ref(&config));
+
+        assert!(hidden.holds(&config.join("wsl-start.sh")));
+        assert!(!hidden.holds(&home.path().join(".bashrc")));
     }
 
     #[test]

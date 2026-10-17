@@ -7,6 +7,8 @@
 //! - The wall always has its own network and processes, a new `/proc`, and no shared
 //!   network.
 //! - Each private folder comes before every bind back into it.
+//! - The data folder is hidden, and its `sandbox` folder comes back after it. A hidden
+//!   file gets `/dev/null`.
 //! - Each startup file is bound read-only onto itself, and each socket is covered.
 //! - The agent and its arguments come last, each one as it is, after the forwarder.
 #![no_main]
@@ -66,7 +68,13 @@ fuzz_target!(|data: &[u8]| {
         bwrap: PathBuf::from("/usr/bin/bwrap"),
         forwarder: PathBuf::from("/usr/bin/gnomish-relay"),
         socket: PathBuf::from("/data/sandbox/agent-1.sock"),
-        binds: vec![bind, PathBuf::from("/tmp/gnomish-relay-run-1")],
+        binds: vec![
+            bind,
+            PathBuf::from("/tmp/gnomish-relay-run-1"),
+            PathBuf::from("/data/sandbox"),
+        ],
+        hidden_folders: vec![PathBuf::from("/data")],
+        hidden_files: vec![PathBuf::from("/game/Key.lua")],
         read_only: vec![read_only.clone()],
         sockets: vec![socket.clone()],
         local_ports: vec![5432],
@@ -104,6 +112,11 @@ fuzz_target!(|data: &[u8]| {
         &os(&["--bind", "/data/sandbox/agent-1.sock", INNER_SOCKET]),
     );
     assert!(tmp < socket_bind.unwrap());
+    let data = at(&options, &os(&["--tmpfs", "/data"])).unwrap();
+    let sandbox = at(&options, &os(&["--bind", "/data/sandbox", "/data/sandbox"])).unwrap();
+    assert!(data < sandbox);
+    let key = at(&options, &os(&["--ro-bind", "/dev/null", "/game/Key.lua"]));
+    assert!(key.is_some());
     let ro: Vec<OsString> = vec![
         "--ro-bind".into(),
         read_only.clone().into(),

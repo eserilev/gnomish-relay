@@ -141,7 +141,9 @@ pub fn start_relay(
         home: &dirs.home,
     };
     let mut gate = Gate::new(&relay, &places, Prompt::Dialog);
-    gate.sandbox = gate.sandbox.with_game(private_paths(&paths.games));
+    let private = private_paths(&paths.games);
+    gate.wall = gate.wall.hiding(&private);
+    gate.sandbox = gate.sandbox.with_game(private);
     gate.approvals.clear();
     let sandbox = gate.sandbox.summary();
     println!("Commands from WoW run in: {sandbox}");

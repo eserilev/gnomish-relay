@@ -300,7 +300,8 @@ impl Gate {
             allow: std::sync::Arc::new(config.allow.clone()),
             approvals: Approvals::new(places.data_dir, prompt).with_wait(config.permission_timeout),
             sandbox: CommandSandbox::detect(config.hosts.clone(), &config.local_ports),
-            wall: AgentWall::detect(places.data_dir, config.agent_network, &config.local_ports),
+            wall: AgentWall::detect(places.data_dir, config.agent_network, &config.local_ports)
+                .hiding(&[places.config_dir.to_owned()]),
             always: AlwaysRules::new(places.data_dir),
             home: places.home.to_owned(),
         }

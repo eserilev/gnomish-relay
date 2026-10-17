@@ -419,6 +419,41 @@ fn the_codex_hooks_and_rules_and_a_moved_claude_config_cannot_change() {
     assert!(!rule.exists());
 }
 
+/// The data folder holds the desktop approvals, and the config folder the keys. The agent
+/// reaches neither, but its commands still find their walls in `<data>/sandbox`.
+#[test]
+fn an_agent_cannot_write_an_approval_file() {
+    let Some(tool) = bwrap() else { return };
+    let m = machine();
+    let config = m.home.join(".config/gnomish-relay");
+    fs::create_dir_all(&config).unwrap();
+    fs::write(config.join("strip.key"), "secret").unwrap();
+    fs::create_dir_all(m.data.join("approvals")).unwrap();
+    let approval = m.data.join("approvals/x.json");
+    let walls = m.data.join("sandbox/walls.json");
+    let agent = claude(
+        &m,
+        wall(&m, tool, settings(&[])).hiding(std::slice::from_ref(&config)),
+    );
+
+    let reply = probe(
+        &m,
+        &*agent,
+        &format!(
+            "write={} read={} write={}",
+            approval.display(),
+            config.join("strip.key").display(),
+            walls.display()
+        ),
+    );
+
+    assert!(
+        reply.starts_with("write=fail read=fail write=ok"),
+        "{reply}"
+    );
+    assert!(!approval.exists());
+}
+
 #[test]
 fn with_no_wall_the_first_reply_carries_the_notice() {
     let m = machine();
@@ -438,7 +473,8 @@ fn with_no_wall_the_first_reply_carries_the_notice() {
 fn a_grandchild_of_the_agent_ends_with_the_wall() {
     let Some(tool) = bwrap() else { return };
     let m = machine();
-    let beat = m.data.join("beat");
+    // The data folder is hidden in the wall, and the chat folder is bound back.
+    let beat = m.chat.path().join("beat");
     let run = wall(&m, tool, settings(&[]))
         .prepare(&[m.chat.path()], "test")
         .unwrap()
