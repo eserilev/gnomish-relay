@@ -1077,7 +1077,8 @@ mod tests {
             SandboxWall::Holds,
             Sandboxing::On,
         );
-        let key = format!("cat {}/strip.key", s.config.display());
+        // Quoted, as bash on Windows reads an unquoted `\` as an escape.
+        let key = format!("cat '{}/strip.key'", s.config.display());
         let secret = [
             "cat ~/.ssh/id_ed25519",
             "cat .env",
