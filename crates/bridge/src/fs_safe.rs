@@ -10,10 +10,13 @@ use anyhow::{Context, Result, bail};
 /// The bytes of a file of at most `max` bytes, or `None` for a bigger one. The read stops
 /// at the limit: a size check before the read misses a file that grows.
 pub fn read_at_most(path: &Path, max: u64) -> io::Result<Option<Vec<u8>>> {
+    read_file_at_most(open_regular(path)?, max)
+}
+
+/// `read_at_most` for a file that `open_regular` opened.
+pub fn read_file_at_most(file: File, max: u64) -> io::Result<Option<Vec<u8>>> {
     let mut bytes = Vec::new();
-    open_regular(path)?
-        .take(max.saturating_add(1))
-        .read_to_end(&mut bytes)?;
+    file.take(max.saturating_add(1)).read_to_end(&mut bytes)?;
     if bytes.len() as u64 > max {
         return Ok(None);
     }
@@ -23,15 +26,26 @@ pub fn read_at_most(path: &Path, max: u64) -> io::Result<Option<Vec<u8>>> {
 /// Opens a plain file to read. A local program can put a link, a FIFO, or a device in the
 /// place of the file. A link points at any file of the user, and a FIFO blocks the read.
 pub fn open_regular(path: &Path) -> io::Result<File> {
-    let file = open_no_follow(path)?;
-    let meta = file.metadata()?;
-    if !meta.is_file() {
-        return Err(io::Error::other(format!(
-            "{} is not a plain file",
-            path.display()
-        )));
+    let not_plain = || io::Error::other(format!("{} is not a plain file", path.display()));
+    let file = match open_no_follow(path) {
+        Err(e) if is_link_refusal(&e) => return Err(not_plain()),
+        opened => opened?,
+    };
+    if !file.metadata()?.is_file() {
+        return Err(not_plain());
     }
     Ok(file)
+}
+
+#[cfg(unix)]
+fn is_link_refusal(error: &io::Error) -> bool {
+    error.raw_os_error() == Some(libc::ELOOP)
+}
+
+/// Windows opens the link itself, so the `is_file` check refuses it.
+#[cfg(windows)]
+fn is_link_refusal(_error: &io::Error) -> bool {
+    false
 }
 
 /// `O_NONBLOCK` makes the open of a FIFO return at once, so the check of `open_regular`
@@ -53,9 +67,11 @@ fn open_no_follow(path: &Path) -> io::Result<File> {
 fn open_no_follow(path: &Path) -> io::Result<File> {
     use std::os::windows::fs::OpenOptionsExt;
     const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    // Without it, the open of a folder fails before the check can name it.
+    const FILE_FLAG_BACKUP_SEMANTICS: u32 = 0x0200_0000;
     OpenOptions::new()
         .read(true)
-        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS)
         .open(path)
 }
 

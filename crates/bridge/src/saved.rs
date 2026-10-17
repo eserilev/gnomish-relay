@@ -10,7 +10,7 @@ use std::time::SystemTime;
 use protocol::apps::App;
 
 use crate::app_files::saved_variables_file;
-use crate::fs_safe::read_at_most;
+use crate::fs_safe::{open_regular, read_at_most, read_file_at_most};
 use crate::game_folders::GameFolders;
 
 /// Saved variables hold at most 200 messages per chat, far below this.
@@ -38,16 +38,10 @@ pub fn hex_fields(text: &str, name: &str) -> Vec<Vec<u8>> {
 /// The text of a plain file under the size limit. A link is skipped. A Lua string can
 /// hold any byte, so a byte that is not UTF-8 becomes U+FFFD. Hex fields stay whole.
 fn read_plain(path: &Path) -> Option<(SystemTime, String)> {
-    // `symlink_metadata` does not follow a link.
-    let meta = fs::symlink_metadata(path).ok()?;
-    if !meta.is_file() {
-        return None;
-    }
-    let bytes = read_at_most(path, MAX_FILE).ok()??;
-    Some((
-        meta.modified().ok()?,
-        String::from_utf8_lossy(&bytes).into_owned(),
-    ))
+    let file = open_regular(path).ok()?;
+    let modified = file.metadata().ok()?.modified().ok()?;
+    let bytes = read_file_at_most(file, MAX_FILE).ok()??;
+    Some((modified, String::from_utf8_lossy(&bytes).into_owned()))
 }
 
 /// The newest `file` in the saved variables of all accounts, with its path.

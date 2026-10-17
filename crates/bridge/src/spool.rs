@@ -207,10 +207,6 @@ fn take_one(path: &Path) -> Result<SpoolFile, String> {
 
 /// Never through a link: a link can point at any file of the user.
 fn read_real_file(path: &Path) -> Result<Vec<u8>, String> {
-    let meta = fs::symlink_metadata(path).map_err(|e| e.to_string())?;
-    if !meta.is_file() {
-        return Err("not a plain file".into());
-    }
     match read_at_most(path, MAX_FILE) {
         Ok(Some(bytes)) => Ok(bytes),
         Ok(None) => Err(format!("bigger than {MAX_FILE} bytes")),
