@@ -70,6 +70,30 @@ pub type Ask = Arc<dyn Fn(&str, StopSignal) -> Result<String, String> + Send + S
 /// A finished call: its answer text, or why it failed.
 pub type Finished = (CallId, Result<String, String>);
 
+const PANICKED: &str = "The model call failed.";
+
+/// Sends the end of a call when its thread ends, also when the call panics. Else the call
+/// would stay open for good.
+struct Report {
+    done: Sender<(Generation, Finished)>,
+    generation: Generation,
+    call: CallId,
+    answer: Result<String, String>,
+}
+
+impl Report {
+    fn send(mut self, answer: Result<String, String>) {
+        self.answer = answer;
+    }
+}
+
+impl Drop for Report {
+    fn drop(&mut self) {
+        let answer = std::mem::replace(&mut self.answer, Err(PANICKED.to_owned()));
+        let _ = self.done.send((self.generation, (self.call, answer)));
+    }
+}
+
 /// A stop starts a new generation. A call of an older one reports only that it ended.
 type Generation = u64;
 
@@ -120,11 +144,14 @@ impl ModelCalls {
         }
         let stop = StopSignal::default();
         self.open.insert(call, stop.clone());
-        let done = self.done.clone();
-        let generation = self.generation;
+        let report = Report {
+            done: self.done.clone(),
+            generation: self.generation,
+            call,
+            answer: Err(PANICKED.to_owned()),
+        };
         thread::spawn(move || {
-            let answer = ask(&prompt, stop).map(|text| clean_answer(&text));
-            let _ = done.send((generation, (call, answer)));
+            report.send(ask(&prompt, stop).map(|text| clean_answer(&text)));
         });
         Ok(())
     }
@@ -320,6 +347,20 @@ mod tests {
             thread::sleep(Duration::from_millis(5));
         }
         all
+    }
+
+    #[test]
+    fn a_call_that_panics_reports_a_failure_and_frees_its_place() {
+        let panics: Ask = Arc::new(|_, _| panic!("the model route broke"));
+        let mut calls = ModelCalls::with_ask(Some(panics), 20);
+        calls.start(CallId(1), "a".into()).unwrap();
+        calls.start(CallId(2), "b".into()).unwrap();
+        calls.stop_all();
+        calls.start(CallId(3), "c".into()).ok();
+
+        let finished = wait_until_none_open(&mut calls);
+
+        assert!(finished.iter().all(|(_, answer)| answer.is_err()));
     }
 
     #[test]
