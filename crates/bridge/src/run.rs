@@ -75,6 +75,14 @@ const NOTICE_GAP: Duration = Duration::from_secs(3);
 /// A normal screenshot costs its top 32 rows, and a strip about 1024. So one step stays
 /// short also when a start finds thousands of screenshots.
 const MAX_READS_PER_STEP: usize = 16;
+/// The path check of a missing root can block on a network share that is gone, so it
+/// runs at most this often.
+const MISSING_ROOT_GAP: Duration = Duration::from_secs(5);
+
+fn root_check_due(last: Option<Instant>, now: Instant) -> bool {
+    last.is_none_or(|last| now.duration_since(last) >= MISSING_ROOT_GAP)
+}
+
 /// The folder of the Timeways state, inside the data folder (SPEC.md 9.7, decision 4).
 pub const TIMEWAYS_DIR: &str = "timeways";
 
@@ -212,8 +220,11 @@ struct RelayLane {
     bad_tags: u32,
     /// The roots that were missing at start. Each step looks for them (SPEC.md 12).
     missing_roots: Vec<PathBuf>,
-    /// The config folder and the data folder, which no root may hold.
+    /// The config folder and the data folder, which no root can hold.
     app_folders: [PathBuf; 2],
+    /// Read once at open: the check of the missing roots runs often.
+    home: PathBuf,
+    last_root_check: Option<Instant>,
     /// The tokens and the cost of each day, and the cap of the config (SPEC.md 9.10).
     usage: DailyUsage,
     cost_cap: Option<f64>,
@@ -663,6 +674,8 @@ impl RelayLane {
             bad_tags: 0,
             missing_roots: Vec::new(),
             app_folders: [paths.config.clone(), paths.state.clone()],
+            home: home_folder().unwrap_or_default(),
+            last_root_check: None,
             usage,
             cost_cap: None,
             terminal,
@@ -695,12 +708,16 @@ impl RelayLane {
 
     /// A root that is back is used again, unless a link made it a root that no agent gets.
     fn find_missing_roots(&mut self) {
-        let home = home_folder().unwrap_or_default();
+        if self.missing_roots.is_empty() || !root_check_due(self.last_root_check, Instant::now()) {
+            return;
+        }
+        self.last_root_check = Some(Instant::now());
+        let home = &self.home;
         let [config_dir, data_dir] = &self.app_folders;
         let places = Places {
             config_dir,
             data_dir,
-            home: &home,
+            home,
         };
         let mut found = Vec::new();
         self.missing_roots.retain(|root| match real_path(root) {
@@ -712,12 +729,12 @@ impl RelayLane {
         });
         for (root, real) in found {
             if let Some(wide) = wide_root(&real, &places) {
-                log(&wide_root_line(&root, wide, &home));
+                log(&wide_root_line(&root, wide, home));
                 continue;
             }
             log(&format!(
                 "Found {} again, so agents can work there.",
-                with_tilde(&root, &home)
+                with_tilde(&root, home)
             ));
             self.relay.add_root(&real);
             self.walk.roots.add(real);
@@ -1810,6 +1827,15 @@ mod tests {
             rejected_text(&Rejected::Ambiguous),
             "it matches more than one app"
         );
+    }
+
+    #[test]
+    fn the_missing_roots_are_checked_at_once_and_then_every_5_seconds() {
+        let start = Instant::now();
+
+        assert!(root_check_due(None, start));
+        assert!(!root_check_due(Some(start), start + Duration::from_secs(4)));
+        assert!(root_check_due(Some(start), start + Duration::from_secs(5)));
     }
 
     #[test]
