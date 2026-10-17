@@ -682,7 +682,7 @@ So Windows keeps the fallback, and the bridge has no `rappct` dependency. Setup 
 | Rule | Value |
 |---|---|
 | Write | Only its story folder, `<data>/timeways/story/` (mode 0700) |
-| Read | The system, except the config folder, the data folder (its own folder comes back), the private files of the game (the key addons, the old `Key.lua` files, `WTF/Account`, and `Screenshots`), and the existing `desktop` paths of 6.6.3 under the home folder. The lore pack and the program file stay readable, also inside a hidden folder or `/tmp`. `/tmp`, `/var/tmp`, and `/run` are private and empty, because they hold the sockets of the ssh agent and the desktop. |
+| Read | The system, except the config folder, the data folder (its own folder comes back), the private files of the game (the key addons, the old `Key.lua` files, `WTF/Account`, and `Screenshots`), and the existing `desktop` paths of 6.6.3 under the home folder. A pattern with a last `*`, such as `.env.*`, hides each match in the home folder. The lore pack and the program file stay readable, also inside a hidden folder or `/tmp`. `/tmp`, `/var/tmp`, and `/run` are private and empty, because they hold the sockets of the ssh agent and the desktop. |
 | Network | None |
 | Children | In the same sandbox |
 

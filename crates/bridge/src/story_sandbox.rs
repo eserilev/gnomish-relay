@@ -44,8 +44,7 @@ pub struct Walls {
 pub fn walls(folder: &Path, config: &Path, data: &Path, home: &Path, readable: &[&Path]) -> Walls {
     let desktop = DESKTOP_PATHS
         .iter()
-        .filter(|pattern| !pattern.contains('*'))
-        .map(|pattern| home.join(pattern));
+        .flat_map(|pattern| home_paths(home, pattern));
     let hidden: Vec<PathBuf> = [config.to_owned(), data.to_owned()]
         .into_iter()
         .chain(desktop)
@@ -59,6 +58,34 @@ pub fn walls(folder: &Path, config: &Path, data: &Path, home: &Path, readable: &
             .collect(),
     };
     walls.hiding(&hidden)
+}
+
+/// The paths in `home` that `pattern` names. A last `*` needs a look into its folder:
+/// `.env.*` names `~/.env.local`.
+fn home_paths(home: &Path, pattern: &str) -> Vec<PathBuf> {
+    let path = home.join(pattern);
+    let Some(start) = pattern
+        .rsplit('/')
+        .next()
+        .and_then(|last| last.strip_suffix('*'))
+    else {
+        return vec![path];
+    };
+    let start = start.to_ascii_lowercase();
+    let Some(folder) = path.parent() else {
+        return Vec::new();
+    };
+    let entries = std::fs::read_dir(folder).into_iter().flatten().flatten();
+    entries
+        .filter(|entry| {
+            entry
+                .file_name()
+                .to_string_lossy()
+                .to_ascii_lowercase()
+                .starts_with(&start)
+        })
+        .map(|entry| entry.path())
+        .collect()
 }
 
 impl Walls {
@@ -393,6 +420,23 @@ mod tests {
             !walls.hidden.iter().any(|p| p.ends_with(".aws")),
             "missing paths are left out"
         );
+    }
+
+    #[test]
+    fn the_walls_hide_each_env_file_in_the_home_folder() {
+        let home = tempfile::tempdir().unwrap();
+        let folder = home.path().join("story");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::write(home.path().join(".env.local"), "TOKEN=x").unwrap();
+        std::fs::write(home.path().join(".ENV.prod"), "TOKEN=x").unwrap();
+        std::fs::write(home.path().join(".envrc"), "").unwrap();
+
+        let walls = walls(&folder, &folder, &folder, home.path(), &[]);
+
+        let real = |name: &str| home.path().join(name).canonicalize().unwrap();
+        assert!(walls.hidden.contains(&real(".env.local")));
+        assert!(walls.hidden.contains(&real(".ENV.prod")));
+        assert!(!walls.hidden.contains(&real(".envrc")));
     }
 
     #[test]
