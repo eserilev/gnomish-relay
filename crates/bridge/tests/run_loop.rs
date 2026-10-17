@@ -1520,6 +1520,26 @@ fn a_missing_root_that_comes_back_takes_chats_again() {
     assert!(slot_body(&f.addons).contains("echo: on the drive"));
 }
 
+#[test]
+fn a_missing_root_that_comes_back_shows_in_the_settings_list() {
+    let f = folders();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let drive = elsewhere.path().join("Drive");
+    let mut bridge = bridge_with_missing_root(&f, &drive);
+    fs::create_dir(&drive).unwrap();
+    bridge.step();
+
+    let payload = b"tok\x1fsettings\x1f8\x1f\x1flist=settings\x1f\x1f";
+    let png = screenshot_png(&strip_rows(&signed_frame(now(), payload, KEY)));
+    fs::write(f.screenshots.join("WoWScrnShot_8.png"), png).unwrap();
+
+    let shown = slashed(&real_path(&drive).unwrap());
+    let listed = common::step_until_within(&mut bridge, Duration::from_secs(20), || {
+        slot_body(&f.addons).contains(&format!("allowed_root\\009{shown}"))
+    });
+    assert!(listed, "{}", slot_body(&f.addons));
+}
+
 /// The folder above the temp folder of `f` holds the data folder of the bridge.
 #[cfg(unix)]
 #[test]

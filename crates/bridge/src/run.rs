@@ -737,6 +737,7 @@ impl RelayLane {
                 with_tilde(&root, home)
             ));
             self.relay.add_root(&real);
+            self.settings.add_root(&real);
             self.walk.roots.add(real);
         }
     }
