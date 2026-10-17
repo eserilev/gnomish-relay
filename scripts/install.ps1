@@ -53,7 +53,8 @@ Remove-Item -Recurse -Force $tmp
 # [Environment] would write them expanded, as a plain string.
 $environment = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey("Environment")
 $path = $environment.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
-if (($path -split ";") -notcontains $bin) {
+# $bin is expanded, so the entries are too before the compare.
+if (([Environment]::ExpandEnvironmentVariables($path) -split ";") -notcontains $bin) {
     $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
     if ($null -ne $environment.GetValue("Path")) { $kind = $environment.GetValueKind("Path") }
     $new = if ($path) { "$($path.TrimEnd(';'));$bin" } else { $bin }
