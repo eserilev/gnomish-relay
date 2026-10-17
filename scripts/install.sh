@@ -8,43 +8,49 @@
 # GNOMISH_BIN the install folder, also of the Timeways programs.
 set -eu
 
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64) target=x86_64-unknown-linux-gnu ;;
-  Darwin-arm64) target=aarch64-apple-darwin ;;
-  Darwin-x86_64) target=x86_64-apple-darwin ;;
-  *)
-    echo "error: the desktop app has no build for $(uname -s) $(uname -m) yet" >&2
-    exit 1
-    ;;
-esac
+# Everything runs inside `main`, and the last line calls it. So `curl | sh` runs nothing
+# when the download stops partway.
+main() {
+  case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) target=x86_64-unknown-linux-gnu ;;
+    Darwin-arm64) target=aarch64-apple-darwin ;;
+    Darwin-x86_64) target=x86_64-apple-darwin ;;
+    *)
+      echo "error: the desktop app has no build for $(uname -s) $(uname -m) yet" >&2
+      exit 1
+      ;;
+  esac
 
-url=${GNOMISH_URL:-https://github.com/eserilev/gnomish-relay/releases/latest/download}
-bin=${GNOMISH_BIN:-$HOME/.local/bin}
-name=gnomish-relay-$target.tar.gz
-tmp=$(mktemp -d)
-trap 'rm -rf "$tmp"' EXIT
+  url=${GNOMISH_URL:-https://github.com/eserilev/gnomish-relay/releases/latest/download}
+  bin=${GNOMISH_BIN:-$HOME/.local/bin}
+  name=gnomish-relay-$target.tar.gz
+  tmp=$(mktemp -d)
+  trap 'rm -rf "$tmp"' EXIT
 
-curl -fsSL "$url/$name" -o "$tmp/$name"
-curl -fsSL "$url/$name.sha256" -o "$tmp/$name.sha256"
-cd "$tmp"
-if command -v sha256sum > /dev/null; then
-  sha256sum -c "$name.sha256" > /dev/null
-else
-  shasum -a 256 -c "$name.sha256" > /dev/null
-fi
-tar -xzf "$name"
-mkdir -p "$bin"
-install -m 0755 gnomish-relay "$bin/gnomish-relay"
-echo "Installed $bin/gnomish-relay"
-case ":$PATH:" in
-  *":$bin:"*) ;;
-  *) echo "To run gnomish-relay from any folder, add this line to your shell profile: export PATH=\"$bin:\$PATH\"" ;;
-esac
+  curl -fsSL "$url/$name" -o "$tmp/$name"
+  curl -fsSL "$url/$name.sha256" -o "$tmp/$name.sha256"
+  cd "$tmp"
+  if command -v sha256sum > /dev/null; then
+    sha256sum -c "$name.sha256" > /dev/null
+  else
+    shasum -a 256 -c "$name.sha256" > /dev/null
+  fi
+  tar -xzf "$name"
+  mkdir -p "$bin"
+  install -m 0755 gnomish-relay "$bin/gnomish-relay"
+  echo "Installed $bin/gnomish-relay"
+  case ":$PATH:" in
+    *":$bin:"*) ;;
+    *) echo "To run gnomish-relay from any folder, add this line to your shell profile: export PATH=\"$bin:\$PATH\"" ;;
+  esac
 
-set -- --autostart "$@"
-# `curl | sh` gives the script to sh on stdin, so setup asks its questions on the terminal.
-if (: < /dev/tty) 2> /dev/null; then
-  "$bin/gnomish-relay" setup "$@" < /dev/tty
-else
-  "$bin/gnomish-relay" setup "$@"
-fi
+  set -- --autostart "$@"
+  # `curl | sh` gives the script to sh on stdin, so setup asks its questions on the terminal.
+  if (: < /dev/tty) 2> /dev/null; then
+    "$bin/gnomish-relay" setup "$@" < /dev/tty
+  else
+    "$bin/gnomish-relay" setup "$@"
+  fi
+}
+
+main "$@"
