@@ -769,8 +769,9 @@ mod tests {
         .unwrap()
         .unwrap();
 
-        let accounts = accounts.canonicalize().unwrap();
-        assert!(spec.walls.hidden.contains(&accounts));
+        let real_accounts = accounts.canonicalize().unwrap();
+        assert!(spec.walls.hidden.contains(&real_accounts));
+        // The agent wall finds the real paths only when it starts a run.
         assert!(spec.wall.hidden.contains(&accounts));
         assert!(spec.wall.hidden.contains(&config_dir));
     }
