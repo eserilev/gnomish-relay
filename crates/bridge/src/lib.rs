@@ -111,6 +111,7 @@ pub mod run_changes;
 pub mod run_git;
 pub mod saved;
 pub mod screenshots;
+pub mod secret_words;
 pub mod selftest;
 pub mod service;
 pub mod settings_list;

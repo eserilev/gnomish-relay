@@ -21,6 +21,7 @@ use crate::desktop::{self, Approvals, Notice, Opened, Prompt, Topic, Waiting};
 use crate::dirs::Dirs;
 use crate::request_log;
 use crate::roots::Roots;
+use crate::secret_words::names_secret;
 use crate::turn::{Answer, Turn};
 
 pub const NOT_FROM_THE_GAME: &str = "Not allowed from the game.";
@@ -119,8 +120,8 @@ pub fn without_sandbox(step: Step, effect: Effect, sandboxing: Sandboxing) -> St
     step
 }
 
-/// A command that one click of "Always allow" could cover, part by part. At `auto-edit`
-/// the command sandbox answers it, not the game (SPEC.md 6.6.4).
+/// A command that one click of "Always allow" could cover, part by part, and that names
+/// no secret path. At `auto-edit` the command sandbox answers it, not the game (SPEC.md 6.6.4).
 pub fn sandbox_holds(tool: &ToolCall, policy: &Policy) -> bool {
     let ToolCall::Command { raw, .. } = tool else {
         return false;
@@ -131,6 +132,9 @@ pub fn sandbox_holds(tool: &ToolCall, policy: &Policy) -> bool {
     let Some(script) = split(raw) else {
         return false;
     };
+    if names_secret(&script, &policy.deny_folders) {
+        return false;
+    }
     script
         .simples
         .iter()
@@ -1061,6 +1065,57 @@ mod tests {
             assert_eq!(asked.result, Ok(()), "{raw}");
             assert_eq!(asked.questions.len(), 1, "{raw}");
         }
+    }
+
+    #[test]
+    fn a_command_that_names_a_secret_file_still_asks_at_auto_edit() {
+        let s = setup();
+        let cwd = s.chat.to_string_lossy().into_owned();
+        let job = job_for(
+            &cwd,
+            Permission::AutoEdit,
+            SandboxWall::Holds,
+            Sandboxing::On,
+        );
+        let key = format!("cat {}/strip.key", s.config.display());
+        let secret = [
+            "cat ~/.ssh/id_ed25519",
+            "cat .env",
+            "cat .env.local",
+            "cat ~/.docker/config.json",
+            "ls --color=auto ~/.aws",
+            "grep token ~/.config/gh/hosts.yml",
+            &key,
+        ];
+        for raw in secret {
+            let asked = ask_with_game(&s, &command(&s, raw), &job, Some(0));
+
+            assert_eq!(asked.result, Ok(()), "{raw}");
+            assert_eq!(asked.questions.len(), 1, "{raw}");
+        }
+    }
+
+    #[test]
+    fn common_commands_do_not_ask_at_auto_edit() {
+        let s = setup();
+        // `gh pr list` names no secret either, but `gh` is a publish tool, so it asks.
+        for raw in [
+            "pip install",
+            "cat config.json",
+            "cat .github/workflows/ci.yml",
+            "cargo test -p gnomish-relay",
+            "ls share",
+        ] {
+            assert!(holds(&s, raw), "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_docker_volume_of_ssh_asks() {
+        let s = setup();
+
+        assert!(!holds(&s, "ls -v ~/.ssh:/root/.ssh"));
+        assert!(!holds(&s, "ls --config=~/.ssh/config"));
     }
 
     #[test]
