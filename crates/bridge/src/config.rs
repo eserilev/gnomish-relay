@@ -1863,7 +1863,6 @@ mod tests {
         );
     }
 
-    /// A root can be on a drive that isn't connected now.
     /// Root can open every folder, so this test needs a normal user.
     #[cfg(unix)]
     #[test]
@@ -1906,6 +1905,7 @@ mod tests {
         assert!(means_missing(&not_ready));
     }
 
+    /// A root can be on a drive that isn't connected now.
     #[test]
     fn a_missing_root_is_skipped_and_kept_as_missing() {
         let home = Home::new();
