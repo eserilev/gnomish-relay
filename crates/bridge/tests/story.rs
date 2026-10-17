@@ -192,15 +192,15 @@ fn a_character_line_that_is_not_first_refuses_the_batch() {
 }
 
 #[test]
-fn a_character_name_over_48_bytes_refuses_the_batch() {
+fn a_character_name_over_64_bytes_refuses_the_batch() {
     let dir = tempfile::tempdir().unwrap();
     let mut story = story("echo", dir.path());
     let line = |name: &str| {
         serde_json::json!({ "type": "character_entered", "realm": "Stormrage", "name": name })
             .to_string()
     };
-    story.send(message(7, &line(&"n".repeat(49))));
-    story.send(message(8, &line(&"n".repeat(48))));
+    story.send(message(7, &line(&"n".repeat(65))));
+    story.send(message(8, &line(&"n".repeat(64))));
 
     let answers = answers(&mut story, 2);
 
