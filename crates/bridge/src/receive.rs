@@ -207,6 +207,16 @@ pub fn receive(bytes: &[u8], keys: &KeySet, now: u32) -> Result<(App, Vec<Record
     Ok((app, records))
 }
 
+/// The tag check of a strip reading. An old or early frame passes too: its reading is
+/// right, and `receive` then names the real reason, not a key mismatch.
+pub fn some_key_verifies(bytes: &[u8], keys: &KeySet) -> bool {
+    let Ok(frame) = decode_frame(bytes) else {
+        return false;
+    };
+    let checks = keys.tag_checks(&bytes[..signed_len(&frame)], &frame.tag);
+    route(&checks) != Err(Unrouted::BadTag)
+}
+
 /// The tag of the frame in `bytes`, after `receive` took it: then a key verified it.
 pub fn frame_tag(bytes: &[u8]) -> Option<[u8; 8]> {
     decode_frame(bytes).ok().map(|frame| frame.tag)
@@ -416,6 +426,33 @@ mod tests {
     fn an_old_frame_is_rejected() {
         let wire = signed(NOW - 301, RECORD, &key("ab"));
         assert_eq!(app_of(&wire, &relay_only()), Err(Rejected::Stale));
+    }
+
+    #[test]
+    fn an_old_or_early_frame_of_a_key_passes_the_tag_check_of_a_reading() {
+        let old = signed(NOW - 301, RECORD, &key("ab"));
+        let early = signed(NOW + 61, RECORD, &key("cd"));
+
+        assert!(some_key_verifies(&old, &both()));
+        assert!(some_key_verifies(&early, &both()));
+    }
+
+    #[test]
+    fn a_frame_of_no_key_or_no_frame_fails_the_tag_check_of_a_reading() {
+        let other = signed(NOW, RECORD, &key("ef"));
+
+        assert!(!some_key_verifies(&other, &both()));
+        assert!(!some_key_verifies(b"not a frame", &both()));
+    }
+
+    #[test]
+    fn a_frame_that_two_keys_verify_passes_the_tag_check_of_a_reading() {
+        let equal = KeySet {
+            keys: vec![(App::Relay, key("ab")), (App::Timeways, key("ab"))],
+        };
+        let wire = signed(NOW, RECORD, &key("ab"));
+
+        assert!(some_key_verifies(&wire, &equal));
     }
 
     #[test]

@@ -246,6 +246,29 @@ fn a_stale_strip_is_deleted_and_never_runs() {
     assert!(!slot_body(&f.addons).contains("old prompt"));
 }
 
+/// A wrong row height can read the tag of a short frame wrong (SPEC.md 7.1). An old
+/// strip whose good reading failed only its time then counted as a key mismatch.
+#[test]
+fn a_stale_strip_with_its_tag_alone_in_the_last_row_is_no_key_mismatch() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let mut stale = Vec::new();
+    for len in 39..55 {
+        let payload = format!("tok\x1fc1\x1f7\x1f\x1f\x1f\x1f{}", "p".repeat(len));
+        let old_frame = signed_frame(now() - 600, payload.as_bytes(), KEY);
+        let path = f.screenshots.join(format!("WoWScrnShot_{len}.png"));
+        fs::write(&path, screenshot_png(&strip_rows(&old_frame))).unwrap();
+        stale.push(path);
+    }
+
+    assert!(step_until(&mut bridge, || stale
+        .iter()
+        .all(|p| !p.exists())));
+    bridge.step();
+
+    assert!(!slot_body(&f.addons).contains("badTags"));
+}
+
 #[test]
 fn a_future_strip_is_deleted_and_never_runs() {
     let f = folders();

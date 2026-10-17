@@ -28,7 +28,7 @@ use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
 use crate::raise::{RaiseGuard, Raised, Raiser};
-use crate::receive::{KeySet, Rejected, frame_tag, receive, receive_for};
+use crate::receive::{KeySet, Rejected, frame_tag, receive, receive_for, some_key_verifies};
 use crate::relay::BranchPlan;
 use crate::roots::Roots;
 use crate::run_git::{RunGit, WorktreeChange};
@@ -369,8 +369,7 @@ impl Bridge {
         let ready: Vec<PathBuf> = self.watchers.iter_mut().flat_map(Watcher::ready).collect();
         for path in ready {
             let keys = &self.keys;
-            let tag_checks =
-                |bytes: &[u8]| receive(bytes, keys, now()).is_ok() || is_test_strip(bytes);
+            let tag_checks = |bytes: &[u8]| some_key_verifies(bytes, keys) || is_test_strip(bytes);
             let shot = match read_strip(&path, tag_checks) {
                 Ok(Some(shot)) => shot,
                 Ok(None) => continue,
