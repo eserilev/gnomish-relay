@@ -30,12 +30,14 @@ fn secret_patterns(deny: &[Vec<u8>]) -> Vec<Vec<String>> {
     patterns
 }
 
-/// `-v ~/.ssh:/x` and `--file=~/.ssh/id` each hold a path after a `:` or a `=`.
+/// `-v ~/.ssh:/x`, `--file=~/.ssh/id`, and `--mount source=~/.ssh,target=/x` each hold a
+/// path after a `:`, a `=`, or a `,`.
 fn word_names_any(word: &[u8], patterns: &[Vec<String>]) -> bool {
-    word.split(|b| *b == b'=' || *b == b':').any(|piece| {
-        let parts = parts(piece);
-        patterns.iter().any(|pattern| pattern_in(pattern, &parts))
-    })
+    word.split(|b| matches!(b, b'=' | b':' | b','))
+        .any(|piece| {
+            let parts = parts(piece);
+            patterns.iter().any(|pattern| pattern_in(pattern, &parts))
+        })
 }
 
 /// The named parts of a path in lower case, with no empty part and no `.`.
@@ -88,6 +90,7 @@ mod tests {
             "tool --file=~/.aws/credentials",
             "cat < ~/.netrc",
             "cat ~/.config/gnomish-relay/strip.key",
+            "docker run --mount type=bind,source=~/.ssh,target=/x img",
         ] {
             assert!(named(raw), "{raw}");
         }
@@ -105,6 +108,13 @@ mod tests {
         ] {
             assert!(!named(raw), "{raw}");
         }
+    }
+
+    /// A folder named `.env` matches `.env` too, so a virtual environment asks.
+    #[test]
+    fn a_virtual_environment_named_env_counts_as_a_secret() {
+        assert!(named("python -m venv .env"));
+        assert!(named("ls .env/bin"));
     }
 
     /// The classifier treats `.env.*` as a secret, so a template is one too.
