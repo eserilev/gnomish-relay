@@ -252,14 +252,14 @@ impl AgentWall {
         wall
     }
 
-    /// No wall and no notice, as for a check with no model call.
-    /// The data folder holds the desktop approvals, so `new` hides it already.
+    /// More paths that the agent never sees. `new` already hides the data folder.
     #[must_use]
     pub fn hiding(mut self, paths: &[PathBuf]) -> AgentWall {
         self.hidden.extend(paths.iter().cloned());
         self
     }
 
+    /// No wall and no notice, as for a check with no model call.
     pub fn none() -> AgentWall {
         let wall = AgentWall::new(
             Sandbox::None,
