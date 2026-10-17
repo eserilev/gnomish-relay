@@ -29,7 +29,13 @@ pub struct Ready {
 }
 
 /// The size and the time of a file. A file can change with no new size.
-type Stamp = (u64, Option<SystemTime>);
+pub type Stamp = (u64, Option<SystemTime>);
+
+/// `None` when the file is gone. A link is not followed.
+pub fn stamp_of(path: &Path) -> Option<Stamp> {
+    let meta = fs::symlink_metadata(path).ok()?;
+    Some((meta.len(), meta.modified().ok()))
+}
 
 pub struct Watcher {
     dir: PathBuf,

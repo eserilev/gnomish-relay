@@ -312,6 +312,29 @@ fn two_strips_of_one_chat_in_one_step_run_in_their_order() {
     );
 }
 
+/// WoW can save a new screenshot under the same name before the delete works.
+#[cfg(unix)]
+#[test]
+fn a_failed_delete_leaves_a_new_file_under_the_same_name() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let strip = f.screenshots.join("WoWScrnShot_1.png");
+    fs::write(&strip, strip_png(KEY, "once")).unwrap();
+    let mode = |m: u32| fs::Permissions::from_mode(m);
+    fs::set_permissions(&f.screenshots, mode(0o555)).unwrap();
+    assert!(step_until(&mut bridge, || slot_body(&f.addons).contains("echo: once")));
+    fs::set_permissions(&f.screenshots, mode(0o755)).unwrap();
+
+    fs::write(&strip, screenshot_png(&[])).unwrap();
+    let later = std::time::SystemTime::now() + Duration::from_secs(5);
+    let file = fs::File::options().write(true).open(&strip).unwrap();
+    file.set_modified(later).unwrap();
+    bridge.step();
+
+    assert!(strip.exists());
+}
+
 #[test]
 fn a_taken_strip_is_the_last_strip_of_the_status() {
     let f = folders();

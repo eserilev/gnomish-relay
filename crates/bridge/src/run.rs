@@ -53,7 +53,7 @@ use crate::logging;
 use crate::new_folder::{make_folder, real_chat_folder, real_new_folder};
 use crate::relay::{BAD_AGENT, ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
-use crate::screenshots::{Read, Shot, Watcher, read_strip};
+use crate::screenshots::{Read, Shot, Stamp, Watcher, read_strip, stamp_of};
 use crate::settings_list::BridgeSettings;
 use crate::slots::{self, Files};
 use crate::spool::{open_spool, spool_dir, take_files};
@@ -137,7 +137,7 @@ pub struct Bridge {
     /// One for the `Screenshots` folder of each game.
     watchers: Vec<Watcher>,
     /// Strip screenshots whose delete failed. Each step tries again.
-    undeleted: Vec<PathBuf>,
+    undeleted: Vec<(PathBuf, Stamp)>,
     /// Only with the relay part in the config (SPEC.md 9.7, decision 15).
     relay: Option<RelayLane>,
     /// Only with a Timeways key. It holds no agents.
@@ -404,16 +404,21 @@ impl Bridge {
         }
     }
 
-    /// A file that is gone already needs no delete.
+    /// A file that is gone, or changed, needs no delete.
     fn retry_deletes(&mut self) {
-        self.undeleted
-            .retain(|path| match std::fs::remove_file(path) {
+        self.undeleted.retain(|(path, stamp)| {
+            // WoW can save a new screenshot under the same name, so only the same file goes.
+            if stamp_of(path) != Some(*stamp) {
+                return false;
+            }
+            match std::fs::remove_file(path) {
                 Ok(()) => {
                     log(&format!("deleted {}", path.display()));
                     false
                 }
                 Err(e) => e.kind() != std::io::ErrorKind::NotFound,
-            });
+            }
+        });
     }
 
     fn take_screenshot(&mut self, path: &Path) -> Read {
@@ -452,7 +457,9 @@ impl Bridge {
                 "cannot delete {}: {e}. Trying again in the next step",
                 path.display()
             ));
-            self.undeleted.push(path.to_owned());
+            if let Some(stamp) = stamp_of(path) {
+                self.undeleted.push((path.to_owned(), stamp));
+            }
             return Read::Worked;
         }
         if let Some(line) = deleted_line(&outcome) {
