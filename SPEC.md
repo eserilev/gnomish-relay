@@ -2053,6 +2053,7 @@ The bridge sends each batch as soon as the story program is ready. A batch that 
 - Each string is at most 1600 bytes, with no control character. Each key is 1 to 32 bytes of `[a-z_]`.
 - An object holds at most 64 keys, and an array at most 200 items.
 - A `note` key is refused, because the note of a reply belongs to the bridge.
+- A key twice in any object refuses the line, also a fixed field such as `id`. A parse into a map keeps the last value, so the bridge parses every line of the story program with a check for a key twice (`unique_keys.rs`). Tests: `a_journal_with_a_fixed_field_twice_is_refused`, `a_journal_with_any_other_key_twice_is_refused`.
 - A string over its limit is a text error. Every other failed check is a shape error.
 - The whole line is at most 24576 bytes, as for every answer.
 

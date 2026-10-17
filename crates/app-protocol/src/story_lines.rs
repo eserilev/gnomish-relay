@@ -8,6 +8,8 @@ use protocol::wow_text::chat_safe;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 
+use crate::unique_keys;
+
 pub const VERSION: u32 = 1;
 /// The largest line from the story program. A model prompt fits.
 pub const MAX_LINE: usize = 1024 * 1024;
@@ -315,7 +317,8 @@ pub fn read_line(bytes: &[u8]) -> Result<FromStory, BadLine> {
     if bytes.len() > MAX_LINE {
         return Err(BadLine::TooLong);
     }
-    let value: Value = serde_json::from_slice(bytes).map_err(|_| BadLine::Shape)?;
+    // The journal reads from this value, so a key twice must fail here.
+    let value = unique_keys::parse(bytes).ok_or(BadLine::Shape)?;
     let (id, body, side) = if is_journal(&value) {
         read_journal(value)?
     } else {
@@ -787,6 +790,36 @@ mod tests {
         }
         let no_pages = JOURNAL.replace(r#""pages":2,"#, "");
         assert_eq!(read_line(no_pages.as_bytes()), Err(BadLine::Shape));
+    }
+
+    /// `JOURNAL` with `raw` added as its last key.
+    fn journal_and(raw: &str) -> String {
+        format!("{},{raw}}}", &JOURNAL[..JOURNAL.len() - 1])
+    }
+
+    /// A parse into a map keeps the last value of a key, so a second `id` would change
+    /// the batch that the answer goes to.
+    #[test]
+    fn a_journal_with_a_fixed_field_twice_is_refused() {
+        for raw in [
+            r#""type":"journal""#,
+            r#""id":5"#,
+            r#""page":1"#,
+            r#""pages":3"#,
+            r#""narrator":"x","narrator":"y""#,
+            r#""notice":"x","notice":"y""#,
+        ] {
+            let line = journal_and(raw);
+            assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
+        }
+    }
+
+    #[test]
+    fn a_journal_with_any_other_key_twice_is_refused() {
+        for raw in [r#""places":[]"#, r#""weather":{"rain":true,"rain":false}"#] {
+            let line = journal_and(raw);
+            assert_eq!(read_line(line.as_bytes()), Err(BadLine::Shape), "{line}");
+        }
     }
 
     #[test]
