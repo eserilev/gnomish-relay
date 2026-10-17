@@ -6,8 +6,8 @@
 # With -Wsl (or --wsl), the desktop app runs in WSL2, with the Linux sandbox (SPEC.md 11.5).
 # The WSL2 path is experimental until it passes the manual plan of SPEC 11.5 on a real PC,
 # so without the flag the installer keeps the Windows desktop app and asks nothing.
-# It ends with `return`, never `exit`: under `irm | iex` or a dot-source, `exit` closes
-# the PowerShell window of the player.
+# It ends with `return`: under `irm | iex`, `exit` closes the PowerShell window of the
+# player. A failure calls Set-Failed before its `return`.
 param(
     [switch] $NoWsl,
     # The player asks for WSL2; the RunOnce entry after the restart of `wsl --install` sets it too.
@@ -15,6 +15,14 @@ param(
     [Parameter(ValueFromRemainingArguments = $true)] [string[]] $SetupArgs = @()
 )
 $ErrorActionPreference = "Stop"
+
+# Under `powershell -File`, as after the restart of `wsl --install`, only `exit` sets the
+# exit code of the process. Under `irm | iex` or a scriptblock, `exit` closes the window
+# of the player, so there the code goes into $LASTEXITCODE and the caller returns.
+function Set-Failed([int] $code) {
+    if ($PSCommandPath) { exit $code }
+    $global:LASTEXITCODE = $code
+}
 # The progress bar of Windows PowerShell 5.1 makes downloads many times slower.
 $ProgressPreference = "SilentlyContinue"
 
@@ -100,10 +108,12 @@ if (-not $distro) {
 $d = $distro.Name
 if ($distro.Kernel -notmatch "WSL2") {
     Write-Host "Your Linux runs on WSL1, which has no sandbox. Run: wsl --set-version $d 2"
+    Set-Failed 1
     return
 }
 if ($distro.Uid -eq "0") {
     Write-Host "Set up your Linux user first: open $d from the Start menu, pick a user name and password, then run this installer again."
+    Set-Failed 1
     return
 }
 
@@ -126,5 +136,5 @@ foreach ($var in "GNOMISH_URL", "GNOMISH_SCRIPTS") {
     if (Test-Path "env:$var") { $env:WSLENV = "$var`:$env:WSLENV" }
 }
 & wsl.exe -d $d --exec bash -lc 'curl -fsSL "$0" | sh -s -- "$@"' "$scripts/install.sh" @SetupArgs
-if ($LASTEXITCODE -ne 0) { return }
+if ($LASTEXITCODE -ne 0) { Set-Failed $LASTEXITCODE; return }
 Write-Host "The desktop app runs in WSL2 ($d)."
