@@ -70,12 +70,18 @@ pub type Ask = Arc<dyn Fn(&str, StopSignal) -> Result<String, String> + Send + S
 /// A finished call: its answer text, or why it failed.
 pub type Finished = (CallId, Result<String, String>);
 
+/// A stop starts a new generation. A call of an older one reports only that it ended.
+type Generation = u64;
+
 pub struct ModelCalls {
     ask: Option<Ask>,
     open: BTreeMap<CallId, StopSignal>,
+    /// Stopped calls whose process may still run. They count toward `MAX_OPEN`.
+    stopping: usize,
+    generation: Generation,
     budget: Budget,
-    done: Sender<Finished>,
-    finished: Receiver<Finished>,
+    done: Sender<(Generation, Finished)>,
+    finished: Receiver<(Generation, Finished)>,
 }
 
 impl ModelCalls {
@@ -90,6 +96,8 @@ impl ModelCalls {
         ModelCalls {
             ask,
             open: BTreeMap::new(),
+            stopping: 0,
+            generation: 0,
             budget: Budget::new(budget_window_minutes),
             done,
             finished,
@@ -104,7 +112,7 @@ impl ModelCalls {
         if self.open.contains_key(&call) {
             return Err(Refused::SameCall);
         }
-        if self.open.len() >= MAX_OPEN {
+        if self.open_calls() >= MAX_OPEN {
             return Err(Refused::TooManyOpen);
         }
         if !self.budget.admit() {
@@ -113,35 +121,43 @@ impl ModelCalls {
         let stop = StopSignal::default();
         self.open.insert(call, stop.clone());
         let done = self.done.clone();
+        let generation = self.generation;
         thread::spawn(move || {
             let answer = ask(&prompt, stop).map(|text| clean_answer(&text));
-            let _ = done.send((call, answer));
+            let _ = done.send((generation, (call, answer)));
         });
         Ok(())
     }
 
-    /// The calls that ended since the last look.
+    /// The calls of this generation that ended since the last look.
     pub fn finished(&mut self) -> Vec<Finished> {
-        let ended: Vec<Finished> = self.finished.try_iter().collect();
-        for (call, _) in &ended {
-            self.open.remove(call);
+        let mut ended = Vec::new();
+        while let Ok((generation, (call, answer))) = self.finished.try_recv() {
+            if generation == self.generation {
+                self.open.remove(&call);
+                ended.push((call, answer));
+            } else {
+                self.stopping -= 1;
+            }
         }
         ended
     }
 
+    /// A stopped call counts until it reports, so a story program that restarts in a
+    /// loop cannot run more model processes at once.
     pub fn open_calls(&self) -> usize {
-        self.open.len()
+        self.open.len() + self.stopping
     }
 
     /// Ends every open call. A late answer of such a call never comes out, because the
     /// next story program can use the same call numbers.
     pub fn stop_all(&mut self) {
-        for stop in std::mem::take(&mut self.open).into_values() {
+        let stopped = std::mem::take(&mut self.open);
+        self.stopping += stopped.len();
+        for stop in stopped.into_values() {
             stop.request();
         }
-        let (done, finished) = channel();
-        self.done = done;
-        self.finished = finished;
+        self.generation += 1;
     }
 }
 
@@ -288,9 +304,52 @@ mod tests {
             assert!(start.elapsed() < Duration::from_secs(10), "never stopped");
             thread::sleep(Duration::from_millis(5));
         }
-        assert_eq!(calls.open_calls(), 0);
-        thread::sleep(Duration::from_millis(50));
-        assert!(calls.finished().is_empty());
+        assert!(wait_until_none_open(&mut calls).is_empty());
+    }
+
+    /// Every result of `finished` until no call is open.
+    fn wait_until_none_open(calls: &mut ModelCalls) -> Vec<Finished> {
+        let start = Instant::now();
+        let mut all = Vec::new();
+        while calls.open_calls() > 0 {
+            assert!(
+                start.elapsed() < Duration::from_secs(10),
+                "a call stays open"
+            );
+            all.extend(calls.finished());
+            thread::sleep(Duration::from_millis(5));
+        }
+        all
+    }
+
+    #[test]
+    fn a_stopped_call_counts_toward_the_open_calls_until_it_reports() {
+        let go = Arc::new(Mutex::new(false));
+        let ignores_stop: Ask = {
+            let go = Arc::clone(&go);
+            Arc::new(move |_, _| {
+                while !*go.lock().unwrap() {
+                    thread::sleep(Duration::from_millis(5));
+                }
+                Ok("late".into())
+            })
+        };
+        let mut calls = ModelCalls::with_ask(Some(ignores_stop), 20);
+        calls.start(CallId(1), "a".into()).unwrap();
+        calls.start(CallId(2), "b".into()).unwrap();
+
+        calls.stop_all();
+
+        assert_eq!(
+            calls.start(CallId(1), "c".into()),
+            Err(Refused::TooManyOpen)
+        );
+        *go.lock().unwrap() = true;
+        assert!(
+            wait_until_none_open(&mut calls).is_empty(),
+            "no late answer"
+        );
+        calls.start(CallId(1), "c".into()).unwrap();
     }
 
     #[test]
