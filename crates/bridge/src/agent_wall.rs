@@ -332,9 +332,10 @@ impl AgentWall {
         let (existing, missing): (Vec<PathBuf>, _) = startup.into_iter().partition(|p| p.exists());
         let hidden = HiddenPaths::of(&self.hidden);
         let read_only = existing.into_iter().filter(|p| !hidden.holds(p)).collect();
-        let mut all_binds: Vec<PathBuf> = binds.iter().map(|b| b.to_path_buf()).collect();
+        // The hidden folders are real paths, so each bind is one too.
+        let mut all_binds: Vec<PathBuf> = binds.iter().map(|b| real_or_same(b)).collect();
         // The command sandbox reads its walls there and writes the removed names there.
-        all_binds.push(place.canonicalize().unwrap_or(place));
+        all_binds.push(real_or_same(&place));
         let spec = WallSpec {
             bwrap: bwrap.clone(),
             forwarder: self.wrapper.clone(),
@@ -358,6 +359,10 @@ impl AgentWall {
     }
 }
 
+fn real_or_same(path: &Path) -> PathBuf {
+    path.canonicalize().unwrap_or_else(|_| path.to_owned())
+}
+
 /// The hidden paths that exist, at their real paths. A mount over a missing path would
 /// make a mount point on the real disk.
 struct HiddenPaths {
@@ -376,7 +381,7 @@ impl HiddenPaths {
 
     /// A read-only bind of a startup file inside a hidden path would show it again.
     fn holds(&self, path: &Path) -> bool {
-        let real = path.canonicalize().unwrap_or_else(|_| path.to_owned());
+        let real = real_or_same(path);
         self.folders.iter().any(|f| real.starts_with(f)) || self.files.contains(&real)
     }
 }
@@ -970,6 +975,34 @@ mod tests {
 
         assert_eq!(run.spec.hidden_folders, [config, data.clone()]);
         assert_eq!(run.spec.binds, [data.join("sandbox")]);
+    }
+
+    /// The hidden folders are real paths, so a bind through a link must be one too, or
+    /// it would not count as inside a hidden folder.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn prepare_binds_each_folder_at_its_real_path() {
+        let root = tempfile::tempdir().unwrap();
+        let root = root.path().canonicalize().unwrap();
+        let data = root.join("data");
+        let story = data.join("timeways/story");
+        std::fs::create_dir_all(&story).unwrap();
+        std::os::unix::fs::symlink(&story, root.join("link")).unwrap();
+        let wall = AgentWall::new(
+            Sandbox::Bwrap(PathBuf::from("/usr/bin/bwrap")),
+            PathBuf::new(),
+            None,
+            AgentDirs::default(),
+            data.clone(),
+            ProxySettings::public(),
+        );
+
+        let run = wall
+            .prepare(&[&root.join("link")], "test")
+            .unwrap()
+            .unwrap();
+
+        assert!(run.spec.binds.contains(&story), "{:?}", run.spec.binds);
     }
 
     #[test]
