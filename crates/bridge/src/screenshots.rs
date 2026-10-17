@@ -11,7 +11,7 @@ use crate::fs_safe::open_regular;
 use crate::strip::{self, Image};
 
 /// A file that fails to read this often counts as done, so a broken file costs no read
-/// in each step. A change of its size makes it new again.
+/// in each step. A change of its size or its time makes it new again.
 const MAX_READ_TRIES: u32 = 3;
 
 /// How the read of a ready file went.
@@ -28,11 +28,14 @@ pub struct Ready {
     pub modified: Option<SystemTime>,
 }
 
+/// The size and the time of a file. A file can change with no new size.
+type Stamp = (u64, Option<SystemTime>);
+
 pub struct Watcher {
     dir: PathBuf,
-    sizes: HashMap<PathBuf, u64>,
-    /// The size of each file at its last read that counts.
-    done: HashMap<PathBuf, u64>,
+    stamps: HashMap<PathBuf, Stamp>,
+    /// The stamp of each file at its last read that counts.
+    done: HashMap<PathBuf, Stamp>,
     failures: HashMap<PathBuf, u32>,
 }
 
@@ -40,13 +43,14 @@ impl Watcher {
     pub fn new(dir: &Path) -> Watcher {
         Watcher {
             dir: dir.to_owned(),
-            sizes: HashMap::new(),
+            stamps: HashMap::new(),
             done: HashMap::new(),
             failures: HashMap::new(),
         }
     }
 
-    /// PNG files with the same size as at the last scan, so WoW has finished them. A file
+    /// PNG files with the same size and time as at the last scan, so WoW has finished
+    /// them. A file
     /// stays ready until `after_read` marks it done.
     pub fn ready(&mut self) -> Vec<Ready> {
         let Ok(entries) = fs::read_dir(&self.dir) else {
@@ -67,18 +71,18 @@ impl Watcher {
             let Ok(meta) = entry.metadata() else {
                 continue;
             };
-            let size = meta.len();
-            if !is_png || !kind.is_file() || self.done.get(&path) == Some(&size) {
+            let modified = meta.modified().ok();
+            let stamp = (meta.len(), modified);
+            if !is_png || !kind.is_file() || self.done.get(&path) == Some(&stamp) {
                 continue;
             }
-            if self.sizes.insert(path.clone(), size) == Some(size) {
-                let modified = meta.modified().ok();
+            if self.stamps.insert(path.clone(), stamp) == Some(stamp) {
                 ready.push(Ready { path, modified });
             }
         }
         // Forget deleted files, so the maps stay as small as the folder.
         self.done.retain(|p, _| present.contains(p));
-        self.sizes.retain(|p, _| present.contains(p));
+        self.stamps.retain(|p, _| present.contains(p));
         self.failures.retain(|p, _| present.contains(p));
         ready
     }
@@ -89,8 +93,8 @@ impl Watcher {
             return;
         }
         self.failures.remove(path);
-        if let Some(size) = self.sizes.get(path) {
-            self.done.insert(path.to_owned(), *size);
+        if let Some(stamp) = self.stamps.get(path) {
+            self.done.insert(path.to_owned(), *stamp);
         }
     }
 
@@ -200,6 +204,37 @@ mod tests {
         watcher.ready();
 
         assert_eq!(paths(watcher.ready()), [shot]);
+    }
+
+    /// Three reads take less than a second, and a file can change with no new size.
+    #[test]
+    fn a_failed_file_that_changes_with_the_same_size_is_ready_again() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut watcher = Watcher::new(dir.path());
+        let shot = dir.path().join("WoWScrnShot_1.png");
+        fs::write(&shot, b"broken").unwrap();
+        set_time(&shot, SystemTime::now() - std::time::Duration::from_mins(1));
+        watcher.ready();
+        for _ in 0..3 {
+            watcher.ready();
+            watcher.after_read(&shot, Read::Failed);
+        }
+        assert!(watcher.ready().is_empty());
+
+        fs::write(&shot, b"wholed").unwrap();
+        set_time(&shot, SystemTime::now());
+        watcher.ready();
+
+        assert_eq!(paths(watcher.ready()), std::slice::from_ref(&shot));
+    }
+
+    fn set_time(file: &Path, modified: SystemTime) {
+        fs::File::options()
+            .write(true)
+            .open(file)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
     }
 
     #[cfg(unix)]
