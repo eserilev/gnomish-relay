@@ -28,7 +28,7 @@ permissions:
 # gets a group of its own, so a push never cancels or holds back the run of the push before.
 concurrency:
   group: ${{ github.ref == 'refs/heads/main' && format('ci-main-{0}', github.run_id) || format('ci-{0}', github.ref) }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
 jobs:
   # The proofs and the model take minutes, so they run only when their inputs change.
