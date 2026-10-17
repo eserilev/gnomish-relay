@@ -6,6 +6,8 @@
 # With -Wsl (or --wsl), the desktop app runs in WSL2, with the Linux sandbox (SPEC.md 11.5).
 # The WSL2 path is experimental until it passes the manual plan of SPEC 11.5 on a real PC,
 # so without the flag the installer keeps the Windows desktop app and asks nothing.
+# It ends with `return`, never `exit`: under `irm | iex` or a dot-source, `exit` closes
+# the PowerShell window of the player.
 param(
     [switch] $NoWsl,
     # The player asks for WSL2; the RunOnce entry after the restart of `wsl --install` sets it too.
@@ -87,11 +89,11 @@ if (-not $distro) {
 $d = $distro.Name
 if ($distro.Kernel -notmatch "WSL2") {
     Write-Host "Your Linux runs on WSL1, which has no sandbox. Run: wsl --set-version $d 2"
-    exit 1
+    return
 }
 if ($distro.Uid -eq "0") {
     Write-Host "Set up your Linux user first: open $d from the Start menu, pick a user name and password, then run this installer again."
-    exit 1
+    return
 }
 
 # As root through wsl.exe, so the player types no password.
@@ -113,5 +115,5 @@ foreach ($var in "GNOMISH_URL", "GNOMISH_SCRIPTS") {
     if (Test-Path "env:$var") { $env:WSLENV = "$var`:$env:WSLENV" }
 }
 & wsl.exe -d $d --exec bash -lc 'curl -fsSL "$0" | sh -s -- "$@"' "$scripts/install.sh" @SetupArgs
-if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+if ($LASTEXITCODE -ne 0) { return }
 Write-Host "The desktop app runs in WSL2 ($d)."
