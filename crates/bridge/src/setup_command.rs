@@ -96,6 +96,56 @@ fn option<'a>(args: &[&'a str], name: &str) -> Option<&'a str> {
     args.get(at + 1).copied()
 }
 
+const OPTIONS_WITH_A_VALUE: [&str; 2] = ["--wow", "--roots"];
+const OPTIONS: [&str; 5] = [
+    "--relay",
+    "--timeways",
+    "--new-key",
+    "--autostart",
+    "--no-autostart",
+];
+
+pub(crate) const SETUP_USAGE: &str = "\
+Usage: gnomish-relay setup [options] [WoW folder]
+
+Sets up Gnomish Relay for your game. You can run it again: it keeps what works.
+
+Options
+  --wow <folder>    Use the WoW in this folder
+  --roots <a,b>     The folders that agents can work in
+  --timeways        Set up Timeways in place of Gnomish Relay
+  --new-key         Make a new key for your game and the desktop app
+  --autostart       Start the desktop app when you log in
+  --no-autostart    Don't start the desktop app when you log in
+  --relay           The same as no option
+  -h, --help        Show this help";
+
+fn wants_help(args: &[&str]) -> bool {
+    args.iter().any(|a| *a == "--help" || *a == "-h")
+}
+
+/// The first option that setup doesn't know. The value of `--wow` and `--roots` can
+/// start with a dash.
+fn unknown_option<'a>(args: &[&'a str]) -> Option<&'a str> {
+    let mut i = 0;
+    while i < args.len() {
+        let arg = args[i];
+        if OPTIONS_WITH_A_VALUE.contains(&arg) {
+            i += 2;
+            continue;
+        }
+        if arg.starts_with('-') && !OPTIONS.contains(&arg) {
+            return Some(arg);
+        }
+        i += 1;
+    }
+    None
+}
+
+fn unknown_option_line(arg: &str) -> String {
+    format!("setup doesn't know {arg}. To see the options, run gnomish-relay setup --help")
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Autostart {
     On,
@@ -119,6 +169,9 @@ pub(crate) struct SetupArgs<'a> {
 
 impl<'a> SetupArgs<'a> {
     fn parse(args: &[&'a str]) -> Result<SetupArgs<'a>> {
+        if let Some(arg) = unknown_option(args) {
+            bail!(unknown_option_line(arg));
+        }
         let roots = option(args, "--roots");
         let wow = option(args, "--wow");
         let bare = args
@@ -164,6 +217,10 @@ pub(crate) struct Found<'a> {
 /// Each product has its own setup, which never touches the other product (SPEC.md 9.7,
 /// decision 15). Every step leaves alone what works, so a second run is safe.
 pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
+    if wants_help(args) {
+        println!("{SETUP_USAGE}");
+        return Ok(());
+    }
     let args = SetupArgs::parse(args)?;
     let existing = setup::read_existing(&dirs.config, &dirs.home, args.product)?;
     for line in existing.iter().flat_map(|found| &found.lines) {
@@ -556,6 +613,36 @@ mod tests {
         let args = SetupArgs::parse(&["--autostart", "--timeways", "--no-autostart"]).unwrap();
         assert_eq!(args.autostart, Autostart::Off);
         assert_eq!(args.product, Product::Timeways);
+    }
+
+    #[test]
+    fn setup_refuses_an_option_that_it_does_not_know() {
+        for (args, unknown) in [
+            (["--yes"].as_slice(), "--yes"),
+            (["--wow", "/games/wow", "--timeway"].as_slice(), "--timeway"),
+            (["-x", "--relay"].as_slice(), "-x"),
+        ] {
+            let error = SetupArgs::parse(args).unwrap_err();
+
+            assert_eq!(error.to_string(), unknown_option_line(unknown), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn the_value_of_an_option_can_start_with_a_dash() {
+        let args = SetupArgs::parse(&["--wow", "-games", "--roots", "-a"]).unwrap();
+
+        assert_eq!(args.folder, Some("-games"));
+        assert_eq!(args.roots, Some("-a"));
+    }
+
+    #[test]
+    fn help_names_every_option_that_setup_takes() {
+        assert!(wants_help(&["--timeways", "--help"]));
+        assert!(wants_help(&["-h"]));
+        for option in OPTIONS_WITH_A_VALUE.iter().chain(&OPTIONS) {
+            assert!(SETUP_USAGE.contains(option), "{option}");
+        }
     }
 
     #[test]

@@ -199,6 +199,30 @@ fn timeways_setup_with_the_relay_flag_stops_before_the_first_file() {
 }
 
 #[test]
+fn setup_refuses_an_unknown_option_before_the_first_file() {
+    let home = Home::new(&[]);
+
+    let out = home.run(&["setup", "--yes"]);
+
+    assert!(!out.status.success());
+    let stderr = String::from_utf8(out.stderr).unwrap();
+    assert!(stderr.contains("setup doesn't know --yes"), "{stderr}");
+    assert!(!home.config_dir().exists());
+}
+
+#[test]
+fn setup_help_prints_the_options_and_sets_up_nothing() {
+    let home = Home::new(&[]);
+
+    let out = home.run(&["setup", "--help"]);
+
+    assert!(out.status.success());
+    let stdout = String::from_utf8(out.stdout).unwrap();
+    assert!(stdout.starts_with("Usage: gnomish-relay setup"), "{stdout}");
+    assert!(!home.config_dir().exists());
+}
+
+#[test]
 fn setup_replaces_a_damaged_key_and_says_so() {
     let home = Home::new(&[]);
     home.setup(&[]);
