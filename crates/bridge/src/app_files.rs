@@ -51,19 +51,17 @@ pub fn saved_variables_file(app: App) -> String {
 
 /// The files of the game that no agent and no command of a game run reads (SPEC.md 6.6.3):
 /// the strip keys, the saved chats of every account, and the prompts in the pixels of
-/// the screenshots. The whole key addons, but only an old `Key.lua` of each app addon: a
-/// developer checkout links the app addon folder into a repository that an agent edits.
+/// the screenshots. The whole key addons, but only the old `Key.lua` of the apps that had
+/// one: a developer checkout links the app addon folder into a repository that an agent edits.
 pub fn private_game_paths(addons: &Path, accounts: &Path, screenshots: &Path) -> Vec<PathBuf> {
     let mut paths: Vec<PathBuf> = ALL_APPS
         .iter()
         .map(|app| addons.join(key_addon_name(*app)))
         .collect();
     // TODO: remove when every Timeways release reads Timeways_Key.
-    paths.extend(
-        ALL_APPS
-            .iter()
-            .map(|app| addons.join(addon_name(*app)).join(KEY_FILE)),
-    );
+    for app in [App::Relay, App::Timeways] {
+        paths.push(addons.join(addon_name(app)).join(KEY_FILE));
+    }
     paths.push(accounts.to_owned());
     paths.push(screenshots.to_owned());
     paths
@@ -91,7 +89,6 @@ mod tests {
                 game.join("Interface/AddOns/GnomishWorkshop_Key"),
                 game.join("Interface/AddOns/GnomishRelay/Key.lua"),
                 game.join("Interface/AddOns/Timeways/Key.lua"),
-                game.join("Interface/AddOns/GnomishWorkshop/Key.lua"),
                 game.join("WTF/Account"),
                 game.join("Screenshots"),
             ]
