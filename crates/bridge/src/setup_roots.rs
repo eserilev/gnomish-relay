@@ -294,6 +294,11 @@ mod tests {
         let locked = c.home.join("locked");
         fs::create_dir_all(locked.join("in")).unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        // Root can open every folder, so this test needs a normal user.
+        if locked.join("in").try_exists().is_ok() {
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+            return;
+        }
         let mut asked = Vec::new();
 
         ask_about_roots(&c.places(), Product::Relay, &mut |bad: &BadRoot| {
@@ -303,8 +308,7 @@ mod tests {
         .unwrap();
 
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
-        let can_open_all = asked.is_empty();
-        assert!(can_open_all || asked == [Problem::Unreadable], "{asked:?}");
+        assert_eq!(asked, [Problem::Unreadable]);
     }
 
     #[test]
