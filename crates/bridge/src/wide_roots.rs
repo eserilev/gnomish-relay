@@ -8,7 +8,7 @@ use anyhow::{Result, bail};
 
 use crate::config::with_tilde;
 use crate::folder_path::{is_inside_folder, path_bytes, real_path};
-use crate::folder_trust::{Untrusted, check_real};
+use crate::folder_trust::holds_private_files;
 use crate::folder_walk::Walk;
 use crate::gate::Places;
 use crate::roots::Roots;
@@ -20,8 +20,6 @@ pub enum WideRoot {
     AboveHome,
     Settings,
     Data,
-    /// A hidden folder, or one that the walk skips, as for a click (SPEC.md 9.12).
-    Hidden,
     /// A folder that the classifier keeps private, as for a click (SPEC.md 9.12).
     Private,
 }
@@ -34,7 +32,6 @@ impl WideRoot {
             WideRoot::AboveHome => "a folder that holds your home folder",
             WideRoot::Settings => "a folder with the settings of the desktop app",
             WideRoot::Data => "a folder with the data of the desktop app",
-            WideRoot::Hidden => "a hidden or system folder",
             WideRoot::Private => "a folder with private files",
         }
     }
@@ -61,24 +58,19 @@ pub fn wide_root(root_path: &Path, places: &Places) -> Option<WideRoot> {
         return Some(WideRoot::Data);
     }
     let in_home = is_inside_folder(&root, &home);
-    in_home
-        .then(|| failed_click_rule(root_path, places))
-        .flatten()
+    (in_home && holds_private(root_path, places)).then_some(WideRoot::Private)
 }
 
-/// The rules of a folder that a click adds (SPEC.md 9.12), for a root in the home folder.
-fn failed_click_rule(root: &Path, places: &Places) -> Option<WideRoot> {
+/// Only the private rule of a click (SPEC.md 9.12). The name rule stays out: cloud
+/// folders on macOS live in `~/Library/CloudStorage`, and many roots are dot folders.
+fn holds_private(root: &Path, places: &Places) -> bool {
     let real = |dir: &Path| real_path(dir).unwrap_or_else(|_| dir.to_owned());
     let walk = Walk {
         roots: Roots::default(),
         deny: vec![real(places.config_dir), real(places.data_dir)],
         home: Some(real(places.home)),
     };
-    match check_real(&walk, &real(places.home), root) {
-        Ok(()) => None,
-        Err(Untrusted::Private) => Some(WideRoot::Private),
-        Err(_) => Some(WideRoot::Hidden),
-    }
+    holds_private_files(&walk, &real(places.home), root)
 }
 
 /// The line of the log for a missing root that comes back as a wide one.
@@ -170,19 +162,31 @@ mod tests {
         assert_eq!(wide, Some(WideRoot::AboveHome));
     }
 
-    /// The rules of a click on the desktop (SPEC.md 9.12) hold at start too.
+    /// Cloud folders on macOS link into `~/Library/CloudStorage`.
+    #[cfg(unix)]
     #[test]
-    fn a_hidden_or_system_folder_in_the_home_folder_is_refused() {
+    fn a_root_that_links_into_a_system_or_dot_folder_starts() {
         let c = computer();
-        for name in [".ssh", "Code/node_modules"] {
-            std::fs::create_dir_all(c.home.join(name)).unwrap();
-        }
+        let cloud = c.home.join("Library/CloudStorage/Dropbox");
+        std::fs::create_dir_all(&cloud).unwrap();
+        std::fs::create_dir_all(c.home.join(".dotfiles")).unwrap();
+        std::os::unix::fs::symlink(&cloud, c.home.join("Dropbox")).unwrap();
+        let roots = [c.home.join("Dropbox"), c.home.join(".dotfiles")];
 
-        assert_eq!(c.wide(&c.home.join(".ssh")), Some(WideRoot::Hidden));
-        assert_eq!(
-            c.wide(&c.home.join("Code/node_modules")),
-            Some(WideRoot::Hidden)
-        );
+        assert!(refuse_wide_roots(&roots, &c.places()).is_ok());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_root_that_links_to_the_ssh_folder_is_refused_as_private() {
+        let c = computer();
+        std::fs::create_dir_all(c.home.join(".ssh")).unwrap();
+        std::os::unix::fs::symlink(c.home.join(".ssh"), c.home.join("keys")).unwrap();
+
+        let error = refuse_wide_roots(&[c.home.join("keys")], &c.places()).unwrap_err();
+
+        assert_eq!(c.wide(&c.home.join(".ssh")), Some(WideRoot::Private));
+        assert!(error.to_string().contains("private files"), "{error}");
     }
 
     #[test]

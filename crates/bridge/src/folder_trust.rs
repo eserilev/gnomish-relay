@@ -59,6 +59,15 @@ pub fn check_text(home: &[u8], folder: &[u8]) -> Result<(), Untrusted> {
 /// All four rules, on the real path. `home` is resolved. `walk` gives the `deny` folders.
 pub fn check_real(walk: &Walk, home: &Path, real: &Path) -> Result<(), Untrusted> {
     check_text(&path_bytes(home), &path_bytes(real))?;
+    if holds_private_files(walk, home, real) {
+        return Err(Untrusted::Private);
+    }
+    Ok(())
+}
+
+/// Rule 4 alone: a `deny` folder of `walk` is in `real`, or the classifier keeps `real`
+/// private. Both paths are resolved.
+pub fn holds_private_files(walk: &Walk, home: &Path, real: &Path) -> bool {
     let in_home = Walk {
         roots: Roots::new(vec![home.to_owned()]),
         deny: walk.deny.clone(),
@@ -69,10 +78,7 @@ pub fn check_real(walk: &Walk, home: &Path, real: &Path) -> Result<(), Untrusted
         .deny
         .iter()
         .any(|deny| is_inside_folder(&path_bytes(deny), &real_bytes));
-    if holds_deny || !is_shown(&in_home, real) {
-        return Err(Untrusted::Private);
-    }
-    Ok(())
+    holds_deny || !is_shown(&in_home, real)
 }
 
 /// True when Resume shows a session of `folder`: the folder exists, and it is in a root
