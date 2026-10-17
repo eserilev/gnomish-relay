@@ -655,6 +655,19 @@ pub fn expand(path: &str, home: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
+/// Each root of the config text, as the text writes it, whose folder does not exist.
+pub fn missing_roots_in(text: &str, home: &Path) -> Result<Vec<String>> {
+    let file: File = toml::from_str(text)?;
+    let mut missing = Vec::new();
+    for root in file.allowed_roots.unwrap_or_default() {
+        let path = expand(&root, home)?;
+        if matches!(path.try_exists(), Ok(false)) {
+            missing.push(root);
+        }
+    }
+    Ok(missing)
+}
+
 /// `canonicalize` resolves links, so a folder that is a link names its real folder
 /// (SPEC.md 6.2, rule 10).
 fn real_folder(path: &str, home: &Path, key: &str) -> Result<Vec<u8>> {

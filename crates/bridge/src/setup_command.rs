@@ -29,6 +29,15 @@ fn ask(question: &str, default: &str) -> Result<String> {
     Ok(if answer.is_empty() { default } else { &answer }.to_owned())
 }
 
+/// With no terminal, the answer is no, and the root stays.
+fn ask_to_remove(root: &str) -> bool {
+    let question = format!(
+        "Can't find {root}. If it's on a drive that isn't connected, keep it. Remove it from \
+         the folders agents can work in? (y/n)"
+    );
+    ask(&question, "n").is_ok_and(|answer| setup::wants_removal(&answer))
+}
+
 pub(crate) fn stdin_is_terminal() -> bool {
     use std::io::IsTerminal;
     std::io::stdin().is_terminal()
@@ -223,6 +232,12 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         return Ok(());
     }
     let args = SetupArgs::parse(args)?;
+    if args.product == Product::Relay {
+        let removed = setup::remove_missing_roots(&dirs.config, &dirs.home, &mut ask_to_remove)?;
+        for line in removed {
+            println!("{line}");
+        }
+    }
     let existing = setup::read_existing(&dirs.config, &dirs.home, args.product)?;
     for line in existing.iter().flat_map(|found| &found.lines) {
         println!("{line}");

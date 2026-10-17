@@ -149,6 +149,28 @@ pub fn with_root(text: &str, root: &str, home: &Path) -> Result<String> {
     Ok(changed)
 }
 
+/// The text with `root` out of `allowed_roots`. Setup asks first, because a missing root
+/// can be on a drive that isn't connected (SPEC.md 12).
+pub fn without_root(text: &str, root: &str) -> Result<String> {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let at = roots_line(&lines)?;
+    let (roots, rest) = roots_and_rest(lines[at])?;
+    if !roots.iter().any(|r| r == root) {
+        bail!("{root} is not in allowed_roots");
+    }
+    let quoted: Vec<String> = roots
+        .iter()
+        .filter(|r| *r != root)
+        .map(|r| quote(r))
+        .collect();
+    let new_line = format!("{ROOTS} = [{}]{rest}", quoted.join(", "));
+    let mut changed = String::with_capacity(text.len());
+    for (i, line) in lines.iter().enumerate() {
+        changed.push_str(if i == at { &new_line } else { line });
+    }
+    Ok(changed)
+}
+
 /// Checked before the dialog, when a new folder does not exist yet: the roots line has
 /// the one form that `with_root` changes, and the config loads.
 pub fn can_add_root(text: &str, home: &Path) -> Result<()> {
@@ -259,6 +281,26 @@ mod tests {
         let home = tempfile::tempdir().unwrap();
         std::fs::create_dir_all(home.path().join("Code")).unwrap();
         home
+    }
+
+    #[test]
+    fn a_removed_root_leaves_the_roots_line_and_keeps_its_comment_and_every_other_line() {
+        let text = CONFIG.replace(
+            "allowed_roots = [\"~/Code\"]",
+            "allowed_roots = [\"~/Code\", \"~/Drive\"]   # mine",
+        );
+
+        let changed = without_root(&text, "~/Drive").unwrap();
+
+        assert_eq!(
+            changed,
+            CONFIG.replace("[\"~/Code\"]", "[\"~/Code\"]   # mine")
+        );
+    }
+
+    #[test]
+    fn a_root_that_is_not_in_the_list_is_no_change() {
+        assert!(without_root(CONFIG, "~/Drive").is_err());
     }
 
     #[test]

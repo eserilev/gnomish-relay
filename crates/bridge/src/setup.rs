@@ -380,6 +380,39 @@ fn repair_default_folder(dir: &Path, text: String, home: &Path) -> Result<(Strin
     Ok((repaired, vec![line]))
 }
 
+/// Asks about each missing root, and takes out the ones that `remove` says yes to. A
+/// root on an unplugged drive is missing too, so the default answer keeps it (SPEC.md 12).
+pub fn remove_missing_roots(
+    dir: &Path,
+    home: &Path,
+    remove: &mut dyn FnMut(&str) -> bool,
+) -> Result<Vec<String>> {
+    let mut text = match config::read_text(dir) {
+        Ok(text) => text,
+        Err(e) if e.is::<config::SetupUnfinished>() => return Ok(Vec::new()),
+        Err(e) => return Err(e),
+    };
+    let mut lines = Vec::new();
+    for root in config::missing_roots_in(&text, home)? {
+        if !remove(&root) {
+            continue;
+        }
+        text = config_edit::without_root(&text, &root)?;
+        lines.push(format!(
+            "Removed {root} from the folders agents can work in."
+        ));
+    }
+    if !lines.is_empty() {
+        write_private(dir, config::FILE, &text)?;
+    }
+    Ok(lines)
+}
+
+/// Only a yes removes a root.
+pub fn wants_removal(answer: &str) -> bool {
+    matches!(answer.to_ascii_lowercase().as_str(), "y" | "yes")
+}
+
 /// Puts `model` into `[story]` of the config (SPEC.md 11.6).
 pub fn write_story_model(dir: &Path, model: &FoundModel, home: &Path) -> Result<Config> {
     let file = dir.join(config::FILE);
@@ -517,5 +550,59 @@ mod tests {
             level_line_of("ask"),
             "Permissions: ask. Agents ask you before each edit and each command."
         );
+    }
+
+    const TWO_ROOTS: &str = "allowed_roots = [\"~/Code\", \"~/Drive\"]\ndefault_agent = \"echo\"\n\
+        [wow]\npath = \"~/wow\"\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n";
+
+    fn config_with_a_missing_root() -> (tempfile::TempDir, std::path::PathBuf) {
+        let home = tempfile::tempdir().unwrap();
+        fs::create_dir_all(home.path().join("Code")).unwrap();
+        let dir = home.path().join("config");
+        fs::create_dir_all(&dir).unwrap();
+        fs::write(dir.join(config::FILE), TWO_ROOTS).unwrap();
+        (home, dir)
+    }
+
+    #[test]
+    fn setup_asks_only_about_a_missing_root_and_keeps_it_on_no() {
+        let (home, dir) = config_with_a_missing_root();
+        let mut asked = Vec::new();
+
+        let lines = remove_missing_roots(&dir, home.path(), &mut |root: &str| {
+            asked.push(root.to_owned());
+            false
+        })
+        .unwrap();
+
+        assert_eq!(asked, ["~/Drive"]);
+        assert!(lines.is_empty());
+        assert_eq!(
+            fs::read_to_string(dir.join(config::FILE)).unwrap(),
+            TWO_ROOTS
+        );
+    }
+
+    #[test]
+    fn setup_removes_a_missing_root_on_yes_and_says_so() {
+        let (home, dir) = config_with_a_missing_root();
+
+        let lines = remove_missing_roots(&dir, home.path(), &mut |_: &str| true).unwrap();
+
+        assert_eq!(
+            lines,
+            ["Removed ~/Drive from the folders agents can work in."]
+        );
+        let text = fs::read_to_string(dir.join(config::FILE)).unwrap();
+        assert!(text.starts_with("allowed_roots = [\"~/Code\"]\n"), "{text}");
+    }
+
+    #[test]
+    fn only_yes_removes_a_missing_root() {
+        assert!(wants_removal("y"));
+        assert!(wants_removal("Yes"));
+        assert!(!wants_removal("n"));
+        assert!(!wants_removal(""));
+        assert!(!wants_removal("maybe"));
     }
 }

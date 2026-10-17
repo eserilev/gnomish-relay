@@ -3224,6 +3224,8 @@ The other keys below come with their features. One planned key is not in the con
 
 When `default_cwd` is in a missing root, or there is no `default_cwd` and the first root is missing, the default folder does not exist. The desktop app then does not start, and says "Can't find the default folder ~/Drive/app, because ~/Drive is missing. Connect its drive, then run gnomish-relay restart." Setup does not repair this `default_cwd` to `~`, because the drive can come back.
 
+**Setup and a missing root.** `gnomish-relay setup` asks about each missing root: "Can't find ~/Drive. If it's on a drive that isn't connected, keep it. Remove it from the folders agents can work in? (y/n) [n]". Only "y" or "yes" removes it, with the line "Removed ~/Drive from the folders agents can work in." The default answer, and a setup with no terminal, keep the root. `setup --timeways` never asks: the roots belong to the relay part.
+
 **A root that no agent gets.** While a root is missing, an agent can put a link in its place. So at every start, and in `status`, the bridge checks the real path of each root. It refuses the whole disk (`/`, or a drive), the home folder, and a folder that holds the config folder or the data folder. The desktop app then does not start, and says which root and why.
 
 **A root that comes back.** Each step, the bridge looks for each missing root. When one exists again, it gets the same check. A root that passes takes chats again, and the bridge logs "Found ~/Drive again, so agents can work there." A root that fails stays out, and the bridge logs why, for example "~/Drive is now your whole home folder, so agents can't work there."
