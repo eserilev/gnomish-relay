@@ -858,10 +858,12 @@ mod tests {
     }
 
     #[test]
-    fn files_get_dev_null_not_tmpfs() {
+    fn a_hidden_file_gets_dev_null_and_a_hidden_folder_gets_tmpfs() {
         let key = "/home/x/wow/Interface/AddOns/GnomishRelay/Key.lua";
+        let accounts = "/home/x/wow/WTF/Account";
         let mut spec = spec();
         spec.hidden_files = vec![PathBuf::from(key)];
+        spec.hidden_folders = vec![PathBuf::from(accounts)];
 
         let args = strings(&wall_args(&spec, Path::new("/usr/bin/claude"), &[]));
 
@@ -870,6 +872,8 @@ mod tests {
                 .any(|w| w == ["--ro-bind", "/dev/null", key])
         );
         assert!(!args.windows(2).any(|w| w == ["--tmpfs", key]));
+        assert!(args.windows(2).any(|w| w == ["--tmpfs", accounts]));
+        assert!(!args.windows(2).any(|w| w == ["/dev/null", accounts]));
     }
 
     #[test]

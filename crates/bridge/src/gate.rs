@@ -1111,7 +1111,7 @@ mod tests {
     }
 
     #[test]
-    fn a_docker_volume_of_ssh_asks() {
+    fn a_path_after_a_colon_or_equals_sign_asks() {
         let s = setup();
 
         assert!(!holds(&s, "ls -v ~/.ssh:/root/.ssh"));
