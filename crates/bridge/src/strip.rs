@@ -6,28 +6,37 @@ use protocol::frame::decode_frame;
 
 use crate::line;
 
-/// Checked in the PNG header, before the pixels are decoded (SPEC.md 6.2, rule 9).
-pub const MAX_WIDTH: u32 = 8192;
-/// Every reader looks only at the top-left corner: the grid, the line, and the line test
-/// end within 400 pixels. So only these rows are decoded, and a tall window costs no
-/// memory.
+/// Checked in the PNG header, before the pixels are decoded (SPEC.md 6.2, rule 9). No
+/// screen is this wide. The decoder holds one row, so the limit bounds its memory.
+pub const MAX_WIDTH: u32 = 65_536;
+/// Every reader looks only at the top-left corner. The grid ends within 3200 pixels to
+/// the right and 768 down, the line and the line test within 1008 and 24. So only this
+/// part is kept, and a screen of any size costs the same memory.
+const KEEP_WIDTH: u32 = 4096;
 const TOP_ROWS: u32 = 1024;
 const CELLS_PER_ROW: usize = 200;
 const MAX_ROWS: usize = 48;
 const CALIBRATION_ROWS: usize = 2;
 
-/// The top rows of a screenshot, with the size of the whole screenshot.
+/// The top-left part of a screenshot, with the size of the whole screenshot.
 pub struct Image {
+    /// The columns in `rgb`.
     width: usize,
     /// The rows in `rgb`.
     height: usize,
+    full_width: usize,
     full_height: usize,
     rgb: Vec<u8>,
 }
 
 impl Image {
     pub fn from_png(bytes: &[u8]) -> Result<Image> {
-        let mut decoder = png::Decoder::new(std::io::Cursor::new(bytes));
+        Image::from_reader(std::io::Cursor::new(bytes))
+    }
+
+    /// Reads only as far into the file as the top rows go, so a file of any size works.
+    pub fn from_reader(reader: impl std::io::BufRead + std::io::Seek) -> Result<Image> {
+        let mut decoder = png::Decoder::new(reader);
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
         let header = decoder.read_header_info()?;
         let (width, full_height) = (header.width, header.height);
@@ -44,21 +53,19 @@ impl Image {
             png::ColorType::Rgba => 4,
             other => bail!("screenshot has color type {other:?}"),
         };
-        let height = full_height.min(TOP_ROWS);
-        let mut rgb = Vec::with_capacity(width as usize * height as usize * 3);
+        let (kept, height) = (width.min(KEEP_WIDTH) as usize, full_height.min(TOP_ROWS));
+        let mut rgb = Vec::with_capacity(kept * height as usize * 3);
         for _ in 0..height {
             let row = reader
                 .next_row()?
                 .context("the PNG ends before its last row")?;
-            rgb.extend(
-                row.data()
-                    .chunks_exact(channels)
-                    .flat_map(|px| [px[0], px[1], px[2]]),
-            );
+            let left = row.data().chunks_exact(channels).take(kept);
+            rgb.extend(left.flat_map(|px| [px[0], px[1], px[2]]));
         }
         Ok(Image {
-            width: width as usize,
+            width: kept,
             height: height as usize,
+            full_width: width as usize,
             full_height: full_height as usize,
             rgb,
         })
@@ -66,7 +73,7 @@ impl Image {
 
     /// Width and height of the whole screenshot, in pixels.
     pub fn size(&self) -> (usize, usize) {
-        (self.width, self.full_height)
+        (self.full_width, self.full_height)
     }
 
     /// `None` when `rgb` does not hold 3 bytes for each pixel.
@@ -74,6 +81,7 @@ impl Image {
         (rgb.len() == width * height * 3).then_some(Image {
             width,
             height,
+            full_width: width,
             full_height: height,
             rgb,
         })
@@ -105,6 +113,7 @@ impl Image {
         Image {
             width,
             height,
+            full_width: width,
             full_height: height,
             rgb,
         }
@@ -165,12 +174,14 @@ fn fits(image: &Image, grid: Grid) -> bool {
     })
 }
 
-/// Every cell size from 2 to 8 pixels that matches both calibration rows exactly.
-/// A normal screenshot has none. The width steps by 1/200 pixel, so the last of
-/// 200 cells lands at most half a pixel off. The height steps by 1/8 pixel.
+/// Every cell size from 2 to 16 pixels that matches both calibration rows exactly.
+/// A normal screenshot has none. The cells are 3 pixels on the screen, and a screenshot
+/// bigger than the screen that the game reports scales them up. The width steps by 1/200
+/// pixel, so the last of 200 cells lands at most half a pixel off. The height steps by
+/// 1/8 pixel.
 fn grids(image: &Image) -> impl Iterator<Item = Grid> + '_ {
-    (16..=64).flat_map(move |y| {
-        (400..=1600)
+    (16..=128).flat_map(move |y| {
+        (400..=3200)
             .map(move |x| Grid {
                 pitch_x: f64::from(x) / 200.0,
                 pitch_y: f64::from(y) / 8.0,

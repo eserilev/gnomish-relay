@@ -16,7 +16,8 @@ use crate::run::log;
 
 pub const FILE: &str = "strip-line.json";
 const MAX_FILE: u64 = 4096;
-const MAX_SIDE: u32 = 16384;
+// The beacon holds each side of the screen in 2 bytes.
+const MAX_SIDE: u32 = 65_535;
 const MAX_SCREENS: usize = 8;
 
 /// Why no mode reads exactly.
@@ -236,6 +237,13 @@ mod tests {
             height,
             ..CHOICE
         }
+    }
+
+    #[test]
+    fn a_window_over_three_8k_screens_loads_back() {
+        let dir = tempfile::tempdir().unwrap();
+        remember(dir.path(), at(23_040, 4320)).unwrap();
+        assert_eq!(load(dir.path()).unwrap(), [at(23_040, 4320)]);
     }
 
     #[test]

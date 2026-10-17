@@ -7,7 +7,7 @@ mod common;
 
 use bridge::line::{self, Color, MODES, Mode};
 use bridge::strip::{Image, MAX_WIDTH, read_with};
-use common::{HEIGHT, WIDTH, encode_png, scene, screenshot_png, strip_rows};
+use common::{HEIGHT, WIDTH, encode_png, scene, scene_of_size, screenshot_png, strip_rows};
 use png::{BitDepth, ColorType};
 use protocol::frame::{decode_frame, encode_frame};
 
@@ -157,19 +157,40 @@ fn an_image_over_the_width_limit_is_refused_before_decoding() {
 /// a limit of 4096 a side, so no strip got through.
 #[test]
 fn a_strip_in_a_screenshot_of_a_big_window_reads_back() {
-    let (width, height) = (5112, 2738);
-    let mut rgb = vec![70u8; width * height * 3];
-    let small = scene(&strip_rows(&frame(b"big window")), 3.0, 3.0);
-    for y in 0..HEIGHT as usize {
-        let row = &small[y * WIDTH as usize * 3..(y + 1) * WIDTH as usize * 3];
-        rgb[y * width * 3..y * width * 3 + row.len()].copy_from_slice(row);
-    }
+    let rgb = scene_of_size(&strip_rows(&frame(b"big window")), 3.0, 3.0, (5112, 2738));
     let png_bytes = encode_png(5112, 2738, ColorType::Rgb, BitDepth::Eight, &rgb);
 
     let image = Image::from_png(&png_bytes).unwrap();
 
     assert_eq!(image.size(), (5112, 2738));
     assert_eq!(payload_of(&png_bytes).unwrap(), b"big window");
+}
+
+/// Three 8K screens side by side, wider than any one screen.
+#[test]
+fn a_strip_in_a_screenshot_of_three_8k_screens_reads_back() {
+    let (width, height) = (23_040, 600);
+    let rgb = scene_of_size(&strip_rows(&frame(b"wide")), 3.0, 3.0, (width, height));
+    let png_bytes = encode_png(23_040, 600, ColorType::Rgb, BitDepth::Eight, &rgb);
+
+    assert_eq!(Image::from_png(&png_bytes).unwrap().size(), (width, height));
+    assert_eq!(payload_of(&png_bytes).unwrap(), b"wide");
+}
+
+/// A screenshot bigger than the screen size that the game reports scales the 3-pixel
+/// cells up, for example with the display scaling of Wine.
+#[test]
+fn a_strip_with_cells_scaled_up_to_16_pixels_reads_back() {
+    let size = (3300, 800);
+    for pitch in [8.25, 10.0, 12.75, 16.0] {
+        let rgb = scene_of_size(&strip_rows(&frame(b"scaled")), pitch, pitch, size);
+        let png_bytes = encode_png(3300, 800, ColorType::Rgb, BitDepth::Eight, &rgb);
+        assert_eq!(
+            payload_of(&png_bytes).as_deref(),
+            Some(b"scaled".as_slice()),
+            "pitch {pitch}"
+        );
+    }
 }
 
 /// A 1280x720 scene with the line of `frame` drawn at the corner, as a PNG.

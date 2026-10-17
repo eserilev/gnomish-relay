@@ -116,14 +116,24 @@ pub fn strip_rows(frame: &[u8]) -> Vec<Vec<u8>> {
 }
 
 /// The pixels of a 1280x720 game scene with the strip drawn at a fractional cell size.
+pub fn scene(rows: &[Vec<u8>], pitch_x: f64, pitch_y: f64) -> Vec<u8> {
+    scene_of_size(rows, pitch_x, pitch_y, (WIDTH as usize, HEIGHT as usize))
+}
+
+/// A grey scene of `width` by `height` with the strip at the top-left corner.
 #[allow(
+    dead_code, // not every test file uses it
     clippy::cast_possible_truncation,
     clippy::cast_sign_loss,
     clippy::cast_precision_loss
 )]
-pub fn scene(rows: &[Vec<u8>], pitch_x: f64, pitch_y: f64) -> Vec<u8> {
-    let width = WIDTH as usize;
-    let mut rgb = vec![70u8; width * HEIGHT as usize * 3];
+pub fn scene_of_size(
+    rows: &[Vec<u8>],
+    pitch_x: f64,
+    pitch_y: f64,
+    (width, height): (usize, usize),
+) -> Vec<u8> {
+    let mut rgb = vec![70u8; width * height * 3];
     for (r, row) in rows.iter().enumerate() {
         for (c, &cell) in row.iter().enumerate() {
             let xs = (c as f64 * pitch_x) as usize..((c + 1) as f64 * pitch_x) as usize;
