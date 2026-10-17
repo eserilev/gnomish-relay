@@ -8,7 +8,10 @@ use anyhow::{Result, bail};
 
 use crate::config::with_tilde;
 use crate::folder_path::{is_inside_folder, path_bytes, real_path};
+use crate::folder_trust::{Untrusted, check_real};
+use crate::folder_walk::Walk;
 use crate::gate::Places;
+use crate::roots::Roots;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WideRoot {
@@ -17,6 +20,10 @@ pub enum WideRoot {
     AboveHome,
     Settings,
     Data,
+    /// A hidden folder, or one that the walk skips, as for a click (SPEC.md 9.12).
+    Hidden,
+    /// A folder that the classifier keeps private, as for a click (SPEC.md 9.12).
+    Private,
 }
 
 impl WideRoot {
@@ -27,16 +34,18 @@ impl WideRoot {
             WideRoot::AboveHome => "a folder that holds your home folder",
             WideRoot::Settings => "a folder with the settings of the desktop app",
             WideRoot::Data => "a folder with the data of the desktop app",
+            WideRoot::Hidden => "a hidden or system folder",
+            WideRoot::Private => "a folder with private files",
         }
     }
 }
 
 /// `root` is a real path. A folder that does not resolve stays as it is.
-pub fn wide_root(root: &Path, places: &Places) -> Option<WideRoot> {
-    if root.parent().is_none() {
+pub fn wide_root(root_path: &Path, places: &Places) -> Option<WideRoot> {
+    if root_path.parent().is_none() {
         return Some(WideRoot::WholeDisk);
     }
-    let root = path_bytes(root);
+    let root = path_bytes(root_path);
     let real = |dir: &Path| path_bytes(&real_path(dir).unwrap_or_else(|_| dir.to_owned()));
     let home = real(places.home);
     if home == root {
@@ -51,7 +60,25 @@ pub fn wide_root(root: &Path, places: &Places) -> Option<WideRoot> {
     if is_inside_folder(&real(places.data_dir), &root) {
         return Some(WideRoot::Data);
     }
-    None
+    let in_home = is_inside_folder(&root, &home);
+    in_home
+        .then(|| failed_click_rule(root_path, places))
+        .flatten()
+}
+
+/// The rules of a folder that a click adds (SPEC.md 9.12), for a root in the home folder.
+fn failed_click_rule(root: &Path, places: &Places) -> Option<WideRoot> {
+    let real = |dir: &Path| real_path(dir).unwrap_or_else(|_| dir.to_owned());
+    let walk = Walk {
+        roots: Roots::default(),
+        deny: vec![real(places.config_dir), real(places.data_dir)],
+        home: Some(real(places.home)),
+    };
+    match check_real(&walk, &real(places.home), root) {
+        Ok(()) => None,
+        Err(Untrusted::Private) => Some(WideRoot::Private),
+        Err(_) => Some(WideRoot::Hidden),
+    }
 }
 
 /// The line of the log for a missing root that comes back as a wide one.
@@ -143,12 +170,28 @@ mod tests {
         assert_eq!(wide, Some(WideRoot::AboveHome));
     }
 
+    /// The rules of a click on the desktop (SPEC.md 9.12) hold at start too.
+    #[test]
+    fn a_hidden_or_system_folder_in_the_home_folder_is_refused() {
+        let c = computer();
+        for name in [".ssh", "Code/node_modules"] {
+            std::fs::create_dir_all(c.home.join(name)).unwrap();
+        }
+
+        assert_eq!(c.wide(&c.home.join(".ssh")), Some(WideRoot::Hidden));
+        assert_eq!(
+            c.wide(&c.home.join("Code/node_modules")),
+            Some(WideRoot::Hidden)
+        );
+    }
+
     #[test]
     fn a_project_folder_is_no_wide_root() {
         let c = computer();
 
         assert_eq!(c.wide(&c.home.join("Code")), None);
-        assert_eq!(c.wide(&c.config.join("inner")), None);
+        std::fs::create_dir_all(c.home.join("Code/app")).unwrap();
+        assert_eq!(c.wide(&c.home.join("Code/app")), None);
     }
 
     #[test]
