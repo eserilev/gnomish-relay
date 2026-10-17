@@ -70,7 +70,9 @@ pub struct Shot {
 /// `strip::read_with`.
 pub fn read_strip(path: &Path, accept: impl Fn(&[u8]) -> bool) -> Result<Option<Shot>> {
     let file = open_regular(path)?;
-    let image = Image::from_reader(file)?;
+    let Some(image) = Image::from_reader_if_marked(file)? else {
+        return Ok(None);
+    };
     let Some(bytes) = strip::read_with(&image, accept) else {
         return Ok(None);
     };

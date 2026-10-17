@@ -242,3 +242,55 @@ fn a_line_with_a_broken_frame_is_not_a_strip() {
     wire[12] ^= 1;
     assert!(payload_of(&line_png(&wire, MODES[0])).is_none());
 }
+
+/// The strip or the line, when there, from the reader that stops after 32 rows without one.
+fn marked_payload_of(png_bytes: &[u8]) -> Option<Vec<u8>> {
+    let image = Image::from_reader_if_marked(std::io::Cursor::new(png_bytes)).ok()??;
+    let bytes = read_with(&image, |_| true)?;
+    decode_frame(&bytes).ok().map(|f| f.payload)
+}
+
+/// Noise does not compress, so half the file holds the top rows and not the rest.
+#[test]
+fn a_normal_screenshot_is_read_only_down_to_its_top_32_rows() {
+    let noise = common::bytes(7, (WIDTH * HEIGHT * 3) as usize);
+    let png_bytes = encode_png(WIDTH, HEIGHT, ColorType::Rgb, BitDepth::Eight, &noise);
+    let top_half = &png_bytes[..png_bytes.len() / 2];
+
+    let marked = Image::from_reader_if_marked(std::io::Cursor::new(top_half));
+
+    assert!(matches!(marked, Ok(None)));
+    assert!(Image::from_png(top_half).is_err());
+}
+
+#[test]
+fn a_strip_taller_than_32_rows_reads_back_through_the_marked_reader() {
+    let payload = vec![b'x'; 3200];
+    let rgb = scene(&strip_rows(&frame(&payload)), 4.0, 4.0);
+    let png_bytes = encode_png(WIDTH, HEIGHT, ColorType::Rgb, BitDepth::Eight, &rgb);
+
+    assert_eq!(marked_payload_of(&png_bytes), Some(payload));
+}
+
+#[test]
+fn a_line_in_every_mode_reads_back_through_the_marked_reader() {
+    let payload = vec![b'y'; 3200];
+    for mode in MODES {
+        let png_bytes = line_png(&frame(&payload), mode);
+
+        let read = marked_payload_of(&png_bytes);
+
+        assert_eq!(read.as_ref(), Some(&payload), "{}", mode.name());
+    }
+}
+
+#[test]
+fn a_strip_with_cells_of_16_pixels_reads_back_through_the_marked_reader() {
+    let rgb = scene_of_size(&strip_rows(&frame(b"big cells")), 16.0, 16.0, (3200, 1024));
+    let png_bytes = encode_png(3200, 1024, ColorType::Rgb, BitDepth::Eight, &rgb);
+
+    assert_eq!(
+        marked_payload_of(&png_bytes).as_deref(),
+        Some(b"big cells".as_slice())
+    );
+}

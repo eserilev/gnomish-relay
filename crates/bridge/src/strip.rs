@@ -16,6 +16,9 @@ pub const MAX_WIDTH: u32 = 65_536;
 /// part is kept, and a screen of any size costs the same memory.
 const KEEP_WIDTH: u32 = 4096;
 const TOP_ROWS: u32 = 1024;
+/// The calibration rows of the grid end within 32 rows (2 rows of cells up to 16 pixels),
+/// and the marker of the line within 2.
+const MARK_ROWS: u32 = 32;
 /// An 8K screen (7680 x 4320) in RGBA with no compression, plus a row filter byte and
 /// 1 MiB for the chunks: about 134 MB. No real screenshot is bigger. The decoder stops
 /// after the top rows, so the cap also fits a stored shot of three 8K screens side by side.
@@ -55,24 +58,15 @@ impl<R: Seek> Seek for Capped<R> {
     }
 }
 
-/// The top-left part of a screenshot, with the size of the whole screenshot.
-pub struct Image {
-    /// The columns in `rgb`.
-    width: usize,
-    /// The rows in `rgb`.
-    height: usize,
-    full_width: usize,
-    full_height: usize,
-    rgb: Vec<u8>,
+/// A PNG decoder that keeps the rows that it read so far in `image`.
+struct TopRows<R: Read + Seek> {
+    reader: png::Reader<std::io::BufReader<Capped<R>>>,
+    channels: usize,
+    image: Image,
 }
 
-impl Image {
-    pub fn from_png(bytes: &[u8]) -> Result<Image> {
-        Image::from_reader(std::io::Cursor::new(bytes))
-    }
-
-    /// Reads only as far into the file as the top rows go, and never past `MAX_FILE`.
-    pub fn from_reader(reader: impl Read + Seek) -> Result<Image> {
+impl<R: Read + Seek> TopRows<R> {
+    fn open(reader: R) -> Result<TopRows<R>> {
         let capped = Capped {
             inner: reader,
             position: 0,
@@ -92,28 +86,80 @@ impl Image {
         if header.interlaced {
             bail!("screenshot is interlaced");
         }
-        let mut reader = decoder.read_info()?;
+        let reader = decoder.read_info()?;
         let channels = match reader.output_color_type().0 {
             png::ColorType::Rgb => 3,
             png::ColorType::Rgba => 4,
             other => bail!("screenshot has color type {other:?}"),
         };
-        let (kept, height) = (width.min(KEEP_WIDTH) as usize, full_height.min(TOP_ROWS));
-        let mut rgb = Vec::with_capacity(kept * height as usize * 3);
-        for _ in 0..height {
-            let row = reader
-                .next_row()?
-                .context("the PNG ends before its last row")?;
-            let left = row.data().chunks_exact(channels).take(kept);
-            rgb.extend(left.flat_map(|px| [px[0], px[1], px[2]]));
-        }
-        Ok(Image {
-            width: kept,
-            height: height as usize,
+        let image = Image {
+            width: width.min(KEEP_WIDTH) as usize,
+            height: 0,
             full_width: width as usize,
             full_height: full_height as usize,
-            rgb,
+            rgb: Vec::new(),
+        };
+        Ok(TopRows {
+            reader,
+            channels,
+            image,
         })
+    }
+
+    /// Stops at the bottom of the screenshot when it has fewer rows.
+    fn read_down_to(&mut self, rows: u32) -> Result<()> {
+        let last = self.image.full_height.min(rows as usize);
+        while self.image.height < last {
+            let row = self
+                .reader
+                .next_row()?
+                .context("the PNG ends before its last row")?;
+            let left = row
+                .data()
+                .chunks_exact(self.channels)
+                .take(self.image.width);
+            self.image
+                .rgb
+                .extend(left.flat_map(|px| [px[0], px[1], px[2]]));
+            self.image.height += 1;
+        }
+        Ok(())
+    }
+}
+
+/// The top-left part of a screenshot, with the size of the whole screenshot.
+pub struct Image {
+    /// The columns in `rgb`.
+    width: usize,
+    /// The rows in `rgb`.
+    height: usize,
+    full_width: usize,
+    full_height: usize,
+    rgb: Vec<u8>,
+}
+
+impl Image {
+    pub fn from_png(bytes: &[u8]) -> Result<Image> {
+        Image::from_reader(std::io::Cursor::new(bytes))
+    }
+
+    /// Reads only as far into the file as the top rows go, and never past `MAX_FILE`.
+    pub fn from_reader(reader: impl Read + Seek) -> Result<Image> {
+        let mut rows = TopRows::open(reader)?;
+        rows.read_down_to(TOP_ROWS)?;
+        Ok(rows.image)
+    }
+
+    /// `None` when the top 32 rows hold neither the calibration rows nor the marker of
+    /// the line. Most screenshots are normal ones, and each then costs only 32 rows.
+    pub fn from_reader_if_marked(reader: impl Read + Seek) -> Result<Option<Image>> {
+        let mut rows = TopRows::open(reader)?;
+        rows.read_down_to(MARK_ROWS)?;
+        if !has_strip_mark(&rows.image) {
+            return Ok(None);
+        }
+        rows.read_down_to(TOP_ROWS)?;
+        Ok(Some(rows.image))
     }
 
     /// Width and height of the whole screenshot, in pixels.
@@ -233,6 +279,14 @@ fn grids(image: &Image) -> impl Iterator<Item = Grid> + '_ {
             })
             .filter(move |&grid| fits(image, grid))
     })
+}
+
+/// The calibration rows of the grid, or the marker of the line, at the corner.
+fn has_strip_mark(image: &Image) -> bool {
+    let line_marker = [1, 2]
+        .into_iter()
+        .any(|pixels| line::marker_mode(image, pixels).is_some());
+    line_marker || grids(image).next().is_some()
 }
 
 fn data(image: &Image, grid: Grid) -> Option<Vec<u8>> {
