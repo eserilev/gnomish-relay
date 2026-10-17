@@ -1988,7 +1988,7 @@ The bridge and the Timeways story program talk in JSON lines: one JSON object on
 
 **Batches from the addon.** The Timeways addon sends one message for each batch, in its one chat. The message text is JSON lines, in this order: an optional `character_entered` line, then game events, then at most one line with a reply. The bridge checks each line:
 
-- One JSON object, at most 4 KiB, with a string `type` of 1 to 32 bytes of `[a-z_]`.
+- One JSON object, at most 4 KiB, with a string `type` of 1 to 32 bytes of `[a-z_]`. The `type` is not `hello`, `batch_end`, `model_answered`, `model_failed`, or `model_call`: a game event of such a type passes for a line of the bridge to the story program. Test: `an_event_with_the_type_of_a_line_of_the_bridge_or_the_story_program_is_refused`.
 - No `id` key. The bridge adds `id`, never the addon.
 - No control character in any string or key. A line break is a control character, so an addon joins game text onto one line before it sends it. Nesting depth at most 4 (a flat object is 1). At most 64 keys in all.
 - These types keep an exact shape (`deny_unknown_fields`, a key twice is an error):

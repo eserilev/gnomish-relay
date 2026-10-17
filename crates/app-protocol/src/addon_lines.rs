@@ -74,6 +74,16 @@ const KNOWN: [&str; 5] = [
     "draft_asked",
 ];
 
+/// The types of the lines between the bridge and the story program. A game event of one
+/// of them would pass for a line of the bridge.
+const RESERVED: [&str; 5] = [
+    "hello",
+    "batch_end",
+    "model_answered",
+    "model_failed",
+    "model_call",
+];
+
 #[derive(Clone, Debug, PartialEq)]
 pub enum AddonLine {
     Known(Known),
@@ -134,7 +144,8 @@ fn type_of(value: &Value) -> Option<String> {
     let map = value.as_object()?;
     let kind = map.get("type")?.as_str()?;
     let name_ok = (1..=MAX_TYPE).contains(&kind.len())
-        && kind.bytes().all(|b| b.is_ascii_lowercase() || b == b'_');
+        && kind.bytes().all(|b| b.is_ascii_lowercase() || b == b'_')
+        && !RESERVED.contains(&kind);
     (name_ok && !map.contains_key("id")).then(|| kind.to_owned())
 }
 
@@ -293,6 +304,21 @@ mod tests {
                 matches!(read_addon_line(line), Ok(AddonLine::Event(_))),
                 "{line}"
             );
+        }
+    }
+
+    /// An event of such a type would pass for a line of the bridge to the story program.
+    #[test]
+    fn an_event_with_the_type_of_a_line_of_the_bridge_or_the_story_program_is_refused() {
+        for kind in [
+            "hello",
+            "batch_end",
+            "model_answered",
+            "model_failed",
+            "model_call",
+        ] {
+            let line = serde_json::json!({ "type": kind, "call": 1, "text": "x" }).to_string();
+            assert_eq!(read_addon_line(&line), Err(BadLine::Shape), "{line}");
         }
     }
 
