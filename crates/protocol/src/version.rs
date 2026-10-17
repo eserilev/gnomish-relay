@@ -7,6 +7,8 @@ const RELAY_OLDEST: u32 = 1;
 const RELAY_NEWEST: u32 = 1;
 const TIMEWAYS_OLDEST: u32 = 1;
 const TIMEWAYS_NEWEST: u32 = 1;
+const WORKSHOP_OLDEST: u32 = 1;
+const WORKSHOP_NEWEST: u32 = 1;
 
 /// Where an addon version falls in the range of its app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -23,6 +25,7 @@ pub fn oldest(app: App) -> u32 {
     match app {
         App::Relay => RELAY_OLDEST,
         App::Timeways => TIMEWAYS_OLDEST,
+        App::Workshop => WORKSHOP_OLDEST,
     }
 }
 
@@ -31,6 +34,7 @@ pub fn newest(app: App) -> u32 {
     match app {
         App::Relay => RELAY_NEWEST,
         App::Timeways => TIMEWAYS_NEWEST,
+        App::Workshop => WORKSHOP_NEWEST,
     }
 }
 
@@ -49,19 +53,18 @@ pub fn version_fit(app: App, reported: u32) -> VersionFit {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    const APPS: [App; 2] = [App::Relay, App::Timeways];
+    use crate::apps::ALL_APPS;
 
     #[test]
     fn every_range_holds_at_least_one_version() {
-        for app in APPS {
+        for app in ALL_APPS {
             assert!(oldest(app) <= newest(app), "{app:?}");
         }
     }
 
     #[test]
     fn the_oldest_and_the_newest_version_are_supported() {
-        for app in APPS {
+        for app in ALL_APPS {
             assert_eq!(version_fit(app, oldest(app)), VersionFit::Supported);
             assert_eq!(version_fit(app, newest(app)), VersionFit::Supported);
         }
@@ -69,21 +72,21 @@ mod tests {
 
     #[test]
     fn one_below_the_oldest_version_is_too_old() {
-        for app in APPS {
+        for app in ALL_APPS {
             assert_eq!(version_fit(app, oldest(app) - 1), VersionFit::TooOld);
         }
     }
 
     #[test]
     fn one_above_the_newest_version_is_too_new() {
-        for app in APPS {
+        for app in ALL_APPS {
             assert_eq!(version_fit(app, newest(app) + 1), VersionFit::TooNew);
         }
     }
 
     #[test]
     fn zero_is_too_old_and_the_largest_version_is_too_new() {
-        for app in APPS {
+        for app in ALL_APPS {
             assert_eq!(version_fit(app, 0), VersionFit::TooOld);
             assert_eq!(version_fit(app, u32::MAX), VersionFit::TooNew);
         }
@@ -94,7 +97,7 @@ mod tests {
     fn each_version_near_the_ends_fits_as_its_range_says() {
         let low = 0..=10_000;
         let high = u32::MAX - 10_000..=u32::MAX;
-        for app in APPS {
+        for app in ALL_APPS {
             for version in low.clone().chain(high.clone()) {
                 let expected = if version < oldest(app) {
                     VersionFit::TooOld

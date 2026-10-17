@@ -28,6 +28,7 @@ use protocol::apps::App;
 
 const RELAY_KEY: &[u8] = b"0123456789abcdef0123456789abcdef";
 const TIMEWAYS_KEY: &[u8] = b"fedcba9876543210fedcba9876543210";
+const WORKSHOP_KEY: &[u8] = b"00112233445566778899aabbccddeeff";
 
 struct Dirs {
     _root: tempfile::TempDir,
@@ -220,6 +221,42 @@ fn no_timeways_key_means_no_timeways_lane_and_no_change_in_behavior() {
         "a strip with no known key goes, with its prompt"
     );
     assert!(!f.state.join(TIMEWAYS_DIR).exists());
+    assert!(!slot_file(&f.addons, App::Timeways, BODY_FILE).contains("id = 7"));
+}
+
+/// Gnomish Workshop has no lane yet. Only a test gives it a key.
+#[test]
+fn a_workshop_strip_reaches_no_lane_and_stays() {
+    let f = folders(true);
+    let runs = runs();
+    let keys = KeySet::new(vec![
+        (App::Relay, key(RELAY_KEY)),
+        (App::Timeways, key(TIMEWAYS_KEY)),
+        (App::Workshop, key(WORKSHOP_KEY)),
+    ])
+    .unwrap();
+    let mut bridge = bridge(&f, keys, &runs);
+    let workshop = show_strip(
+        &f,
+        "WoWScrnShot_1.png",
+        &frame(WORKSHOP_KEY, "tok", 7, "", "hi"),
+    );
+    show_strip(
+        &f,
+        "WoWScrnShot_2.png",
+        &frame(RELAY_KEY, "tok", 8, "", "hi"),
+    );
+
+    // The bridge scans both strips in one step, so this echo comes after it saw the workshop strip.
+    assert!(step_until(&mut bridge, || slot_file(
+        &f.addons,
+        App::Relay,
+        BODY_FILE
+    )
+    .contains("echo: hi")));
+
+    assert!(workshop.exists(), "a strip of an app with no lane stays");
+    assert_eq!(runs.0.load(Ordering::SeqCst), 1);
     assert!(!slot_file(&f.addons, App::Timeways, BODY_FILE).contains("id = 7"));
 }
 

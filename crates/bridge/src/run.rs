@@ -455,7 +455,12 @@ impl Bridge {
                 log(&format!(
                     "got a message for {app:?}, which is off in config.toml"
                 ));
-                return StripOutcome::AppOff;
+                return StripOutcome::AppOff(app);
+            }
+            // TODO: a lane when Gnomish Workshop gets one. Only a test key routes here yet.
+            (App::Workshop, _, _) => {
+                log("got a message for Gnomish Workshop, which this desktop app can't run yet");
+                return StripOutcome::AppOff(app);
             }
         }
         if let Err(e) = status::mark_strip(&self.data, now()) {
@@ -468,7 +473,7 @@ impl Bridge {
 enum StripOutcome {
     Taken,
     Rejected(Rejected),
-    AppOff,
+    AppOff(App),
 }
 
 /// `None` for a strip that goes. A strip that is old, early, or signed with another key
@@ -478,7 +483,14 @@ fn kept_reason(outcome: &StripOutcome) -> Option<&'static str> {
         StripOutcome::Taken
         | StripOutcome::Rejected(Rejected::Stale | Rejected::Future | Rejected::BadTag) => None,
         StripOutcome::Rejected(_) => Some("it holds a damaged message"),
-        StripOutcome::AppOff => Some("its app is off in config.toml"),
+        StripOutcome::AppOff(app) => Some(app_off_reason(*app)),
+    }
+}
+
+fn app_off_reason(app: App) -> &'static str {
+    match app {
+        App::Relay | App::Timeways => "its app is off in config.toml",
+        App::Workshop => "Gnomish Workshop has no lane yet",
     }
 }
 
@@ -1674,6 +1686,17 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_kept_strip_of_an_app_that_is_off_says_why_for_its_app() {
+        let relay = kept_reason(&StripOutcome::AppOff(App::Relay));
+        let timeways = kept_reason(&StripOutcome::AppOff(App::Timeways));
+        let workshop = kept_reason(&StripOutcome::AppOff(App::Workshop));
+
+        assert_eq!(relay, Some("its app is off in config.toml"));
+        assert_eq!(timeways, Some("its app is off in config.toml"));
+        assert_eq!(workshop, Some("Gnomish Workshop has no lane yet"));
+    }
 
     #[test]
     fn many_stale_saved_messages_give_one_log_line() {

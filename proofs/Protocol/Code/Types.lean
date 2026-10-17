@@ -145,22 +145,23 @@ structure shell.Lexer where
   depth : Std.Usize
 
 /-- [protocol::apps::App]
-    Source: 'crates/protocol/src/apps.rs', lines 9:0-12:1
+    Source: 'crates/protocol/src/apps.rs', lines 9:0-13:1
     Visibility: public -/
 @[discriminant isize]
 inductive apps.App where
 | Relay : apps.App
 | Timeways : apps.App
+| Workshop : apps.App
 
 /-- [protocol::apps::TagCheck]
-    Source: 'crates/protocol/src/apps.rs', lines 18:0-21:1
+    Source: 'crates/protocol/src/apps.rs', lines 19:0-22:1
     Visibility: public -/
 structure apps.TagCheck where
   app : apps.App
   tag_ok : Bool
 
 /-- [protocol::apps::Unrouted]
-    Source: 'crates/protocol/src/apps.rs', lines 25:0-30:1
+    Source: 'crates/protocol/src/apps.rs', lines 26:0-31:1
     Visibility: public -/
 @[discriminant isize]
 inductive apps.Unrouted where
@@ -507,7 +508,7 @@ structure slot.Reply where
   text : alloc.vec.Vec Std.U8
 
 /-- [protocol::version::VersionFit]
-    Source: 'crates/protocol/src/version.rs', lines 13:0-19:1
+    Source: 'crates/protocol/src/version.rs', lines 15:0-21:1
     Visibility: public -/
 @[discriminant isize]
 inductive version.VersionFit where

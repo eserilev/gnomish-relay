@@ -7,12 +7,15 @@ use protocol::version::VersionFit;
 use crate::relay_addon::UPDATE_ADDON;
 use crate::story::{UPDATE_BRIDGE, UPDATE_TIMEWAYS};
 
+pub const UPDATE_WORKSHOP: &str = "Update Gnomish Workshop.";
+
 pub fn update_text(app: App, fit: VersionFit) -> Option<&'static str> {
     match (app, fit) {
         (_, VersionFit::Supported) => None,
         (_, VersionFit::TooNew) => Some(UPDATE_BRIDGE),
         (App::Relay, VersionFit::TooOld) => Some(UPDATE_ADDON),
         (App::Timeways, VersionFit::TooOld) => Some(UPDATE_TIMEWAYS),
+        (App::Workshop, VersionFit::TooOld) => Some(UPDATE_WORKSHOP),
     }
 }
 
@@ -24,10 +27,11 @@ mod tests {
     fn a_supported_version_gets_no_update_text() {
         assert_eq!(update_text(App::Relay, VersionFit::Supported), None);
         assert_eq!(update_text(App::Timeways, VersionFit::Supported), None);
+        assert_eq!(update_text(App::Workshop, VersionFit::Supported), None);
     }
 
     #[test]
-    fn a_newer_addon_of_either_app_asks_to_update_the_desktop_program() {
+    fn a_newer_addon_of_any_app_asks_to_update_the_desktop_program() {
         assert_eq!(
             update_text(App::Relay, VersionFit::TooNew),
             Some(UPDATE_BRIDGE)
@@ -36,10 +40,14 @@ mod tests {
             update_text(App::Timeways, VersionFit::TooNew),
             Some(UPDATE_BRIDGE)
         );
+        assert_eq!(
+            update_text(App::Workshop, VersionFit::TooNew),
+            Some(UPDATE_BRIDGE)
+        );
     }
 
     #[test]
-    fn an_older_addon_of_either_app_asks_for_its_update() {
+    fn an_older_addon_of_any_app_asks_for_its_update() {
         assert_eq!(
             update_text(App::Timeways, VersionFit::TooOld),
             Some(UPDATE_TIMEWAYS)
@@ -47,6 +55,10 @@ mod tests {
         assert_eq!(
             update_text(App::Relay, VersionFit::TooOld),
             Some("Update Gnomish Relay in the CurseForge app, then restart WoW.")
+        );
+        assert_eq!(
+            update_text(App::Workshop, VersionFit::TooOld),
+            Some("Update Gnomish Workshop.")
         );
     }
 }

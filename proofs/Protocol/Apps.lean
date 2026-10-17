@@ -97,18 +97,18 @@ theorem push_name_spec {n : Usize} (out : alloc.vec.Vec U8) (arr : Std.Array U8 
   rw [hr, ← hname]
   simp [bytes]
 
-theorem slot_global_length (app : apps.App) : (ascii (slotGlobal app)).length ≤ 21 := by
+theorem slot_global_length (app : apps.App) : (ascii (slotGlobal app)).length ≤ 24 := by
   induction app <;> decide
 
-theorem restore_global_length (app : apps.App) : (ascii (restoreGlobal app)).length ≤ 20 := by
+theorem restore_global_length (app : apps.App) : (ascii (restoreGlobal app)).length ≤ 23 := by
   induction app <;> decide
 
-theorem live_global_length (app : apps.App) : (ascii (liveGlobal app)).length ≤ 17 := by
+theorem live_global_length (app : apps.App) : (ascii (liveGlobal app)).length ≤ 20 := by
   induction app <;> decide
 
 @[step]
 theorem push_slot_global_spec (out : alloc.vec.Vec U8) (app : apps.App)
-    (hroom : out.val.length + 21 ≤ Usize.max) :
+    (hroom : out.val.length + 24 ≤ Usize.max) :
     apps.push_slot_global out app ⦃ r =>
       bytes r.val = bytes out.val ++ ascii (slotGlobal app) ∧
       r.val.length = out.val.length + (ascii (slotGlobal app)).length ⦄ := by
@@ -120,10 +120,13 @@ theorem push_slot_global_spec (out : alloc.vec.Vec U8) (app : apps.App)
   · simp only [lift, bind_tc_ok]
     exact push_name_spec out _ _ (by unfold apps.TIMEWAYS_SLOT_DATA; rfl)
       (by unfold apps.TIMEWAYS_SLOT_DATA; simp; omega)
+  · simp only [lift, bind_tc_ok]
+    exact push_name_spec out _ _ (by unfold apps.WORKSHOP_SLOT_DATA; rfl)
+      (by unfold apps.WORKSHOP_SLOT_DATA; simp; omega)
 
 @[step]
 theorem push_restore_global_spec (out : alloc.vec.Vec U8) (app : apps.App)
-    (hroom : out.val.length + 20 ≤ Usize.max) :
+    (hroom : out.val.length + 23 ≤ Usize.max) :
     apps.push_restore_global out app ⦃ r =>
       bytes r.val = bytes out.val ++ ascii (restoreGlobal app) ∧
       r.val.length = out.val.length + (ascii (restoreGlobal app)).length ⦄ := by
@@ -135,10 +138,13 @@ theorem push_restore_global_spec (out : alloc.vec.Vec U8) (app : apps.App)
   · simp only [lift, bind_tc_ok]
     exact push_name_spec out _ _ (by unfold apps.TIMEWAYS_RESTORE; rfl)
       (by unfold apps.TIMEWAYS_RESTORE; simp; omega)
+  · simp only [lift, bind_tc_ok]
+    exact push_name_spec out _ _ (by unfold apps.WORKSHOP_RESTORE; rfl)
+      (by unfold apps.WORKSHOP_RESTORE; simp; omega)
 
 @[step]
 theorem push_live_global_spec (out : alloc.vec.Vec U8) (app : apps.App)
-    (hroom : out.val.length + 17 ≤ Usize.max) :
+    (hroom : out.val.length + 20 ≤ Usize.max) :
     apps.push_live_global out app ⦃ r =>
       bytes r.val = bytes out.val ++ ascii (liveGlobal app) ∧
       r.val.length = out.val.length + (ascii (liveGlobal app)).length ⦄ := by
@@ -150,5 +156,8 @@ theorem push_live_global_spec (out : alloc.vec.Vec U8) (app : apps.App)
   · simp only [lift, bind_tc_ok]
     exact push_name_spec out _ _ (by unfold apps.TIMEWAYS_LIVE; rfl)
       (by unfold apps.TIMEWAYS_LIVE; simp; omega)
+  · simp only [lift, bind_tc_ok]
+    exact push_name_spec out _ _ (by unfold apps.WORKSHOP_LIVE; rfl)
+      (by unfold apps.WORKSHOP_LIVE; simp; omega)
 
 end Protocol.Apps

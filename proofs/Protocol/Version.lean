@@ -3,7 +3,7 @@ import Protocol.Code.Funs
 /-! # The version range of each app (S30)
 
 The proof needs `oldest ≤ newest` for each app: a version below the range is then never
-above it too. A new range needs only new values in the four facts below. -/
+above it too. A new range needs only new values in the facts below. -/
 
 open Aeneas Aeneas.Std Result protocol
 
@@ -20,6 +20,12 @@ namespace Protocol.Version
 
 @[simp] theorem timeways_newest_val : version.TIMEWAYS_NEWEST.val = 1 := by
   unfold version.TIMEWAYS_NEWEST; rfl
+
+@[simp] theorem workshop_oldest_val : version.WORKSHOP_OLDEST.val = 1 := by
+  unfold version.WORKSHOP_OLDEST; rfl
+
+@[simp] theorem workshop_newest_val : version.WORKSHOP_NEWEST.val = 1 := by
+  unfold version.WORKSHOP_NEWEST; rfl
 
 theorem version_fit_spec (app : apps.App) (v : U32) :
     version.version_fit app v ⦃ r => ∃ lo hi : U32,

@@ -12,6 +12,7 @@ pub fn app_title(app: App) -> &'static str {
     match app {
         App::Relay => "Gnomish Relay",
         App::Timeways => "Timeways",
+        App::Workshop => "Gnomish Workshop",
     }
 }
 
@@ -20,6 +21,7 @@ pub fn addon_name(app: App) -> &'static str {
     match app {
         App::Relay => "GnomishRelay",
         App::Timeways => "Timeways",
+        App::Workshop => "GnomishWorkshop",
     }
 }
 
@@ -29,6 +31,7 @@ pub fn key_addon_name(app: App) -> &'static str {
     match app {
         App::Relay => "GnomishRelay_Key",
         App::Timeways => "Timeways_Key",
+        App::Workshop => "GnomishWorkshop_Key",
     }
 }
 
@@ -37,6 +40,7 @@ pub fn key_global(app: App) -> &'static str {
     match app {
         App::Relay => "GnomishRelayKey",
         App::Timeways => "TimewaysKey",
+        App::Workshop => "GnomishWorkshopKey",
     }
 }
 
@@ -84,8 +88,10 @@ mod tests {
             [
                 game.join("Interface/AddOns/GnomishRelay_Key"),
                 game.join("Interface/AddOns/Timeways_Key"),
+                game.join("Interface/AddOns/GnomishWorkshop_Key"),
                 game.join("Interface/AddOns/GnomishRelay/Key.lua"),
                 game.join("Interface/AddOns/Timeways/Key.lua"),
+                game.join("Interface/AddOns/GnomishWorkshop/Key.lua"),
                 game.join("WTF/Account"),
                 game.join("Screenshots"),
             ]
@@ -96,5 +102,6 @@ mod tests {
     fn each_app_has_its_own_saved_variables_file() {
         assert_eq!(saved_variables_file(App::Relay), "GnomishRelay.lua");
         assert_eq!(saved_variables_file(App::Timeways), "Timeways.lua");
+        assert_eq!(saved_variables_file(App::Workshop), "GnomishWorkshop.lua");
     }
 }

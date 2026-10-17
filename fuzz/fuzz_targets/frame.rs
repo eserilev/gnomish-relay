@@ -1,5 +1,5 @@
 //! S1 and C2 on the compiled code: a frame that decodes encodes back to the same bytes.
-//! Then S29 with two keys: the frame, signed again by the key that the input picks, goes
+//! Then S29 with three keys: the frame, signed again by the key that the input picks, goes
 //! only to the app of that key (SPEC.md 9.7, decision 2).
 #![no_main]
 
@@ -10,7 +10,8 @@ use protocol::frame::{decode_frame, encode_frame, signed_len};
 
 const RELAY: &str = "11";
 const TIMEWAYS: &str = "22";
-const OTHER: &str = "33";
+const WORKSHOP: &str = "33";
+const OTHER: &str = "44";
 
 fn key(byte: &str) -> StripKey {
     StripKey::from_hex(&byte.repeat(32)).expect("a key of 32 hex bytes")
@@ -25,9 +26,10 @@ fuzz_target!(|data: &[u8]| {
     assert_eq!(&data[..again.len()], &again[..]);
     assert!(signed_len(&frame) <= data.len());
 
-    let (signer, expected) = match frame.frame_id % 3 {
+    let (signer, expected) = match frame.frame_id % 4 {
         0 => (key(RELAY), Some(App::Relay)),
         1 => (key(TIMEWAYS), Some(App::Timeways)),
+        2 => (key(WORKSHOP), Some(App::Workshop)),
         _ => (key(OTHER), None),
     };
     let signed = signed_len(&frame);
@@ -36,8 +38,9 @@ fuzz_target!(|data: &[u8]| {
     let keys = KeySet::new(vec![
         (App::Relay, key(RELAY)),
         (App::Timeways, key(TIMEWAYS)),
+        (App::Workshop, key(WORKSHOP)),
     ])
-    .expect("two different keys");
+    .expect("three different keys");
     match (receive(&again, &keys, frame.time), expected) {
         (Ok((app, _)), Some(signed_by)) => assert_eq!(app, signed_by),
         (Err(Rejected::BadRecords), Some(_)) => {}
@@ -46,6 +49,6 @@ fuzz_target!(|data: &[u8]| {
     }
     let relay_only = KeySet::new(vec![(App::Relay, key(RELAY))]).expect("one key");
     if let Ok((app, _)) = receive(&again, &relay_only, frame.time) {
-        assert_eq!(app, App::Relay, "no Timeways key, no Timeways strip");
+        assert_eq!(app, App::Relay, "only the relay key, only relay strips");
     }
 });

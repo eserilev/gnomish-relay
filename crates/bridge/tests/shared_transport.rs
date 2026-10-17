@@ -359,9 +359,9 @@ impl Game {
                     self.wow.set(key, files.get::<Value>(key).unwrap()).unwrap();
                 }
             }
-            App::Timeways => {
+            App::Timeways | App::Workshop => {
                 let all: Table = self.wow.get("files").unwrap();
-                all.set("Timeways", files).unwrap();
+                all.set(bridge::app_files::addon_name(app), files).unwrap();
             }
         }
     }

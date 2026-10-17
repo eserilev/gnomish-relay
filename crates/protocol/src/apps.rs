@@ -9,9 +9,10 @@ use crate::ascii::push_bytes;
 pub enum App {
     Relay,
     Timeways,
+    Workshop,
 }
 
-pub const ALL_APPS: [App; 2] = [App::Relay, App::Timeways];
+pub const ALL_APPS: [App; 3] = [App::Relay, App::Timeways, App::Workshop];
 
 /// The result of the tag check under the key of one app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -63,16 +64,20 @@ fn verdict(verified: usize, found: Option<App>) -> Result<App, Unrouted> {
 
 const RELAY_SLOT_DATA: [u8; 21] = *b"GnomishRelay_SlotData";
 const TIMEWAYS_SLOT_DATA: [u8; 17] = *b"Timeways_SlotData";
+const WORKSHOP_SLOT_DATA: [u8; 24] = *b"GnomishWorkshop_SlotData";
 const RELAY_RESTORE: [u8; 20] = *b"GnomishRelay_Restore";
 const TIMEWAYS_RESTORE: [u8; 16] = *b"Timeways_Restore";
+const WORKSHOP_RESTORE: [u8; 23] = *b"GnomishWorkshop_Restore";
 const RELAY_LIVE: [u8; 17] = *b"GnomishRelay_Live";
 const TIMEWAYS_LIVE: [u8; 13] = *b"Timeways_Live";
+const WORKSHOP_LIVE: [u8; 20] = *b"GnomishWorkshop_Live";
 
 /// The global of the slot body.
 pub fn push_slot_global(out: &mut Vec<u8>, app: App) {
     match app {
         App::Relay => push_bytes(out, &RELAY_SLOT_DATA),
         App::Timeways => push_bytes(out, &TIMEWAYS_SLOT_DATA),
+        App::Workshop => push_bytes(out, &WORKSHOP_SLOT_DATA),
     }
 }
 
@@ -81,6 +86,7 @@ pub fn push_restore_global(out: &mut Vec<u8>, app: App) {
     match app {
         App::Relay => push_bytes(out, &RELAY_RESTORE),
         App::Timeways => push_bytes(out, &TIMEWAYS_RESTORE),
+        App::Workshop => push_bytes(out, &WORKSHOP_RESTORE),
     }
 }
 
@@ -89,6 +95,7 @@ pub fn push_live_global(out: &mut Vec<u8>, app: App) {
     match app {
         App::Relay => push_bytes(out, &RELAY_LIVE),
         App::Timeways => push_bytes(out, &TIMEWAYS_LIVE),
+        App::Workshop => push_bytes(out, &WORKSHOP_LIVE),
     }
 }
 
@@ -136,6 +143,26 @@ mod tests {
     }
 
     #[test]
+    fn a_strip_that_only_the_workshop_key_verifies_goes_to_the_workshop() {
+        let checks = [
+            check(App::Relay, false),
+            check(App::Timeways, false),
+            check(App::Workshop, true),
+        ];
+        assert_eq!(route(&checks), Ok(App::Workshop));
+    }
+
+    #[test]
+    fn a_strip_that_three_keys_verify_is_ambiguous() {
+        let checks = [
+            check(App::Relay, true),
+            check(App::Timeways, true),
+            check(App::Workshop, true),
+        ];
+        assert_eq!(route(&checks), Err(Unrouted::Ambiguous));
+    }
+
+    #[test]
     fn the_order_of_the_checks_does_not_change_the_app() {
         let checks = [check(App::Timeways, true), check(App::Relay, false)];
         assert_eq!(route(&checks), Ok(App::Timeways));
@@ -143,7 +170,7 @@ mod tests {
 
     #[test]
     fn all_apps_holds_each_app_once() {
-        for app in [App::Relay, App::Timeways] {
+        for app in [App::Relay, App::Timeways, App::Workshop] {
             let times = ALL_APPS.iter().filter(|listed| **listed == app).count();
             assert_eq!(times, 1, "{app:?}");
         }
@@ -169,5 +196,17 @@ mod tests {
         );
         assert_eq!(global(push_live_global, App::Relay), b"GnomishRelay_Live");
         assert_eq!(global(push_live_global, App::Timeways), b"Timeways_Live");
+        assert_eq!(
+            global(push_slot_global, App::Workshop),
+            b"GnomishWorkshop_SlotData"
+        );
+        assert_eq!(
+            global(push_restore_global, App::Workshop),
+            b"GnomishWorkshop_Restore"
+        );
+        assert_eq!(
+            global(push_live_global, App::Workshop),
+            b"GnomishWorkshop_Live"
+        );
     }
 }

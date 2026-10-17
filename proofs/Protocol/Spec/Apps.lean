@@ -22,13 +22,16 @@ def verifiedApps (checks : List apps.TagCheck) : List apps.App :=
 def slotGlobal : apps.App → String
   | .Relay => "GnomishRelay_SlotData"
   | .Timeways => "Timeways_SlotData"
+  | .Workshop => "GnomishWorkshop_SlotData"
 
 def restoreGlobal : apps.App → String
   | .Relay => "GnomishRelay_Restore"
   | .Timeways => "Timeways_Restore"
+  | .Workshop => "GnomishWorkshop_Restore"
 
 def liveGlobal : apps.App → String
   | .Relay => "GnomishRelay_Live"
   | .Timeways => "Timeways_Live"
+  | .Workshop => "GnomishWorkshop_Live"
 
 end Protocol.Spec

@@ -15,12 +15,15 @@ use crate::app_files::app_title;
 
 pub const RELAY_KEY_FILE: &str = "strip.key";
 pub const TIMEWAYS_KEY_FILE: &str = "timeways.key";
+pub const WORKSHOP_KEY_FILE: &str = "workshop.key";
 
 /// Whether the bridge needs the key of an app to start.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum KeyRule {
     Required,
     IfPresent,
+    /// No key without a lane, so the bridge does not read the key file.
+    NotYet,
 }
 
 /// `KeySet` needs the relay key, also with no relay lane (SPEC.md 12).
@@ -28,6 +31,8 @@ fn key_rule(app: App) -> KeyRule {
     match app {
         App::Relay => KeyRule::Required,
         App::Timeways => KeyRule::IfPresent,
+        // TODO: IfPresent when Gnomish Workshop gets a lane.
+        App::Workshop => KeyRule::NotYet,
     }
 }
 
@@ -36,6 +41,7 @@ pub fn key_file(app: App) -> &'static str {
     match app {
         App::Relay => RELAY_KEY_FILE,
         App::Timeways => TIMEWAYS_KEY_FILE,
+        App::Workshop => WORKSHOP_KEY_FILE,
     }
 }
 
@@ -142,6 +148,7 @@ fn load_key(config_dir: &Path, app: App) -> Result<Option<StripKey>> {
     match key_rule(app) {
         KeyRule::Required => StripKey::load(&path).map(Some),
         KeyRule::IfPresent => StripKey::load_if_present(&path),
+        KeyRule::NotYet => Ok(None),
     }
 }
 
@@ -335,6 +342,51 @@ mod tests {
         assert!(error.to_string().contains("Timeways has two keys"));
     }
 
+    fn three() -> KeySet {
+        KeySet::new(vec![
+            (App::Relay, key("ab")),
+            (App::Timeways, key("cd")),
+            (App::Workshop, key("ef")),
+        ])
+        .unwrap()
+    }
+
+    #[test]
+    fn a_frame_signed_with_the_workshop_key_goes_to_the_workshop() {
+        let wire = signed(NOW, RECORD, &key("ef"));
+        assert_eq!(app_of(&wire, &three()), Ok(App::Workshop));
+    }
+
+    #[test]
+    fn with_no_workshop_key_a_workshop_frame_has_a_bad_tag() {
+        let wire = signed(NOW, RECORD, &key("ef"));
+        assert_eq!(app_of(&wire, &both()), Err(Rejected::BadTag));
+    }
+
+    #[test]
+    fn a_workshop_key_equal_to_another_key_stops_the_bridge() {
+        let error = KeySet::new(vec![
+            (App::Relay, key("ab")),
+            (App::Timeways, key("cd")),
+            (App::Workshop, key("cd")),
+        ])
+        .err()
+        .unwrap();
+        assert!(
+            error
+                .to_string()
+                .contains("workshop.key is the same as timeways.key")
+        );
+    }
+
+    #[test]
+    fn two_workshop_keys_stop_the_bridge() {
+        let error = KeySet::new(vec![(App::Workshop, key("cd")), (App::Workshop, key("ef"))])
+            .err()
+            .unwrap();
+        assert!(error.to_string().contains("Gnomish Workshop has two keys"));
+    }
+
     #[test]
     fn the_order_of_the_keys_does_not_change_the_app() {
         let keys = KeySet::new(vec![(App::Timeways, key("cd")), (App::Relay, key("ab"))]).unwrap();
@@ -416,6 +468,15 @@ mod tests {
         let keys = KeySet::load(dir.path()).unwrap();
         assert!(keys.has(App::Relay));
         assert!(keys.has(App::Timeways));
+    }
+
+    #[test]
+    fn a_workshop_key_file_gives_no_key_while_the_workshop_has_no_lane() {
+        let dir = config_with(&[
+            (RELAY_KEY_FILE, "ab".repeat(32)),
+            (WORKSHOP_KEY_FILE, "ef".repeat(32)),
+        ]);
+        assert!(!KeySet::load(dir.path()).unwrap().has(App::Workshop));
     }
 
     #[test]
