@@ -133,10 +133,13 @@ same, with the global name of the given app. The writers take an `apps::App`. Th
 ### Item 23: routing by key (SPEC 9.7, decision 2)
 
 The user approved routing as S29 in words: "S29 proves the choice, not the
-cryptography". `route` takes the two tag results as bools, so `verify_tag` stays opaque,
-as in S2. The statement lists all four inputs, and `induction` on each bool proves it.
-The bridge keeps the keys in `KeySet { relay, timeways }`. The fuzz target `frame`
-checks the same choice with two real keys.
+cryptography". `route` takes a slice of tag checks. Each check holds an app and a bool,
+so `verify_tag` stays opaque, as in S2. `verifiedApps` in `Spec/Apps.lean` lists the apps
+whose check verifies. The result is `BadTag` for no app, the app for one app, and
+`Ambiguous` for two or more. The proof of the loop keeps an invariant: the counter is
+the length of `verifiedApps` of the checks so far, and the found app is its last
+element. The bridge keeps the keys in `KeySet`, a list of `(App, StripKey)` pairs. The
+fuzz target `frame` checks the same choice with three real keys.
 
 ### Item 24: the version range (SPEC 7.7 and 9.7, decision 17)
 
@@ -188,7 +191,7 @@ The statement makes "every path" and "reads back" exact:
 
 Each target checks the property of its proof on the compiled code, not only "no crash":
 
-- `frame`: S1, C2, and S29 with two keys. A frame signed by one key goes only to its app.
+- `frame`: S1, C2, and S29 with three keys. A frame signed by one key goes only to its app.
 - `records`: S3, C3.
 - `folder`: S5.
 - `lua`: S8 in a real Lua 5.1, and S9 for each app.
@@ -269,6 +272,8 @@ the `action` fuzz target run such inputs.
 **S12, S19, and S21 for each app (2026-09-25, approved by the user).** The three size bounds now hold for the file of each app (`slotBodyOf`, `restoreOf`, `liveOf`). These are the same files that S9, S18, and S20 fix. Their `check_` theorems point at `slot_body_of_bound`, `restore_of_bound`, and `live_of_bound`. No Rust code and no proof changed.
 
 **S29 approved (2026-09-26).** The user confirmed the exact Lean text of `S29_route` in `proofs/Statements.lean`.
+
+**S29 restated (2026-10-16, approved by the user).** `route` takes a slice of tag checks, one for each key, in place of two bools. The user approved the exact Lean text of `S29_route`: the result follows `verifiedApps` of the checks. So a third app needs no new statement.
 
 **S30 approved (2026-09-26).** The user approved S30 in words. For every app and every version, `version_fit` never fails. It gives `Supported` exactly when oldest app ≤ v ≤ newest app, `TooOld` exactly when v < oldest app, and `TooNew` exactly when newest app < v. `S30_version_fit` in `proofs/Statements.lean` states this.
 
