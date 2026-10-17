@@ -41,10 +41,21 @@ foreach ($running in @(Get-Process -Name gnomish-relay -ErrorAction SilentlyCont
 Expand-Archive "$tmp\$name" -DestinationPath $bin -Force
 Remove-Item -Recurse -Force $tmp
 
-$path = [Environment]::GetEnvironmentVariable("Path", "User")
+# The registry, not [Environment]: the user PATH can hold %VARIABLES%, and
+# [Environment] would write them expanded, as a plain string.
+$environment = [Microsoft.Win32.Registry]::CurrentUser.CreateSubKey("Environment")
+$path = $environment.GetValue("Path", "", [Microsoft.Win32.RegistryValueOptions]::DoNotExpandEnvironmentNames)
 if (($path -split ";") -notcontains $bin) {
-    [Environment]::SetEnvironmentVariable("Path", "$path;$bin", "User")
+    $kind = [Microsoft.Win32.RegistryValueKind]::ExpandString
+    if ($null -ne $environment.GetValue("Path")) { $kind = $environment.GetValueKind("Path") }
+    $new = if ($path) { "$($path.TrimEnd(';'));$bin" } else { $bin }
+    $environment.SetValue("Path", $new, $kind)
+    # A change through [Environment] tells Explorer to read the registry again, so new
+    # terminals get the new PATH.
+    [Environment]::SetEnvironmentVariable("GNOMISH_RELAY_PATH_CHANGED", "1", "User")
+    [Environment]::SetEnvironmentVariable("GNOMISH_RELAY_PATH_CHANGED", $null, "User")
 }
+$environment.Close()
 # The new user PATH reaches only new terminals. This one gets it too.
 if (($env:Path -split ";") -notcontains $bin) { $env:Path = "$env:Path;$bin" }
 Write-Host "Installed $bin\gnomish-relay.exe"
