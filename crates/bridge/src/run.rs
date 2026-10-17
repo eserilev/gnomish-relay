@@ -499,7 +499,7 @@ fn rejected_text(reason: &Rejected) -> &'static str {
     match reason {
         Rejected::NotAFrame => "the screenshot holds no readable message",
         Rejected::BadTag => "your game and the desktop app don't match",
-        Rejected::Ambiguous => "two keys match it",
+        Rejected::Ambiguous => "it matches more than one app",
         Rejected::OtherApp => "it came from the wrong addon",
         Rejected::Stale => "it's more than 5 minutes old",
         Rejected::Future => "its time is in the future",
@@ -1686,6 +1686,14 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_message_that_matches_two_apps_says_so_in_player_words() {
+        assert_eq!(
+            rejected_text(&Rejected::Ambiguous),
+            "it matches more than one app"
+        );
+    }
 
     #[test]
     fn a_kept_strip_of_an_app_that_is_off_says_why_for_its_app() {
