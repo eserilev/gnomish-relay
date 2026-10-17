@@ -140,6 +140,7 @@ pub mod update;
 pub mod usage;
 pub mod vectors;
 pub mod versions;
+pub mod wide_roots;
 pub mod wow_client;
 pub mod wsl;
 pub mod wsl_launcher;

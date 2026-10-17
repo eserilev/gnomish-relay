@@ -22,6 +22,7 @@ use crate::missing_roots::missing_root_line;
 use crate::program::find_program;
 use crate::relay_addon::{self, RelayAddon};
 use crate::story_sandbox::Sandbox;
+use crate::wide_roots::refuse_wide_roots;
 use crate::wsl;
 
 /// In the data folder. The bridge writes the time of each strip that it takes.
@@ -59,6 +60,9 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let Some(relay) = &config.relay else {
         return lines;
     };
+    if let Err(e) = refuse_wide_roots(&relay.policy.folders.roots, places) {
+        lines.push(format!("Config: has an error. {e:#}"));
+    }
     let gate = Gate::new(relay, places, Prompt::Off);
     lines.push(sandbox_line(&SandboxFound::of(&gate.sandbox.tool, path)));
     lines.push(agent_line(relay, &gate));

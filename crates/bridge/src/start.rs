@@ -36,6 +36,7 @@ use crate::settings_list::BridgeSettings;
 use crate::setup;
 use crate::story::StorySpec;
 use crate::trust::Truster;
+use crate::wide_roots::refuse_wide_roots;
 use crate::wow_client::served_games;
 
 /// Holds the lock of the bridge until the run loop ends. With no game yet, it says so
@@ -167,6 +168,13 @@ pub fn start_relay(
     story: Option<&StoryConfig>,
     paths: &Paths,
 ) -> Result<RelayParts> {
+    let places = Places {
+        config_dir: &dirs.config,
+        data_dir: &paths.state,
+        home: &dirs.home,
+    };
+    // A link in the place of a root can make it any folder (SPEC.md 12).
+    refuse_wide_roots(&relay.policy.folders.roots, &places)?;
     for root in &relay.missing_roots {
         crate::run::log(&missing_root_line(root, &dirs.home));
     }
@@ -177,11 +185,6 @@ pub fn start_relay(
             install::write_relay_keys(&game.addons, hex.trim())?,
         );
     }
-    let places = Places {
-        config_dir: &dirs.config,
-        data_dir: &paths.state,
-        home: &dirs.home,
-    };
     let mut gate = Gate::new(&relay, &places, Prompt::Dialog);
     let private = private_paths(&paths.games);
     gate.wall = gate.wall.hiding(&private);
@@ -318,6 +321,36 @@ mod tests {
         assert_eq!(parts.max_parallel_runs, 3);
         let full_auto = parts.full_auto.unwrap();
         assert!(full_auto.agents.is_empty(), "echo has no command sandbox");
+    }
+
+    /// While `~/Code` is missing, an agent can put a link to the home folder there.
+    #[cfg(unix)]
+    #[test]
+    fn a_relay_start_refuses_a_root_that_is_a_link_to_the_home_folder() {
+        let home = tempfile::tempdir().unwrap();
+        std::os::unix::fs::symlink(home.path(), home.path().join("Code")).unwrap();
+        let dirs = Dirs {
+            home: home.path().to_owned(),
+            config: home.path().join("config"),
+            data: home.path().join("data"),
+        };
+        let config = setup::write_config(&dirs.config, CONFIG, &dirs.home).unwrap();
+        std::fs::write(dirs.config.join(RELAY_KEY_FILE), "ab".repeat(32)).unwrap();
+        make_private_dir(&dirs.data).unwrap();
+        let paths = Paths {
+            games: vec![GameFolders::of(&home.path().join("wow/_anniversary_"))],
+            state: dirs.data.clone(),
+            config: dirs.config.clone(),
+        };
+
+        let error = start_relay(&dirs, config.relay.unwrap(), None, &paths)
+            .err()
+            .unwrap();
+
+        assert!(
+            error.to_string().contains("your whole home folder"),
+            "{error}"
+        );
     }
 
     #[test]
