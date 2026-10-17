@@ -15,7 +15,7 @@ use std::ffi::OsString;
 use std::path::{Path, PathBuf};
 
 use bridge::action_input::{DESKTOP_PATHS, DESKTOP_WRITES};
-use bridge::command_sandbox::{Walls, seatbelt_profile};
+use bridge::command_sandbox::{PROFILE_START, Walls, seatbelt_profile};
 use bridge::holder::{HOLD_FLAG, holder_args};
 use bridge::story_sandbox::Sandbox;
 use libfuzzer_sys::fuzz_target;
@@ -155,7 +155,9 @@ fn check_tools(walls: &Walls) {
         return;
     };
     let found = literals(&profile).expect("every literal of the profile reads");
-    let fixed = 7;
+    let fixed = literals(PROFILE_START.as_bytes())
+        .expect("the start of the profile reads")
+        .len();
     let writable: Vec<Vec<u8>> = walls.writable.iter().map(|p| bytes_of(p)).collect();
     let hidden: Vec<Vec<u8>> = walls.hidden.iter().map(|p| bytes_of(p)).collect();
     assert_eq!(found[fixed..fixed + writable.len()], writable[..]);

@@ -1228,7 +1228,7 @@ fn rule(out: &mut Vec<u8>, head: &str, filter: &str, paths: &[&Path]) -> Result<
 
 /// `open`, an Apple event, and a launchd job each start a program outside the sandbox
 /// (SPEC.md 6.6.4).
-const PROFILE_START: &str = "(version 1)
+pub const PROFILE_START: &str = "(version 1)
 (allow default)
 (deny network*)
 (deny file-write*)
