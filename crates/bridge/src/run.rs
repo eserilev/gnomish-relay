@@ -133,6 +133,8 @@ pub struct Bridge {
     keys: KeySet,
     /// One for the `Screenshots` folder of each game.
     watchers: Vec<Watcher>,
+    /// Strip screenshots whose delete failed. Each step tries again.
+    undeleted: Vec<PathBuf>,
     /// Only with the relay part in the config (SPEC.md 9.7, decision 15).
     relay: Option<RelayLane>,
     /// Only with a Timeways key. It holds no agents.
@@ -255,6 +257,7 @@ impl Bridge {
                 .iter()
                 .map(|g| Watcher::new(&g.screenshots))
                 .collect(),
+            undeleted: Vec::new(),
             timeways,
             relay,
             addons: paths.games.iter().map(|g| g.addons.clone()).collect(),
@@ -370,6 +373,7 @@ impl Bridge {
 
     /// The files over the limit stay ready for the next step.
     fn take_screenshots(&mut self) {
+        self.retry_deletes();
         let mut left = MAX_READS_PER_STEP;
         for i in 0..self.watchers.len() {
             let ready = self.watchers[i].ready();
@@ -380,6 +384,18 @@ impl Bridge {
             }
             left -= now_read;
         }
+    }
+
+    /// A file that is gone already needs no delete.
+    fn retry_deletes(&mut self) {
+        self.undeleted
+            .retain(|path| match std::fs::remove_file(path) {
+                Ok(()) => {
+                    log(&format!("deleted {}", path.display()));
+                    false
+                }
+                Err(e) => e.kind() != std::io::ErrorKind::NotFound,
+            });
     }
 
     fn take_screenshot(&mut self, path: &Path) -> Read {
@@ -414,7 +430,11 @@ impl Bridge {
         // A normal screenshot never decodes as a frame, so this is a strip, and its
         // pixels hold a prompt (SPEC.md 6.2, rule 8).
         if let Err(e) = std::fs::remove_file(path) {
-            log(&format!("cannot delete {}: {e}", path.display()));
+            log(&format!(
+                "cannot delete {}: {e}. Trying again in the next step",
+                path.display()
+            ));
+            self.undeleted.push(path.to_owned());
             return Read::Worked;
         }
         if let Some(line) = deleted_line(&outcome) {

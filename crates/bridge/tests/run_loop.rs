@@ -204,6 +204,27 @@ fn one_step_reads_at_most_16_screenshots_and_the_newest_first() {
     assert_eq!(left, [&strips[0]]);
 }
 
+/// A read-only folder makes the delete fail, as a virus scanner that holds the file does.
+#[cfg(unix)]
+#[test]
+fn a_strip_whose_delete_failed_is_deleted_in_a_later_step_and_runs_once() {
+    use std::os::unix::fs::PermissionsExt;
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let strip = f.screenshots.join("WoWScrnShot_1.png");
+    fs::write(&strip, strip_png(KEY, "once")).unwrap();
+    let mode = |m: u32| fs::Permissions::from_mode(m);
+    fs::set_permissions(&f.screenshots, mode(0o555)).unwrap();
+    assert!(step_until(&mut bridge, || slot_body(&f.addons).contains("echo: once")));
+    assert!(strip.exists());
+
+    fs::set_permissions(&f.screenshots, mode(0o755)).unwrap();
+    bridge.step();
+
+    assert!(!strip.exists());
+    assert_eq!(slot_body(&f.addons).matches("echo: once").count(), 1);
+}
+
 #[test]
 fn a_taken_strip_is_the_last_strip_of_the_status() {
     let f = folders();
