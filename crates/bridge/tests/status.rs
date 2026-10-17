@@ -188,6 +188,20 @@ fn status_of_a_working_setup_shows_the_sandbox_and_the_agent() {
 }
 
 #[test]
+fn status_names_a_missing_root_and_says_what_to_do() {
+    let computer = Computer::new();
+    let text = "allowed_roots = [\"~/Code\", \"~/Drive\"]\ndefault_agent = \"echo\"\n\
+                [wow]\npath = \"~/wow\"\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n";
+    setup::write_config(&computer.config_dir(), text, computer.home.path()).unwrap();
+
+    let lines = computer.status();
+
+    let line = "Can't find ~/Drive, so agents can't work there for now. Connect its drive, \
+                or run gnomish-relay setup to remove it.";
+    assert!(lines.iter().any(|l| l == line), "{lines:?}");
+}
+
+#[test]
 fn status_with_no_relay_addon_says_to_get_it_on_curseforge() {
     let computer = Computer::new();
     computer.write_config("claude", &fake_claude("reply"));

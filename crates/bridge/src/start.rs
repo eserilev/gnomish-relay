@@ -28,6 +28,7 @@ use crate::install;
 use crate::lock;
 use crate::logging;
 use crate::lore_job::{LoreJob, LoreParts};
+use crate::missing_roots::missing_root_line;
 use crate::raise::Raiser;
 use crate::receive::{KeySet, RELAY_KEY_FILE};
 use crate::run::{Paths, RelayParts, run};
@@ -166,6 +167,9 @@ pub fn start_relay(
     story: Option<&StoryConfig>,
     paths: &Paths,
 ) -> Result<RelayParts> {
+    for root in &relay.missing_roots {
+        crate::run::log(&missing_root_line(root, &dirs.home));
+    }
     let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
     for game in &paths.games {
         print_changed(

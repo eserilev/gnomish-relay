@@ -174,6 +174,9 @@ pub struct RelayConfig {
     pub agent_network: AgentNetwork,
     /// `[git] ci_checks`: the CI checks of a chat branch through `gh` (SPEC.md 9.11).
     pub ci_checks: CiChecks,
+    /// The roots that don't exist at load, as the config names them with `~` expanded.
+    /// The bridge skips them: one can be on a drive that isn't connected (SPEC.md 12).
+    pub missing_roots: Vec<PathBuf>,
 }
 
 /// The story program of Timeways (SPEC.md 9.8).
@@ -774,10 +777,7 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
     let Some(allowed_roots) = file.allowed_roots.as_ref() else {
         return no_relay_keys(&file).map(|()| None);
     };
-    let roots = allowed_roots
-        .iter()
-        .map(|root| real_folder(root, home, "allowed root"))
-        .collect::<Result<Vec<_>>>()?;
+    let (roots, missing_roots) = present_and_missing_roots(allowed_roots, home)?;
     let base = default_folder(file.default_cwd.as_deref(), &roots, home)?;
     let file_agents = file.agents.unwrap_or_default();
     for (name, agent) in &file_agents {
@@ -843,7 +843,26 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         local_ports,
         agent_network,
         ci_checks: ci_checks(file.git.as_ref()),
+        missing_roots,
     }))
+}
+
+/// The real path of each root that exists, and the path of each one that doesn't.
+fn present_and_missing_roots(
+    allowed_roots: &[String],
+    home: &Path,
+) -> Result<(Vec<Vec<u8>>, Vec<PathBuf>)> {
+    let mut present = Vec::new();
+    let mut missing = Vec::new();
+    for root in allowed_roots {
+        let path = expand(root, home)?;
+        match path.canonicalize() {
+            Ok(real) => present.push(path_bytes(&real)),
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => missing.push(path),
+            Err(e) => bail!("allowed root {}: {e}", path.display()),
+        }
+    }
+    Ok((present, missing))
 }
 
 /// `check_agent` passed, so the preset exists.
@@ -1702,12 +1721,6 @@ mod tests {
     }
 
     #[test]
-    fn a_missing_root_is_an_error() {
-        let home = Home::new();
-        assert!(home.parse(&GOOD.replace("~/Code", "~/Nope")).is_err());
-    }
-
-    #[test]
     fn a_relative_root_is_an_error() {
         let home = Home::new();
         assert!(home.parse(&GOOD.replace("~/Code", "Code")).is_err());
@@ -1770,6 +1783,23 @@ mod tests {
             error.downcast_ref::<BadDefaultFolder>(),
             Some(&BadDefaultFolder::Missing("~/gone".into()))
         );
+    }
+
+    /// A root can be on a drive that isn't connected now.
+    #[test]
+    fn a_missing_root_is_skipped_and_kept_as_missing() {
+        let home = Home::new();
+        let text = GOOD.replace(
+            r#"allowed_roots = ["~/Code"]"#,
+            r#"allowed_roots = ["~/Code", "~/Drive/Projects"]"#,
+        );
+
+        let config = home.parse(&text).unwrap();
+
+        let relay = config.require_relay().unwrap();
+        let root = home.path().join("Code").canonicalize().unwrap();
+        assert_eq!(relay.policy.folders.roots, [path_bytes(&root)]);
+        assert_eq!(relay.missing_roots, [home.path().join("Drive/Projects")]);
     }
 
     #[test]

@@ -18,6 +18,7 @@ use crate::install;
 use crate::line_choice;
 use crate::lock::{self, Bridge};
 use crate::lore_job::{LoreState, read_state};
+use crate::missing_roots::missing_root_line;
 use crate::program::find_program;
 use crate::relay_addon::{self, RelayAddon};
 use crate::story_sandbox::Sandbox;
@@ -61,6 +62,9 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     let gate = Gate::new(relay, places, Prompt::Off);
     lines.push(sandbox_line(&SandboxFound::of(&gate.sandbox.tool, path)));
     lines.push(agent_line(relay, &gate));
+    for root in &relay.missing_roots {
+        lines.push(missing_root_line(root, places.home));
+    }
     lines.extend(addon_lines(&config.games()));
     lines.extend(default_agent_off_service_path(relay, places));
     lines
