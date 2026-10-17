@@ -17,6 +17,8 @@ use crate::wide_roots::{Entry, WideRoot, wide_root};
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Problem {
     Missing,
+    /// The check of the folder fails, for example with no permission.
+    Unreadable,
     Wide(WideRoot, Entry),
 }
 
@@ -35,6 +37,9 @@ impl BadRoot {
                 "Can't find {root}. If it's on a drive that isn't connected, keep it. Remove \
                  it from the folders agents can work in? (y/n)"
             ),
+            Problem::Unreadable => {
+                format!("Can't open {root}. Remove it from the folders agents can work in? (y/n)")
+            }
             Problem::Wide(wide, entry) => format!(
                 "{root} {} {}, so agents can't work there, and the desktop app won't \
                  start. Remove it from the folders agents can work in? (y/n)",
@@ -106,8 +111,11 @@ fn bad_roots(text: &str, places: &Places) -> Result<Vec<BadRoot>> {
 }
 
 fn problem_of(path: &Path, places: &Places) -> Option<Problem> {
-    if matches!(path.try_exists(), Ok(false)) {
-        return Some(Problem::Missing);
+    match path.try_exists() {
+        Ok(false) => return Some(Problem::Missing),
+        Err(e) if config::means_missing(&e) => return Some(Problem::Missing),
+        Err(_) => return Some(Problem::Unreadable),
+        Ok(true) => {}
     }
     let real = real_path(path).ok()?;
     let wide = wide_root(&real, places)?;
@@ -268,6 +276,27 @@ mod tests {
             "{lines:?}"
         );
         assert_eq!(c.config_text(), text);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn setup_offers_to_remove_a_root_that_it_cant_open() {
+        use std::os::unix::fs::PermissionsExt;
+        let c = Computer::with_config(&TWO_ROOTS.replace("\"~/Drive\"", "\"~/locked/in\""));
+        let locked = c.home.path().join("locked");
+        fs::create_dir_all(locked.join("in")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        let mut asked = Vec::new();
+
+        ask_about_roots(&c.places(), Product::Relay, &mut |bad: &BadRoot| {
+            asked.push(bad.problem);
+            false
+        })
+        .unwrap();
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        let can_open_all = asked.is_empty();
+        assert!(can_open_all || asked == [Problem::Unreadable], "{asked:?}");
     }
 
     #[test]

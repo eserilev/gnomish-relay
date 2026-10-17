@@ -919,10 +919,21 @@ fn present_and_missing_roots(
         match path.try_exists() {
             Ok(true) => present.push(path),
             Ok(false) => missing.push(path),
-            Err(e) => bail!("can't open the folder {root} in allowed_roots: {e}"),
+            Err(e) if means_missing(&e) => missing.push(path),
+            Err(e) => bail!(
+                "Can't open {} from allowed_roots ({e}). Check that you can open it, or run \
+                 gnomish-relay setup to remove it.",
+                with_tilde(&path, home)
+            ),
         }
     }
     Ok((present, missing))
+}
+
+/// Windows gives `ERROR_NOT_READY` (21) for a card reader or a disc drive with no disk.
+/// That is a drive that isn't connected, the same as a missing root.
+pub fn means_missing(error: &std::io::Error) -> bool {
+    cfg!(windows) && error.raw_os_error() == Some(21)
 }
 
 fn real_folder_of(path: &Path) -> Result<Vec<u8>> {
@@ -1853,6 +1864,48 @@ mod tests {
     }
 
     /// A root can be on a drive that isn't connected now.
+    /// Root can open every folder, so this test needs a normal user.
+    #[cfg(unix)]
+    #[test]
+    fn a_root_that_cant_be_opened_is_an_error_with_a_next_step() {
+        use std::os::unix::fs::PermissionsExt;
+        let home = Home::new();
+        let locked = home.path().join("locked");
+        fs::create_dir_all(locked.join("inner")).unwrap();
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
+        if locked.join("inner").try_exists().is_ok() {
+            fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+            return;
+        }
+        let text = GOOD.replace(
+            r#"allowed_roots = ["~/Code"]"#,
+            r#"allowed_roots = ["~/Code", "~/locked/inner"]"#,
+        );
+
+        let error = home.parse(&text).err().unwrap();
+
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o755)).unwrap();
+        let line = error.to_string();
+        assert!(
+            line.starts_with("Can't open ~/locked/inner from allowed_roots ("),
+            "{line}"
+        );
+        assert!(
+            line.ends_with(
+                "). Check that you can open it, or run gnomish-relay setup to remove it."
+            ),
+            "{line}"
+        );
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn a_drive_with_no_disk_counts_as_a_missing_root() {
+        let not_ready = std::io::Error::from_raw_os_error(21);
+
+        assert!(means_missing(&not_ready));
+    }
+
     #[test]
     fn a_missing_root_is_skipped_and_kept_as_missing() {
         let home = Home::new();
