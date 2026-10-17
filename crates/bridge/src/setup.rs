@@ -6,7 +6,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
-use protocol::apps::App;
+use protocol::apps::{ALL_APPS, App};
 
 use crate::config::{self, Config};
 use crate::config_edit;
@@ -15,7 +15,7 @@ use crate::config_text::{self, RelayPart};
 use crate::fs_safe::{make_private_dir, write_private};
 use crate::install::{self, Installed};
 use crate::model_setup::FoundModel;
-use crate::receive::{KeySet, RELAY_KEY_FILE, TIMEWAYS_KEY_FILE};
+use crate::receive::{KeySet, RELAY_KEY_FILE, TIMEWAYS_KEY_FILE, key_file};
 use crate::run::now;
 use crate::slots::{self, Files};
 
@@ -55,20 +55,29 @@ fn read_key(dir: &Path, file: &str) -> Option<String> {
     Some(hex.trim().to_owned())
 }
 
-/// Reads the key in `file`, or makes one. A new key is never equal to `other`, because
+/// Reads the key in `file`, or makes one. A new key is never one of `others`, because
 /// the bridge refuses equal keys (SPEC.md 9.7, decision 1).
-fn key(dir: &Path, file: &str, choice: KeyChoice, other: Option<&str>) -> Result<String> {
+fn key(dir: &Path, file: &str, choice: KeyChoice, others: &[String]) -> Result<String> {
     if choice == KeyChoice::Keep
         && let Some(hex) = read_key(dir, file)
     {
         return Ok(hex);
     }
     let mut hex = install::new_key()?;
-    while Some(hex.as_str()) == other {
+    while others.contains(&hex) {
         hex = install::new_key()?;
     }
     write_private(dir, file, &hex)?;
     Ok(hex)
+}
+
+/// The keys of every app but `app` that the config folder has.
+fn other_keys(dir: &Path, app: App) -> Vec<String> {
+    ALL_APPS
+        .iter()
+        .filter(|other| **other != app)
+        .filter_map(|other| read_key(dir, key_file(*other)))
+        .collect()
 }
 
 /// What the file steps changed.
@@ -84,16 +93,16 @@ pub struct Changed {
 /// because `KeySet` needs it. With no relay addon, it does nothing.
 pub fn make_keys(dir: &Path, product: Product, keys: KeyChoice) -> Result<String> {
     make_private_dir(dir)?;
-    let relay_keys = match product {
-        Product::Relay => keys,
-        Product::Timeways => KeyChoice::Keep,
-    };
-    let old_timeways = read_key(dir, TIMEWAYS_KEY_FILE);
-    let relay = key(dir, RELAY_KEY_FILE, relay_keys, old_timeways.as_deref())?;
-    let hex = match product {
-        Product::Relay => relay,
-        Product::Timeways => key(dir, TIMEWAYS_KEY_FILE, keys, Some(&relay))?,
-    };
+    let app = product.app();
+    if app != App::Relay {
+        key(
+            dir,
+            RELAY_KEY_FILE,
+            KeyChoice::Keep,
+            &other_keys(dir, App::Relay),
+        )?;
+    }
+    let hex = key(dir, key_file(app), keys, &other_keys(dir, app))?;
     // Equal keys stop setup here, as they stop the bridge.
     KeySet::load(dir)?;
     Ok(hex)

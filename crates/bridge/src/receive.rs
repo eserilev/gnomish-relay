@@ -6,7 +6,7 @@ use std::path::Path;
 
 use anyhow::{Context, Result, bail};
 use hmac::{Hmac, Mac};
-use protocol::apps::{App, TagCheck, Unrouted, route};
+use protocol::apps::{ALL_APPS, App, TagCheck, Unrouted, route};
 use protocol::frame::{Reject, check_frame, decode_frame, signed_len};
 use protocol::record::{Record, parse_records};
 use sha2::Sha256;
@@ -15,6 +15,21 @@ use crate::app_files::app_title;
 
 pub const RELAY_KEY_FILE: &str = "strip.key";
 pub const TIMEWAYS_KEY_FILE: &str = "timeways.key";
+
+/// Whether the bridge needs the key of an app to start.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum KeyRule {
+    Required,
+    IfPresent,
+}
+
+/// `KeySet` needs the relay key, also with no relay lane (SPEC.md 12).
+fn key_rule(app: App) -> KeyRule {
+    match app {
+        App::Relay => KeyRule::Required,
+        App::Timeways => KeyRule::IfPresent,
+    }
+}
 
 /// The key file of `app` in the config folder.
 pub fn key_file(app: App) -> &'static str {
@@ -95,14 +110,13 @@ impl KeySet {
         Ok(KeySet { keys })
     }
 
-    /// `strip.key`, and `timeways.key` if it exists, from the config folder.
+    /// The key file of each app from the config folder.
     pub fn load(config_dir: &Path) -> Result<KeySet> {
-        let mut keys = vec![(
-            App::Relay,
-            StripKey::load(&config_dir.join(RELAY_KEY_FILE))?,
-        )];
-        if let Some(key) = StripKey::load_if_present(&config_dir.join(TIMEWAYS_KEY_FILE))? {
-            keys.push((App::Timeways, key));
+        let mut keys = Vec::new();
+        for app in ALL_APPS {
+            if let Some(key) = load_key(config_dir, app)? {
+                keys.push((app, key));
+            }
         }
         KeySet::new(keys)
     }
@@ -120,6 +134,14 @@ impl KeySet {
                 tag_ok: key.verify(signed, tag),
             })
             .collect()
+    }
+}
+
+fn load_key(config_dir: &Path, app: App) -> Result<Option<StripKey>> {
+    let path = config_dir.join(key_file(app));
+    match key_rule(app) {
+        KeyRule::Required => StripKey::load(&path).map(Some),
+        KeyRule::IfPresent => StripKey::load_if_present(&path),
     }
 }
 
@@ -394,6 +416,29 @@ mod tests {
         let keys = KeySet::load(dir.path()).unwrap();
         assert!(keys.has(App::Relay));
         assert!(keys.has(App::Timeways));
+    }
+
+    #[test]
+    fn a_missing_relay_key_file_stops_the_bridge() {
+        let dir = config_with(&[(TIMEWAYS_KEY_FILE, "cd".repeat(32))]);
+        assert!(KeySet::load(dir.path()).is_err());
+    }
+
+    #[test]
+    fn a_config_folder_of_an_older_version_loads_both_keys() {
+        let dir = config_with(&[
+            (RELAY_KEY_FILE, "ab".repeat(32) + "\n"),
+            (TIMEWAYS_KEY_FILE, "cd".repeat(32) + "\n"),
+        ]);
+        let keys = KeySet::load(dir.path()).unwrap();
+        assert_eq!(
+            app_of(&signed(NOW, RECORD, &key("ab")), &keys),
+            Ok(App::Relay)
+        );
+        assert_eq!(
+            app_of(&signed(NOW, RECORD, &key("cd")), &keys),
+            Ok(App::Timeways)
+        );
     }
 
     #[test]

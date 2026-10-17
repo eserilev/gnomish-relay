@@ -3,7 +3,7 @@
 
 use std::path::{Path, PathBuf};
 
-use protocol::apps::App;
+use protocol::apps::{ALL_APPS, App};
 
 use crate::install::KEY_FILE;
 
@@ -50,15 +50,19 @@ pub fn saved_variables_file(app: App) -> String {
 /// the screenshots. The whole key addons, but only an old `Key.lua` of each app addon: a
 /// developer checkout links the app addon folder into a repository that an agent edits.
 pub fn private_game_paths(addons: &Path, accounts: &Path, screenshots: &Path) -> Vec<PathBuf> {
-    vec![
-        addons.join(key_addon_name(App::Relay)),
-        addons.join(key_addon_name(App::Timeways)),
-        // TODO: remove when every Timeways release reads Timeways_Key.
-        addons.join(addon_name(App::Relay)).join(KEY_FILE),
-        addons.join(addon_name(App::Timeways)).join(KEY_FILE),
-        accounts.to_owned(),
-        screenshots.to_owned(),
-    ]
+    let mut paths: Vec<PathBuf> = ALL_APPS
+        .iter()
+        .map(|app| addons.join(key_addon_name(*app)))
+        .collect();
+    // TODO: remove when every Timeways release reads Timeways_Key.
+    paths.extend(
+        ALL_APPS
+            .iter()
+            .map(|app| addons.join(addon_name(*app)).join(KEY_FILE)),
+    );
+    paths.push(accounts.to_owned());
+    paths.push(screenshots.to_owned());
+    paths
 }
 
 #[cfg(test)]

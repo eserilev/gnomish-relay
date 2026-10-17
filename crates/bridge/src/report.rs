@@ -4,13 +4,14 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::Result;
+use protocol::apps::ALL_APPS;
 
 use crate::config;
 use crate::dirs::Dirs;
 use crate::fs_safe::{make_private_dir, write_private};
 use crate::log_command::{has_secret_name, looks_like_token};
 use crate::log_file::{LOG_DIR, files_oldest_first};
-use crate::receive::{RELAY_KEY_FILE, TIMEWAYS_KEY_FILE};
+use crate::receive::key_file;
 
 pub const REPORTS_DIR: &str = "reports";
 const REMOVED: &str = "(removed)";
@@ -167,8 +168,8 @@ fn line_time(line: &str) -> Option<u64> {
 /// No log holds a key. This is the second wall: the text of each key file goes.
 fn without_keys(text: &str, config_dir: &Path) -> String {
     let mut text = text.to_owned();
-    for name in [RELAY_KEY_FILE, TIMEWAYS_KEY_FILE] {
-        let Ok(key) = std::fs::read_to_string(config_dir.join(name)) else {
+    for app in ALL_APPS {
+        let Ok(key) = std::fs::read_to_string(config_dir.join(key_file(app))) else {
             continue;
         };
         let key = key.trim();
@@ -197,6 +198,7 @@ fn with_home_as_tilde(text: &str, home: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::receive::{RELAY_KEY_FILE, TIMEWAYS_KEY_FILE};
 
     const STRIP_KEY: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
     const TIMEWAYS_KEY: &str = "fedcba9876543210fedcba9876543210fedcba9876543210fedcba9876543210";

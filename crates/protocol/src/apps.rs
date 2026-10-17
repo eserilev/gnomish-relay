@@ -11,6 +11,8 @@ pub enum App {
     Timeways,
 }
 
+pub const ALL_APPS: [App; 2] = [App::Relay, App::Timeways];
+
 /// The result of the tag check under the key of one app.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct TagCheck {
@@ -137,6 +139,14 @@ mod tests {
     fn the_order_of_the_checks_does_not_change_the_app() {
         let checks = [check(App::Timeways, true), check(App::Relay, false)];
         assert_eq!(route(&checks), Ok(App::Timeways));
+    }
+
+    #[test]
+    fn all_apps_holds_each_app_once() {
+        for app in [App::Relay, App::Timeways] {
+            let times = ALL_APPS.iter().filter(|listed| **listed == app).count();
+            assert_eq!(times, 1, "{app:?}");
+        }
     }
 
     #[test]
