@@ -227,6 +227,7 @@ pub fn start_relay(
         settings,
         max_parallel_runs: relay.max_parallel_runs,
         daily_cost_cap_usd: relay.daily_cost_cap_usd,
+        missing_roots: relay.missing_roots,
     })
 }
 

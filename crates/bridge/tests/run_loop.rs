@@ -1377,6 +1377,62 @@ fn a_chat_folder_that_is_a_link_out_of_the_roots_never_runs() {
     assert!(!slot_body(&f.addons).contains("echo: hello"));
 }
 
+/// A bridge whose root is the temp folder of `f`, with `missing` as a root that is gone.
+fn bridge_with_missing_root(f: &Dirs, missing: &Path) -> Bridge {
+    let (bridge, _) = bridge_in_temp(f);
+    bridge.with_missing_roots(vec![missing.to_owned()])
+}
+
+fn strip_in_folder(f: &Dirs, bridge: &mut Bridge, folder: &Path, text: &str) -> bool {
+    let cwd = slashed(&real_path(folder).unwrap());
+    fs::write(
+        f.screenshots.join("WoWScrnShot_7.png"),
+        chat_strip_in(&cwd, 7, "", text),
+    )
+    .unwrap();
+    step_until(bridge, || {
+        let body = slot_body(&f.addons);
+        body.contains(&format!("echo: {text}")) || body.contains("outside allowed_roots")
+    })
+}
+
+#[test]
+fn a_missing_root_that_comes_back_takes_chats_again() {
+    let f = folders();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let drive = elsewhere.path().join("Drive");
+    let mut bridge = bridge_with_missing_root(&f, &drive);
+
+    fs::create_dir(&drive).unwrap();
+    bridge.step();
+
+    assert!(strip_in_folder(&f, &mut bridge, &drive, "on the drive"));
+    assert!(slot_body(&f.addons).contains("echo: on the drive"));
+}
+
+/// The folder above the temp folder of `f` holds the data folder of the bridge.
+#[cfg(unix)]
+#[test]
+fn a_missing_root_that_comes_back_as_a_link_above_the_data_folder_stays_out() {
+    let f = folders();
+    let elsewhere = tempfile::tempdir().unwrap();
+    let drive = elsewhere.path().join("Drive");
+    let mut bridge = bridge_with_missing_root(&f, &drive);
+    let above_the_data = f.state.parent().unwrap().parent().unwrap();
+
+    std::os::unix::fs::symlink(above_the_data, &drive).unwrap();
+    bridge.step();
+
+    let cwd = slashed(&real_path(&drive).unwrap());
+    let strip = chat_strip_in(&cwd, 7, "", "via the link");
+    fs::write(f.screenshots.join("WoWScrnShot_7.png"), strip).unwrap();
+
+    let ran = common::step_until_within(&mut bridge, Duration::from_secs(5), || {
+        slot_body(&f.addons).contains("echo: via the link")
+    });
+    assert!(!ran);
+}
+
 #[test]
 fn a_new_folder_whose_parent_is_missing_ends_as_an_error_and_makes_nothing() {
     let f = folders();

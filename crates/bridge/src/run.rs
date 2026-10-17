@@ -20,10 +20,12 @@ use crate::background::Background;
 use crate::build_kind::BuildKind;
 use crate::chat_branch;
 use crate::ci_checks::CiChecks;
+use crate::config::with_tilde;
 use crate::config::{Permission, Policy};
 use crate::folder_path::real_path;
 use crate::full_auto::{self, FullAutoAsker};
 use crate::game_folders::GameFolders;
+use crate::gate::Places;
 use crate::git_actions::{self, Context, Done, Effect, GitAction, MergeDesk};
 use crate::git_blocks::RunBlocks;
 use crate::git_host::GitHost;
@@ -35,6 +37,7 @@ use crate::run_git::{RunGit, WorktreeChange};
 use crate::test_summary::{self, TestCounts};
 use crate::trust::{NOT_WRITTEN, TrustGuard, Trusted, Truster};
 use crate::turn::STOPPED;
+use crate::wide_roots::{wide_root, wide_root_line};
 use protocol::apps::App;
 use protocol::record::Record;
 use protocol::version::version_fit;
@@ -207,6 +210,10 @@ struct RelayLane {
     /// Strips with a bad tag since the last good relay strip. The game shows a key
     /// mismatch only through this count.
     bad_tags: u32,
+    /// The roots that were missing at start. Each step looks for them (SPEC.md 12).
+    missing_roots: Vec<PathBuf>,
+    /// The config folder and the data folder, which no root may hold.
+    app_folders: [PathBuf; 2],
     /// The tokens and the cost of each day, and the cap of the config (SPEC.md 9.10).
     usage: DailyUsage,
     cost_cap: Option<f64>,
@@ -297,6 +304,15 @@ impl Bridge {
             }
             lane.relay.take_new_folders(&truster.home);
             lane.truster = Some(truster);
+        }
+        self
+    }
+
+    /// Each root that comes back gets the check of a start, then takes chats again.
+    #[must_use]
+    pub fn with_missing_roots(mut self, roots: Vec<PathBuf>) -> Bridge {
+        if let Some(relay) = &mut self.relay {
+            relay.missing_roots = roots;
         }
         self
     }
@@ -636,6 +652,8 @@ impl RelayLane {
             trusts: TrustGuard::default(),
             settings: BridgeSettings::default(),
             bad_tags: 0,
+            missing_roots: Vec::new(),
+            app_folders: [paths.config.clone(), paths.state.clone()],
             usage,
             cost_cap: None,
             terminal,
@@ -645,6 +663,7 @@ impl RelayLane {
     }
 
     fn step(&mut self, keys: &KeySet, addons: &[PathBuf], line: &mut LineFile) {
+        self.find_missing_roots();
         self.take_saved_variables(keys);
         self.take_notices();
         self.signal_stops();
@@ -662,6 +681,37 @@ impl RelayLane {
         // cannot run it twice.
         if self.files.stored {
             self.start_runs();
+        }
+    }
+
+    /// A root that is back is used again, unless a link made it a root that no agent gets.
+    fn find_missing_roots(&mut self) {
+        let home = home_folder().unwrap_or_default();
+        let [config_dir, data_dir] = &self.app_folders;
+        let places = Places {
+            config_dir,
+            data_dir,
+            home: &home,
+        };
+        let mut found = Vec::new();
+        self.missing_roots.retain(|root| match real_path(root) {
+            Ok(real) => {
+                found.push((root.clone(), real));
+                false
+            }
+            Err(_) => true,
+        });
+        for (root, real) in found {
+            if let Some(wide) = wide_root(&real, &places) {
+                log(&wide_root_line(&root, wide, &home));
+                continue;
+            }
+            log(&format!(
+                "Found {} again, so agents can work there.",
+                with_tilde(&root, &home)
+            ));
+            self.relay.add_root(&real);
+            self.walk.roots.add(real);
         }
     }
 
@@ -1695,6 +1745,8 @@ pub struct RelayParts {
     pub settings: BridgeSettings,
     pub max_parallel_runs: usize,
     pub daily_cost_cap_usd: Option<f64>,
+    /// The roots that were missing at start.
+    pub missing_roots: Vec<PathBuf>,
 }
 
 /// With no relay part, `relay` is `None`, and the bridge serves Timeways alone.
@@ -1716,7 +1768,8 @@ pub fn run(
                 .with_trust(parts.truster)
                 .with_settings(parts.settings)
                 .with_max_runs(parts.max_parallel_runs)
-                .with_cost_cap(parts.daily_cost_cap_usd);
+                .with_cost_cap(parts.daily_cost_cap_usd)
+                .with_missing_roots(parts.missing_roots);
             match parts.full_auto {
                 Some(asker) => bridge.with_full_auto(asker),
                 None => bridge,
