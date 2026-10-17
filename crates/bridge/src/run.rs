@@ -218,7 +218,7 @@ struct RelayLane {
     /// Strips with a bad tag since the last good relay strip. The game shows a key
     /// mismatch only through this count.
     bad_tags: u32,
-    /// The roots that were missing at start. Each step looks for them (SPEC.md 12).
+    /// The roots that were missing at start. The bridge looks for them every 5 s (SPEC.md 12).
     missing_roots: Vec<PathBuf>,
     /// The config folder and the data folder, which no root can hold.
     app_folders: [PathBuf; 2],
@@ -465,7 +465,7 @@ impl Bridge {
         // pixels hold a prompt (SPEC.md 6.2, rule 8).
         if let Err(e) = std::fs::remove_file(path) {
             log(&format!(
-                "cannot delete {}: {e}. Trying again in the next step",
+                "cannot delete {}: {e}. Will try again",
                 path.display()
             ));
             if let Some(stamp) = stamp_of(path) {
