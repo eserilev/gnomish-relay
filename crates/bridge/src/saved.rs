@@ -109,7 +109,8 @@ impl Watcher {
     }
 
     /// Each file that is new or changed since the last call. The first call reads every
-    /// file; old frames in them fail the time check.
+    /// file; old frames in them fail the time check. A file counts as seen only when it
+    /// is whole.
     pub fn changed(&mut self) -> Vec<SavedFile> {
         let Ok(accounts) = fs::read_dir(&self.accounts) else {
             return Vec::new();
@@ -127,16 +128,27 @@ impl Watcher {
             if !meta.is_file() || meta.len() > MAX_FILE || self.seen.get(&path) == Some(&modified) {
                 continue;
             }
-            self.seen.insert(path.clone(), modified);
-            if let Ok(Some(bytes)) = read_at_most(&path, MAX_FILE) {
-                texts.push(SavedFile {
-                    account: format!("{}/{}", self.game, account.file_name().to_string_lossy()),
-                    text: String::from_utf8_lossy(&bytes).into_owned(),
-                });
+            let Ok(Some(bytes)) = read_at_most(&path, MAX_FILE) else {
+                continue;
+            };
+            let text = String::from_utf8_lossy(&bytes).into_owned();
+            if !is_whole(&text) {
+                continue;
             }
+            self.seen.insert(path.clone(), modified);
+            texts.push(SavedFile {
+                account: format!("{}/{}", self.game, account.file_name().to_string_lossy()),
+                text,
+            });
         }
         texts
     }
+}
+
+/// WoW writes each saved variable as a table, so a file that WoW has finished ends with
+/// `}`. A file in the middle of the write does not, and the next step reads it again.
+fn is_whole(text: &str) -> bool {
+    text.trim_end().ends_with('}')
 }
 
 #[cfg(test)]
@@ -197,19 +209,47 @@ mod tests {
     fn a_file_is_read_again_only_after_it_changes() {
         let root = tempfile::tempdir().unwrap();
         let file = account_file(root.path());
-        fs::write(&file, "one").unwrap();
+        fs::write(&file, "one = {}").unwrap();
         let mut watcher = Watcher::new(&game(root.path()), App::Relay);
-        assert_eq!(texts(watcher.changed()), ["one"]);
+        assert_eq!(texts(watcher.changed()), ["one = {}"]);
         assert!(watcher.changed().is_empty());
         let later = SystemTime::now() + std::time::Duration::from_secs(5);
-        fs::write(&file, "two").unwrap();
+        fs::write(&file, "two = {}").unwrap();
         fs::File::options()
             .write(true)
             .open(&file)
             .unwrap()
             .set_modified(later)
             .unwrap();
-        assert_eq!(texts(watcher.changed()), ["two"]);
+        assert_eq!(texts(watcher.changed()), ["two = {}"]);
+    }
+
+    /// WoW can be in the middle of the write. The rest comes with no new time on a file
+    /// system that keeps whole seconds.
+    #[test]
+    fn a_cut_off_file_is_not_seen_and_is_read_again_once_whole() {
+        let root = tempfile::tempdir().unwrap();
+        let file = account_file(root.path());
+        let whole = "GnomishRelayDB = {\n\t[\"token\"] = \"k\",\n}\n";
+        let modified = SystemTime::now();
+        fs::write(&file, &whole[..20]).unwrap();
+        set_time(&file, modified);
+        let mut watcher = Watcher::new(&game(root.path()), App::Relay);
+        assert!(watcher.changed().is_empty());
+
+        fs::write(&file, whole).unwrap();
+        set_time(&file, modified);
+
+        assert_eq!(texts(watcher.changed()), [whole]);
+    }
+
+    fn set_time(file: &Path, modified: SystemTime) {
+        fs::File::options()
+            .write(true)
+            .open(file)
+            .unwrap()
+            .set_modified(modified)
+            .unwrap();
     }
 
     /// A game whose `WTF/Account` folder is `accounts`.
@@ -229,7 +269,7 @@ mod tests {
     #[test]
     fn a_changed_file_names_its_account_folder() {
         let root = tempfile::tempdir().unwrap();
-        fs::write(account_file(root.path()), "one").unwrap();
+        fs::write(account_file(root.path()), "one = {}").unwrap();
 
         let files = Watcher::new(&game(root.path()), App::Relay).changed();
 
@@ -257,7 +297,11 @@ mod tests {
     fn a_file_with_a_byte_that_is_not_utf8_still_gives_its_frames() {
         let root = tempfile::tempdir().unwrap();
         let file = account_file(root.path());
-        fs::write(&file, b"[\"name\"] = \"\xff\", [\"frame\"] = \"6e52\"").unwrap();
+        fs::write(
+            &file,
+            b"DB = { [\"name\"] = \"\xff\", [\"frame\"] = \"6e52\" }",
+        )
+        .unwrap();
 
         let texts = texts(Watcher::new(&game(root.path()), App::Relay).changed());
 
@@ -269,15 +313,15 @@ mod tests {
     fn each_app_watches_only_its_own_saved_variables_file() {
         let root = tempfile::tempdir().unwrap();
         let relay = account_file(root.path());
-        fs::write(&relay, "relay").unwrap();
-        fs::write(relay.with_file_name("Timeways.lua"), "story").unwrap();
+        fs::write(&relay, "relay = {}").unwrap();
+        fs::write(relay.with_file_name("Timeways.lua"), "story = {}").unwrap();
         assert_eq!(
             texts(Watcher::new(&game(root.path()), App::Relay).changed()),
-            ["relay"]
+            ["relay = {}"]
         );
         assert_eq!(
             texts(Watcher::new(&game(root.path()), App::Timeways).changed()),
-            ["story"]
+            ["story = {}"]
         );
     }
 

@@ -1216,7 +1216,7 @@ The addon uses the reload fallback when the strip gets no acknowledgment, the po
 1. The addon writes the signed frame of the message into `outbox` in its saved variables (6.6.1). The bridge checks it as a strip: tag, time, and replay store. A frame counts only if the key of the app whose saved variables hold it signed it (9.7, decision 3). The file keeps old frames across reloads. So at each read, the log gets one count line for the frames more than 5 minutes old, and one for the frames with a future time. Every other skipped frame gets its own line.
 2. The window shows "1 message is waiting. Reload to send it." with a **Reload** button. `ReloadUI` needs a hardware event, and a click is one. In combat, the button does nothing.
 3. At reload, WoW writes the saved variables file.
-4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (modification time, every 250 ms).
+4. The bridge watches `WTF/Account/<ACCOUNT>/SavedVariables/GnomishRelay.lua` (modification time, every 250 ms). It takes the file only when it is whole: it ends with the `}` of its table. A file in the middle of the write is read again in the next step, also when its time did not change.
 5. The bridge writes the reply into `GnomishRelay/Inbox.lua`. The main addon reads it at the next reload.
 
 After each `/reload`, the addon shows the strip again for every sent message that has no reply and is not in the outbox.
