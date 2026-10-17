@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::Result;
 
+use crate::fs_safe::open_regular;
 use crate::strip::{self, Image};
 
 pub struct Watcher {
@@ -68,7 +69,7 @@ pub struct Shot {
 /// `None` for a normal screenshot of the user. `accept` is the tag check of
 /// `strip::read_with`.
 pub fn read_strip(path: &Path, accept: impl Fn(&[u8]) -> bool) -> Result<Option<Shot>> {
-    let file = fs::File::open(path)?;
+    let file = open_regular(path)?;
     let image = Image::from_reader(std::io::BufReader::new(file))?;
     let Some(bytes) = strip::read_with(&image, accept) else {
         return Ok(None);
@@ -112,6 +113,39 @@ mod tests {
         let shot = dir.path().join("WoWScrnShot_3.png");
         let file = fs::File::create(&shot).unwrap();
         file.set_len(4 << 30).unwrap();
+
+        assert!(read_strip(&shot, |_| true).is_err());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_fifo_in_the_screenshot_folder_does_not_hang_the_read() {
+        let dir = tempfile::tempdir().unwrap();
+        let shot = dir.path().join("WoWScrnShot_4.png");
+        crate::fs_safe::tests::make_fifo(&shot);
+
+        let read =
+            crate::fs_safe::tests::returns_at_once(move || read_strip(&shot, |_| true).is_err());
+
+        assert_eq!(read, Some(true));
+    }
+
+    /// The watcher skips a link, but a link can take the place of a file after the scan.
+    #[cfg(unix)]
+    #[test]
+    fn a_screenshot_that_is_a_link_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("real.png");
+        fs::write(
+            &target,
+            crate::strip::Image::from_rgb(1, 1, vec![0; 3])
+                .unwrap()
+                .to_png()
+                .unwrap(),
+        )
+        .unwrap();
+        let shot = dir.path().join("WoWScrnShot_5.png");
+        std::os::unix::fs::symlink(&target, &shot).unwrap();
 
         assert!(read_strip(&shot, |_| true).is_err());
     }

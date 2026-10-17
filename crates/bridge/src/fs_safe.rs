@@ -1,23 +1,62 @@
-//! File writes that never follow a symbolic link (SPEC.md 6.2, rule 7), and reads with a
-//! size limit (rule 9).
+//! File writes and reads that never follow a symbolic link (SPEC.md 6.2, rule 7), and
+//! reads with a size limit (rule 9).
 
 use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result, bail};
 
 /// The bytes of a file of at most `max` bytes, or `None` for a bigger one. The read stops
 /// at the limit: a size check before the read misses a file that grows.
-pub fn read_at_most(path: &Path, max: u64) -> std::io::Result<Option<Vec<u8>>> {
+pub fn read_at_most(path: &Path, max: u64) -> io::Result<Option<Vec<u8>>> {
     let mut bytes = Vec::new();
-    File::open(path)?
+    open_regular(path)?
         .take(max.saturating_add(1))
         .read_to_end(&mut bytes)?;
     if bytes.len() as u64 > max {
         return Ok(None);
     }
     Ok(Some(bytes))
+}
+
+/// Opens a plain file to read. A local program can put a link, a FIFO, or a device in the
+/// place of the file. A link points at any file of the user, and a FIFO blocks the read.
+pub fn open_regular(path: &Path) -> io::Result<File> {
+    let file = open_no_follow(path)?;
+    let meta = file.metadata()?;
+    if !meta.is_file() {
+        return Err(io::Error::other(format!(
+            "{} is not a plain file",
+            path.display()
+        )));
+    }
+    Ok(file)
+}
+
+/// `O_NONBLOCK` makes the open of a FIFO return at once, so the check of `open_regular`
+/// sees it. A read of a plain file ignores the flag.
+#[cfg(unix)]
+fn open_no_follow(path: &Path) -> io::Result<File> {
+    use std::os::unix::fs::OpenOptionsExt;
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(libc::O_NOFOLLOW | libc::O_NONBLOCK)
+        .open(path)
+}
+
+/// The flag opens a link itself, not its target, so the check of `open_regular` sees it.
+/// On this handle, `is_file` is false only for a link or a junction. A cloud sync file, a
+/// compressed file, and a dedup file are reparse points too, and they still read.
+// TODO: check once on Windows that a OneDrive file that is only in the cloud reads.
+#[cfg(windows)]
+fn open_no_follow(path: &Path) -> io::Result<File> {
+    use std::os::windows::fs::OpenOptionsExt;
+    const FILE_FLAG_OPEN_REPARSE_POINT: u32 = 0x0020_0000;
+    OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_OPEN_REPARSE_POINT)
+        .open(path)
 }
 
 /// Fails for a symbolic link, so a local program cannot point a slot at another folder.
@@ -191,7 +230,7 @@ fn create_temp(dir: &Path, name: &str, readers: Readers) -> Result<(File, PathBu
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -310,6 +349,56 @@ mod tests {
 
         assert_eq!(read_at_most(&fits, 4).unwrap(), Some(b"1234".to_vec()));
         assert_eq!(read_at_most(&over, 4).unwrap(), None);
+    }
+
+    /// Runs `read` on a thread, so a read that blocks fails the test and does not hang it.
+    #[cfg(unix)]
+    pub(crate) fn returns_at_once<T: Send + 'static>(
+        read: impl FnOnce() -> T + Send + 'static,
+    ) -> Option<T> {
+        let (sender, receiver) = std::sync::mpsc::channel();
+        std::thread::spawn(move || sender.send(read()));
+        receiver
+            .recv_timeout(std::time::Duration::from_secs(5))
+            .ok()
+    }
+
+    #[cfg(unix)]
+    pub(crate) fn make_fifo(path: &Path) {
+        let made = std::process::Command::new("mkfifo").arg(path).status();
+        assert!(made.unwrap().success());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn a_limited_read_of_a_link_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+        let target = dir.path().join("secret");
+        fs::write(&target, b"secret").unwrap();
+        let link = dir.path().join("state.json");
+        std::os::unix::fs::symlink(&target, &link).unwrap();
+
+        assert!(read_at_most(&link, 100).is_err());
+    }
+
+    /// A FIFO with no writer blocks a plain open forever.
+    #[cfg(unix)]
+    #[test]
+    fn a_limited_read_of_a_fifo_is_refused_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let fifo = dir.path().join("state.json");
+        make_fifo(&fifo);
+
+        let read = returns_at_once(move || read_at_most(&fifo, 100).is_err());
+
+        assert_eq!(read, Some(true));
+    }
+
+    #[test]
+    fn a_limited_read_of_a_folder_is_refused() {
+        let dir = tempfile::tempdir().unwrap();
+
+        assert!(read_at_most(dir.path(), 100).is_err());
     }
 
     #[cfg(unix)]

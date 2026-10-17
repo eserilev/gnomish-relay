@@ -62,6 +62,7 @@ dependencies = [
  "ctrlc",
  "getrandom",
  "hmac",
+ "libc",
  "mlua",
  "png",
  "protocol",
