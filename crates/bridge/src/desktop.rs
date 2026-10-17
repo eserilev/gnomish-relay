@@ -16,6 +16,7 @@ use crate::config::Permission;
 use crate::dialog::{self, Button, CloseReason, Dialog, Ended, Shown, Tool, show_notice};
 use crate::fs_safe::check_real_dir;
 use crate::ids::random_hex;
+use crate::log_command::command_field;
 use crate::run::log;
 
 const FOLDER: &str = "approvals";
@@ -122,8 +123,8 @@ pub fn first_line_cut(text: &str, max: usize) -> String {
 }
 
 /// One log line for each request. For a tool call it ends with the first line of the
-/// popup text: the command, but not the words of the agent (SPEC.md 6.6.3, "The log of
-/// requests").
+/// popup text: the command with its secrets hidden, but not the words of the agent
+/// (SPEC.md 6.6.3, "The log of requests").
 fn request_line(pending: &Pending, summary: &str) -> String {
     let asks = if summary.is_empty() {
         String::new()
@@ -137,7 +138,8 @@ fn request_line(pending: &Pending, summary: &str) -> String {
         agent = pending.agent,
         folder = pending.folder,
     );
-    let command = first_line_cut(&pending.text, LOG_COMMAND);
+    let first = pending.text.lines().next().unwrap_or_default();
+    let command = first_line_cut(&command_field(first.as_bytes()), LOG_COMMAND);
     if pending.kind != Kind::ToolCall || command.is_empty() {
         return line;
     }
@@ -651,7 +653,7 @@ mod tests {
     }
 
     #[test]
-    fn the_log_line_cuts_a_long_command_and_drops_control_characters() {
+    fn the_log_line_cuts_a_long_command_with_no_control_characters() {
         let (_data, approvals) = approvals();
         let text = format!("echo \u{1b}[2J{}\nthe agent says: x", "é".repeat(400));
         approvals
@@ -662,10 +664,26 @@ mod tests {
         let line = request_line(&pending, "command echo");
 
         let (_, command) = line.split_once(". Wants to: ").unwrap();
-        assert!(command.starts_with("echo [2Jé"), "{command}");
+        assert!(command.starts_with("echo  [2Jé"), "{command}");
+        assert!(!command.contains('\u{1b}'), "{command}");
         assert!(command.ends_with("é..."), "{command}");
         assert!(command.len() <= 300, "{}", command.len());
         assert!(!line.contains("the agent says"), "{line}");
+    }
+
+    #[test]
+    fn the_log_line_hides_the_secrets_of_a_command() {
+        let (_data, approvals) = approvals();
+        let text = "curl -H x --token ghp_abc123 https://x API_KEY=sk-live\nthe agent says: x";
+        approvals
+            .open("claude", "/w", text, "command curl", 7)
+            .unwrap();
+        let pending = approvals.list().remove(0);
+
+        let line = request_line(&pending, "command curl");
+
+        let (_, command) = line.split_once(". Wants to: ").unwrap();
+        assert_eq!(command, "curl -H x --token *** https://x API_KEY=***");
     }
 
     #[test]

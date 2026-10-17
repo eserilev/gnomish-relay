@@ -272,7 +272,7 @@ Four answers, from strict to open:
   - A command is `command` and the names of its first 4 simple commands, for example `command cargo, tail`. A name is the last part of the first word. A name that is not a plain word (6.6.5, for example `TOKEN=x`) is `?`. A command that does not parse is `command ?`.
   - A file call is `read` or `write` and at most 3 of its paths, each relative to the chat folder when inside it.
   - Any other tool is its name when the title starts with a plain word, else `a tool`.
-- So the log holds the command of each request as its own field, with secrets hidden (8.5). The desktop request line also gives it after "Wants to:". No file content and no "the agent says" text reach the log. The log escapes each line as before (`run::log`).
+- So the log holds the command of each request as its own field, with secrets hidden (8.5). The desktop request line also gives it after "Wants to:", with the same secrets hidden (`log_command::command_field`), cut to 300 bytes. No file content and no "the agent says" text reach the log. The log escapes each line as before (`run::log`).
 - Example: `game request: claude in /home/x/Code/app: command git`.
 
 **Input.** The bridge builds the input in `crates/bridge/src/action_input.rs`:
