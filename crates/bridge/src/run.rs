@@ -476,12 +476,14 @@ enum StripOutcome {
     AppOff(App),
 }
 
-/// `None` for a strip that goes. A strip that is old, early, or signed with another key
-/// never becomes valid, so it goes too.
+/// `None` for a strip that goes. A strip that is old, early, signed with another key, or
+/// signed with more than one key never becomes valid, so it goes too.
 fn kept_reason(outcome: &StripOutcome) -> Option<&'static str> {
     match outcome {
         StripOutcome::Taken
-        | StripOutcome::Rejected(Rejected::Stale | Rejected::Future | Rejected::BadTag) => None,
+        | StripOutcome::Rejected(
+            Rejected::Stale | Rejected::Future | Rejected::BadTag | Rejected::Ambiguous,
+        ) => None,
         StripOutcome::Rejected(_) => Some("it holds a damaged message"),
         StripOutcome::AppOff(app) => Some(app_off_reason(*app)),
     }
@@ -518,6 +520,10 @@ fn deleted_line(outcome: &StripOutcome) -> Option<&'static str> {
         StripOutcome::Rejected(Rejected::BadTag) => {
             Some("deleted its screenshot. Run gnomish-relay setup, then type /reload in WoW")
         }
+        // Only a chance match of two tags gets here, so the next send works.
+        StripOutcome::Rejected(Rejected::Ambiguous) => {
+            Some("deleted its screenshot. Send your message again")
+        }
         _ => None,
     }
 }
@@ -525,11 +531,19 @@ fn deleted_line(outcome: &StripOutcome) -> Option<&'static str> {
 impl Bridge {
     /// No key checks a bad tag, so the app is unknown. Only the relay has a way to show it.
     fn count_bad_tag(&mut self, reason: &Rejected) {
-        if let (Rejected::BadTag, Some(relay)) = (reason, &mut self.relay) {
+        if !is_key_mismatch(reason) {
+            return;
+        }
+        if let Some(relay) = &mut self.relay {
             relay.bad_tags += 1;
             relay.files.changed = true;
         }
     }
+}
+
+/// A tag that two keys verify is no sign of an old key, so it shows no key mismatch.
+fn is_key_mismatch(reason: &Rejected) -> bool {
+    *reason == Rejected::BadTag
 }
 
 impl RelayLane {
@@ -1698,6 +1712,24 @@ mod tests {
             rejected_text(&Rejected::Ambiguous),
             "it matches more than one app"
         );
+    }
+
+    #[test]
+    fn a_strip_that_matches_two_apps_is_deleted_with_its_own_line() {
+        let outcome = StripOutcome::Rejected(Rejected::Ambiguous);
+
+        assert_eq!(kept_reason(&outcome), None);
+        assert_eq!(
+            deleted_line(&outcome),
+            Some("deleted its screenshot. Send your message again")
+        );
+    }
+
+    #[test]
+    fn only_a_bad_tag_counts_as_a_key_mismatch() {
+        assert!(is_key_mismatch(&Rejected::BadTag));
+        assert!(!is_key_mismatch(&Rejected::Ambiguous));
+        assert!(!is_key_mismatch(&Rejected::Stale));
     }
 
     #[test]
