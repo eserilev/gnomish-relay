@@ -240,14 +240,30 @@ pub(crate) fn product_files(
     keys: KeyChoice,
 ) -> Result<Option<setup::Changed>> {
     let Some(addons) = addons else {
-        setup::make_keys(&dirs.config, product, keys)?;
+        let keys = setup::make_keys(&dirs.config, product, keys)?;
+        print_replaced_keys(&keys.replaced);
         return Ok(None);
     };
     let folders = setup::Folders {
         config: dirs.config.clone(),
         addons: addons.to_owned(),
     };
-    setup::install_files(&folders, product, keys).map(Some)
+    let changed = setup::install_files(&folders, product, keys)?;
+    print_replaced_keys(&changed.replaced_keys);
+    Ok(Some(changed))
+}
+
+fn print_replaced_keys(files: &[PathBuf]) {
+    for file in files {
+        println!("{}", replaced_key_line(file));
+    }
+}
+
+fn replaced_key_line(file: &Path) -> String {
+    format!(
+        "Made a new key: the old one in {} was damaged.",
+        file.display()
+    )
 }
 
 pub(crate) const SOURCE_AUTOSTART: &str = "Desktop app: not set to start at login, because this is a build from source. To run it, use cargo run -- dev";
@@ -543,6 +559,16 @@ mod tests {
     }
 
     #[test]
+    fn the_line_for_a_replaced_key_names_the_file() {
+        let line = replaced_key_line(Path::new("/cfg/strip.key"));
+
+        assert_eq!(
+            line,
+            "Made a new key: the old one in /cfg/strip.key was damaged."
+        );
+    }
+
+    #[test]
     fn the_relay_flag_is_the_same_as_a_plain_setup() {
         let args = SetupArgs::parse(&["--relay"]).unwrap();
         assert_eq!(args.product, Product::Relay);
@@ -628,6 +654,7 @@ mod tests {
         setup::Changed {
             key_addon,
             new_slots,
+            replaced_keys: Vec::new(),
         }
     }
 

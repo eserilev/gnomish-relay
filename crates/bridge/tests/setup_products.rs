@@ -199,6 +199,19 @@ fn timeways_setup_with_the_relay_flag_stops_before_the_first_file() {
 }
 
 #[test]
+fn setup_replaces_a_damaged_key_and_says_so() {
+    let home = Home::new(&[]);
+    home.setup(&[]);
+    let key = home.config_dir().join("strip.key");
+    fs::write(&key, "not a key").unwrap();
+
+    let out = home.setup(&[]);
+
+    assert!(out.contains("Made a new key"), "{out}");
+    assert_eq!(fs::read_to_string(&key).unwrap().len(), 64);
+}
+
+#[test]
 fn relay_setup_then_timeways_setup_keeps_both_parts() {
     let home = Home::new(&["Timeways"]);
     home.setup(&[]);

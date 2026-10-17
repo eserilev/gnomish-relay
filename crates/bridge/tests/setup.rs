@@ -137,6 +137,7 @@ fn a_second_setup_of_each_product_changes_nothing() {
     let unchanged = Changed {
         key_addon: Installed::Unchanged,
         new_slots: false,
+        replaced_keys: Vec::new(),
     };
     for product in [Product::Relay, Product::Timeways] {
         install(&computer, product, KeyChoice::Keep);

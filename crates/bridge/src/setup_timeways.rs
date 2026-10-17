@@ -451,6 +451,7 @@ mod tests {
         setup::Changed {
             key_addon,
             new_slots,
+            replaced_keys: Vec::new(),
         }
     }
 

@@ -3,6 +3,7 @@
 //! prints the result.
 
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
@@ -15,7 +16,7 @@ use crate::config_text::{self, RelayPart};
 use crate::fs_safe::{make_private_dir, write_private};
 use crate::install::{self, Installed};
 use crate::model_setup::FoundModel;
-use crate::receive::{KeySet, RELAY_KEY_FILE, TIMEWAYS_KEY_FILE, key_file};
+use crate::receive::{KeySet, RELAY_KEY_FILE, StripKey, TIMEWAYS_KEY_FILE, key_file};
 use crate::run::now;
 use crate::slots::{self, Files};
 
@@ -50,16 +51,49 @@ pub struct Folders {
     pub addons: PathBuf,
 }
 
+enum KeyFile {
+    Missing,
+    Good(String),
+    /// Unreadable, or not 32 bytes in hex. The bridge cannot start with it.
+    Bad,
+}
+
+fn read_key_file(dir: &Path, file: &str) -> KeyFile {
+    match fs::read_to_string(dir.join(file)) {
+        Err(e) if e.kind() == ErrorKind::NotFound => KeyFile::Missing,
+        Ok(text) if StripKey::from_hex(&text).is_ok() => KeyFile::Good(text.trim().to_owned()),
+        Ok(_) | Err(_) => KeyFile::Bad,
+    }
+}
+
 fn read_key(dir: &Path, file: &str) -> Option<String> {
-    let hex = fs::read_to_string(dir.join(file)).ok()?;
-    Some(hex.trim().to_owned())
+    match read_key_file(dir, file) {
+        KeyFile::Good(hex) => Some(hex),
+        KeyFile::Missing | KeyFile::Bad => None,
+    }
+}
+
+/// The keys that setup made or kept.
+pub struct Keys {
+    /// The key of the product in hex.
+    pub hex: String,
+    /// The bad key files that setup replaced with a new key.
+    pub replaced: Vec<PathBuf>,
 }
 
 /// Reads the key in `file`, or makes one. A new key is never one of `others`, because
-/// the bridge refuses equal keys (SPEC.md 9.7, decision 1).
-fn key(dir: &Path, file: &str, choice: KeyChoice, others: &[String]) -> Result<String> {
+/// the bridge refuses equal keys (SPEC.md 9.7, decision 1). Adds a bad file that it
+/// replaces to `replaced`.
+fn key(
+    dir: &Path,
+    file: &str,
+    choice: KeyChoice,
+    others: &[String],
+    replaced: &mut Vec<PathBuf>,
+) -> Result<String> {
+    let found = read_key_file(dir, file);
     if choice == KeyChoice::Keep
-        && let Some(hex) = read_key(dir, file)
+        && let KeyFile::Good(hex) = found
     {
         return Ok(hex);
     }
@@ -68,6 +102,9 @@ fn key(dir: &Path, file: &str, choice: KeyChoice, others: &[String]) -> Result<S
         hex = install::new_key()?;
     }
     write_private(dir, file, &hex)?;
+    if matches!(found, KeyFile::Bad) {
+        replaced.push(dir.join(file));
+    }
     Ok(hex)
 }
 
@@ -87,39 +124,50 @@ pub struct Changed {
     pub key_addon: Installed,
     /// WoW finds a new slot folder only at launch.
     pub new_slots: bool,
+    /// The bad key files that setup replaced with a new key.
+    pub replaced_keys: Vec<PathBuf>,
 }
 
 /// The key of `product` in hex. Every setup also makes `strip.key` when it is missing,
 /// because `KeySet` needs it. With no relay addon, it does nothing.
-pub fn make_keys(dir: &Path, product: Product, keys: KeyChoice) -> Result<String> {
+pub fn make_keys(dir: &Path, product: Product, keys: KeyChoice) -> Result<Keys> {
     make_private_dir(dir)?;
     let app = product.app();
+    let mut replaced = Vec::new();
     if app != App::Relay {
         key(
             dir,
             RELAY_KEY_FILE,
             KeyChoice::Keep,
             &other_keys(dir, App::Relay),
+            &mut replaced,
         )?;
     }
-    let hex = key(dir, key_file(app), keys, &other_keys(dir, app))?;
+    let hex = key(
+        dir,
+        key_file(app),
+        keys,
+        &other_keys(dir, app),
+        &mut replaced,
+    )?;
     // Equal keys stop setup here, as they stop the bridge.
     KeySet::load(dir)?;
-    Ok(hex)
+    Ok(Keys { hex, replaced })
 }
 
 /// The key, the key addon, and the slots of `product`. They need nothing else, so they
 /// come before the config (SPEC.md 11.3).
 pub fn install_files(folders: &Folders, product: Product, keys: KeyChoice) -> Result<Changed> {
-    let hex = make_keys(&folders.config, product, keys)?;
+    let keys = make_keys(&folders.config, product, keys)?;
     let new_slots = install_slots(&folders.addons, product.app())?;
     let key_addon = match product {
-        Product::Relay => install::write_relay_keys(&folders.addons, &hex)?,
-        Product::Timeways => install::write_timeways_keys(&folders.addons, &hex)?,
+        Product::Relay => install::write_relay_keys(&folders.addons, &keys.hex)?,
+        Product::Timeways => install::write_timeways_keys(&folders.addons, &keys.hex)?,
     };
     Ok(Changed {
         key_addon,
         new_slots,
+        replaced_keys: keys.replaced,
     })
 }
 
@@ -358,6 +406,45 @@ pub fn level_line(relay: &config::RelayConfig) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_key_file_of_the_wrong_size_gets_a_new_key_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(RELAY_KEY_FILE), "abcd").unwrap();
+
+        let keys = make_keys(dir.path(), Product::Relay, KeyChoice::Keep).unwrap();
+
+        assert_eq!(keys.hex.len(), 64);
+        assert_eq!(
+            fs::read_to_string(dir.path().join(RELAY_KEY_FILE)).unwrap(),
+            keys.hex
+        );
+        assert_eq!(keys.replaced, [dir.path().join(RELAY_KEY_FILE)]);
+    }
+
+    #[test]
+    fn an_unreadable_key_file_gets_a_new_key_and_says_so() {
+        let dir = tempfile::tempdir().unwrap();
+        fs::write(dir.path().join(RELAY_KEY_FILE), "ab".repeat(32)).unwrap();
+        fs::write(dir.path().join(TIMEWAYS_KEY_FILE), [0xFF; 64]).unwrap();
+
+        let keys = make_keys(dir.path(), Product::Timeways, KeyChoice::Keep).unwrap();
+
+        assert_eq!(keys.hex.len(), 64);
+        assert_eq!(keys.replaced, [dir.path().join(TIMEWAYS_KEY_FILE)]);
+    }
+
+    #[test]
+    fn a_good_key_stays_and_a_missing_key_is_not_a_replaced_one() {
+        let dir = tempfile::tempdir().unwrap();
+
+        let first = make_keys(dir.path(), Product::Relay, KeyChoice::Keep).unwrap();
+        let second = make_keys(dir.path(), Product::Relay, KeyChoice::Keep).unwrap();
+
+        assert!(first.replaced.is_empty());
+        assert!(second.replaced.is_empty());
+        assert_eq!(first.hex, second.hex);
+    }
 
     #[test]
     fn a_first_config_with_no_relay_is_the_timeways_config() {
