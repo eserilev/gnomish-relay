@@ -1,5 +1,5 @@
-//! Roots that no agent ever gets: the whole disk, the home folder, and a folder that
-//! holds the config folder or the data folder (SPEC.md 12). While a root is missing, an
+//! Roots that no agent ever gets: the whole disk, the home folder, a folder above it, and
+//! a folder that holds the config folder or the data folder (SPEC.md 12). While a root is missing, an
 //! agent can put a link in its place, so every start checks the real path of each root.
 
 use std::path::{Path, PathBuf};
@@ -14,6 +14,7 @@ use crate::gate::Places;
 pub enum WideRoot {
     WholeDisk,
     Home,
+    AboveHome,
     Settings,
     Data,
 }
@@ -23,6 +24,7 @@ impl WideRoot {
         match self {
             WideRoot::WholeDisk => "the whole disk",
             WideRoot::Home => "your whole home folder",
+            WideRoot::AboveHome => "a folder that holds your home folder",
             WideRoot::Settings => "a folder with the settings of the desktop app",
             WideRoot::Data => "a folder with the data of the desktop app",
         }
@@ -36,8 +38,12 @@ pub fn wide_root(root: &Path, places: &Places) -> Option<WideRoot> {
     }
     let root = path_bytes(root);
     let real = |dir: &Path| path_bytes(&real_path(dir).unwrap_or_else(|_| dir.to_owned()));
-    if real(places.home) == root {
+    let home = real(places.home);
+    if home == root {
         return Some(WideRoot::Home);
+    }
+    if is_inside_folder(&home, &root) {
+        return Some(WideRoot::AboveHome);
     }
     if is_inside_folder(&real(places.config_dir), &root) {
         return Some(WideRoot::Settings);
@@ -126,6 +132,15 @@ mod tests {
         assert_eq!(c.wide(&c.home.join(".config")), Some(WideRoot::Settings));
         assert_eq!(c.wide(&c.config), Some(WideRoot::Settings));
         assert_eq!(c.wide(&c.home.join(".local")), Some(WideRoot::Data));
+    }
+
+    #[test]
+    fn a_folder_above_the_home_folder_is_wide() {
+        let c = computer();
+
+        let wide = c.wide(c.home.parent().unwrap());
+
+        assert_eq!(wide, Some(WideRoot::AboveHome));
     }
 
     #[test]
