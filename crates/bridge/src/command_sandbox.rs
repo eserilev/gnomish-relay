@@ -1206,11 +1206,17 @@ fn rule(out: &mut Vec<u8>, head: &str, filter: &str, paths: &[&Path]) -> Result<
     Ok(())
 }
 
+/// `open`, an Apple event, and a launchd job each start a program outside the sandbox
+/// (SPEC.md 6.6.4).
 const PROFILE_START: &str = "(version 1)
 (allow default)
 (deny network*)
 (deny file-write*)
 (allow file-write* (literal \"/dev/null\") (literal \"/dev/zero\") (literal \"/dev/tty\") (literal \"/dev/stdout\") (literal \"/dev/stderr\") (literal \"/dev/dtracehelper\") (subpath \"/dev/fd\"))
+(deny lsopen)
+(deny appleevent-send)
+(deny mach-lookup (global-name \"com.apple.coreservices.launchservicesd\"))
+(deny process-exec (literal \"/bin/launchctl\"))
 ";
 
 /// `git credential-osxkeychain` gives the GitHub token of the user with no prompt, and
@@ -2463,7 +2469,21 @@ mod tests {
             "(deny mach-lookup (global-name \"com.apple.SecurityServer\") (global-name \"com.apple.secd\"))"
         ));
         let plain = String::from_utf8(seatbelt_profile(&sample()).unwrap()).unwrap();
-        assert!(!plain.contains("mach-lookup"));
+        assert!(!plain.contains("com.apple.SecurityServer"));
+    }
+
+    #[test]
+    fn seatbelt_denies_the_ways_to_start_a_program_outside_the_sandbox() {
+        let profile = String::from_utf8(seatbelt_profile(&sample()).unwrap()).unwrap();
+
+        for rule in [
+            "(deny lsopen)",
+            "(deny appleevent-send)",
+            "(deny mach-lookup (global-name \"com.apple.coreservices.launchservicesd\"))",
+            "(deny process-exec (literal \"/bin/launchctl\"))",
+        ] {
+            assert!(profile.contains(rule), "{rule}");
+        }
     }
 
     #[test]

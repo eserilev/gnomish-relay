@@ -595,6 +595,90 @@ fn seatbelt_cannot_start_inside_a_seatbelt_wall() {
     );
 }
 
+/// `open` asks Launch Services to start the file, and Launch Services runs outside the
+/// sandbox. A `.command` file runs in Terminal.
+#[cfg(target_os = "macos")]
+#[test]
+fn open_of_a_command_file_fails_in_the_sandbox() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let marker = m.other.join("opened");
+    let script = m.chat.join("x.command");
+    fs::write(
+        &script,
+        format!("#!/bin/sh\necho x > '{}'\n", marker.display()),
+    )
+    .unwrap();
+    Command::new("/bin/chmod")
+        .arg("755")
+        .arg(&script)
+        .status()
+        .unwrap();
+    let w = walls(&m, tool);
+
+    let ran = run(&w, &m, "open x.command");
+
+    std::thread::sleep(Duration::from_secs(3));
+    assert!(!ran.ok, "{}", ran.out);
+    assert!(!marker.exists());
+}
+
+/// A launchd job runs outside the sandbox, with the full network.
+#[cfg(target_os = "macos")]
+#[test]
+fn launchctl_submit_fails_in_the_sandbox() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let marker = m.other.join("submitted");
+    let label = "io.gnomish-relay.test-escape";
+    let script = m.chat.join("job.sh");
+    fs::write(
+        &script,
+        format!("#!/bin/sh\necho x > '{}'\n", marker.display()),
+    )
+    .unwrap();
+    Command::new("/bin/chmod")
+        .arg("755")
+        .arg(&script)
+        .status()
+        .unwrap();
+    let w = walls(&m, tool);
+
+    let ran = run(
+        &w,
+        &m,
+        &format!("launchctl submit -l {label} -- '{}'", script.display()),
+    );
+
+    std::thread::sleep(Duration::from_secs(3));
+    let _ = Command::new("/bin/launchctl")
+        .args(["remove", label])
+        .status();
+    assert!(!ran.ok, "{}", ran.out);
+    assert!(!marker.exists());
+}
+
+/// The rules against `open` and launchd leave the developer tools working. A tool that
+/// this computer lacks is skipped.
+#[cfg(target_os = "macos")]
+#[test]
+fn xcrun_and_swift_still_run_in_the_sandbox() {
+    let Some(tool) = tool() else { return };
+    let m = machine();
+    let w = walls(&m, tool);
+
+    for command in ["xcrun --version", "swift --version"] {
+        let mut words = command.split(' ');
+        let outside = Command::new(words.next().unwrap()).args(words).output();
+        if !outside.is_ok_and(|o| o.status.success()) {
+            eprintln!("skipped: {command} does not run on this computer");
+            continue;
+        }
+        let ran = run(&w, &m, command);
+        assert!(ran.ok, "{command}: {}", ran.out);
+    }
+}
+
 /// A regression test: `nsenter --wd=<folder>` opened the folder before the join, so
 /// `cd ..` left the walls.
 #[test]
