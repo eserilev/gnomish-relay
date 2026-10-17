@@ -213,7 +213,7 @@ fn a_story_program_under_tmp_starts_in_the_sandbox() {
         agent_network: bridge::agent_wall::AgentNetwork::Open,
     };
 
-    let spec = StorySpec::from_config(&config, &h.config, &h.data, &h.home)
+    let spec = StorySpec::from_config(&config, &h.config, &h.data, &h.home, &[])
         .unwrap()
         .unwrap();
     assert!(matches!(spec.sandbox, Sandbox::Bwrap(_)));

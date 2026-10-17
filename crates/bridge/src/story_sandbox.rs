@@ -46,20 +46,30 @@ pub fn walls(folder: &Path, config: &Path, data: &Path, home: &Path, readable: &
         .iter()
         .filter(|pattern| !pattern.contains('*'))
         .map(|pattern| home.join(pattern));
-    let mut hidden: Vec<PathBuf> = [config.to_owned(), data.to_owned()]
+    let hidden: Vec<PathBuf> = [config.to_owned(), data.to_owned()]
         .into_iter()
         .chain(desktop)
-        .filter_map(|path| path.canonicalize().ok())
         .collect();
-    hidden.sort();
-    hidden.dedup();
-    Walls {
+    let walls = Walls {
         folder: folder.canonicalize().unwrap_or_else(|_| folder.to_owned()),
-        hidden,
+        hidden: Vec::new(),
         readable: readable
             .iter()
             .filter_map(|path| path.canonicalize().ok())
             .collect(),
+    };
+    walls.hiding(&hidden)
+}
+
+impl Walls {
+    /// Each path that exists, at its real path, so a link hides its target.
+    #[must_use]
+    pub fn hiding(mut self, paths: &[PathBuf]) -> Walls {
+        self.hidden
+            .extend(paths.iter().filter_map(|path| path.canonicalize().ok()));
+        self.hidden.sort();
+        self.hidden.dedup();
+        self
     }
 }
 
@@ -383,6 +393,33 @@ mod tests {
             !walls.hidden.iter().any(|p| p.ends_with(".aws")),
             "missing paths are left out"
         );
+    }
+
+    #[test]
+    fn the_walls_hide_the_private_files_of_the_game() {
+        let home = tempfile::tempdir().unwrap();
+        let folder = home.path().join("story");
+        let addons = home.path().join("wow/Interface/AddOns");
+        let accounts = home.path().join("wow/WTF/Account");
+        std::fs::create_dir_all(&folder).unwrap();
+        std::fs::create_dir_all(addons.join("GnomishRelay_Key")).unwrap();
+        std::fs::create_dir_all(&accounts).unwrap();
+        let private = crate::app_files::private_game_paths(
+            &addons,
+            &accounts,
+            &home.path().join("wow/Screenshots"),
+        );
+
+        let walls = walls(&folder, &folder, &folder, home.path(), &[]).hiding(&private);
+
+        let real = |p: &Path| p.canonicalize().unwrap();
+        assert!(
+            walls
+                .hidden
+                .contains(&real(&addons.join("GnomishRelay_Key")))
+        );
+        assert!(walls.hidden.contains(&real(&accounts)));
+        assert!(!walls.hidden.iter().any(|p| p.ends_with("Screenshots")));
     }
 
     #[test]

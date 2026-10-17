@@ -218,7 +218,8 @@ fn print_changed(title: &str, changed: install::Installed) {
 }
 
 fn story_spec(dirs: &Dirs, story: &StoryConfig, paths: &Paths) -> Result<Option<StorySpec>> {
-    let spec = StorySpec::from_config(story, &dirs.config, &paths.state, &dirs.home)?;
+    let private = private_paths(&paths.games);
+    let spec = StorySpec::from_config(story, &dirs.config, &paths.state, &dirs.home, &private)?;
     if spec.is_none() {
         eprintln!("timeways: [story] has no program, so the story program does not start");
     }

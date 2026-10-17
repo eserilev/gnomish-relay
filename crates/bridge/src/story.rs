@@ -65,6 +65,7 @@ impl StorySpec {
         config_dir: &Path,
         data: &Path,
         home: &Path,
+        private: &[PathBuf],
     ) -> anyhow::Result<Option<StorySpec>> {
         let Some(story) = &config.program else {
             return Ok(None);
@@ -72,7 +73,8 @@ impl StorySpec {
         let folder = data.join(crate::run::TIMEWAYS_DIR).join(STORY_DIR);
         make_story_folder(&folder)?;
         let pack = &story.lore_pack;
-        let mut walls = story_sandbox::walls(&folder, config_dir, data, home, &[pack]);
+        let mut walls =
+            story_sandbox::walls(&folder, config_dir, data, home, &[pack]).hiding(private);
         let program = visible_program(&story.program, &walls)?;
         walls.readable.push(program.clone());
         let args = [pack, &walls.folder].map(|p| p.to_string_lossy().into_owned());
@@ -85,6 +87,7 @@ impl StorySpec {
             model: config.model.clone(),
             wall: AgentWall::detect(data, config.agent_network, &[])
                 .hiding(&[config_dir.to_owned()])
+                .hiding(private)
                 .for_agent(Kind::Claude, &[]),
         }))
     }
@@ -739,7 +742,7 @@ mod tests {
             model: crate::model::ModelSpec::none(),
             agent_network: crate::agent_wall::AgentNetwork::Open,
         };
-        let spec = StorySpec::from_config(&config, root.path(), root.path(), root.path());
+        let spec = StorySpec::from_config(&config, root.path(), root.path(), root.path(), &[]);
         assert!(spec.unwrap().is_none());
         assert!(!root.path().join("timeways").exists(), "no story folder");
     }
@@ -755,7 +758,7 @@ mod tests {
         std::fs::write(&program, "").unwrap();
         let config = story_config(&program, &pack);
 
-        let spec = StorySpec::from_config(&config, &config_dir, &data, root.path())
+        let spec = StorySpec::from_config(&config, &config_dir, &data, root.path(), &[])
             .unwrap()
             .unwrap();
 
@@ -771,6 +774,35 @@ mod tests {
             [pack.to_string_lossy(), folder.to_string_lossy()]
         );
         assert_eq!(spec.timeout, Duration::from_secs(9));
+    }
+
+    #[test]
+    fn the_spec_hides_the_private_game_files_from_the_story_program_and_its_model() {
+        let root = tempfile::tempdir().unwrap();
+        let (config_dir, data) = (root.path().join("config"), root.path().join("data"));
+        let accounts = root.path().join("wow/WTF/Account");
+        std::fs::create_dir_all(&config_dir).unwrap();
+        std::fs::create_dir_all(&accounts).unwrap();
+        let pack = root.path().join("lore.sqlite");
+        std::fs::write(&pack, "").unwrap();
+        let program = root.path().join("timeways-story");
+        std::fs::write(&program, "").unwrap();
+        let config = story_config(&program, &pack);
+
+        let spec = StorySpec::from_config(
+            &config,
+            &config_dir,
+            &data,
+            root.path(),
+            std::slice::from_ref(&accounts),
+        )
+        .unwrap()
+        .unwrap();
+
+        let accounts = accounts.canonicalize().unwrap();
+        assert!(spec.walls.hidden.contains(&accounts));
+        assert!(spec.wall.hidden.contains(&accounts));
+        assert!(spec.wall.hidden.contains(&config_dir));
     }
 
     fn story_config(program: &Path, pack: &Path) -> StoryConfig {
@@ -796,7 +828,7 @@ mod tests {
         std::fs::write(&program, "").unwrap();
         let config = story_config(&program, &home.path().join("lore.sqlite"));
 
-        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path());
+        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path(), &[]);
 
         format!("{:#}", spec.unwrap_err())
     }
@@ -831,7 +863,7 @@ mod tests {
         std::os::unix::fs::symlink(data.join("timeways-story"), &link).unwrap();
         let config = story_config(&link, &home.path().join("lore.sqlite"));
 
-        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path());
+        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path(), &[]);
 
         let error = format!("{:#}", spec.unwrap_err());
         assert!(
@@ -846,7 +878,7 @@ mod tests {
         let program = home.path().join("timeways-story");
         let config = story_config(&program, &home.path().join("lore.sqlite"));
 
-        let spec = StorySpec::from_config(&config, home.path(), home.path(), home.path());
+        let spec = StorySpec::from_config(&config, home.path(), home.path(), home.path(), &[]);
 
         let error = format!("{:#}", spec.unwrap_err());
         assert!(error.contains("is missing"), "{error}");
@@ -865,7 +897,7 @@ mod tests {
         std::os::unix::fs::symlink(&program, &link).unwrap();
         let config = story_config(&link, &home.path().join("lore.sqlite"));
 
-        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path())
+        let spec = StorySpec::from_config(&config, &config_dir, &data, home.path(), &[])
             .unwrap()
             .unwrap();
 

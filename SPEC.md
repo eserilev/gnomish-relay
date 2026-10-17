@@ -537,7 +537,7 @@ An entry with Bedrock, Vertex, or another `ANTHROPIC_BASE_URL` names its hosts i
   - The hidden paths come after the read-only Windows drives, because under WSL2 the game lies on `/mnt/c`.
   - Then `<data>/sandbox` is bound back, writable. The command sandbox reads its walls file there, and the wrapper writes the names that it removed next to it ("A missing `commondir` is watched"). The agent proxy socket lies there too.
   - A startup file inside a hidden folder, for example `wsl-start.sh` in the config folder, gets no read-only bind: the bind would show it again.
-  - The Timeways model calls hide the config folder and the data folder too.
+  - The Timeways model calls hide the same paths.
 - A socket at a path elsewhere still works across namespaces. Examples: `~/.docker/desktop/docker.sock` (`docker run --network host` is a full way out), the sockets of Lima, Colima, and Podman machines, of terminal programs, and of editors.
   - At the start of each run, the bridge looks for socket files in the top 3 levels of the home folder. It also looks in the top 4 levels of `~/.lima`, `~/.colima`, `~/.docker`, `~/.rd`, and `~/.local/share/containers` (for example `~/.lima/default/sock/docker.sock`). It binds `/dev/null` over each one.
   - The scan looks into the container tool folders first, and stops after 200 000 entries. At that limit it logs a line, because a socket after the limit stays reachable. A socket in another place stays reachable too. This is a named limit.
@@ -682,7 +682,7 @@ So Windows keeps the fallback, and the bridge has no `rappct` dependency. Setup 
 | Rule | Value |
 |---|---|
 | Write | Only its story folder, `<data>/timeways/story/` (mode 0700) |
-| Read | The system, except the config folder, the data folder (its own folder comes back), and the existing `desktop` paths of 6.6.3 under the home folder. The lore pack and the program file stay readable, also inside a hidden folder or `/tmp`. `/tmp`, `/var/tmp`, and `/run` are private and empty, because they hold the sockets of the ssh agent and the desktop. |
+| Read | The system, except the config folder, the data folder (its own folder comes back), the private files of the game (the key addons, the old `Key.lua` files, `WTF/Account`, and `Screenshots`), and the existing `desktop` paths of 6.6.3 under the home folder. The lore pack and the program file stay readable, also inside a hidden folder or `/tmp`. `/tmp`, `/var/tmp`, and `/run` are private and empty, because they hold the sockets of the ssh agent and the desktop. |
 | Network | None |
 | Children | In the same sandbox |
 

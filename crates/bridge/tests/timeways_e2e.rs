@@ -235,7 +235,7 @@ fn story_spec(timeways: &Timeways, machine: &Machine, model: &str) -> StorySpec 
     );
     let config = bridge::config::parse(&text, &machine.home()).unwrap();
     let story = config.story.expect("a [story] section");
-    StorySpec::from_config(&story, &machine.config, &machine.data, &machine.home())
+    StorySpec::from_config(&story, &machine.config, &machine.data, &machine.home(), &[])
         .unwrap()
         .expect("a story program")
 }
