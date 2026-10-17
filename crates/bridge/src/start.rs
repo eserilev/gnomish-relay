@@ -351,8 +351,7 @@ mod tests {
         assert_eq!(
             error.to_string(),
             "allowed_roots has ~/Code, which is now your whole home folder. Agents can't \
-             work there. Remove it from allowed_roots in config.toml, then run \
-             gnomish-relay restart."
+             work there. Run gnomish-relay setup to remove it."
         );
     }
 

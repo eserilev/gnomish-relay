@@ -201,6 +201,21 @@ fn status_names_a_missing_root_and_says_what_to_do() {
     assert!(lines.iter().any(|l| l == line), "{lines:?}");
 }
 
+#[cfg(unix)]
+#[test]
+fn status_names_a_root_that_links_to_the_home_folder() {
+    let computer = Computer::new();
+    computer.write_config("echo", "kind = \"echo\"\n");
+    fs::remove_dir(computer.home.path().join("Code")).unwrap();
+    std::os::unix::fs::symlink(computer.home.path(), computer.home.path().join("Code")).unwrap();
+
+    let lines = computer.status();
+
+    let line = "Config: has an error. allowed_roots has ~/Code, which is now your whole home \
+                folder. Agents can't work there. Run gnomish-relay setup to remove it.";
+    assert!(lines.iter().any(|l| l == line), "{lines:?}");
+}
+
 #[test]
 fn status_with_no_relay_addon_says_to_get_it_on_curseforge() {
     let computer = Computer::new();

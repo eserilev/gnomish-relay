@@ -658,17 +658,15 @@ pub fn expand(path: &str, home: &Path) -> Result<PathBuf> {
     Ok(path)
 }
 
-/// Each root of the config text, as the text writes it, whose folder does not exist.
-pub fn missing_roots_in(text: &str, home: &Path) -> Result<Vec<String>> {
-    let file: File = toml::from_str(text)?;
-    let mut missing = Vec::new();
+/// Each root of the config text as the text writes it, with its path.
+pub fn allowed_roots_in(text: &str, home: &Path) -> Result<Vec<(String, PathBuf)>> {
+    let file: File = toml::from_str(text).context("config.toml is not valid")?;
+    let mut roots = Vec::new();
     for root in file.allowed_roots.unwrap_or_default() {
-        let path = expand(&root, home)?;
-        if matches!(path.try_exists(), Ok(false)) {
-            missing.push(root);
-        }
+        let path = expand(&root, home).context("config.toml is not valid")?;
+        roots.push((root, path));
     }
-    Ok(missing)
+    Ok(roots)
 }
 
 /// `canonicalize` resolves links, so a folder that is a link names its real folder

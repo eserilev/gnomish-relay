@@ -13,12 +13,14 @@ use crate::config::{self, Config, RelayConfig, with_tilde};
 use crate::config_text::RelayPart;
 use crate::dirs::Dirs;
 use crate::game_choice;
+use crate::gate::Places;
 use crate::hooks_install;
 use crate::install;
 use crate::model_setup;
 use crate::relay_addon::{self, RelayAddon};
 use crate::service;
 use crate::setup::{self, KeyChoice, Product};
+use crate::setup_roots::{self, BadRoot};
 use crate::setup_timeways;
 use crate::status::{self, SandboxFound};
 use crate::wsl;
@@ -30,12 +32,9 @@ fn ask(question: &str, default: &str) -> Result<String> {
 }
 
 /// With no terminal, the answer is no, and the root stays.
-fn ask_to_remove(root: &str) -> bool {
-    let question = format!(
-        "Can't find {root}. If it's on a drive that isn't connected, keep it. Remove it from \
-         the folders agents can work in? (y/n)"
-    );
-    ask(&question, "n").is_ok_and(|answer| setup::wants_removal(&answer))
+fn ask_to_remove(root: &BadRoot) -> bool {
+    let answer = read_answer(&format!("{} [n]: ", root.question()));
+    setup_roots::remove_on(answer.ok().flatten())
 }
 
 pub(crate) fn stdin_is_terminal() -> bool {
@@ -232,11 +231,13 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         return Ok(());
     }
     let args = SetupArgs::parse(args)?;
-    if args.product == Product::Relay {
-        let removed = setup::remove_missing_roots(&dirs.config, &dirs.home, &mut ask_to_remove)?;
-        for line in removed {
-            println!("{line}");
-        }
+    let places = Places {
+        config_dir: &dirs.config,
+        data_dir: &dirs.data,
+        home: &dirs.home,
+    };
+    for line in setup_roots::ask_about_roots(&places, args.product, &mut ask_to_remove)? {
+        println!("{line}");
     }
     let existing = setup::read_existing(&dirs.config, &dirs.home, args.product)?;
     for line in existing.iter().flat_map(|found| &found.lines) {

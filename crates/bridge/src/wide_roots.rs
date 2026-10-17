@@ -20,7 +20,7 @@ pub enum WideRoot {
 }
 
 impl WideRoot {
-    fn text(self) -> &'static str {
+    pub fn text(self) -> &'static str {
         match self {
             WideRoot::WholeDisk => "the whole disk",
             WideRoot::Home => "your whole home folder",
@@ -72,8 +72,8 @@ pub fn refuse_wide_roots(roots: &[PathBuf], places: &Places) -> Result<()> {
         };
         if let Some(wide) = wide_root(&real, places) {
             bail!(
-                "allowed_roots has {}, which is now {}. Agents can't work there. Remove it \
-                 from allowed_roots in config.toml, then run gnomish-relay restart.",
+                "allowed_roots has {}, which is now {}. Agents can't work there. Run \
+                 gnomish-relay setup to remove it.",
                 with_tilde(root, places.home),
                 wide.text()
             );

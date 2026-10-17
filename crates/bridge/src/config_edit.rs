@@ -168,7 +168,24 @@ pub fn without_root(text: &str, root: &str) -> Result<String> {
     for (i, line) in lines.iter().enumerate() {
         changed.push_str(if i == at { &new_line } else { line });
     }
+    check_only_the_root_left(text, &changed, root)?;
     Ok(changed)
+}
+
+/// The config can fail to load, for example with `default_cwd` in a missing root. So
+/// this compares the TOML tables, not the loaded configs.
+fn check_only_the_root_left(old: &str, new: &str, root: &str) -> Result<()> {
+    let mut before: toml::Table = toml::from_str(old).context("config.toml does not parse")?;
+    let mut after: toml::Table =
+        toml::from_str(new).context("the changed config.toml does not parse")?;
+    let mut expected = before.remove(ROOTS);
+    if let Some(toml::Value::Array(roots)) = &mut expected {
+        roots.retain(|r| r.as_str() != Some(root));
+    }
+    if after.remove(ROOTS) != expected || before != after {
+        bail!("the change of config.toml changed more than allowed_roots");
+    }
+    Ok(())
 }
 
 /// Checked before the dialog, when a new folder does not exist yet: the roots line has
