@@ -659,15 +659,20 @@ fn launchctl_submit_fails_in_the_sandbox() {
 }
 
 /// The rules against `open` and launchd leave the developer tools working. A tool that
-/// this computer lacks is skipped.
+/// this computer lacks is skipped. `simctl` talks to a service of the simulators.
 #[cfg(target_os = "macos")]
 #[test]
-fn xcrun_and_swift_still_run_in_the_sandbox() {
+fn the_developer_tools_still_run_in_the_sandbox() {
     let Some(tool) = tool() else { return };
     let m = machine();
     let w = walls(&m, tool);
 
-    for command in ["xcrun --version", "swift --version"] {
+    for command in [
+        "xcrun --version",
+        "swift --version",
+        "xcodebuild -version",
+        "xcrun simctl list devices",
+    ] {
         let mut words = command.split(' ');
         let outside = Command::new(words.next().unwrap()).args(words).output();
         if !outside.is_ok_and(|o| o.status.success()) {
