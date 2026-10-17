@@ -3222,6 +3222,8 @@ The other keys below come with their features. One planned key is not in the con
 
 **A missing root.** A root can be on a drive that isn't connected. So a root that does not exist at start is skipped, not an error. The bridge logs one line for it, and `status` shows the same line: "Can't find ~/Drive, so agents can't work there for now. Connect its drive, or run gnomish-relay setup to remove it."
 
+When `default_cwd` is in a missing root, or there is no `default_cwd` and the first root is missing, the default folder does not exist. The desktop app then does not start, and says "Can't find the default folder ~/Drive/app, because ~/Drive is missing. Connect its drive, then run gnomish-relay restart." Setup does not repair this `default_cwd` to `~`, because the drive can come back.
+
 **A root that no agent gets.** While a root is missing, an agent can put a link in its place. So at every start, and in `status`, the bridge checks the real path of each root. It refuses the whole disk (`/`, or a drive), the home folder, and a folder that holds the config folder or the data folder. The desktop app then does not start, and says which root and why.
 
 **A root that comes back.** Each step, the bridge looks for each missing root. When one exists again, it gets the same check. A root that passes takes chats again, and the bridge logs "Found ~/Drive again, so agents can work there." A root that fails stays out, and the bridge logs why, for example "~/Drive is now your whole home folder, so agents can't work there."

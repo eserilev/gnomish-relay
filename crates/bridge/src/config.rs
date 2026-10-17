@@ -16,7 +16,7 @@ use crate::allow::{self, AllowFile, AllowTable};
 use crate::allow_hosts::{Defaults, HostList, check_host_name};
 use crate::ci_checks::CiChecks;
 use crate::claude;
-use crate::folder_path::path_bytes;
+use crate::folder_path::{is_inside_folder, path_bytes};
 use crate::game_choice::NO_WOW;
 use crate::game_folders::GameFolders;
 use crate::model::{ModelChoice, ModelSpec};
@@ -771,6 +771,41 @@ fn default_folder(cwd: Option<&str>, roots: &[Vec<u8>], home: &Path) -> Result<V
     Ok(base)
 }
 
+/// The default folder is in a root that is missing, so no base exists until it comes
+/// back. Setup does not repair it to `~`: the drive can come back (SPEC.md 12).
+fn offline_default_folder(
+    cwd: Option<&str>,
+    allowed_roots: &[String],
+    missing_roots: &[PathBuf],
+    home: &Path,
+) -> Result<()> {
+    let cwd = match cwd {
+        Some(cwd) => expand(cwd, home)?,
+        None => match allowed_roots.first() {
+            Some(first) => expand(first, home)?,
+            None => return Ok(()),
+        },
+    };
+    let cwd_bytes = path_bytes(&cwd);
+    let Some(root) = missing_roots
+        .iter()
+        .find(|root| is_inside_folder(&cwd_bytes, &path_bytes(root)))
+    else {
+        return Ok(());
+    };
+    let shown = with_tilde(&cwd, home);
+    if cwd == *root {
+        bail!(
+            "Can't find the default folder {shown}. Connect its drive, then run gnomish-relay restart."
+        );
+    }
+    bail!(
+        "Can't find the default folder {shown}, because {} is missing. Connect its drive, \
+         then run gnomish-relay restart.",
+        with_tilde(root, home)
+    );
+}
+
 /// `allowed_roots` alone turns the relay on. A relay key with no roots is an error, so
 /// a typo never leaves a relay half set up.
 fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
@@ -778,6 +813,12 @@ fn relay(file: File, home: &Path) -> Result<Option<RelayConfig>> {
         return no_relay_keys(&file).map(|()| None);
     };
     let (roots, missing_roots) = present_and_missing_roots(allowed_roots, home)?;
+    offline_default_folder(
+        file.default_cwd.as_deref(),
+        allowed_roots,
+        &missing_roots,
+        home,
+    )?;
     let base = default_folder(file.default_cwd.as_deref(), &roots, home)?;
     let file_agents = file.agents.unwrap_or_default();
     for (name, agent) in &file_agents {
@@ -1800,6 +1841,42 @@ mod tests {
         let root = home.path().join("Code").canonicalize().unwrap();
         assert_eq!(relay.policy.folders.roots, [path_bytes(&root)]);
         assert_eq!(relay.missing_roots, [home.path().join("Drive/Projects")]);
+    }
+
+    #[test]
+    fn a_default_folder_in_a_missing_root_is_an_error_that_names_both() {
+        let home = Home::new();
+        let text = GOOD.replace(
+            r#"allowed_roots = ["~/Code"]"#,
+            "allowed_roots = [\"~/Code\", \"~/Drive\"]\ndefault_cwd = \"~/Drive/app\"",
+        );
+
+        let error = home.parse(&text).err().unwrap();
+
+        assert_eq!(
+            error.to_string(),
+            "Can't find the default folder ~/Drive/app, because ~/Drive is missing. \
+             Connect its drive, then run gnomish-relay restart."
+        );
+        assert!(error.downcast_ref::<BadDefaultFolder>().is_none());
+    }
+
+    /// With no `default_cwd`, the first root is the default folder.
+    #[test]
+    fn a_missing_first_root_with_no_default_folder_is_an_error() {
+        let home = Home::new();
+        let text = GOOD.replace(
+            r#"allowed_roots = ["~/Code"]"#,
+            r#"allowed_roots = ["~/Drive", "~/Code"]"#,
+        );
+
+        let error = home.parse(&text).err().unwrap();
+
+        assert_eq!(
+            error.to_string(),
+            "Can't find the default folder ~/Drive. Connect its drive, then run \
+             gnomish-relay restart."
+        );
     }
 
     #[test]
