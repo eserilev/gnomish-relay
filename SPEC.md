@@ -1995,7 +1995,7 @@ The bridge and the Timeways story program talk in JSON lines: one JSON object on
 
 | `type` | Fields | Checks |
 |---|---|---|
-| `character_entered` | `realm`, `name` | `realm` at most 64 bytes, `name` at most 64 bytes (the whole name of WoW Forever, "First Surname") |
+| `character_entered` | `realm`, `name` | `realm` 1 to 64 bytes, `name` 1 to 64 bytes (the whole name of WoW Forever, "First Surname") |
 | `lore_asked` | `at`, `question`, `target` (optional) | `question` at most 1 KiB, `target` at most 128 bytes |
 | `journal_asked` | `page` (optional, default 0) | |
 | `talk_asked` | `at`, `npc`, `text` | `npc` 1 to 64 bytes, `text` at most 255 bytes |
@@ -2005,10 +2005,13 @@ The bridge and the Timeways story program talk in JSON lines: one JSON object on
 - The four lines with a reply also take an optional `dev` (`true` or `false`), and the bridge passes it on. Timeways marks the fake events of its dev mode with it, and the story program refuses a marked line outside dev mode (asked for by Timeways on 2026-10-06). So the mark only ever stops a line. Tests: `a_dev_mark_on_a_line_with_a_reply_goes_on_to_the_story_program`, `a_line_with_a_reply_and_no_dev_mark_goes_on_without_one`, `a_dev_mark_that_is_not_true_or_false_is_refused`.
 - Any other `type` is a game event with no reply, for example `zone_entered`, `npc_met`, `level_reached`, and `npc_defeated`. The story program checks its fields, and ignores a type that it does not know. So a new Timeways event needs no change in the bridge.
 
-The bridge drops and logs a line that fails a check. The bridge refuses the whole batch with an error reply, and sends none of its lines, in two cases:
+The bridge drops and logs a line that fails a check. The bridge refuses the whole batch with an error reply, and sends none of its lines, in three cases:
 
-- The character line is too long or holds a control character: "The realm or the name of the character is too long."
+- The character line has an empty or too long realm or name, a control character, or is over 4 KiB: "Your realm or character name didn't come through. Type /reload." Timeways sends `GetRealmName()`, which is never nil, at `PLAYER_ENTERING_WORLD`, and a `/reload` sends the line again. Tests: `an_empty_realm_or_name_refuses_the_batch`, `a_character_line_over_4_kib_refuses_the_batch_as_a_bad_character`.
+- The character line fails any other check, for example a missing, an unknown, or a wrong field: "Timeways and the desktop app don't match. Update both." A newer Timeways that adds a field gets this message, not a `/reload` that never helps. Test: `a_character_line_of_another_shape_refuses_the_batch_as_a_mismatch`.
 - The order is wrong: a second character line, a character line that is not first, or a line with a reply that is not last: "The lines of the batch are in the wrong order."
+
+Why a bad character line refuses the whole batch: with the line dropped, the events go on for no character.
 
 **Messages from the bridge.** The bridge makes each line from the checked value, never from the raw bytes of the addon.
 

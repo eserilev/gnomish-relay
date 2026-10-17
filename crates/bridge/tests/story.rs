@@ -16,8 +16,8 @@ use bridge::lane::{ChatId, MessageId};
 use bridge::model::{ModelChoice, ModelSpec};
 use bridge::model_local::LocalModel;
 use bridge::story::{
-    BAD_CHARACTER, NO_ANSWER, OUT_OF_ORDER, Reply, STOPPED, Story, StorySpec, TOO_LONG,
-    UPDATE_BRIDGE, UPDATE_TIMEWAYS,
+    APPS_DONT_MATCH, BAD_CHARACTER, NO_ANSWER, OUT_OF_ORDER, Reply, STOPPED, Story, StorySpec,
+    TOO_LONG, UPDATE_BRIDGE, UPDATE_TIMEWAYS,
 };
 use bridge::story_sandbox::{Sandbox, Walls};
 use bridge::timeways::StoryMessage;
@@ -188,6 +188,19 @@ fn a_character_line_that_is_not_first_refuses_the_batch() {
 
     assert!(error(&answers[0]).starts_with(OUT_OF_ORDER));
     assert!(error(&answers[1]).starts_with(OUT_OF_ORDER));
+    assert!(seen(dir.path()).is_empty());
+}
+
+#[test]
+fn a_character_line_with_a_new_field_refuses_the_batch_with_an_update_message() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut story = story("echo", dir.path());
+    let line = r#"{"type":"character_entered","realm":"Stormrage","name":"Anduin","level":3}"#;
+    story.send(message(7, line));
+
+    let answers = answers(&mut story, 1);
+
+    assert!(error(&answers[0]).starts_with(APPS_DONT_MATCH));
     assert!(seen(dir.path()).is_empty());
 }
 

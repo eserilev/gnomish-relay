@@ -32,7 +32,8 @@ pub const STOPPED: &str = "The Timeways story program stopped.";
 pub const NO_ANSWER: &str = "The Timeways story program did not answer in time.";
 pub const TOO_LONG: &str = "The Timeways answer is too long for the game.";
 pub const OUT_OF_ORDER: &str = "The lines of the batch are in the wrong order.";
-pub const BAD_CHARACTER: &str = "The realm or the name of the character is too long.";
+pub const BAD_CHARACTER: &str = "Your realm or character name didn't come through. Type /reload.";
+pub const APPS_DONT_MATCH: &str = "Timeways and the desktop app don't match. Update both.";
 /// The folder of the story program, inside the Timeways folder of the data folder.
 pub const STORY_DIR: &str = "story";
 
@@ -579,6 +580,7 @@ fn refusal_text(refused: Refused) -> &'static str {
     match refused {
         Refused::Order => OUT_OF_ORDER,
         Refused::Character => BAD_CHARACTER,
+        Refused::CharacterShape => APPS_DONT_MATCH,
     }
 }
 

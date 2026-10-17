@@ -114,18 +114,37 @@ impl AddonLine {
     }
 }
 
-/// A character line over its limits is `Character`: it refuses the whole batch.
+/// Any error in a character line refuses the whole batch: `Character` for its text,
+/// `CharacterShape` for its fields.
 pub fn read_addon_line(line: &str) -> Result<AddonLine, BadLine> {
-    if line.len() > MAX_ADDON_LINE {
-        return Err(BadLine::TooLong);
+    let too_long = line.len() > MAX_ADDON_LINE;
+    // A message from the game has a size limit, so even a long line is cheap to parse.
+    let Ok(value) = serde_json::from_str::<Value>(line) else {
+        return Err(if too_long {
+            BadLine::TooLong
+        } else {
+            BadLine::Shape
+        });
+    };
+    let is_character = value.get("type").and_then(Value::as_str) == Some("character_entered");
+    let read = if too_long {
+        Err(BadLine::TooLong)
+    } else {
+        read_value(line, value)
+    };
+    match read {
+        Err(BadLine::TooLong | BadLine::Text | BadLine::Character) if is_character => {
+            Err(BadLine::Character)
+        }
+        Err(_) if is_character => Err(BadLine::CharacterShape),
+        read => read,
     }
-    let value: Value = serde_json::from_str(line).map_err(|_| BadLine::Shape)?;
+}
+
+fn read_value(line: &str, value: Value) -> Result<AddonLine, BadLine> {
     let kind = type_of(&value).ok_or(BadLine::Shape)?;
     if depth(&value) > MAX_DEPTH || key_count(&value) > MAX_KEYS {
         return Err(BadLine::Shape);
-    }
-    if !strings_are_clean(&value) && kind == "character_entered" {
-        return Err(BadLine::Character);
     }
     if !strings_are_clean(&value) {
         return Err(BadLine::Text);
@@ -180,7 +199,9 @@ fn read_known(line: &str) -> Result<Known, BadLine> {
     let known: Known = serde_json::from_str(line).map_err(|_| BadLine::Shape)?;
     match &known {
         Known::CharacterEntered { realm, name }
-            if !(is_short(realm, MAX_REALM) && is_short(name, MAX_CHARACTER)) =>
+            if realm.is_empty()
+                || name.is_empty()
+                || !(is_short(realm, MAX_REALM) && is_short(name, MAX_CHARACTER)) =>
         {
             Err(BadLine::Character)
         }
@@ -227,8 +248,10 @@ pub struct Batch {
 pub enum Refused {
     /// A character line that is not first, or a line with a reply that is not last.
     Order,
-    /// A character line with a long realm or name, or with a control character.
+    /// A character line with an empty or a long realm or name, or with a control character.
     Character,
+    /// A character line with a missing, an unknown, or a wrong field.
+    CharacterShape,
 }
 
 /// A batch is an optional character line, then game events, then at most one line with
@@ -242,6 +265,7 @@ pub fn read_batch(text: &str) -> Result<Batch, Refused> {
         match read_addon_line(line) {
             Ok(line) => batch.lines.push(line),
             Err(BadLine::Character) => return Err(Refused::Character),
+            Err(BadLine::CharacterShape) => return Err(Refused::CharacterShape),
             Err(bad) => batch.dropped.push(bad),
         }
     }
@@ -428,7 +452,6 @@ mod tests {
             r#"{"type":"lore_asked","at":1,"question":"x","mood":"sad"}"#,
             r#"{"type":"journal_asked","page":-1}"#,
             r#"{"type":"journal_asked","page":1,"page":2}"#,
-            r#"{"type":"character_entered","realm":"x"}"#,
         ];
         for line in bad {
             assert_eq!(read_addon_line(line), Err(BadLine::Shape), "{line}");
@@ -627,6 +650,48 @@ mod tests {
     fn a_full_name_of_wow_forever_with_accents_passes() {
         let full = format!("{} {}", "é".repeat(12), "ö".repeat(12));
         assert!(batch(&[&character("Classic Beta PvP 2", &full), EVENT]).is_ok());
+    }
+
+    /// The story program makes file names from the realm and the name, so each needs a byte.
+    #[test]
+    fn an_empty_realm_or_name_refuses_the_batch() {
+        for line in [character("", "Anduin"), character("Stormrage", "")] {
+            assert_eq!(read_addon_line(&line), Err(BadLine::Character), "{line}");
+            assert_eq!(batch(&[&line, EVENT]), Err(Refused::Character), "{line}");
+        }
+    }
+
+    /// A newer Timeways can add a field. The batch still stops, with a message to update.
+    #[test]
+    fn a_character_line_of_another_shape_refuses_the_batch_as_a_mismatch() {
+        let bad = [
+            r#"{"type":"character_entered","realm":"x"}"#,
+            r#"{"type":"character_entered","realm":"x","name":"y","level":3}"#,
+            r#"{"type":"character_entered","realm":"x","name":"y","id":1}"#,
+            r#"{"type":"character_entered","realm":"x","name":"y","name":"z"}"#,
+            r#"{"type":"character_entered","realm":1,"name":"y"}"#,
+            r#"{"type":"character_entered","realm":"x","name":[[[["y"]]]]}"#,
+        ];
+        for line in bad {
+            assert_eq!(
+                read_addon_line(line),
+                Err(BadLine::CharacterShape),
+                "{line}"
+            );
+            assert_eq!(
+                batch(&[line, EVENT]),
+                Err(Refused::CharacterShape),
+                "{line}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_character_line_over_4_kib_refuses_the_batch_as_a_bad_character() {
+        let long = character(&"r".repeat(MAX_ADDON_LINE), "Anduin");
+
+        assert_eq!(read_addon_line(&long), Err(BadLine::Character));
+        assert_eq!(batch(&[&long, EVENT]), Err(Refused::Character));
     }
 
     #[test]

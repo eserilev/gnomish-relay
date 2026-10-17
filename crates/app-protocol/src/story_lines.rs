@@ -59,8 +59,12 @@ pub enum BadLine {
     Shape,
     /// A text over its limit, or with a control character.
     Text,
-    /// A character line with a text over its limit, or with a control character.
+    /// A character line with an empty, a long, or a control character realm or name. It
+    /// refuses the whole batch.
     Character,
+    /// A character line with a missing, an unknown, or a wrong field: Timeways and the
+    /// bridge do not match. It refuses the whole batch.
+    CharacterShape,
 }
 
 /// A text from the game has no control character, so it stays on one line.
