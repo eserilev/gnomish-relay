@@ -1,5 +1,7 @@
 //! Finds the strip in a screenshot and reads its bytes (SPEC.md 7.1 and 7.1.3).
 
+use std::io::{Read, Seek, SeekFrom};
+
 use anyhow::{Context, Result, bail};
 use protocol::cell::decode_cells;
 use protocol::frame::decode_frame;
@@ -14,9 +16,44 @@ pub const MAX_WIDTH: u32 = 65_536;
 /// part is kept, and a screen of any size costs the same memory.
 const KEEP_WIDTH: u32 = 4096;
 const TOP_ROWS: u32 = 1024;
+/// An 8K screen (7680 x 4320) in RGBA with no compression, plus a row filter byte and
+/// 1 MiB for the chunks: about 134 MB. No real screenshot is bigger. The decoder stops
+/// after the top rows, so the cap also fits a stored shot of three 8K screens side by side.
+const MAX_FILE: u64 = (7680 * 4 + 1) * 4320 + (1 << 20);
+/// The decoder keeps one row and the color profile. A row of `MAX_WIDTH` RGBA pixels is
+/// 256 KiB, so this leaves room for a big profile.
+const MAX_DECODER_MEMORY: usize = 16 << 20;
 const CELLS_PER_ROW: usize = 200;
 const MAX_ROWS: usize = 48;
 const CALIBRATION_ROWS: usize = 2;
+
+/// A reader that fails past `MAX_FILE`. `Read::take` has no `Seek`, and the decoder asks for it.
+struct Capped<R> {
+    inner: R,
+    position: u64,
+}
+
+impl<R: Read> Read for Capped<R> {
+    fn read(&mut self, buf: &mut [u8]) -> std::io::Result<usize> {
+        let left = MAX_FILE.saturating_sub(self.position);
+        if left == 0 {
+            return Err(std::io::Error::other(format!(
+                "the screenshot is over the size cap of {MAX_FILE} bytes"
+            )));
+        }
+        let end = buf.len().min(usize::try_from(left).unwrap_or(usize::MAX));
+        let count = self.inner.read(&mut buf[..end])?;
+        self.position += count as u64;
+        Ok(count)
+    }
+}
+
+impl<R: Seek> Seek for Capped<R> {
+    fn seek(&mut self, to: SeekFrom) -> std::io::Result<u64> {
+        self.position = self.inner.seek(to)?;
+        Ok(self.position)
+    }
+}
 
 /// The top-left part of a screenshot, with the size of the whole screenshot.
 pub struct Image {
@@ -34,10 +71,18 @@ impl Image {
         Image::from_reader(std::io::Cursor::new(bytes))
     }
 
-    /// Reads only as far into the file as the top rows go, so a file of any size works.
-    pub fn from_reader(reader: impl std::io::BufRead + std::io::Seek) -> Result<Image> {
-        let mut decoder = png::Decoder::new(reader);
+    /// Reads only as far into the file as the top rows go, and never past `MAX_FILE`.
+    pub fn from_reader(reader: impl Read + Seek) -> Result<Image> {
+        let capped = Capped {
+            inner: reader,
+            position: 0,
+        };
+        let mut decoder = png::Decoder::new(std::io::BufReader::new(capped));
         decoder.set_transformations(png::Transformations::EXPAND | png::Transformations::STRIP_16);
+        decoder.set_ignore_text_chunk(true);
+        decoder.set_limits(png::Limits {
+            bytes: MAX_DECODER_MEMORY,
+        });
         let header = decoder.read_header_info()?;
         let (width, full_height) = (header.width, header.height);
         if width > MAX_WIDTH {

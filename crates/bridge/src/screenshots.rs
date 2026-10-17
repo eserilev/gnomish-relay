@@ -70,7 +70,7 @@ pub struct Shot {
 /// `strip::read_with`.
 pub fn read_strip(path: &Path, accept: impl Fn(&[u8]) -> bool) -> Result<Option<Shot>> {
     let file = open_regular(path)?;
-    let image = Image::from_reader(std::io::BufReader::new(file))?;
+    let image = Image::from_reader(file)?;
     let Some(bytes) = strip::read_with(&image, accept) else {
         return Ok(None);
     };
@@ -148,6 +148,30 @@ mod tests {
         std::os::unix::fs::symlink(&target, &shot).unwrap();
 
         assert!(read_strip(&shot, |_| true).is_err());
+    }
+
+    /// The text chunk claims 2 GiB, and the sparse file holds them, so only the cap ends it.
+    #[test]
+    fn a_png_with_a_huge_text_chunk_stops_at_the_file_cap() {
+        let dir = tempfile::tempdir().unwrap();
+        let shot = dir.path().join("WoWScrnShot_6.png");
+        let png = Image::from_rgb(1, 1, vec![0; 3]).unwrap().to_png().unwrap();
+        let signature_and_header = &png[..33];
+        let text_chunk_start = [&0x7FFF_FFFF_u32.to_be_bytes()[..], b"tEXt"].concat();
+        fs::write(&shot, [signature_and_header, &text_chunk_start].concat()).unwrap();
+        fs::File::options()
+            .write(true)
+            .open(&shot)
+            .unwrap()
+            .set_len(4 << 30)
+            .unwrap();
+
+        let error = read_strip(&shot, |_| true).err().unwrap();
+
+        assert!(
+            format!("{error:#}").contains("over the size cap"),
+            "{error:#}"
+        );
     }
 
     #[test]
