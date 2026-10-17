@@ -12,7 +12,12 @@ if ! git -C "$root" diff --quiet -- proofs/Protocol/Code; then
 fi
 
 cd "$root/proofs"
-lake build
+# The Aeneas lakefile compiles its tactics to native code only when CI is not set.
+# The interpreter that CI uses needs more heartbeats, so a proof near the limit passes
+# here and fails in CI. With CI=1 we build the way CI does. Lake keeps the setting from
+# the last configure, so -R configures again. The first run rebuilds Aeneas once.
+export CI=1
+lake -R build
 
 # Every locked statement needs its axiom check.
 checks=$(grep -oE '^theorem check_[A-Za-z0-9_]+' Statements.lean | sed 's/theorem //' | sort)
