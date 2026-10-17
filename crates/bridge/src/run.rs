@@ -50,7 +50,7 @@ use crate::logging;
 use crate::new_folder::{make_folder, real_chat_folder, real_new_folder};
 use crate::relay::{BAD_AGENT, ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
 use crate::saved;
-use crate::screenshots::{Shot, Watcher, read_strip};
+use crate::screenshots::{Read, Shot, Watcher, read_strip};
 use crate::settings_list::BridgeSettings;
 use crate::slots::{self, Files};
 use crate::spool::{open_spool, spool_dir, take_files};
@@ -366,46 +366,53 @@ impl Bridge {
     }
 
     fn take_screenshots(&mut self) {
-        let ready: Vec<PathBuf> = self.watchers.iter_mut().flat_map(Watcher::ready).collect();
-        for path in ready {
-            let keys = &self.keys;
-            let tag_checks = |bytes: &[u8]| some_key_verifies(bytes, keys) || is_test_strip(bytes);
-            let shot = match read_strip(&path, tag_checks) {
-                Ok(Some(shot)) => shot,
-                Ok(None) => continue,
-                Err(e) => {
-                    log(&format!("skipped {}: {e}", path.display()));
-                    if let Err(e) = status::mark_skip(&self.data, now(), &e.to_string()) {
-                        log(&format!("cannot write the last skipped screenshot: {e:#}"));
-                    }
-                    continue;
-                }
-            };
-            if is_test_strip(&shot.bytes) {
-                log(&format!(
-                    "left {} in place: it's from the self-test",
-                    path.display()
-                ));
-                continue;
-            }
-            let outcome = self.take_strip(&shot.bytes);
-            if matches!(outcome, StripOutcome::Taken) {
-                self.take_line_test(&shot);
-            }
-            if let Some(why) = kept_reason(&outcome) {
-                log(&format!("left {} in place: {why}", path.display()));
-                continue;
-            }
-            // A normal screenshot never decodes as a frame, so this is a strip, and its
-            // pixels hold a prompt (SPEC.md 6.2, rule 8).
-            if let Err(e) = std::fs::remove_file(&path) {
-                log(&format!("cannot delete {}: {e}", path.display()));
-                continue;
-            }
-            if let Some(line) = deleted_line(&outcome) {
-                log(line);
+        for i in 0..self.watchers.len() {
+            for path in self.watchers[i].ready() {
+                let read = self.take_screenshot(&path);
+                self.watchers[i].after_read(&path, read);
             }
         }
+    }
+
+    fn take_screenshot(&mut self, path: &Path) -> Read {
+        let keys = &self.keys;
+        let tag_checks = |bytes: &[u8]| some_key_verifies(bytes, keys) || is_test_strip(bytes);
+        let shot = match read_strip(path, tag_checks) {
+            Ok(Some(shot)) => shot,
+            Ok(None) => return Read::Worked,
+            Err(e) => {
+                log(&format!("skipped {}: {e}", path.display()));
+                if let Err(e) = status::mark_skip(&self.data, now(), &e.to_string()) {
+                    log(&format!("cannot write the last skipped screenshot: {e:#}"));
+                }
+                return Read::Failed;
+            }
+        };
+        if is_test_strip(&shot.bytes) {
+            log(&format!(
+                "left {} in place: it's from the self-test",
+                path.display()
+            ));
+            return Read::Worked;
+        }
+        let outcome = self.take_strip(&shot.bytes);
+        if matches!(outcome, StripOutcome::Taken) {
+            self.take_line_test(&shot);
+        }
+        if let Some(why) = kept_reason(&outcome) {
+            log(&format!("left {} in place: {why}", path.display()));
+            return Read::Worked;
+        }
+        // A normal screenshot never decodes as a frame, so this is a strip, and its
+        // pixels hold a prompt (SPEC.md 6.2, rule 8).
+        if let Err(e) = std::fs::remove_file(path) {
+            log(&format!("cannot delete {}: {e}", path.display()));
+            return Read::Worked;
+        }
+        if let Some(line) = deleted_line(&outcome) {
+            log(line);
+        }
+        Read::Worked
     }
 
     /// Keeps the result of a line test and sends it with the next body (SPEC.md 7.1.4).

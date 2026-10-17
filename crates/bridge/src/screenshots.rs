@@ -9,10 +9,23 @@ use anyhow::Result;
 use crate::fs_safe::open_regular;
 use crate::strip::{self, Image};
 
+/// A file that fails to read this often counts as done, so a broken file costs no read
+/// in each step. A change of its size makes it new again.
+const MAX_READ_TRIES: u32 = 3;
+
+/// How the read of a ready file went.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Read {
+    Worked,
+    Failed,
+}
+
 pub struct Watcher {
     dir: PathBuf,
     sizes: HashMap<PathBuf, u64>,
-    done: HashSet<PathBuf>,
+    /// The size of each file at its last read that counts.
+    done: HashMap<PathBuf, u64>,
+    failures: HashMap<PathBuf, u32>,
 }
 
 impl Watcher {
@@ -20,11 +33,13 @@ impl Watcher {
         Watcher {
             dir: dir.to_owned(),
             sizes: HashMap::new(),
-            done: HashSet::new(),
+            done: HashMap::new(),
+            failures: HashMap::new(),
         }
     }
 
-    /// New PNG files with the same size as at the last scan, so WoW has finished them.
+    /// PNG files with the same size as at the last scan, so WoW has finished them. A file
+    /// stays ready until `after_read` marks it done.
     pub fn ready(&mut self) -> Vec<PathBuf> {
         let Ok(entries) = fs::read_dir(&self.dir) else {
             return Vec::new();
@@ -41,22 +56,38 @@ impl Watcher {
             let Ok(kind) = entry.file_type() else {
                 continue;
             };
-            if !is_png || !kind.is_file() || self.done.contains(&path) {
-                continue;
-            }
             let Ok(size) = entry.metadata().map(|m| m.len()) else {
                 continue;
             };
+            if !is_png || !kind.is_file() || self.done.get(&path) == Some(&size) {
+                continue;
+            }
             if self.sizes.insert(path.clone(), size) == Some(size) {
-                self.sizes.remove(&path);
-                self.done.insert(path.clone());
                 ready.push(path);
             }
         }
-        // Forget deleted files, so the sets stay as small as the folder.
-        self.done.retain(|p| present.contains(p));
+        // Forget deleted files, so the maps stay as small as the folder.
+        self.done.retain(|p, _| present.contains(p));
         self.sizes.retain(|p, _| present.contains(p));
+        self.failures.retain(|p, _| present.contains(p));
         ready
+    }
+
+    /// A file is done after a read that worked, or after `MAX_READ_TRIES` failed reads.
+    pub fn after_read(&mut self, path: &Path, read: Read) {
+        if read == Read::Failed && self.count_failure(path) < MAX_READ_TRIES {
+            return;
+        }
+        self.failures.remove(path);
+        if let Some(size) = self.sizes.get(path) {
+            self.done.insert(path.to_owned(), *size);
+        }
+    }
+
+    fn count_failure(&mut self, path: &Path) -> u32 {
+        let failures = self.failures.entry(path.to_owned()).or_insert(0);
+        *failures += 1;
+        *failures
     }
 }
 
@@ -93,7 +124,42 @@ mod tests {
         fs::write(&shot, b"half and more").unwrap();
         assert!(watcher.ready().is_empty());
         assert_eq!(watcher.ready(), [shot]);
+    }
+
+    #[test]
+    fn a_file_stays_ready_until_its_read_worked() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut watcher = Watcher::new(dir.path());
+        let shot = dir.path().join("WoWScrnShot_1.png");
+        fs::write(&shot, b"whole").unwrap();
+        watcher.ready();
+        assert_eq!(watcher.ready(), std::slice::from_ref(&shot));
+        assert_eq!(watcher.ready(), std::slice::from_ref(&shot));
+
+        watcher.after_read(&shot, Read::Worked);
+
         assert!(watcher.ready().is_empty());
+    }
+
+    #[test]
+    fn a_file_that_fails_to_read_three_times_is_done_until_its_size_changes() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut watcher = Watcher::new(dir.path());
+        let shot = dir.path().join("WoWScrnShot_1.png");
+        fs::write(&shot, b"broken").unwrap();
+        watcher.ready();
+        for _ in 0..2 {
+            assert_eq!(watcher.ready(), std::slice::from_ref(&shot));
+            watcher.after_read(&shot, Read::Failed);
+        }
+        assert_eq!(watcher.ready(), std::slice::from_ref(&shot));
+        watcher.after_read(&shot, Read::Failed);
+        assert!(watcher.ready().is_empty());
+
+        fs::write(&shot, b"whole at last").unwrap();
+        watcher.ready();
+
+        assert_eq!(watcher.ready(), [shot]);
     }
 
     #[cfg(unix)]

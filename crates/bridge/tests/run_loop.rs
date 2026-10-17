@@ -162,6 +162,24 @@ fn a_strip_screenshot_comes_back_as_an_echo_in_the_slots() {
     assert!(!strip.exists(), "a valid strip is deleted");
 }
 
+/// A read can fail while WoW still writes the file, for example on a slow disk.
+#[test]
+fn a_strip_whose_first_read_failed_is_read_again_once_it_is_whole() {
+    let f = folders();
+    let mut bridge = bridge(&f);
+    let strip = f.screenshots.join("WoWScrnShot_1.png");
+    let png = strip_png(KEY, "late bytes");
+    fs::write(&strip, &png[..png.len() / 4]).unwrap();
+    for _ in 0..6 {
+        bridge.step();
+    }
+
+    fs::write(&strip, &png).unwrap();
+
+    assert!(step_until(&mut bridge, || slot_body(&f.addons)
+        .contains("echo: late bytes")));
+}
+
 #[test]
 fn a_taken_strip_is_the_last_strip_of_the_status() {
     let f = folders();
