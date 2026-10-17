@@ -45,11 +45,15 @@ pub enum Entry {
 }
 
 impl Entry {
+    /// Only the entry itself counts. A link in a parent folder, such as `/var` on macOS,
+    /// or a short path on Windows, makes no entry a link. On Windows, std counts a
+    /// junction as a link too.
     pub fn of(root: &Path) -> Entry {
-        match real_path(root) {
-            Ok(real) if real != root => Entry::Link,
-            _ => Entry::Plain,
+        let meta = std::fs::symlink_metadata(root);
+        if meta.is_ok_and(|m| m.file_type().is_symlink()) {
+            return Entry::Link;
         }
+        Entry::Plain
     }
 
     pub fn is(self) -> &'static str {
@@ -212,6 +216,20 @@ mod tests {
 
         assert_eq!(c.wide(&c.home.join(".ssh")), Some(WideRoot::Private));
         assert!(error.to_string().contains("private files"), "{error}");
+    }
+
+    /// A link in a parent folder, such as `/var` on macOS, does not make the entry a link.
+    #[cfg(unix)]
+    #[test]
+    fn only_an_entry_that_is_a_link_itself_is_a_link() {
+        let c = computer();
+        std::fs::create_dir_all(c.home.join("real/app")).unwrap();
+        std::os::unix::fs::symlink(c.home.join("real"), c.home.join("parent")).unwrap();
+        std::os::unix::fs::symlink(c.home.join("real/app"), c.home.join("app")).unwrap();
+
+        assert_eq!(Entry::of(&c.home.join("parent/app")), Entry::Plain);
+        assert_eq!(Entry::of(&c.home.join("app")), Entry::Link);
+        assert_eq!(Entry::of(&c.home.join("real/app")), Entry::Plain);
     }
 
     #[test]

@@ -132,29 +132,37 @@ mod tests {
     const TWO_ROOTS: &str = "allowed_roots = [\"~/Code\", \"~/Drive\"]\ndefault_agent = \"echo\"\n\
         [wow]\npath = \"~/wow\"\n[agents.echo]\nkind = \"echo\"\npermission = \"ask\"\n";
 
+    /// The home is a real path, as the temp folder of macOS is under a link.
     struct Computer {
-        home: tempfile::TempDir,
+        _tmp: tempfile::TempDir,
+        home: PathBuf,
         config: PathBuf,
         data: PathBuf,
     }
 
     impl Computer {
         fn with_config(text: &str) -> Computer {
-            let home = tempfile::tempdir().unwrap();
-            fs::create_dir_all(home.path().join("Code")).unwrap();
-            let config = home.path().join("config");
-            let data = home.path().join("data");
+            let tmp = tempfile::tempdir().unwrap();
+            let home = real_path(tmp.path()).unwrap();
+            fs::create_dir_all(home.join("Code")).unwrap();
+            let config = home.join("config");
+            let data = home.join("data");
             fs::create_dir_all(&config).unwrap();
             fs::create_dir_all(&data).unwrap();
             fs::write(config.join(config::FILE), text).unwrap();
-            Computer { home, config, data }
+            Computer {
+                _tmp: tmp,
+                home,
+                config,
+                data,
+            }
         }
 
         fn places(&self) -> Places<'_> {
             Places {
                 config_dir: &self.config,
                 data_dir: &self.data,
-                home: self.home.path(),
+                home: &self.home,
             }
         }
 
@@ -218,7 +226,7 @@ mod tests {
     #[test]
     fn setup_offers_to_remove_a_root_that_links_to_the_home_folder() {
         let c = Computer::with_config(&TWO_ROOTS.replace("\"~/Drive\"", "\"~/Link\""));
-        std::os::unix::fs::symlink(c.home.path(), c.home.path().join("Link")).unwrap();
+        std::os::unix::fs::symlink(&c.home, c.home.join("Link")).unwrap();
         let mut questions = Vec::new();
 
         let lines = ask_about_roots(&c.places(), Product::Relay, &mut |bad: &BadRoot| {
@@ -283,7 +291,7 @@ mod tests {
     fn setup_offers_to_remove_a_root_that_it_cant_open() {
         use std::os::unix::fs::PermissionsExt;
         let c = Computer::with_config(&TWO_ROOTS.replace("\"~/Drive\"", "\"~/locked/in\""));
-        let locked = c.home.path().join("locked");
+        let locked = c.home.join("locked");
         fs::create_dir_all(locked.join("in")).unwrap();
         fs::set_permissions(&locked, fs::Permissions::from_mode(0o000)).unwrap();
         let mut asked = Vec::new();
