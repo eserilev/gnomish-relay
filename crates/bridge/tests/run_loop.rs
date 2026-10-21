@@ -16,7 +16,7 @@ use bridge::agent::{Agent, Control, Echo, Run};
 use bridge::config::{Permission, Policy};
 use bridge::daily_usage;
 use bridge::desktop::{Approvals, Prompt, Verdict};
-use bridge::folder_path::{path_bytes, real_path};
+use bridge::folder_path::{path_bytes, real_path, relative_folder};
 use bridge::full_auto::FullAutoAsker;
 use bridge::game_folders::GameFolders;
 use bridge::gate::Gate;
@@ -1488,13 +1488,15 @@ fn a_chat_folder_that_is_a_link_out_of_the_roots_never_runs() {
 }
 
 /// A bridge whose root is the temp folder of `f`, with `missing` as a root that is gone.
-fn bridge_with_missing_root(f: &Dirs, missing: &Path) -> Bridge {
-    let (bridge, _) = bridge_in_temp(f);
-    bridge.with_missing_roots(vec![missing.to_owned()])
+fn bridge_with_missing_root(f: &Dirs, missing: &Path) -> (Bridge, std::path::PathBuf) {
+    let (bridge, base) = bridge_in_temp(f);
+    (bridge.with_missing_roots(vec![missing.to_owned()]), base)
 }
 
-fn strip_in_folder(f: &Dirs, bridge: &mut Bridge, folder: &Path, text: &str) -> bool {
-    let cwd = slashed(&real_path(folder).unwrap());
+/// The game sends the folder from the base, as it never sends a drive on Windows.
+fn strip_in_folder(f: &Dirs, bridge: &mut Bridge, base: &Path, folder: &Path, text: &str) -> bool {
+    let target = path_bytes(&real_path(folder).unwrap());
+    let cwd = String::from_utf8(relative_folder(&path_bytes(base), &target)).unwrap();
     fs::write(
         f.screenshots.join("WoWScrnShot_7.png"),
         chat_strip_in(&cwd, 7, "", text),
@@ -1511,12 +1513,18 @@ fn a_missing_root_that_comes_back_takes_chats_again() {
     let f = folders();
     let elsewhere = tempfile::tempdir().unwrap();
     let drive = elsewhere.path().join("Drive");
-    let mut bridge = bridge_with_missing_root(&f, &drive);
+    let (mut bridge, base) = bridge_with_missing_root(&f, &drive);
 
     fs::create_dir(&drive).unwrap();
     bridge.step();
 
-    assert!(strip_in_folder(&f, &mut bridge, &drive, "on the drive"));
+    assert!(strip_in_folder(
+        &f,
+        &mut bridge,
+        &base,
+        &drive,
+        "on the drive"
+    ));
     assert!(slot_body(&f.addons).contains("echo: on the drive"));
 }
 
@@ -1525,7 +1533,7 @@ fn a_missing_root_that_comes_back_shows_in_the_settings_list() {
     let f = folders();
     let elsewhere = tempfile::tempdir().unwrap();
     let drive = elsewhere.path().join("Drive");
-    let mut bridge = bridge_with_missing_root(&f, &drive);
+    let (mut bridge, _) = bridge_with_missing_root(&f, &drive);
     fs::create_dir(&drive).unwrap();
     bridge.step();
 
@@ -1547,7 +1555,7 @@ fn a_missing_root_that_comes_back_as_a_link_above_the_data_folder_stays_out() {
     let f = folders();
     let elsewhere = tempfile::tempdir().unwrap();
     let drive = elsewhere.path().join("Drive");
-    let mut bridge = bridge_with_missing_root(&f, &drive);
+    let (mut bridge, _) = bridge_with_missing_root(&f, &drive);
     let above_the_data = f.state.parent().unwrap().parent().unwrap();
 
     std::os::unix::fs::symlink(above_the_data, &drive).unwrap();
