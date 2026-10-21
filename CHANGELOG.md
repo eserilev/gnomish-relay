@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.0
+
+- **Missing code folders.** If a code folder is on a drive that isn't connected, the
+  desktop app now starts anyway and skips that folder. When you connect the drive, the
+  folder works again with no restart. `gnomish-relay status` lists the folders it can't
+  find.
+- Setup asks before it removes a code folder it can't find, and keeps it if you say no.
+- Setup and the desktop app refuse a code folder that's too wide to be safe, such as your
+  whole home folder, your whole disk, or a folder with private files. They say which one
+  and why.
+- Agents can no longer see the desktop app's settings and keys or the private files of
+  the game. At auto-edit, a command that names a secret file asks you first.
+- Timeways can no longer read the `.env` files in your home folder.
+- On macOS, a command can't open apps or start background jobs outside the sandbox.
+- The log hides secrets in the commands of desktop requests.
+- `gnomish-relay setup --help` lists the options. Setup now refuses an option it doesn't
+  know.
+- If your key file is damaged, setup makes a new one and tells you.
+- Screenshots of the colored bar are now a few KB, not up to 18 MB.
+- `gnomish-relay status` shows why the last screenshot couldn't be read.
+- Long WoW: Forever character names now work.
+
+### Fixes
+
+- The desktop app now reads the colored bar at any screen size and UI scale.
+- When you stop the desktop app, it now also stops every agent it started.
+- Windows: `install.ps1` now stops the running desktop app before it replaces it. It no
+  longer closes your PowerShell window, and it adds the app to your PATH only once.
+- The install script now runs nothing if the download stops partway.
+
 ## 0.5.2
 
 - Setup is faster with Timeways. The desktop app now downloads the lore in the
