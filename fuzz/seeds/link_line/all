@@ -1,0 +1,6 @@
+{"hello":{"proto":1,"version":"0.6.0","now":1}}
+{"ack":{"n":3}}
+{"publish":{"body":"6869","restore":"","live":"","windows":[1]}}
+{"request":{"id":"0123456789ab","created":1,"agent":"claude","folder":"~","text":"ls","kind":"tool-call","wait_minutes":5}}
+{"records":{"n":1,"tag":"0102030405060708","now":1,"source":"strip","records":"746f6b1f63311f371f1f1f1f6869"}}
+{"answer":{"id":"0123456789ab","answer":"approve"}}

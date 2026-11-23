@@ -234,3 +234,17 @@ path = "fuzz_targets/hooks_merge.rs"
 test = false
 doc = false
 bench = false
+
+[[bin]]
+name = "link_line"
+path = "fuzz_targets/link_line.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_records"
+path = "fuzz_targets/link_records.rs"
+test = false
+doc = false
+bench = false
