@@ -33,6 +33,7 @@ Words to use, the same in the game, the CLI, and the README:
 |---|---|---|
 | the desktop app | the `gnomish-relay` program | bridge, daemon |
 | your desktop | the place outside the game: "Approve on your desktop" | the desktop |
+| your server | the computer where the agents run with `[remote]` (SPEC.md 11.7) | remote, hub, host |
 | WoW, the game | World of Warcraft | client |
 | chat, message, reply | a conversation, what the player sends, what comes back | job, record, turn |
 | agent, session | Claude Code or Codex, and its saved conversation (Resume) | harness, thread |

@@ -93,6 +93,36 @@ To use it, run the Windows install command with `-Wsl`:
   Start menu and run `gnomish-relay status`. Run every `gnomish-relay` command there.
 - Approvals show as a Windows message box.
 
+### Run the agents on another computer
+
+If your code lives on another computer, such as a dev server, the agents can run there.
+WoW stays on this computer. The desktop app reaches your server over ssh, and nothing
+listens on a network port.
+
+1. Install Gnomish Relay on your server, the same version as here. Then run this on your
+   server:
+   ```sh
+   gnomish-relay setup --server
+   ```
+   If it says to turn on linger, run the command it shows.
+2. On this computer, run `ssh me@box` once and accept the host key. It must log in with
+   no password prompt.
+3. On this computer, run:
+   ```sh
+   gnomish-relay setup --remote me@box
+   ```
+4. Type `/reload` in WoW.
+
+- Your server's sandbox, code folders, and agents apply. Approvals still pop up on this
+  computer, with the name of your server.
+- To check the link, run `gnomish-relay status`.
+- For another ssh port or a jump host, set `command` under `[remote]` in `config.toml`,
+  for example `command = ["ssh", "-p", "2222", "me@box", "~/.local/bin/gnomish-relay", "attach"]`.
+- For notifications from terminals on your server, run `gnomish-relay hooks install`
+  there.
+- To run the agents on this computer again, run `gnomish-relay setup --remote off`, then
+  `gnomish-relay setup`.
+
 ## How it works
 
 1. **Type a task** in the Gnomish Relay window (`/relay`), or straight from the chat box

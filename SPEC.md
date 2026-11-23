@@ -3115,6 +3115,188 @@ A failed step prints one line: what failed, the reason, and the next step ("To t
 
 Nothing in the code blocks this today.
 
+### 11.7 Agents on a server over ssh
+
+**Status: built (2026-11-23)**, asked for by the user that day. The design follows remote mode of Switchboard (`~/Documents/Code/Personal/switchboard`, SPEC.md section 29). Code: `protocol/src/link.rs` (S42), and in the bridge `link.rs` (the lines), `serve.rs` (the server half), `serve_peer.rs` (the peer check), `remote.rs` (the game half), `child_link.rs` (the ssh process), `attach.rs`, the `[remote]` part of `config.rs`, and `setup --server` and `setup --remote` in `setup_command.rs`. Checks: `models/remote.qnt`, the fuzz targets `link_line` and `link_records`, and `crates/bridge/tests/remote_diff.rs`. Not yet tested over a real ssh link.
+
+The player plays WoW on one computer, and the code lives on a server, for example a dev box. The agents run on the server, next to the code. The desktop app on the game computer reaches the server through ssh. Nothing listens on a network port.
+
+**Why it is safe.** The desktop app runs `ssh`, outside every sandbox. The agent runs on the server, in the sandbox of the server. The agent never sees the ssh link, the ssh keys of the game computer, or the strip key. Every check that reads a path runs on the server, against the paths of the server.
+
+**Why not `ssh` as an agent command.** A `kind = "command"` agent `ssh box claude -p` fails, and it must fail. The sandbox opens only ports 443 and 80 (6.6.4), so the agent cannot use the ssh keys of the user. And with such an agent, the classifier on the game computer checks paths of the wrong computer, and nothing checks what the agent does on the server.
+
+**Also a sandbox for Windows and macOS players.** Native Windows has no command sandbox, and macOS has no agent wall (6.6.4). A Linux server gives both a `bwrap` sandbox and the agent wall, with no WSL2.
+
+#### 11.7.1 Two halves of one program
+
+The same `gnomish-relay` binary runs on both computers. The relay lane (`RelayLane` in `run.rs`) already takes verified records in and gives three slot files out. So the split is at that line, and the lane moves to the server unchanged.
+
+| The game half: `gnomish-relay run` with `[remote]` | The server half: `gnomish-relay serve` |
+|---|---|
+| The screenshot reader, the MAC, and freshness (S11, 6.2 rules 6 to 9) | The relay lane: the replay store, the policy, the queues, and `state.json` (8.2, 8.3) |
+| The saved variables reader and the reload outbox (7.5) | The agents, the gate, the classifier, the sandbox, the proxy, and the agent wall (6.6) |
+| `strip.key`, the key addons, and the slot writer | `allowed_roots`, the folder walk (9.9), and new folders (9.12) |
+| The strip line (7.1.3) and the bad tag count | Sessions and Resume (9.5, 9.6), usage (9.10), and git in a chat (9.11) |
+| The desktop dialog and `gnomish-relay approve` of the game computer | The desktop requests (6.6.3) and `gnomish-relay approve` of the server |
+| The Timeways lane and the story program (9.7) | The spool folder and the terminal sessions of the server (10) |
+
+- The game half has no agent and no root. The server half has no game, no screenshot, and no key.
+- A plain install has no `[remote]`. It runs both halves in one process, as before.
+
+#### 11.7.2 How to use it
+
+1. Install the same version of Gnomish Relay on the server.
+2. On the server, run `gnomish-relay setup --server`. It writes a config with the agents and the code folders, and no `[wow]`. It checks linger (11.7.8).
+3. On the game computer, run `gnomish-relay setup --remote me@box`. It does the game part of a plain setup (the key, the addon files, and autostart) and writes `[remote]` into the config. It tries the link once and shows the ssh error if one comes. A failed link stops nothing, because the server can come later.
+
+A later plain `gnomish-relay setup`, as the installers run it, keeps `[remote]` and does the same steps. `setup --server` adds no autostart: `attach` starts `serve` when the game computer connects.
+
+The config of the game computer:
+
+```toml
+[remote]
+host = "me@box"
+# command = ["ssh", "-p", "2222", "me@box", "~/.local/bin/gnomish-relay", "attach"]
+```
+
+- With `[remote]`, the game computer runs no agent. A relay key of the config (`[agents]`, `allowed_roots`, `default_cwd`, `[allow]`, `[sandbox]`, `[git]`, and the others of 12) next to `[remote]` is an error. Those keys live in the config of the server. Why an error: a key with no effect looks like a setting that works.
+- `command` replaces the whole command, for a jump host or another port. It must have at least one word.
+- `gnomish-relay setup --remote off` takes out `[remote]`. A plain setup then sets up agents on this computer.
+- One server for all chats. Chats on more than one computer is "Later" (11.7.10).
+
+#### 11.7.3 The link
+
+The game half starts `ssh <options> me@box 'PATH="$HOME/.local/bin:$HOME/.cargo/bin:$PATH" exec gnomish-relay attach'`. The installers put the program in `~/.local/bin`, and a shell of ssh with no terminal often lacks it on its PATH (Switchboard found this). `attach` copies its stdin and stdout to the socket of `gnomish-relay serve`. It copies with a plain loop and a flush after each read, not with `io::copy`: on Linux, `io::copy` from a socket into a pipe can use `splice`, and in the diff test the first hello then never reached the game half.
+
+- One JSON object per line, at most 8 MiB, with exact fields (`deny_unknown_fields`). `link.rs` holds both message types and their checks.
+- Each side sends a hello first: `{"hello":{"proto":1,"version":"0.7.0","now":1790300100}}`. A side with another `proto` or `version` answers with `{"refused":"..."}` and closes.
+- The two clocks must agree within 60 s (`clocks_agree`, S42). Why: the game checks the age of a slot body with the clock of the server, and the server checks the rate of messages with the times of the game. With more skew, the hello fails with the two times in the error.
+
+**Game half to server half:**
+
+- `records`: a number, the frame tag, the read time, the source (`strip` or `outbox`), and the records in the form of the strip payload (`serialize_records`, base64). The server half reads them with `parse_records`, the parser that S3 and S4 prove. So the link adds no new parser of records.
+- `reset_window`: a token, after a `/reload` (7.3).
+- `saved_token`: an account and its token (7.6).
+- `answer`: a desktop request id and Approve or Deny.
+
+**Server half to game half:**
+
+- `ack`: the number of the last input that the server half stored.
+- `publish`: the three slot files (body, restore, and live), base64, and the slot window of each token.
+- `request`: a desktop request that waits (6.6.3), with the fields of its request file.
+- `closed`: the id of a desktop request that no longer waits.
+
+**What the server half can make the game half do.** Only this: write the three slot files of the relay into the `AddOns` folder of each game, and show a desktop dialog. Never a command, never another file, and never a file of Timeways. The game half writes the files with the slot writer of today (7.3, 6.2 rule 7).
+
+#### 11.7.4 ssh
+
+The options are fixed:
+
+```
+-T -o BatchMode=yes -o ServerAliveInterval=15 -o ServerAliveCountMax=3
+-o ForwardAgent=no -o ForwardX11=no -o ClearAllForwardings=yes -o PermitLocalCommand=no
+```
+
+- `BatchMode=yes`: ssh never asks. An unknown host key or a password fails at once, with the reason of ssh. The desktop app has no terminal. The player runs `ssh me@box` once in a terminal to accept the host key.
+- `ForwardAgent=no`: with a forwarded ssh agent, any process of the user on the server uses the keys of the game computer. Options on the command line win over `~/.ssh/config`.
+- `ClearAllForwardings=yes` and `ForwardX11=no`: no port and no display of the game computer reaches the server.
+- `PermitLocalCommand=no`: a `LocalCommand` of `~/.ssh/config` runs no program on the game computer.
+- `~/.ssh/config` still gives the user, the port, `ProxyJump`, and the key.
+- `-T`: no terminal on the server, so the login shell writes no escape codes into the link. The game half skips up to 100 lines that are not JSON before the hello, for example a banner of the login shell (Switchboard V1).
+- The hello waits 20 s at most. When it gives up, the error carries the last lines that ssh wrote to stderr. After the end of the output of ssh, the game half waits up to 1 s for the last of them. It never waits on a live ssh, so the main loop stays fast. On every failure, the game half kills the ssh process.
+- `setup --remote` checks the host before it starts ssh. A new host with a `command` of the old host is an error, because that command still connects to the old host.
+- After a failure, the game half tries again after 1 s, and doubles the wait up to 60 s.
+
+#### 11.7.5 Each message runs once
+
+1. The game half reads a strip, checks it, and deletes the screenshot, as before (6.2 rule 8). It puts the records in its outbox with the next number.
+2. It sends each input of the outbox, oldest first. After a reconnect, it sends the whole outbox again.
+3. The server half takes the inputs of a connection in number order. It skips a number that it took already, and ignores an input after a gap. It applies each input to the relay lane, and acks the last number only after `state.json` is on disk. A run starts only after that write, as before (8.3). Why the order: an ack of number 5 also says that 1 to 4 are on disk.
+4. The game half drops each input with a number up to the ack (`acked_count`, S42).
+
+- A message that comes twice runs once: the replay store of the server keeps its token and id (S7). A control record that comes twice applies once: the server keeps the tag of its frame (6.2 rule 18). So the link needs no store of its own for numbers.
+- The server keeps a tag only for 360 s, and the outbox can hold a frame for longer. So a frame that the game half read more than `MAX_AGE` (300 s) ago applies no control record: no Stop, Delete, answer, or rule removal (`Relay::on_link_frame`). Its messages still go through the replay store. Why: a review found that a copy of an old frame came back after its tag was gone, and its Stop applied again (2026-11-23, the test came first). A Stop from 5 minutes ago is no longer what the player wants.
+- The numbers start again at 1 for each connection. The server half acks only numbers of its own connection.
+- The slot files are a snapshot of the whole state, not a list of events. So a publish that comes twice, or after a reconnect, shows each reply once.
+- A run in progress when the link drops goes on, on the server. Its reply waits in the next publish.
+- The outbox of the game half is in memory and holds at most 1000 inputs. A crash of the game half loses the inputs that the server did not ack. The same window exists today between the read of a strip and the write of `state.json`.
+
+A Quint model, `models/remote.qnt`, checks this. The link drops and duplicates messages, and either half restarts. Its properties:
+
+- **L1.** A message runs at most once.
+- **L2.** An acked message is in the state of the server.
+- **L3.** An answer applies only while its request waits, so a request gets one answer.
+
+Witnesses must fail: a message that comes twice, a reconnect with an input in the outbox, an answer that comes after the close, and a run after a restart of the server. One old version must fail too (`remoteAckEarly`): an ack before the write of `state.json`.
+
+#### 11.7.6 Desktop requests
+
+The server half shows no dialog (`Prompt::OnGameComputer`). Its request files of 6.6.3 stay the only truth. The game still says "Approve on your desktop", because the game computer shows the dialog.
+
+- Every step, the server half lists its waiting requests. It sends each new one as `request`, and `closed` for each one that is gone.
+- The game half writes a copy of each request into its own request folder, with the same id, and shows the dialog of 6.6.3. The dialog has one more line, "Server: me@box". The host comes from the config of the game computer, never from the server.
+- An answer of the dialog, or of `gnomish-relay approve` on the game computer, lands in the copy. The game half sends it as `answer`. The server half writes it into its own request folder with `create_new`, so the first answer wins.
+- `gnomish-relay approve` on the server works as before.
+- On `closed`, the game half deletes its copy, and the dialog stops (6.6.3).
+- At a reconnect, the game half deletes every copy, and the server half sends every waiting request again. So a copy of a request that ended while the link was down goes away.
+
+**Why the agent cannot answer.** The serve socket and the request files lie in the data folder of the server, which the sandbox and the agent wall hide (6.6.3, 6.6.4). Codex reads the whole disk, and a connect to a Unix socket needs no read right. So on Linux, `serve` also checks the peer of each connection before the hello (`serve_peer.rs`), with `SO_PEERCRED`. It refuses a peer that descends from `serve` itself, and a peer with `GNOMISH_RELAY_JOB=1` in its environment (9.4). The game half then shows "a run of an agent on this computer can't take the link". Found in a review on 2026-11-23.
+
+#### 11.7.7 Notifications from terminal sessions
+
+The player can run Claude Code in a terminal on the server, for example in tmux. Its hooks write into the spool folder of the server (10.2), and the server half reads it. The notices go to the game in the live file, as before.
+
+- `gnomish-relay hooks install` on the server installs the hooks there.
+- Limit: with `[remote]`, the game half reads no spool folder. A terminal session on the game computer shows no notice.
+
+#### 11.7.8 The server
+
+- `gnomish-relay serve` runs the relay lane, with no game. `attach` starts it in the background when it does not run (`run --background`, 11.3).
+- Without linger, logind can stop the user processes when the last ssh session ends. `setup --server` checks `loginctl show-user <user> -p Linger`. With no linger, it says how to turn it on. (Switchboard 29.9 found this trap.)
+- The serve socket is `<data>/serve.sock`, mode 0600, in the data folder with mode 0700. `attach` refuses a socket that is a link.
+- One game half at a time. A new `attach` takes over, and `serve` shuts the old stream at once. Why a takeover, not a refusal: a dead link that ssh has not seen yet holds the place for up to 45 s. Why the shutdown: a writer that waits on a dead link never reaches its own shutdown (found in a review on 2026-11-23).
+- `serve` takes the lock of 8.4. A plain desktop app and `serve` on one computer refuse each other.
+- The server is Linux or macOS. `serve` and `attach` use a Unix socket. A Windows server has no command sandbox (6.6.4).
+
+#### 11.7.9 In the game and on the desktop
+
+| Where | Text |
+|---|---|
+| `gnomish-relay status`, link up | Server: me@box, connected |
+| `gnomish-relay status`, link down | Server: can't reach me@box: Permission denied (publickey). Check that `ssh me@box` works, then run `gnomish-relay restart`. |
+| `gnomish-relay status`, other version | Server: me@box has Gnomish Relay 0.6.0, and this computer has 0.7.0. Update both, then run `gnomish-relay restart`. |
+| `gnomish-relay status`, clocks | Server: the clock of me@box is 95 s off. Turn on network time on both computers. |
+| Desktop dialog, last lines | Server: me@box |
+
+- While the link is down, the game half writes no slot files. The game then shows "Desktop app offline", as for a stopped desktop app. A message that the player sends waits in the outbox (11.7.5), and runs after the reconnect.
+- The folder browser, Resume, and the agent list show the folders, sessions, and agents of the server. The paths use the home form of the server (9.9).
+- "your server" joins the word table of `CLAUDE.md`, for the computer where the agents run. Never "remote", "hub", or "host" in copy.
+
+#### 11.7.10 Not yet, and limits
+
+- A game line for a lost link: "Can't reach your server". Today the game shows "Desktop app offline". It needs a new field in the slot body.
+- Any process of the user on the server can run `attach`, take over, and send messages as the game. It can already run the agent itself, so this gives it nothing new.
+- The server half makes the Lua of the slot files. A server that an attacker owns can write any Lua into the game. A reader that checks the form of a slot body on the game computer closes this. Today the server is a computer of the user, as the game computer is.
+- Codex reads the whole disk (6.6.4, "Codex"), so its commands can read the data folder of the server. The peer check of 11.7.6 stops a command that takes the link. It does not stop a process that left the process tree of `serve` (a double fork) and also removed `GNOMISH_RELAY_JOB`. macOS has no peer check yet: it needs `LOCAL_PEERPID` and a walk of the process tree with `sysctl`.
+- Later: chats on more than one computer, with a `host` for each agent.
+- Plain notices of the desktop (`show_notice`) of the server half do not reach the game computer.
+
+#### 11.7.11 Checks
+
+- **Aeneas (S42).** `crates/protocol/src/link.rs`: `clocks_agree` and `acked_count`. Neither panics. `clocks_agree a b` is true exactly when the two times are at most 60 s apart. `acked_count` gives the length of the longest prefix of the outbox whose numbers are at most the ack.
+- **Quint.** `models/remote.qnt` (11.7.5), in `scripts/check-model.sh`.
+- **Fuzz.** `link_line`: any line, on both sides. Each line gives a message or a defined error, never a panic. `link_records`: any records survive the trip through the link unchanged.
+- **The diff test.** `crates/bridge/tests/remote_diff.rs` sends the same strips to a plain desktop app and to a game half with a server half, both with the fake agent. The slot files of both must be the same, apart from the times. The link there is `command`, which runs `gnomish-relay attach` on this computer with no ssh.
+- **Named tests**, one or more for each rule of this section:
+  - The config (11.7.2): `a_remote_config_names_the_server_and_has_no_relay_part`, `a_remote_config_with_agents_is_refused`, `a_remote_host_that_reads_as_an_ssh_option_is_refused`, `a_remote_config_keeps_its_own_command`.
+  - The lines (11.7.3): `records_cross_the_link_unchanged`, `a_message_line_reads_back_as_the_same_message`, `a_line_with_an_unknown_field_is_refused`, `a_line_over_the_limit_is_refused`, `a_publish_with_a_window_outside_the_pool_is_refused`, `a_request_whose_id_is_not_a_request_id_is_refused`, `the_hello_refuses_another_version_and_says_why`, `the_hello_refuses_clocks_more_than_a_minute_apart`.
+  - ssh (11.7.4): `the_ssh_command_turns_off_agent_and_port_forwarding`, `a_custom_ssh_command_still_gets_the_fixed_options_after_the_program`, `banner_lines_before_the_hello_are_skipped`, `a_failed_connect_names_the_server_and_the_last_lines_of_ssh`, `a_failed_connect_keeps_the_last_lines_of_its_errors`, `the_wait_before_a_reconnect_doubles_up_to_a_minute`.
+  - Each message runs once (11.7.5): `an_ack_drops_the_inputs_up_to_its_number`, `the_server_takes_numbers_in_order_and_skips_copies`, `inputs_of_a_connection_come_out_in_order_once`, `the_server_acks_only_after_the_state_is_on_disk`, `a_new_connection_starts_the_numbers_again_and_asks_for_a_publish`, `a_message_sent_while_the_server_is_down_runs_once_it_is_back`, `a_frame_from_the_link_read_too_long_ago_applies_no_control_again`. A message that comes again on a new connection meets the replay store of the relay lane (`a_message_runs_once_even_when_the_strip_is_read_twice`).
+  - Desktop requests (11.7.6): `a_desktop_request_on_the_server_goes_to_the_game_once_and_closes`, `an_answer_on_the_game_computer_reaches_the_server`, `a_reconnect_sends_each_waiting_request_again`, `a_copy_keeps_the_id_of_the_server_and_takes_an_answer`, `a_copy_with_a_bad_id_writes_no_file`, `the_dialog_names_the_server_from_the_config`, `a_request_on_a_server_counts_as_a_dialog_and_shows_none_there`, `a_desktop_request_on_the_server_is_answered_on_the_game_computer`.
+  - The server (11.7.8): `a_second_attach_takes_over_the_first`, `a_takeover_closes_the_old_connection_with_no_help_from_the_main_loop`, `a_child_of_serve_is_refused`, `a_process_with_the_marker_of_a_run_is_refused`, `another_process_of_the_user_gets_in`, `attach_from_a_child_of_serve_is_refused`, `a_grandchild_descends_from_its_grandparent`, `a_loop_in_the_process_table_ends`, `attach_refuses_a_socket_that_is_a_link`, `attach_refuses_a_plain_file_in_place_of_the_socket`, `a_missing_or_dead_socket_asks_for_a_start_of_serve`.
+  - Setup and status (11.7.2, 11.7.9): `setup_server_writes_no_game`, `setup_server_says_to_turn_on_linger`, `setup_remote_writes_the_host`, `setup_remote_writes_the_host_and_no_agents_even_when_the_server_is_down`, `setup_remote_off_takes_out_the_server`, `setup_remote_refuses_a_host_that_reads_as_an_ssh_option_before_it_runs_ssh`, `setup_remote_with_a_new_host_refuses_a_command_for_the_old_one`, `the_status_line_names_the_server_and_the_problem`.
+  - The whole link: `a_strip_on_the_game_computer_comes_back_as_an_echo_from_the_server`, and the diff test `the_slot_files_of_a_server_match_those_of_a_plain_desktop_app`.
+
 ## 12. Config
 
 The config file is `config.toml` in the config folder of the OS:
@@ -3128,7 +3310,7 @@ The config file is `config.toml` in the config folder of the OS:
 `gnomish-relay setup` writes the first config. It never changes an existing key, except `path` of `[wow]` with `--wow` (11.3), and `program` and `lore_pack` of `[story]` after it installs Timeways (11.4). It adds the `[story]` model keys only when `[story]` has no model (11.6). It adds only these missing parts: a `[story]` section with `--timeways`, the relay part in a plain setup (9.7, decision 15), and an `[agents.<name>]` entry for each known agent on `PATH` that a relay config lacks. `default_agent` stays, so setup prints "Added agent: <name>. Pick it for a new chat in the game, in Settings". A config with an inline `agents` table gets no new entry.
 
 The bridge accepts only the keys that it implements. Any other key is an error, so a typo never leaves a wider default in place.
-Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `allow_full_auto`, `auto_update`, `[wow] path` (missing only until setup finds the game, 11.3), `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, `[git]` with `ci_checks`, and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
+Today these keys work: `allowed_roots`, `default_cwd`, `default_agent`, `timeout_minutes`, `permission_timeout_minutes`, `max_parallel_runs`, `daily_cost_cap_usd`, `allow_full_auto`, `auto_update`, `[wow] path` (missing only until setup finds the game, 11.3), `[agents.<name>]` with `kind`, `command`, `permission`, `env`, `modes`, `agent_hosts`, `preset`, and `resume`, `[allow]` with `commands` and `[allow.folders]`, `[sandbox]` with `allow_hosts`, `default_hosts`, `local_ports`, and `agent_network`, `[git]` with `ci_checks`, `[remote]` with `host` and `command` (11.7.2), and `[story]` with `program`, `lore_pack`, `timeout_seconds`, `model`, `claude_model`, `local_url`, `local_model`, `model_timeout_seconds`, and `budget_window_minutes`.
 
 **The story program of Timeways** (9.8) starts only with a `[story]` section and a `timeways.key`:
 
@@ -3622,6 +3804,7 @@ So most theorems are security properties, and each one closes a named attack.
 | S39 | **An offer stays under the ceiling:** a call gets an offer only when the config's ceiling is `allow`. | A rule from the game gets more than the config allows. |
 | S40 | **Notice text** (proved 2026-09-28): `notice_text` never panics. It returns at most `max` bytes with no control, bidi, zero-width, or tag character, holds each `\|` only as `\|\|`, and never ends inside a UTF-8 sequence (10.7). | Any local process writes a notification that fakes a chat link or a system line in the game, or hides text. |
 | S41 | **Sessions and notices** (proved 2026-09-28): `apply_event` never panics. The table keeps at most 32 sessions and at most one notice per session. A `waiting`, `finished`, or `failed` event leaves exactly its own notice, and a start or an end leaves none on its session. The other sessions keep their notices, except in a full table where every session has one: then only the session with the oldest notice loses it (10.7). | Stale or piled-up notifications teach the user to ignore them, or a flood of files grows the table without a bound. |
+| S42 | **Link numbers and clocks** (11.7.5): `clocks_agree` and `acked_count` never panic. `clocks_agree a b` is true exactly when `a` and `b` are at most 60 apart. `acked_count outbox ack` is the length of the longest prefix of `outbox` whose numbers are all at most `ack`. | The game half drops an input that the server never stored, keeps an input that the server stored and sends it for ever, or takes a server whose clock lets an old slot body look new. |
 | S28 | **Command floor:** a command that does not parse (the grammar of `split`, 6.6.3) is `desktop`. A command with `$(` or a backtick outside single quotes, by the splitter's quote state, is `desktop`. `eval`, `sudo`, `cmd.exe`, PowerShell, or a shell after a `\|` make a command at most `desktop`. Commands that run other commands, and network tools, make it at most `ask`. | A prompt injection runs code through `eval`, a pipe into a shell, or `sudo`, or reaches the network with no question. |
 
 **Correctness theorems:**
