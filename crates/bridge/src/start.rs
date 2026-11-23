@@ -31,7 +31,8 @@ use crate::lore_job::{LoreJob, LoreParts};
 use crate::missing_roots::missing_root_line;
 use crate::raise::Raiser;
 use crate::receive::{KeySet, RELAY_KEY_FILE};
-use crate::run::{Paths, RelayParts, run};
+use crate::remote::RemoteLane;
+use crate::run::{Lanes, Paths, RelayParts, run};
 use crate::settings_list::BridgeSettings;
 use crate::setup;
 use crate::story::StorySpec;
@@ -79,6 +80,19 @@ pub fn start(dirs: &Dirs) -> Result<()> {
         Some(relay) => Some(start_relay(dirs, relay, config.story.as_ref(), &paths)?),
         None => None,
     };
+    let remote = match &config.remote {
+        Some(remote) => {
+            write_relay_keys(dirs, &paths)?;
+            println!("Agents from WoW run on {}", remote.host);
+            Some(RemoteLane::new(
+                remote,
+                &paths.games,
+                &paths.state,
+                Prompt::Dialog,
+            ))
+        }
+        None => None,
+    };
     let story = match &config.story {
         Some(story) => story_spec(dirs, story, &paths)?,
         None => None,
@@ -89,7 +103,65 @@ pub fn start(dirs: &Dirs) -> Result<()> {
         .map(|wow| GameWatch::new(wow, served_games(wow)));
     let background = Background::new(auto_update, game_watch, lore);
     let stop = stop_on_signal()?;
-    run(paths, relay, keys, story, background, &stop)
+    let lanes = Lanes {
+        relay,
+        remote,
+        story,
+    };
+    run(paths, lanes, keys, background, &stop)
+}
+
+/// `gnomish-relay serve`: the relay lane with no game, for a game half on another
+/// computer (SPEC.md 11.7.8).
+#[cfg(unix)]
+pub fn serve(dirs: &Dirs) -> Result<()> {
+    use crate::desktop::Approvals;
+    use crate::serve::ServeLink;
+    let config = config::load(&dirs.config, &dirs.home)?;
+    let relay = config.relay.context(NO_AGENTS_HERE)?;
+    let state = dirs.data.clone();
+    make_private_dir(&state)?;
+    let _lock = lock::take(&state)?;
+    logging::start(&state);
+    let paths = Paths {
+        state,
+        config: dirs.config.clone(),
+        games: Vec::new(),
+    };
+    let mut parts = relay_parts(dirs, relay, None, &paths, Prompt::OnGameComputer)?;
+    let inbound = crate::serve::listen(&paths.state)?;
+    parts.link = Some(ServeLink::new(
+        inbound,
+        Approvals::new(&paths.state, Prompt::OnGameComputer),
+    ));
+    println!("Waiting for the game computer");
+    let stop = stop_on_signal()?;
+    let lanes = Lanes {
+        relay: Some(parts),
+        remote: None,
+        story: None,
+    };
+    run(
+        paths,
+        lanes,
+        KeySet::new(Vec::new())?,
+        Background::default(),
+        &stop,
+    )
+}
+
+pub const NO_AGENTS_HERE: &str =
+    "No agents on this computer yet. Run `gnomish-relay setup --server`.";
+
+fn write_relay_keys(dirs: &Dirs, paths: &Paths) -> Result<()> {
+    let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
+    for game in &paths.games {
+        print_changed(
+            "Gnomish Relay",
+            install::write_relay_keys(&game.addons, hex.trim())?,
+        );
+    }
+    Ok(())
 }
 
 /// Ctrl-C, SIGTERM, and SIGHUP set the flag, and `run` then ends every child and returns.
@@ -168,6 +240,18 @@ pub fn start_relay(
     story: Option<&StoryConfig>,
     paths: &Paths,
 ) -> Result<RelayParts> {
+    write_relay_keys(dirs, paths)?;
+    relay_parts(dirs, relay, story, paths, Prompt::Dialog)
+}
+
+/// The server half shows no dialog: the game half shows its copies (SPEC.md 11.7.6).
+fn relay_parts(
+    dirs: &Dirs,
+    relay: RelayConfig,
+    story: Option<&StoryConfig>,
+    paths: &Paths,
+    prompt: Prompt,
+) -> Result<RelayParts> {
     let places = Places {
         config_dir: &dirs.config,
         data_dir: &paths.state,
@@ -178,14 +262,7 @@ pub fn start_relay(
     for root in &relay.missing_roots {
         crate::run::log(&missing_root_line(root, &dirs.home));
     }
-    let hex = std::fs::read_to_string(dirs.config.join(RELAY_KEY_FILE))?;
-    for game in &paths.games {
-        print_changed(
-            "Gnomish Relay",
-            install::write_relay_keys(&game.addons, hex.trim())?,
-        );
-    }
-    let mut gate = Gate::new(&relay, &places, Prompt::Dialog);
+    let mut gate = Gate::new(&relay, &places, prompt);
     let private = private_paths(&paths.games);
     gate.wall = gate.wall.hiding(&private);
     gate.sandbox = gate.sandbox.with_game(private);
@@ -228,6 +305,7 @@ pub fn start_relay(
         max_parallel_runs: relay.max_parallel_runs,
         daily_cost_cap_usd: relay.daily_cost_cap_usd,
         missing_roots: relay.missing_roots,
+        link: None,
     })
 }
 

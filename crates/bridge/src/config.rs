@@ -125,6 +125,17 @@ pub struct Config {
     /// With no `[story]`, Timeways answers each message with a fixed error.
     pub story: Option<StoryConfig>,
     pub auto_update: AutoUpdate,
+    /// With `[remote]`, the agents run on a server, and this computer has no relay part
+    /// (SPEC.md 11.7.2).
+    pub remote: Option<Remote>,
+}
+
+/// `[remote]`: the server of the agents, and the command that reaches it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Remote {
+    pub host: String,
+    /// The whole command, for a jump host or another port. Empty for the plain ssh command.
+    pub command: Vec<String>,
 }
 
 /// `auto_update`: the desktop app follows a newer addon on disk (SPEC.md 11.3).
@@ -265,6 +276,52 @@ struct File {
     sandbox: Option<SandboxFile>,
     git: Option<GitFile>,
     story: Option<Story>,
+    remote: Option<RemoteFile>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RemoteFile {
+    host: String,
+    #[serde(default)]
+    command: Vec<String>,
+}
+
+/// A host that starts with `-` would reach ssh as an option, for example `-oProxyCommand=`.
+pub fn check_remote_host(host: &str) -> Result<()> {
+    if host.is_empty() || host.starts_with('-') || host.chars().any(char::is_whitespace) {
+        bail!("[remote] host must be a host name for ssh, for example \"me@box\"");
+    }
+    Ok(())
+}
+
+fn remote(file: &File) -> Result<Option<Remote>> {
+    let Some(remote) = &file.remote else {
+        return Ok(None);
+    };
+    let host = remote.host.trim();
+    check_remote_host(host)?;
+    if remote
+        .command
+        .first()
+        .is_some_and(|program| program.trim().is_empty())
+    {
+        bail!("[remote] command must start with a program, for example \"ssh\"");
+    }
+    if file.allowed_roots.is_some() {
+        bail!(
+            "Your agents run on {host}, so move allowed_roots to the config there. Run `gnomish-relay setup --server` on {host}."
+        );
+    }
+    no_relay_keys(file).map_err(|_| {
+        anyhow::anyhow!(
+            "Your agents run on {host}, so the agent settings go in the config there. Remove them here."
+        )
+    })?;
+    Ok(Some(Remote {
+        host: host.to_owned(),
+        command: remote.command.clone(),
+    }))
 }
 
 #[derive(Deserialize)]
@@ -706,6 +763,7 @@ pub fn parse_parts(text: &str, home: &Path) -> Result<Parts> {
         Some(wow) => Some(expand(&wow.path, home)?),
         None => None,
     };
+    let remote = remote(&file)?;
     Ok(Parts {
         config: Config {
             wow,
@@ -716,6 +774,7 @@ pub fn parse_parts(text: &str, home: &Path) -> Result<Parts> {
             } else {
                 AutoUpdate::Off
             },
+            remote,
         },
         relay: relay(file, home),
     })
@@ -1722,6 +1781,65 @@ mod tests {
         let story = config.story.unwrap();
         assert_eq!(story.program, None);
         assert!(matches!(story.model.choice, ModelChoice::Claude { .. }));
+    }
+
+    const REMOTE: &str = "[wow]\npath = \"~/wow\"\n\n[remote]\nhost = \"me@box\"\n";
+
+    #[test]
+    fn a_remote_config_names_the_server_and_has_no_relay_part() {
+        let home = Home::new();
+
+        let config = home.parse(REMOTE).unwrap();
+
+        assert!(config.relay.is_none());
+        let remote = config.remote.unwrap();
+        assert_eq!(remote.host, "me@box");
+        assert!(remote.command.is_empty());
+    }
+
+    #[test]
+    fn a_remote_config_keeps_its_own_command() {
+        let home = Home::new();
+        let text = format!(
+            "{REMOTE}command = [\"ssh\", \"-p\", \"2222\", \"me@box\", \"gnomish-relay\", \"attach\"]\n"
+        );
+
+        let remote = home.parse(&text).unwrap().remote.unwrap();
+
+        assert_eq!(remote.command[2], "2222");
+    }
+
+    #[test]
+    fn a_remote_config_with_agents_is_refused() {
+        let home = Home::new();
+        for key in [
+            "allowed_roots = [\"~\"]\n",
+            "default_agent = \"echo\"\n",
+            "[sandbox]\nlocal_ports = []\n",
+        ] {
+            let text = if key.starts_with('[') {
+                format!("{REMOTE}\n{key}")
+            } else {
+                format!("{key}{REMOTE}")
+            };
+
+            let error = format!("{:#}", home.parse(&text).err().unwrap());
+
+            assert!(
+                error.starts_with("Your agents run on me@box"),
+                "{key}: {error}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_remote_host_that_reads_as_an_ssh_option_is_refused() {
+        let home = Home::new();
+        for host in ["-oProxyCommand=evil", "", "me @box"] {
+            let text = format!("[remote]\nhost = \"{host}\"\n");
+
+            assert!(home.parse(&text).is_err(), "{host}");
+        }
     }
 
     #[test]

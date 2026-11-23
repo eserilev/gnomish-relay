@@ -177,7 +177,7 @@ fn install_slots(addons: &Path, app: App) -> Result<bool> {
 /// and Timeways with its key. An addon folder alone counts for nothing.
 pub fn products_of(config: &Config, config_dir: &Path) -> Vec<Product> {
     let mut products = Vec::new();
-    if config.relay.is_some() {
+    if config.relay.is_some() || config.remote.is_some() {
         products.push(Product::Relay);
     }
     if config_dir.join(TIMEWAYS_KEY_FILE).is_file() {

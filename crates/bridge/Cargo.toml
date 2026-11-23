@@ -42,7 +42,7 @@ ctrlc = { version = "3.5.2", features = ["termination"] }
 libc = "0.2"
 # `killpg` with no `unsafe`, so a stop ends the whole process group of a child (SPEC.md 9.4).
 # `libc::killpg` needs `unsafe`, which every crate forbids.
-nix = { version = "0.31", default-features = false, features = ["process", "signal"] }
+nix = { version = "0.31", default-features = false, features = ["process", "signal", "socket"] }
 
 [dev-dependencies]
 # Tests run the addon in a real Lua 5.1, the Lua version of WoW.

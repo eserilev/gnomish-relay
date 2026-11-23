@@ -49,11 +49,14 @@ use crate::folder_walk::{Snapshot, Walk};
 use crate::home_walk;
 use crate::line_choice::{self, LineChoice, LineFile, with_line};
 use crate::line_test;
+use crate::link::Source;
 use crate::logging;
 use crate::new_folder::{make_folder, real_chat_folder, real_new_folder};
 use crate::relay::{BAD_AGENT, ChatId, FrameTag, Job, MessageId, Outcome, Relay, Work};
+use crate::remote::RemoteLane;
 use crate::saved;
 use crate::screenshots::{Read, Shot, Stamp, Watcher, read_strip, stamp_of};
+use crate::serve::{Input, ServeLink};
 use crate::settings_list::BridgeSettings;
 use crate::slots::{self, Files};
 use crate::spool::{open_spool, spool_dir, take_files};
@@ -150,6 +153,8 @@ pub struct Bridge {
     relay: Option<RelayLane>,
     /// Only with a Timeways key. It holds no agents.
     timeways: Option<TimewaysLane>,
+    /// Only with `[remote]`: the relay lane runs on a server (SPEC.md 11.7).
+    remote: Option<RemoteLane>,
     /// Empty in tests: a restart needs the real program.
     background: Background,
 }
@@ -240,6 +245,8 @@ struct RelayLane {
     spans: BTreeMap<ChatId, Span>,
     /// The replies that the next publish writes, with their spans.
     replies: Vec<(ChatId, MessageId, Span)>,
+    /// On a server: the game half, which writes the slot files (SPEC.md 11.7).
+    link: Option<ServeLink>,
 }
 
 /// The Timeways app: its lane and its files. Its messages go to the story program, and
@@ -278,6 +285,7 @@ impl Bridge {
             undeleted: Vec::new(),
             timeways,
             relay,
+            remote: None,
             addons: paths.games.iter().map(|g| g.addons.clone()).collect(),
             line: LineFile::new(&paths.state),
             data: paths.state,
@@ -373,6 +381,22 @@ impl Bridge {
         self
     }
 
+    /// The relay messages go to the server half, and its slot files come back.
+    #[must_use]
+    pub fn with_remote(mut self, remote: RemoteLane) -> Bridge {
+        self.remote = Some(remote);
+        self
+    }
+
+    /// On a server, the game half takes the slot files and shows the desktop requests.
+    #[must_use]
+    pub fn with_link(mut self, link: ServeLink) -> Bridge {
+        if let Some(relay) = &mut self.relay {
+            relay.link = Some(link);
+        }
+        self
+    }
+
     /// The story program runs only in the Timeways lane, so with no Timeways key it
     /// never starts.
     #[must_use]
@@ -388,6 +412,9 @@ impl Bridge {
         self.take_screenshots();
         if let Some(relay) = &mut self.relay {
             relay.step(&self.keys, &self.addons, &mut self.line);
+        }
+        if let Some(remote) = &mut self.remote {
+            remote.step(&self.keys, &self.addons, &mut self.line);
         }
         if let Some(timeways) = &mut self.timeways {
             timeways.step(&self.keys, &self.addons, &mut self.line);
@@ -520,6 +547,12 @@ impl Bridge {
                 relay.bad_tags = 0;
                 relay.take_records(tag, &records, "strip");
             }
+            (App::Relay, None, _) if self.remote.is_some() => {
+                if let Some(remote) = &mut self.remote {
+                    remote.bad_tags = 0;
+                    remote.take_records(tag, &records, Source::Strip);
+                }
+            }
             (App::Timeways, _, Some(timeways)) => timeways.take_records(&records, "strip"),
             // `KeySet` routes to Timeways only with a Timeways key, and that key makes the lane.
             (App::Relay, None, _) | (App::Timeways, _, None) => {
@@ -609,6 +642,9 @@ impl Bridge {
             relay.bad_tags += 1;
             relay.files.changed = true;
         }
+        if let Some(remote) = &mut self.remote {
+            remote.bad_tags += 1;
+        }
     }
 }
 
@@ -681,10 +717,12 @@ impl RelayLane {
             terminal,
             spool,
             notices_changed: false,
+            link: None,
         })
     }
 
     fn step(&mut self, keys: &KeySet, addons: &[PathBuf], line: &mut LineFile) {
+        self.take_link_inputs();
         self.find_missing_roots();
         self.take_saved_variables(keys);
         self.take_notices();
@@ -696,8 +734,14 @@ impl RelayLane {
         self.clean_up_worktrees();
         if self.files.publish_due() || self.notices_due() {
             self.store();
+            if let (true, Some(link)) = (self.files.stored, &mut self.link) {
+                link.stored();
+            }
             self.publish(addons, line.choice());
             self.files.last_publish = Instant::now();
+        }
+        if let Some(link) = &mut self.link {
+            link.sync_requests();
         }
         // A run starts only when its message is marked as seen on disk, so a crash
         // cannot run it twice.
@@ -739,6 +783,30 @@ impl RelayLane {
             self.relay.add_root(&real);
             self.settings.add_root(&real);
             self.walk.roots.add(real);
+        }
+    }
+
+    /// The inputs of the game half get the same steps as a strip and a saved variables file.
+    fn take_link_inputs(&mut self) {
+        let Some(link) = &mut self.link else {
+            return;
+        };
+        let inputs = link.take_inputs();
+        if link.take_publish_due() {
+            self.files.changed = true;
+        }
+        for input in inputs {
+            self.files.changed = true;
+            match input {
+                Input::Records {
+                    tag,
+                    records,
+                    now: read_at,
+                    source,
+                } => self.take_records_at(tag, &records, read_at, now(), source.word()),
+                Input::ResetWindow { token } => self.relay.reset_window(&token),
+                Input::SavedToken { account, token } => self.take_saved_token(&account, &token),
+            }
         }
     }
 
@@ -801,9 +869,22 @@ impl RelayLane {
     }
 
     fn take_records(&mut self, tag: FrameTag, records: &[Record], source: &str) {
+        let now = now();
+        self.take_records_at(tag, records, now, now, source);
+    }
+
+    /// `at` is the time when the game half read the strip (SPEC.md 11.7.3).
+    fn take_records_at(
+        &mut self,
+        tag: FrameTag,
+        records: &[Record],
+        at: u32,
+        now: u32,
+        source: &str,
+    ) {
         let build = self.relay.client_build().map(str::to_owned);
         let version = self.relay.addon_version();
-        let outcomes = self.relay.on_tagged_frame(tag, records, now());
+        let outcomes = self.relay.on_link_frame(tag, records, at, now);
         if let Some(new) = self
             .relay
             .client_build()
@@ -1328,6 +1409,17 @@ impl RelayLane {
 
     /// A failed publish waits for the next heartbeat, so it does not log every tick.
     fn publish(&mut self, addons: &[PathBuf], line: Option<LineChoice>) {
+        if let Some(link) = &mut self.link {
+            let files = Files {
+                body: self.relay.body(now()),
+                restore: self.relay.restore_file(),
+                live: self.relay.live_file(&self.terminal.notices()),
+            };
+            link.publish(&files, &self.relay.next_slots());
+            self.files.changed = false;
+            self.notices_changed = false;
+            return;
+        }
         let body = with_line(self.relay.body(now()), App::Relay, line);
         let files = Files {
             body: slots::with_bad_tags(body, App::Relay, self.bad_tags),
@@ -1499,7 +1591,7 @@ fn log_version(app: App, reported: u32) {
 
 /// The records of each outbox frame that the key of `app` signed. Any other frame is
 /// refused (SPEC.md 9.7, decision 3).
-fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<(FrameTag, Vec<Record>)> {
+pub(crate) fn outbox_records(app: App, text: &str, keys: &KeySet) -> Vec<(FrameTag, Vec<Record>)> {
     let mut all = Vec::new();
     let mut skipped = Vec::new();
     for frame in saved::frames(text) {
@@ -1669,7 +1761,12 @@ impl TimewaysLane {
 /// Writes the slot windows into the `AddOns` folder of each game. Each game loads only
 /// its own slots, and each token reads only its own records (SPEC.md 7.9). Returns
 /// false when every write failed.
-fn publish_in_each_game(addons: &[PathBuf], app: App, files: &Files, windows: &[usize]) -> bool {
+pub(crate) fn publish_in_each_game(
+    addons: &[PathBuf],
+    app: App,
+    files: &Files,
+    windows: &[usize],
+) -> bool {
     let mut any = addons.is_empty();
     for dir in addons {
         match slots::publish_windows(dir, app, files, windows) {
@@ -1774,23 +1871,39 @@ pub struct RelayParts {
     pub daily_cost_cap_usd: Option<f64>,
     /// The roots that were missing at start.
     pub missing_roots: Vec<PathBuf>,
+    /// Only in `gnomish-relay serve` (SPEC.md 11.7).
+    pub link: Option<ServeLink>,
 }
 
-/// With no relay part, `relay` is `None`, and the bridge serves Timeways alone.
+/// What `run` serves. With no relay part and no remote, the bridge serves Timeways alone.
+pub struct Lanes {
+    pub relay: Option<RelayParts>,
+    pub remote: Option<RemoteLane>,
+    pub story: Option<StorySpec>,
+}
+
 pub fn run(
     paths: Paths,
-    relay: Option<RelayParts>,
+    lanes: Lanes,
     keys: KeySet,
-    story: Option<StorySpec>,
     background: Background,
     stop: &AtomicBool,
 ) -> Result<()> {
+    let Lanes {
+        relay,
+        remote,
+        story,
+    } = lanes;
     for game in &paths.games {
         log(&format!("watching {}", game.screenshots.display()));
     }
     let mut bridge = match relay {
         Some(parts) => {
-            let bridge = Bridge::new(paths, parts.policy, keys, parts.agents)?
+            let mut bridge = Bridge::new(paths, parts.policy, keys, parts.agents)?;
+            if let Some(link) = parts.link {
+                bridge = bridge.with_link(link);
+            }
+            let bridge = bridge
                 .with_raises(parts.raiser)
                 .with_trust(parts.truster)
                 .with_settings(parts.settings)
@@ -1804,6 +1917,9 @@ pub fn run(
         }
         None => Bridge::without_relay(paths, keys)?,
     };
+    if let Some(remote) = remote {
+        bridge = bridge.with_remote(remote);
+    }
     if let Some(spec) = story {
         bridge = bridge.with_story(spec);
     }

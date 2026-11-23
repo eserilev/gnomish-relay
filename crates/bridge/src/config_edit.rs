@@ -282,6 +282,51 @@ fn check_only_the_roots_changed(
     Ok(())
 }
 
+/// The text with `host` of `[remote]` set to `host`. A config with no `[remote]` gets it
+/// at the end. `command` stays as it is (SPEC.md 11.7.2).
+pub fn with_remote_host(text: &str, host: &str) -> Result<String> {
+    let new_line = format!("host = {}\n", quote(host));
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let Some(body) = table_body(&lines, "[remote]") else {
+        let gap = if text.is_empty() || text.ends_with('\n') {
+            ""
+        } else {
+            "\n"
+        };
+        return Ok(format!("{text}{gap}\n[remote]\n{new_line}"));
+    };
+    let found: Vec<usize> = body.filter(|&i| is_key(lines[i], "host")).collect();
+    let [at] = found.as_slice() else {
+        bail!("[remote] in config.toml has no single host = \"...\" line");
+    };
+    let mut changed = String::with_capacity(text.len() + new_line.len());
+    for (i, line) in lines.iter().enumerate() {
+        changed.push_str(if i == *at { &new_line } else { line });
+    }
+    Ok(changed)
+}
+
+/// The text with no `[remote]` table, so the agents run on this computer again.
+pub fn without_remote(text: &str) -> String {
+    let lines: Vec<&str> = text.split_inclusive('\n').collect();
+    let Some(body) = table_body(&lines, "[remote]") else {
+        return text.to_owned();
+    };
+    let header = body.start - 1;
+    lines
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| *i != header && !body.contains(i))
+        .map(|(_, line)| *line)
+        .collect()
+}
+
+fn is_key(line: &str, key: &str) -> bool {
+    line.trim_start()
+        .strip_prefix(key)
+        .is_some_and(|rest| rest.trim_start().starts_with('='))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -508,5 +553,43 @@ mod tests {
         );
 
         assert!(with_home_default_cwd(&text).is_err());
+    }
+
+    #[test]
+    fn setup_remote_writes_the_host() {
+        let text = "[wow]\npath = \"/games/wow\"\n";
+
+        let changed = with_remote_host(text, "me@box").unwrap();
+
+        assert_eq!(
+            changed,
+            "[wow]\npath = \"/games/wow\"\n\n[remote]\nhost = \"me@box\"\n"
+        );
+        let again = with_remote_host(&changed, "you@other").unwrap();
+        assert!(
+            again.ends_with("[remote]\nhost = \"you@other\"\n"),
+            "{again}"
+        );
+    }
+
+    #[test]
+    fn a_new_host_keeps_the_command_of_remote() {
+        let text =
+            "[remote]\nhost = \"me@box\"\ncommand = [\"ssh\", \"-p\", \"2222\", \"me@box\"]\n";
+
+        let changed = with_remote_host(text, "me@other").unwrap();
+
+        assert!(
+            changed.contains("host = \"me@other\"\ncommand = [\"ssh\""),
+            "{changed}"
+        );
+    }
+
+    #[test]
+    fn setup_remote_off_takes_out_the_remote_table() {
+        let text = "[remote]\nhost = \"me@box\"\n\n[wow]\npath = \"/games/wow\"\n";
+
+        assert_eq!(without_remote(text), "[wow]\npath = \"/games/wow\"\n");
+        assert_eq!(without_remote("[wow]\n"), "[wow]\n");
     }
 }

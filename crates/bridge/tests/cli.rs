@@ -678,3 +678,123 @@ fn a_second_dev_while_one_runs_is_refused_and_changes_nothing() {
     assert!(!end.status.success());
     assert!(still_linked);
 }
+
+/// A server has agents and code folders, and no game (SPEC.md 11.7.2).
+#[cfg(unix)]
+#[test]
+fn setup_server_writes_no_game() {
+    let home = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(home.path().join("Code/app/.git")).unwrap();
+
+    let out = in_home(home.path(), &["setup", "--server"]);
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = std::fs::read_to_string(config_dir_in(home.path()).join("config.toml")).unwrap();
+    assert!(text.contains("allowed_roots"), "{text}");
+    assert!(!text.contains("[wow]"), "{text}");
+    assert!(!text.contains("[remote]"), "{text}");
+    assert!(
+        stdout.contains("Next: on your game computer, run gnomish-relay setup --remote"),
+        "{stdout}"
+    );
+}
+
+/// The game half keeps no agent, and the server can come later (SPEC.md 11.7.2).
+#[cfg(unix)]
+#[test]
+fn setup_remote_writes_the_host_and_no_agents_even_when_the_server_is_down() {
+    let home = tempfile::tempdir().unwrap();
+    let config_dir = config_dir_in(home.path());
+    std::fs::create_dir_all(&config_dir).unwrap();
+    // A port that nothing listens on, so ssh fails at once with no prompt.
+    std::fs::write(
+        config_dir.join("config.toml"),
+        "[remote]\nhost = \"nobody@127.0.0.1\"\ncommand = [\"sh\", \"-c\", \"echo 'Connection refused' >&2; exit 255\"]\n",
+    )
+    .unwrap();
+
+    let out = in_home(home.path(), &["setup"]);
+
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        out.status.success(),
+        "{stdout}{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    assert!(
+        stdout.contains("Server: can't reach nobody@127.0.0.1: Connection refused"),
+        "{stdout}"
+    );
+    let text = std::fs::read_to_string(config_dir.join("config.toml")).unwrap();
+    assert!(text.contains("host = \"nobody@127.0.0.1\""), "{text}");
+    assert!(!text.contains("allowed_roots"), "{text}");
+}
+
+#[cfg(unix)]
+#[test]
+fn setup_remote_off_takes_out_the_server() {
+    let home = tempfile::tempdir().unwrap();
+    let config_dir = config_dir_in(home.path());
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("config.toml"),
+        "[remote]\nhost = \"me@box\"\n",
+    )
+    .unwrap();
+
+    let out = in_home(home.path(), &["setup", "--remote", "off"]);
+
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = std::fs::read_to_string(config_dir.join("config.toml")).unwrap();
+    assert!(!text.contains("[remote]"), "{text}");
+}
+
+/// A host that ssh reads as an option never reaches ssh. Found in a review on 2026-11-23.
+#[cfg(unix)]
+#[test]
+fn setup_remote_refuses_a_host_that_reads_as_an_ssh_option_before_it_runs_ssh() {
+    let home = tempfile::tempdir().unwrap();
+    let marker = home.path().join("ran");
+    // ssh runs a proxy command through sh, so `${IFS}` is a space with no space here.
+    let host = format!("-oProxyCommand=touch${{IFS}}{}", marker.display());
+
+    let out = in_home(home.path(), &["setup", "--remote", &host]);
+
+    assert!(!out.status.success(), "{}", stdout(&out));
+    assert!(!marker.exists(), "ssh ran the proxy command");
+    assert!(
+        stderr(&out).contains("[remote] host must be a host name"),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// A kept command still names the old server, so a new host alone would mislead.
+#[cfg(unix)]
+#[test]
+fn setup_remote_with_a_new_host_refuses_a_command_for_the_old_one() {
+    let home = tempfile::tempdir().unwrap();
+    let config_dir = config_dir_in(home.path());
+    std::fs::create_dir_all(&config_dir).unwrap();
+    std::fs::write(
+        config_dir.join("config.toml"),
+        "[remote]\nhost = \"me@old\"\ncommand = [\"ssh\", \"-p\", \"2222\", \"me@old\", \"gnomish-relay\", \"attach\"]\n",
+    )
+    .unwrap();
+
+    let out = in_home(home.path(), &["setup", "--remote", "me@new"]);
+
+    assert!(!out.status.success(), "{}", stdout(&out));
+    assert!(stderr(&out).contains("command"), "{}", stderr(&out));
+    let text = std::fs::read_to_string(config_dir.join("config.toml")).unwrap();
+    assert!(text.contains("host = \"me@old\""), "{text}");
+}

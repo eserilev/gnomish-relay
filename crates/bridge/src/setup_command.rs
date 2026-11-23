@@ -9,7 +9,8 @@ use protocol::apps::App;
 
 use crate::build_kind::BuildKind;
 use crate::check_agent;
-use crate::config::{self, Config, RelayConfig, with_tilde};
+use crate::config::{self, Config, RelayConfig, Remote, with_tilde};
+use crate::config_edit;
 use crate::config_text::RelayPart;
 use crate::dirs::Dirs;
 use crate::folder_path::real_path;
@@ -19,6 +20,7 @@ use crate::hooks_install;
 use crate::install;
 use crate::model_setup;
 use crate::relay_addon::{self, RelayAddon};
+use crate::remote;
 use crate::service;
 use crate::setup::{self, KeyChoice, Product};
 use crate::setup_roots::{self, BadRoot};
@@ -124,8 +126,9 @@ fn option<'a>(args: &[&'a str], name: &str) -> Option<&'a str> {
     args.get(at + 1).copied()
 }
 
-const OPTIONS_WITH_A_VALUE: [&str; 2] = ["--wow", "--roots"];
-const OPTIONS: [&str; 5] = [
+const OPTIONS_WITH_A_VALUE: [&str; 3] = ["--wow", "--roots", "--remote"];
+const OPTIONS: [&str; 6] = [
+    "--server",
     "--relay",
     "--timeways",
     "--new-key",
@@ -146,6 +149,9 @@ Options
   --autostart       Start the desktop app when you log in
   --no-autostart    Don't start the desktop app when you log in
   --relay           The same as no option
+  --server          Set up the agents on this computer for WoW on another computer
+  --remote <host>   Run the agents on that server over ssh, for example me@box
+  --remote off      Run the agents on this computer again
   -h, --help        Show this help";
 
 fn wants_help(args: &[&str]) -> bool {
@@ -193,7 +199,24 @@ pub(crate) struct SetupArgs<'a> {
     pub product: Product,
     pub keys: KeyChoice,
     pub autostart: Autostart,
+    pub place: AgentPlace<'a>,
 }
+
+/// Where the agents run (SPEC.md 11.7.2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum AgentPlace<'a> {
+    /// On this computer, next to the game, as before.
+    Here,
+    /// On this computer, for a game on another computer: `--server`.
+    Server,
+    /// On a server: `--remote <host>`.
+    Remote(&'a str),
+    /// `--remote off`.
+    HereAgain,
+}
+
+const SERVER_ALONE: &str =
+    "--server sets up a computer with no game, so it takes no other app and no --remote.";
 
 impl<'a> SetupArgs<'a> {
     fn parse(args: &[&'a str]) -> Result<SetupArgs<'a>> {
@@ -202,10 +225,17 @@ impl<'a> SetupArgs<'a> {
         }
         let roots = option(args, "--roots");
         let wow = option(args, "--wow");
-        let bare = args
-            .iter()
-            .copied()
-            .find(|a| !a.starts_with("--") && Some(*a) != roots && Some(*a) != wow);
+        let remote = option(args, "--remote");
+        let bare = args.iter().copied().find(|a| {
+            !a.starts_with("--") && Some(*a) != roots && Some(*a) != wow && Some(*a) != remote
+        });
+        let place = match (args.contains(&"--server"), remote) {
+            (true, Some(_)) => bail!(SERVER_ALONE),
+            (true, None) => AgentPlace::Server,
+            (false, Some("off")) => AgentPlace::HereAgain,
+            (false, Some(host)) => AgentPlace::Remote(host),
+            (false, None) => AgentPlace::Here,
+        };
         // `--relay` and `--roots` are for the relay, which a plain setup already is.
         let relay_flag = args.contains(&"--relay") || roots.is_some();
         let product = if args.contains(&"--timeways") {
@@ -215,6 +245,9 @@ impl<'a> SetupArgs<'a> {
         };
         if product == Product::Timeways && relay_flag {
             bail!(ONE_APP);
+        }
+        if product == Product::Timeways && place != AgentPlace::Here {
+            bail!(SERVER_ALONE);
         }
         Ok(SetupArgs {
             folder: wow.or(bare),
@@ -230,6 +263,7 @@ impl<'a> SetupArgs<'a> {
             } else {
                 Autostart::Off
             },
+            place,
         })
     }
 }
@@ -250,6 +284,11 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         return Ok(());
     }
     let args = SetupArgs::parse(args)?;
+    match args.place {
+        AgentPlace::Server => return setup_server(dirs, &args),
+        AgentPlace::HereAgain => return setup_here_again(dirs),
+        AgentPlace::Here | AgentPlace::Remote(_) => {}
+    }
     let places = Places {
         config_dir: &dirs.config,
         data_dir: &dirs.data,
@@ -281,10 +320,137 @@ pub fn setup(dirs: &Dirs, args: &[&str]) -> Result<()> {
         wow,
         addons,
     };
-    match args.product {
-        Product::Relay => setup_relay(dirs, &args, found),
-        Product::Timeways => setup_timeways::setup(dirs, &args, found),
+    // A plain setup, as the installers run it, keeps the server of the config.
+    let host = match args.place {
+        AgentPlace::Remote(host) => Some(host.to_owned()),
+        _ => found
+            .existing
+            .as_ref()
+            .and_then(|(_, config)| config.remote.as_ref())
+            .map(|remote| remote.host.clone()),
+    };
+    match (args.product, host) {
+        (Product::Relay, Some(host)) => setup_remote(dirs, &args, found, &host),
+        (Product::Relay, None) => setup_relay(dirs, &args, found),
+        (Product::Timeways, _) => setup_timeways::setup(dirs, &args, found),
     }
+}
+
+/// The game half: the key, the addon files, and `[remote]`, and no agent here.
+fn setup_remote(dirs: &Dirs, args: &SetupArgs, found: Found, host: &str) -> Result<()> {
+    let existing = found.existing.as_ref();
+    if existing.is_some_and(|(_, config)| config.relay.is_some()) {
+        bail!(
+            "This computer has agents set up. To run them on {host} instead, remove allowed_roots and the agent settings from config.toml, then run this again."
+        );
+    }
+    config::check_remote_host(host)?;
+    let old = existing.and_then(|(_, config)| config.remote.as_ref());
+    if let Some(old) = old.filter(|old| old.host != host && !old.command.is_empty()) {
+        bail!(
+            "The command under [remote] in config.toml connects to {}. Change it for {host}, or remove it, then run this again.",
+            old.host
+        );
+    }
+    let command = old.map(|r| r.command.clone()).unwrap_or_default();
+    let remote = Remote {
+        host: host.to_owned(),
+        command,
+    };
+    // The server can come later, so a failed link stops nothing.
+    match remote::try_link(&remote) {
+        Ok(()) => println!("Server: {host}, connected"),
+        Err(why) => println!("Server: {why}"),
+    }
+    let changed = product_files(dirs, found.addons.as_deref(), Product::Relay, args.keys)?;
+    let text = existing.map_or("", |(text, _)| text.as_str());
+    let mut new = config_edit::with_remote_host(text, host)?;
+    if let Some(wow) = new_wow(found.wow, existing) {
+        new = config_edit::with_wow_path(&new, wow)?;
+    }
+    setup::write_config(&dirs.config, &new, &dirs.home)?;
+    println!("Agents from WoW run on {host}.");
+    autostart(
+        dirs,
+        found.wow,
+        args.autostart,
+        Product::Relay,
+        BuildKind::THIS,
+    );
+    let (Some(changed), Some(addons)) = (changed, found.addons) else {
+        println!("{}", game_choice::NO_WOW);
+        return Ok(());
+    };
+    let addon = relay_addon::find(&addons);
+    println!("{}", relay_last_line(&changed, args.keys, addon));
+    Ok(())
+}
+
+/// `--remote off`: the agents run here again after the next plain setup.
+fn setup_here_again(dirs: &Dirs) -> Result<()> {
+    let text = config::read_text(&dirs.config)?;
+    let new = config_edit::without_remote(&text);
+    if new != text {
+        setup::write_config(&dirs.config, &new, &dirs.home)?;
+    }
+    println!(
+        "Agents from WoW no longer run on a server. To set up agents here, run gnomish-relay setup."
+    );
+    Ok(())
+}
+
+/// The server half: the agents and the code folders, and no game (SPEC.md 11.7.2).
+fn setup_server(dirs: &Dirs, args: &SetupArgs) -> Result<()> {
+    let existing = setup::read_existing(&dirs.config, &dirs.home, Product::Relay)?;
+    for line in existing.iter().flat_map(|found| &found.lines) {
+        println!("{line}");
+    }
+    let existing = existing.map(|found| (found.text, found.config));
+    if existing.as_ref().is_some_and(|(_, c)| c.remote.is_some()) {
+        bail!(
+            "This computer runs its agents on a server. To set up agents here, run gnomish-relay setup --remote off first."
+        );
+    }
+    let harnesses = relay_questions(existing.as_ref())?;
+    let config = setup_relay_config(dirs, None, existing.as_ref(), &harnesses, args.roots)?;
+    print_relay(dirs, &config);
+    if let Some(line) = linger_line(linger_output().as_deref(), &user_name()) {
+        println!("{line}");
+    }
+    println!("{}", hooks_install::SETUP_HINT);
+    println!(
+        "Next: on your game computer, run gnomish-relay setup --remote {}@<this computer>",
+        user_name()
+    );
+    Ok(())
+}
+
+/// Without linger, logind can stop `serve` when the last ssh session ends (SPEC.md
+/// 11.7.8). No `loginctl`, for example on macOS, needs no line.
+pub(crate) fn linger_line(output: Option<&str>, user: &str) -> Option<String> {
+    let output = output?;
+    if output.lines().any(|l| l.trim() == "Linger=yes") {
+        return None;
+    }
+    Some(format!(
+        "To keep agents working after you log out, run: sudo loginctl enable-linger {user}"
+    ))
+}
+
+fn linger_output() -> Option<String> {
+    let out = std::process::Command::new("loginctl")
+        .args(["show-user", &user_name(), "-p", "Linger"])
+        .output()
+        .ok()?;
+    out.status
+        .success()
+        .then(|| String::from_utf8_lossy(&out.stdout).into_owned())
+}
+
+fn user_name() -> String {
+    std::env::var("USER")
+        .or_else(|_| std::env::var("USERNAME"))
+        .unwrap_or_else(|_| "you".into())
 }
 
 fn setup_relay(dirs: &Dirs, args: &SetupArgs, found: Found) -> Result<()> {
@@ -641,6 +807,7 @@ mod tests {
                 product: Product::Relay,
                 keys: KeyChoice::Keep,
                 autostart: Autostart::On,
+                place: AgentPlace::Here,
             }
         );
         let plain = SetupArgs::parse(&["--new-key"]).unwrap();
@@ -869,5 +1036,45 @@ mod tests {
             relay_last_line(&new, keep, fit),
             "All set. Restart WoW, then type /relay"
         );
+    }
+
+    #[test]
+    fn setup_takes_a_server_and_a_remote_host() {
+        assert_eq!(
+            SetupArgs::parse(&["--server"]).unwrap().place,
+            AgentPlace::Server
+        );
+        assert_eq!(
+            SetupArgs::parse(&["--remote", "me@box"]).unwrap().place,
+            AgentPlace::Remote("me@box")
+        );
+        let args = SetupArgs::parse(&["--remote", "me@box", "/games/wow"]).unwrap();
+        assert_eq!(args.folder, Some("/games/wow"));
+        assert_eq!(
+            SetupArgs::parse(&["--remote", "off"]).unwrap().place,
+            AgentPlace::HereAgain
+        );
+    }
+
+    #[test]
+    fn setup_server_refuses_a_remote_and_timeways() {
+        for args in [
+            &["--server", "--remote", "me@box"][..],
+            &["--timeways", "--remote", "me@box"][..],
+        ] {
+            assert!(SetupArgs::parse(args).is_err(), "{args:?}");
+        }
+    }
+
+    #[test]
+    fn setup_server_says_to_turn_on_linger() {
+        let line = linger_line(Some("Linger=no\n"), "me").unwrap();
+
+        assert_eq!(
+            line,
+            "To keep agents working after you log out, run: sudo loginctl enable-linger me"
+        );
+        assert_eq!(linger_line(Some("Linger=yes\n"), "me"), None);
+        assert_eq!(linger_line(None, "me"), None);
     }
 }

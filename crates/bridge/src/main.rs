@@ -47,6 +47,10 @@ Run
   check-agent <name>      Start an agent from config.toml and show what it supports
   report                  Save a file to attach to a bug report
 
+Agents on a server
+  serve                   Run the agents of this computer for WoW on another computer
+  attach                  Connect to serve (ssh runs this for the desktop app)
+
 Approvals
   approve [id]            List the requests that wait for your approval, or approve one
   deny <id>               Deny a request
@@ -189,6 +193,10 @@ fn main() -> Result<()> {
         ["setup", ref rest @ ..] => setup_command::setup(&Dirs::from_env()?, rest),
         ["install"] => setup_command::install_slots(&Dirs::from_env()?),
         ["run"] => start::start(&Dirs::from_env()?),
+        #[cfg(unix)]
+        ["serve"] => start::serve(&Dirs::from_env()?),
+        #[cfg(unix)]
+        ["attach"] => bridge::attach::attach(&Dirs::from_env()?),
         ["run", "--background"] => {
             let log = service::start_background(&Dirs::from_env()?, &std::env::current_exe()?)?;
             println!("The desktop app is running. Log: {}", log.display());

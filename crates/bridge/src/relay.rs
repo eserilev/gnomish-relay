@@ -455,6 +455,31 @@ impl Relay {
             .collect()
     }
 
+    /// A frame from the game half, read at `read_at` (SPEC.md 11.7.5). Its tag stays known
+    /// only for `FRAME_MEMORY`, so a frame read longer than `MAX_AGE` ago applies no
+    /// control: a copy of it could come after its tag is gone.
+    pub fn on_link_frame(
+        &mut self,
+        tag: FrameTag,
+        records: &[Record],
+        read_at: u32,
+        now: u32,
+    ) -> Vec<Outcome> {
+        if now.saturating_sub(read_at) <= MAX_AGE {
+            return self.on_tagged_frame(tag, records, read_at);
+        }
+        records
+            .iter()
+            .map(|r| {
+                if is_control(r) {
+                    Outcome::Duplicate
+                } else {
+                    self.on_record(r, read_at)
+                }
+            })
+            .collect()
+    }
+
     fn first_sight(&mut self, tag: FrameTag, now: u32) -> bool {
         self.frames
             .retain(|(seen, _)| now.saturating_sub(*seen) <= FRAME_MEMORY);
@@ -2057,6 +2082,29 @@ mod tests {
         let replayed = relay.on_tagged_frame([7; 8], &stop, NOW + 10);
 
         assert_eq!(replayed, [Outcome::Duplicate]);
+        assert!(relay.take_cancels().is_empty());
+    }
+
+    /// The outbox of a game half can hold a frame for longer than its tag stays known
+    /// (SPEC.md 11.7.5). Found in a review on 2026-11-23.
+    #[test]
+    fn a_frame_from_the_link_read_too_long_ago_applies_no_control_again() {
+        let mut relay = relay();
+        let stop = [record("c1", 0, "stop", "")];
+        relay.on_frame(&[record("c1", 1, "", "first")], NOW);
+        relay.next_job().unwrap();
+        relay.on_link_frame([7; 8], &stop, NOW, NOW);
+        relay.take_cancels();
+        relay.on_link_frame(
+            [8; 8],
+            &[record("c1", 2, "", "later")],
+            NOW + 600,
+            NOW + 600,
+        );
+
+        let again = relay.on_link_frame([7; 8], &stop, NOW, NOW + 610);
+
+        assert_eq!(again, [Outcome::Duplicate]);
         assert!(relay.take_cancels().is_empty());
     }
 

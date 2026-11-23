@@ -50,9 +50,20 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
         }
     };
     lines.push("Config: OK".into());
-    if config.wow.is_none() {
+    if let Some(remote) = &config.remote {
+        lines.push(remote_line(places.data_dir, &remote.host));
+        lines.extend(addon_lines(&config.games()));
+        return lines;
+    }
+    // A server has agents and no game. Its serve socket tells it from a player who has
+    // not started WoW yet (SPEC.md 11.7.8).
+    let is_server = places.data_dir.join(crate::serve::SOCKET_FILE).exists();
+    if config.wow.is_none() && !is_server {
         lines.push(NO_WOW.into());
         return lines;
+    }
+    if is_server {
+        lines.push(SERVER_LINE.into());
     }
     lines.extend(lore_line(&config, places.data_dir));
     // Timeways alone is another product, so its status has no relay line (SPEC.md 9.7,
@@ -72,6 +83,16 @@ pub fn status_lines(places: &Places, path: &OsStr, now: u32) -> Vec<String> {
     lines.extend(addon_lines(&config.games()));
     lines.extend(default_agent_off_service_path(relay, places));
     lines
+}
+
+const SERVER_LINE: &str = "Server: runs the agents for a game computer";
+
+/// The game half writes the state of its link (SPEC.md 11.7.9).
+pub fn remote_line(data: &Path, host: &str) -> String {
+    match crate::remote::read_status(data) {
+        Some(status) if status.host == host => status.line(),
+        _ => format!("Server: not connected to {host} yet. Is the desktop app running?"),
+    }
 }
 
 /// The addon line of each served game (SPEC.md 7.9). With one game it has no game name.

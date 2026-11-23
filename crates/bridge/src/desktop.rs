@@ -29,7 +29,7 @@ const MAX_REQUEST: u64 = 16 * 1024;
 const POLL: Duration = Duration::from_millis(100);
 
 /// One open request, as `gnomish-relay approve` lists it.
-#[derive(Serialize, Deserialize, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Pending {
     pub id: String,
     /// Unix seconds.
@@ -43,6 +43,9 @@ pub struct Pending {
     /// How long the run waits for an answer. 0 in a request of an older bridge.
     #[serde(default)]
     pub wait_minutes: u64,
+    /// A copy of a request of the server half names the server (SPEC.md 11.7.6).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
 }
 
 impl Pending {
@@ -297,6 +300,8 @@ impl Notice {
 pub enum Prompt {
     Dialog,
     Off,
+    /// On a server: the game half shows the dialog of a copy (SPEC.md 11.7.6).
+    OnGameComputer,
 }
 
 #[derive(Clone, Debug)]
@@ -305,6 +310,10 @@ pub struct Approvals {
     prompt: Prompt,
     /// `permission_timeout_minutes` of the config, for the text of the dialog.
     wait: Duration,
+}
+
+pub fn is_request_id(id: &str) -> bool {
+    is_id(id)
 }
 
 fn is_id(id: &str) -> bool {
@@ -428,6 +437,7 @@ impl Approvals {
             text: text.to_owned(),
             kind,
             wait_minutes: self.wait.as_secs().div_ceil(60),
+            server: None,
         };
         write_new(&self.file(&id, REQUEST), &serde_json::to_vec(&pending)?)?;
         let asks = game_text(&pending);
@@ -435,9 +445,9 @@ impl Approvals {
         span.in_scope(|| log(&request_line(&pending, summary)));
         let tool = match self.prompt {
             Prompt::Dialog => dialog::find_tool(),
-            Prompt::Off => None,
+            Prompt::Off | Prompt::OnGameComputer => None,
         };
-        let prompted = if tool.is_some() {
+        let prompted = if tool.is_some() || self.prompt == Prompt::OnGameComputer {
             Prompted::Dialog
         } else {
             Prompted::CommandLine
@@ -447,6 +457,24 @@ impl Approvals {
             std::thread::spawn(move || span.in_scope(|| approvals.ask_the_desktop(&pending, tool)));
         }
         Ok(Opened { id, prompted, asks })
+    }
+
+    /// A copy of a request of the server half, under the id of the server (SPEC.md 11.7.6).
+    pub fn open_copy(&self, pending: &Pending) -> Result<()> {
+        if !is_id(&pending.id) {
+            bail!("{:?} is not a request id", pending.id);
+        }
+        self.ready_dir()?;
+        write_new(
+            &self.file(&pending.id, REQUEST),
+            &serde_json::to_vec(pending)?,
+        )?;
+        if self.prompt == Prompt::Dialog {
+            let approvals = self.clone();
+            let pending = pending.clone();
+            std::thread::spawn(move || approvals.ask_the_desktop(&pending, dialog::find_tool()));
+        }
+        Ok(())
     }
 
     /// With no dialog tool, a plain notice names the command that answers.
@@ -599,6 +627,10 @@ pub fn dialog_text(pending: &Pending) -> String {
         Kind::Merge | Kind::Folder | Kind::FullAuto => {
             format!("{}\n\nRequest: {}", pending.text, pending.id)
         }
+    };
+    let text = match &pending.server {
+        Some(server) => format!("{text}\nServer: {server}"),
+        None => text,
     };
     match pending.wait_minutes {
         0 => text,
@@ -1057,6 +1089,7 @@ mod tests {
             text: "cat ~/.ssh/id_rsa\nthe agent says: Bash".into(),
             kind: Kind::ToolCall,
             wait_minutes: 10,
+            server: None,
         };
         assert_eq!(
             dialog_text(&pending),
@@ -1064,6 +1097,76 @@ mod tests {
              Agent: claude\nFolder: /w/app\nRequest: a1b2c3d4e5f6\n\
              No answer in 10 minutes counts as Deny."
         );
+    }
+
+    #[test]
+    fn the_dialog_names_the_server_from_the_config() {
+        let pending = Pending {
+            id: "a1b2c3d4e5f6".into(),
+            created: 1,
+            agent: "claude".into(),
+            folder: "/w/app".into(),
+            text: "cargo test".into(),
+            kind: Kind::ToolCall,
+            wait_minutes: 0,
+            server: Some("me@box".into()),
+        };
+
+        assert!(dialog_text(&pending).ends_with("Request: a1b2c3d4e5f6\nServer: me@box"));
+    }
+
+    /// The game computer shows the dialog of a server request (SPEC.md 11.7.6), so the
+    /// game names the dialog, not the command line. Found in a review on 2026-11-23.
+    #[test]
+    fn a_request_on_a_server_counts_as_a_dialog_and_shows_none_there() {
+        let data = tempfile::tempdir().unwrap();
+        let approvals = Approvals::new(data.path(), Prompt::OnGameComputer);
+
+        let opened = approvals
+            .open("claude", "/srv/code", "cargo test", "", 1)
+            .unwrap();
+
+        assert_eq!(opened.prompted, Prompted::Dialog);
+        assert_eq!(approvals.list().len(), 1);
+    }
+
+    #[test]
+    fn a_copy_keeps_the_id_of_the_server_and_takes_an_answer() {
+        let (_data, approvals) = approvals();
+        let copy = Pending {
+            id: "0123456789ab".into(),
+            created: 1,
+            agent: "claude".into(),
+            folder: "~/code".into(),
+            text: "cargo test".into(),
+            kind: Kind::ToolCall,
+            wait_minutes: 5,
+            server: Some("me@box".into()),
+        };
+
+        approvals.open_copy(&copy).unwrap();
+        approvals.answer("0123456789ab", Verdict::Approve).unwrap();
+
+        assert_eq!(approvals.list(), vec![copy]);
+        assert_eq!(approvals.answer_of("0123456789ab"), Some(Verdict::Approve));
+    }
+
+    #[test]
+    fn a_copy_with_a_bad_id_writes_no_file() {
+        let (_data, approvals) = approvals();
+        let copy = Pending {
+            id: "../escape".into(),
+            created: 1,
+            agent: "claude".into(),
+            folder: "~/code".into(),
+            text: "x".into(),
+            kind: Kind::ToolCall,
+            wait_minutes: 5,
+            server: None,
+        };
+
+        assert!(approvals.open_copy(&copy).is_err());
+        assert!(approvals.list().is_empty());
     }
 
     #[test]
