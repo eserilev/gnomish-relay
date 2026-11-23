@@ -71,10 +71,24 @@ transport_properties="runsOnce noLostReply restoreSafe noStuckMessage bodyBounde
 transport_witnesses="neverFull neverRestored neverTwoAnswers neverOutboxReply neverRetired"
 corner_properties="oneStrip ownEvents retryPaused blockedInTime fairWait"
 corner_witnesses="neverTurn neverWarned neverOutbox neverBoth neverRetry"
+remote_properties="runsOnce ackedIsStored answerOnlyWhileOpen"
+remote_witnesses="neverSentTwice neverReconnectWithOutbox neverIgnoredVerdict neverRanAfterRestart"
 
 start models/transport.qnt 40 "$transport_properties" "$transport_witnesses"
 start models/corner.qnt 100 "$corner_properties" "$corner_witnesses"
+start models/remote.qnt 40 "$remote_properties" "$remote_witnesses"
 wait
 
 verify models/transport.qnt "$transport_properties" "$transport_witnesses"
 verify models/corner.qnt "$corner_properties" "$corner_witnesses"
+verify models/remote.qnt "$remote_properties" "$remote_witnesses"
+
+# The old version that acks before state.json is on disk must lose a message.
+quint run models/remote.qnt --main=remoteAckEarly --invariant=ackedIsStored \
+  --max-samples=20000 --max-steps=40 --seed=1 > "$out/early" 2>&1 || true
+if ! grep -q "\[violation\] Found an issue" "$out/early"; then
+  tail -20 "$out/early" >&2
+  echo "error: the early ack of models/remote.qnt no longer fails ackedIsStored" >&2
+  exit 1
+fi
+echo "models/remote.qnt: the early ack fails ackedIsStored"
