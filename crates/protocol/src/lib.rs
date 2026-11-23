@@ -34,6 +34,7 @@ pub mod frame;
 pub mod hosts;
 pub mod inline;
 pub mod ip;
+pub mod link;
 pub mod live;
 pub mod lua;
 pub mod markdown;

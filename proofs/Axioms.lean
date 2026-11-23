@@ -72,3 +72,5 @@ import Statements
 #print axioms Protocol.Statements.check_S35_check_target
 #print axioms Protocol.Statements.check_S40_notice_text
 #print axioms Protocol.Statements.check_S41_apply_event
+#print axioms Protocol.Statements.check_S42_clocks_agree
+#print axioms Protocol.Statements.check_S42_acked_count

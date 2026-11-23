@@ -38,6 +38,7 @@ import Protocol.Spec.Always
 import Protocol.Always
 import Protocol.Spec.Ip
 import Protocol.Ip
+import Protocol.Link
 import Protocol.Spec.Hosts
 import Protocol.Hosts
 import Protocol.Spec.Connect
@@ -154,6 +155,20 @@ def S30_version_fit : Prop :=
       (r = .Supported ↔ lo.val ≤ v.val ∧ v.val ≤ hi.val) ∧
       (r = .TooOld ↔ v.val < lo.val) ∧
       (r = .TooNew ↔ hi.val < v.val) ⦄
+
+/-- **S42.** The link to a server (SPEC.md 11.7). `clocks_agree` never fails, and it is
+true exactly when the two times are at most 60 s apart. `acked_count` never fails. It gives
+the length of the longest front of the outbox whose numbers are all at most the ack: every
+number in that front is at most the ack, and the next number, if any, is above it. -/
+def S42_clocks_agree : Prop :=
+  ∀ a b : U32,
+    link.clocks_agree a b ⦃ r => (r = true ↔ a.val ≤ b.val + 60 ∧ b.val ≤ a.val + 60) ⦄
+
+def S42_acked_count : Prop :=
+  ∀ (outbox : Slice U32) (ack : U32),
+    link.acked_count outbox ack ⦃ n =>
+      n.val ≤ outbox.val.length ∧ (∀ x ∈ outbox.val.take n.val, x.val ≤ ack.val) ∧
+      (∀ x, outbox.val[n.val]? = some x → ack.val < x.val) ⦄
 
 /-! ## Records -/
 
@@ -692,5 +707,8 @@ theorem check_S40_notice_text : S40_notice_text :=
   fun t max h => Protocol.Notice.notice_text_spec t max h
 theorem check_S41_apply_event : S41_apply_event :=
   fun ss e now h => Protocol.Sessions.apply_event_spec ss e now h
+
+theorem check_S42_clocks_agree : S42_clocks_agree := Protocol.Link.clocks_agree_spec
+theorem check_S42_acked_count : S42_acked_count := Protocol.Link.acked_count_spec
 
 end Protocol.Statements

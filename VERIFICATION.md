@@ -51,6 +51,7 @@ Legend: `todo`, `stated` (approved, not proved), `proved`, `done` (for work that
 | 27 | S36 to S39: "Always allow" | `always`, `command_rules` | `S36_propose`, `S37_no_proposal`, `S38_offer`, `S39_ceiling` | proved |
 | 28 | S33 to S35: the proxy of the bridge | `hosts`, `ip`, `connect` | `S33_host_allowed`, `S33_good_host_name`, `S34_public_v4`, `S34_public_v6`, `S35_check_target` | proved |
 | 29 | S40 + S41: notifications of terminal sessions | `notice`, `sessions` | `S40_notice_text`, `S41_apply_event` | proved |
+| 30 | S42: the link to a server | `link` | `S42_clocks_agree`, `S42_acked_count` | proved |
 | 16 | Transport model | `models/transport.qnt` | SPEC 14.2, four properties | done |
 | 17 | Fuzz targets | `fuzz/` | SPEC 14.4, core parsers only | done |
 | 18 | CI | `.github/workflows` | Rust on 3 OSes, proofs on Linux | done |

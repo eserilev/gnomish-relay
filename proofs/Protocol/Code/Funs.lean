@@ -7240,6 +7240,59 @@ def ip.is_public_v6 (segments : Array Std.U16 8#usize) : Result Bool := do
         let b2 ← ip.in_ranges s i2
         ok (¬ b2)
 
+/-- [protocol::link::MAX_SKEW_SECONDS]
+    Source: 'crates/protocol/src/link.rs', lines 4:0-4:37
+    Visibility: public -/
+@[global_simps, irreducible] def link.MAX_SKEW_SECONDS : Std.U32 := 60#u32
+
+/-- [protocol::link::clocks_agree]:
+    Source: 'crates/protocol/src/link.rs', lines 7:0-13:1
+    Visibility: public -/
+def link.clocks_agree (a : Std.U32) (b : Std.U32) : Result Bool := do
+  if a >= b
+  then let i ← a - b
+       ok (i <= link.MAX_SKEW_SECONDS)
+  else let i ← b - a
+       ok (i <= link.MAX_SKEW_SECONDS)
+
+/-- [protocol::link::acked_count]: loop body 0:
+    Source: 'crates/protocol/src/link.rs', lines 19:4-21:5
+    Visibility: public -/
+@[rust_loop_body]
+def link.acked_count_loop.body
+  (outbox : Slice Std.U32) (ack : Std.U32) (i : Std.Usize) :
+  Result (ControlFlow Std.Usize Std.Usize)
+  := do
+  let i1 := Slice.len outbox
+  if i < i1
+  then
+    let i2 ← Slice.index_usize outbox i
+    if i2 <= ack
+    then let i3 ← i + 1#usize
+         ok (cont i3)
+    else ok (done i)
+  else ok (done i)
+
+/-- [protocol::link::acked_count]: loop 0:
+    Source: 'crates/protocol/src/link.rs', lines 19:4-21:5
+    Visibility: public -/
+@[rust_loop]
+def link.acked_count_loop
+  (outbox : Slice Std.U32) (ack : Std.U32) (i : Std.Usize) :
+  Result Std.Usize
+  := do
+  loop
+    (fun i1 => link.acked_count_loop.body outbox ack i1)
+    i
+
+/-- [protocol::link::acked_count]:
+    Source: 'crates/protocol/src/link.rs', lines 17:0-23:1
+    Visibility: public -/
+@[reducible]
+def link.acked_count
+  (outbox : Slice Std.U32) (ack : Std.U32) : Result Std.Usize := do
+  link.acked_count_loop outbox ack 0#usize
+
 /-- [protocol::live::MAX_PROGRESS]
     Source: 'crates/protocol/src/live.rs', lines 12:0-12:35
     Visibility: public -/
